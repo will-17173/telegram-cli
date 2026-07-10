@@ -16,6 +16,23 @@
 - 通过命令行发送、编辑和删除消息。
 - 在支持的场景下使用人类可读输出，或结构化的 JSON/YAML 输出。
 
+## 为 AI Agent 设计
+
+Telegram CLI 为 AI Agent 提供基于命令的 Telegram 和本地消息访问接口。由人工通过 `tg account add` 完成账号认证后，Agent 无需操作浏览器即可执行在线命令和本地命令。
+
+以下接口适合 Agent 工作流：
+
+- JSON 和 YAML 输出让 Agent 直接读取结构化数据，而不是解析终端表格。
+- 非零退出码和结构化错误码让 Agent 能够检测并处理失败。
+- `--account <name>` 可以明确指定账号，且不会改变 current 账号。
+- 本地搜索和分析命令无需重新连接 Telegram，即可查询已同步消息。
+
+例如，Agent 可以搜索指定账号，并将结果作为 JSON 解析：
+
+```sh
+tg search "release" --account work --json
+```
+
 ## 安装
 
 Telegram CLI 需要 Node.js 22 或更高版本。

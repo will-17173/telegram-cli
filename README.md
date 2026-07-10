@@ -16,6 +16,23 @@ A TypeScript command-line client for syncing Telegram chats, listening to live m
 - Send, edit, and delete messages from the command line.
 - Use human-readable output or structured JSON/YAML where supported.
 
+## Built for AI agents
+
+Telegram CLI gives AI agents a command-based interface to Telegram and locally synced messages. After a human authenticates an account with `tg account add`, an agent can run online and local commands without browser automation.
+
+The CLI supports agent workflows through these interfaces:
+
+- JSON and YAML output gives agents structured data instead of terminal-formatted text.
+- Nonzero exit codes and structured error codes let agents detect and handle failures.
+- `--account <name>` selects an explicit account without changing the current account.
+- Local search and analysis commands let agents inspect synced messages without reconnecting to Telegram.
+
+For example, an agent can search one account and parse the result as JSON:
+
+```sh
+tg search "release" --account work --json
+```
+
 ## Installation
 
 Telegram CLI requires Node.js 22 or later.
