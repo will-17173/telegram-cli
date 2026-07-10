@@ -90,8 +90,11 @@ tg search "keyword" --chat <chat>
 # Sync across all chats
 tg sync-all --max-chats 20 --delay 1
 
-# Listen for new messages from one or more chats
-tg listen <chat-or-id> [another-chat ...] --no-media
+# Listen for new messages and automatically download incoming attachments
+tg listen <chat-or-id> --auto-download
+
+# Use plain output, download attachments, and hide their message summaries
+tg listen <chat-or-id> --no-interactive --auto-download --no-media
 
 # Send a message
 tg send <chat> "Hello from tg"
@@ -166,6 +169,7 @@ Common commands:
 | `tg refresh` | Alias-like command for bulk sync with same runtime options as `sync-all`. |
 | `tg listen [chat ...]` | Stream incoming messages from selected chats or all chats. |
 | `tg listen --no-media` | Hide attachment summary lines while listening. |
+| `tg listen <chat-or-id> --auto-download` | Automatically download incoming attachments while listening. |
 | `tg search "keyword" --chat <chat>` | Search messages already stored locally. |
 | `tg recent`, `tg today`, `tg stats`, `tg top`, `tg timeline` | Explore local message data. |
 | `tg filter <keywords>` | Filter local messages by keyword with optional chat/hour filters. |
@@ -195,6 +199,8 @@ Use `tg <command> --help` to inspect command-specific options. For example, `lis
 
 - `sync-all` and `refresh` are batch operations for local persistence; they are not read-only.
 - `listen` prints a concise separator for each incoming message and can optionally suppress attachment summaries.
+- `listen --auto-download` works in both interactive and plain-text modes, saves attachments to `~/Downloads/telegram-cli`, and runs at most three downloads concurrently.
+- Download failures are reported without stopping the listener. `--no-media` hides attachment summaries only; downloads still run when it is combined with `--auto-download`.
 
 ## Troubleshooting
 

@@ -90,8 +90,11 @@ tg search "keyword" --chat <chat>
 # 同步全部聊天
 tg sync-all --max-chats 20 --delay 1
 
-# 监听实时消息（可指定多个聊天）
-tg listen <chat-or-id> [another-chat ...] --no-media
+# 监听实时消息并自动下载收到的附件
+tg listen <chat-or-id> --auto-download
+
+# 使用纯文本输出、下载附件并隐藏消息中的附件摘要
+tg listen <chat-or-id> --no-interactive --auto-download --no-media
 
 # 发送消息
 tg send <chat> "Hello from tg"
@@ -166,6 +169,7 @@ tg --help
 | `tg refresh` | 与 `sync-all` 相同用途的批量同步命令。 |
 | `tg listen [chat ...]` | 实时监听指定聊天（或监听全部聊天）。 |
 | `tg listen --no-media` | 监听时隐藏附件摘要。 |
+| `tg listen <chat-or-id> --auto-download` | 监听时自动下载收到的附件。 |
 | `tg search "keyword" --chat <chat>` | 搜索已存储在本地的消息。 |
 | `tg recent`, `tg today`, `tg stats`, `tg top`, `tg timeline` | 浏览本地消息数据。 |
 | `tg filter <keywords>` | 按关键词筛选本地消息（支持按聊天和时间范围过滤）。 |
@@ -195,6 +199,8 @@ tg --help
 
 - `sync-all` 和 `refresh` 是写入本地数据库的批量同步流程，不是只读命令。
 - `listen` 会实时打印每条到达消息；可用 `--no-media` 关闭附件摘要显示。
+- `listen --auto-download` 同时支持交互式和纯文本模式，附件保存在 `~/Downloads/telegram-cli`，最多同时下载 3 个附件。
+- 下载失败会被报告，但监听器会继续运行。`--no-media` 只隐藏附件摘要；与 `--auto-download` 组合时仍会下载附件。
 
 ## 故障排查
 
