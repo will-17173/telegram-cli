@@ -5,23 +5,25 @@ import type { StoredMessageInput } from '../../src/storage/message-db.js'
 import type { DownloadMessageMediaOptions, TelegramClientAdapter } from '../../src/telegram/types.js'
 
 describe('AutoDownloadCoordinator', () => {
-  it('limits concurrency and starts the next FIFO transfer as one completes', async () => {
-    const transfers = [deferred(), deferred(), deferred()]
+  it('defaults to three active transfers and starts the fourth FIFO transfer as one completes', async () => {
+    const transfers = [deferred(), deferred(), deferred(), deferred()]
     const client = downloadClient((_, index) => transfers[index]!.promise)
-    const coordinator = setup({ concurrency: 2 })
+    const coordinator = setup()
     coordinator.setClient(client.adapter)
 
     coordinator.enqueue(mediaMessage(1, 'one.jpg'))
     coordinator.enqueue(mediaMessage(2, 'two.jpg'))
     coordinator.enqueue(mediaMessage(3, 'three.jpg'))
+    coordinator.enqueue(mediaMessage(4, 'four.jpg'))
     await tick()
-    expect(client.calls.map((call) => call.msgId)).toEqual([1, 2])
+    expect(client.calls.map((call) => call.msgId)).toEqual([1, 2, 3])
 
     transfers[0]!.resolve()
     await tick()
-    expect(client.calls.map((call) => call.msgId)).toEqual([1, 2, 3])
+    expect(client.calls.map((call) => call.msgId)).toEqual([1, 2, 3, 4])
     transfers[1]!.resolve()
     transfers[2]!.resolve()
+    transfers[3]!.resolve()
     await coordinator.waitForIdle()
   })
 
@@ -58,16 +60,27 @@ describe('AutoDownloadCoordinator', () => {
     expect(client.calls.map((call) => call.msgId)).toEqual([1, 2])
   })
 
-  it('pauses pending starts without a client and resumes them when a client is set', async () => {
-    const client = downloadClient(async () => undefined)
-    const coordinator = setup()
+  it('pauses queued starts when the active client is removed and resumes with its replacement', async () => {
+    const active = deferred()
+    const originalClient = downloadClient(() => active.promise)
+    const replacementClient = downloadClient(async () => undefined)
+    const coordinator = setup({ concurrency: 1 })
+    coordinator.setClient(originalClient.adapter)
     coordinator.enqueue(mediaMessage(1, 'one.jpg'))
+    coordinator.enqueue(mediaMessage(2, 'two.jpg'))
     await tick()
-    expect(client.calls).toHaveLength(0)
+    expect(originalClient.calls.map((call) => call.msgId)).toEqual([1])
 
-    coordinator.setClient(client.adapter)
+    coordinator.setClient(null)
+    active.resolve()
+    await coordinator.waitForActive()
+    await tick()
+    expect(originalClient.calls.map((call) => call.msgId)).toEqual([1])
+    expect(replacementClient.calls).toHaveLength(0)
+
+    coordinator.setClient(replacementClient.adapter)
     await coordinator.waitForIdle()
-    expect(client.calls).toHaveLength(1)
+    expect(replacementClient.calls.map((call) => call.msgId)).toEqual([2])
   })
 
   it('stops idempotently, cancels pending work, and rejects later enqueues', async () => {
