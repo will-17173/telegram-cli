@@ -3,7 +3,7 @@ import { render, renderToString, Text } from 'ink'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 
-import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, flushListenBeforeExit, interactiveListenPreviewColorDepth, isCurrentAsyncOperation, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, registerPendingAttachmentKeys, runInteractiveAutoDownloadLifecycle, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
+import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, createInteractiveOperationController, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, registerPendingAttachmentKeys, runInteractiveAutoDownloadLifecycle, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -177,32 +177,65 @@ describe('interactive auto-download state', () => {
 })
 
 describe('interactive auto-download lifecycle', () => {
-  it('rejects deferred send and download continuations from an old generation', async () => {
-    let generation = 1
-    const sendOperation = 1
-    const downloadOperation = 2
+  it('keeps a rerendered generation current when the old listen finishes later', async () => {
+    const controller = createInteractiveOperationController()
+    const oldLifecycle = controller.beginGeneration()
+    let resolveOld!: () => void
+    const oldListen = new Promise<void>((resolve) => { resolveOld = resolve })
+    let status = 'old-running'
+    let exits = 0
+    const oldFinally = oldListen.then(() => {
+      if (oldLifecycle.isActive()) {
+        status = 'old-stopped'
+        exits += 1
+      }
+    })
+    oldLifecycle.dispose()
+    const newLifecycle = controller.beginGeneration()
+    status = 'new-connected'
+    resolveOld()
+    await oldFinally
+    expect(newLifecycle.isActive()).toBe(true)
+    expect(status).toBe('new-connected')
+    expect(exits).toBe(0)
+  })
+
+  it('rejects deferred send and download continuations after lifecycle cleanup', async () => {
+    const controller = createInteractiveOperationController()
+    const lifecycle = controller.beginGeneration()
+    const sendIsCurrent = controller.beginSend()
+    const downloadIsCurrent = controller.beginDownload('100:11:0')
     const updates: string[] = []
     const send = Promise.resolve().then(() => {
-      if (isCurrentAsyncOperation(1, generation, sendOperation, sendOperation)) updates.push('sent')
+      if (sendIsCurrent()) updates.push('sent')
     })
     const download = Promise.resolve().then(() => {
-      if (isCurrentAsyncOperation(1, generation, downloadOperation, downloadOperation)) updates.push('downloaded')
+      if (downloadIsCurrent()) updates.push('downloaded')
     })
-    generation += 1
+    lifecycle.dispose()
     await Promise.all([send, download])
     expect(updates).toEqual([])
   })
 
-  it('prevents an old manual completion from overwriting a newer auto event', () => {
-    const generation = 1
-    const manualOperation = 1
-    const autoOperation = 2
+  it('prevents deferred manual progress and completion from overwriting a newer auto event', async () => {
+    const controller = createInteractiveOperationController()
+    controller.beginGeneration()
+    const manualIsCurrent = controller.beginDownload('100:11:0')
+    let resolveManual!: () => void
+    const manual = new Promise<void>((resolve) => { resolveManual = resolve })
+    controller.claimDownload('100:11:0')
     let state = applyAutoDownloadEvent({}, {
       status: 'downloading', key: '100:11:0', progress: 75,
     })
-    if (isCurrentAsyncOperation(generation, generation, manualOperation, autoOperation)) {
-      state = { '100:11:0': { status: 'completed', path: '/tmp/manual.jpg' } }
+    const progress = () => {
+      if (manualIsCurrent()) state = { '100:11:0': { status: 'downloading', progress: 10 } }
     }
+    const completion = manual.then(() => {
+      if (manualIsCurrent()) state = { '100:11:0': { status: 'completed', path: '/tmp/manual.jpg' } }
+    })
+    progress()
+    resolveManual()
+    await completion
     expect(state['100:11:0']).toEqual({ status: 'downloading', progress: 75 })
   })
 

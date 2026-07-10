@@ -183,13 +183,40 @@ export function canManuallyDownload(state: AttachmentDownloadState): boolean {
   return state.status === 'idle' || state.status === 'failed'
 }
 
-export function isCurrentAsyncOperation(
-  expectedGeneration: number,
-  currentGeneration: number,
-  expectedOperation: number,
-  currentOperation: number,
-): boolean {
-  return expectedGeneration === currentGeneration && expectedOperation === currentOperation
+export type InteractiveOperationController = ReturnType<typeof createInteractiveOperationController>
+
+export function createInteractiveOperationController() {
+  let generation = 0
+  let sequence = 0
+  let sendOperation = 0
+  const downloadOperations = new Map<string, number>()
+  return {
+    beginGeneration() {
+      const ownedGeneration = ++generation
+      let active = true
+      return {
+        isActive: () => active && generation === ownedGeneration,
+        dispose: () => {
+          active = false
+          if (generation === ownedGeneration) generation += 1
+        },
+      }
+    },
+    beginSend() {
+      const ownedGeneration = generation
+      const operation = ++sendOperation
+      return () => generation === ownedGeneration && sendOperation === operation
+    },
+    beginDownload(key: string) {
+      const ownedGeneration = generation
+      const operation = ++sequence
+      downloadOperations.set(key, operation)
+      return () => generation === ownedGeneration && downloadOperations.get(key) === operation
+    },
+    claimDownload(key: string): void {
+      downloadOperations.set(key, ++sequence)
+    },
+  }
 }
 
 export function pruneAttachmentDownloadStates(
@@ -406,10 +433,8 @@ function InteractiveListen({
   const albumAggregatorRef = useRef<ListenAlbumAggregator | null>(null)
   const autoDownloaderRef = useRef<AutoDownloadCoordinator | null>(null)
   const pendingAttachmentKeysRef = useRef<Set<string>>(new Set())
-  const generationRef = useRef(0)
-  const sendOperationRef = useRef(0)
-  const downloadOperationRef = useRef<Map<string, number>>(new Map())
-  const operationSequenceRef = useRef(0)
+  const operationControllerRef = useRef<InteractiveOperationController | null>(null)
+  if (operationControllerRef.current == null) operationControllerRef.current = createInteractiveOperationController()
   const stoppingRef = useRef(false)
   const seenRef = useRef<Set<string>>(new Set())
   const seenOrderRef = useRef<string[]>([])
@@ -505,9 +530,8 @@ function InteractiveListen({
   })
 
   useEffect(() => {
-    const generation = ++generationRef.current
-    let active = true
-    const isActive = () => active && generationRef.current === generation
+    const generation = operationControllerRef.current!.beginGeneration()
+    const isActive = generation.isActive
     if (stopSignal.aborted) {
       exit()
       return
@@ -529,7 +553,7 @@ function InteractiveListen({
       ? new AutoDownloadCoordinator({
           onEvent: (event) => {
             if (!isActive()) return
-            downloadOperationRef.current.set(event.key, ++operationSequenceRef.current)
+            operationControllerRef.current!.claimDownload(event.key)
             setDownloadStates((current) => applyAutoDownloadEvent(current, event, showMedia))
           },
         })
@@ -604,8 +628,7 @@ function InteractiveListen({
     })
 
     return () => {
-      active = false
-      if (generationRef.current === generation) generationRef.current += 1
+      generation.dispose()
       stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.dispose()
       if (albumAggregatorRef.current === albumAggregator) albumAggregatorRef.current = null
@@ -630,11 +653,7 @@ function InteractiveListen({
       setNote('connection is not ready')
       return
     }
-    const generation = generationRef.current
-    const operation = ++sendOperationRef.current
-    const isCurrent = () => isCurrentAsyncOperation(
-      generation, generationRef.current, operation, sendOperationRef.current,
-    )
+    const isCurrent = operationControllerRef.current!.beginSend()
 
     setInput('')
     setSending(true)
@@ -654,15 +673,7 @@ function InteractiveListen({
   }
 
   const downloadAttachment = async (item: DownloadableAttachment): Promise<void> => {
-    const generation = generationRef.current
-    const operation = ++operationSequenceRef.current
-    downloadOperationRef.current.set(item.key, operation)
-    const isCurrent = () => isCurrentAsyncOperation(
-      generation,
-      generationRef.current,
-      operation,
-      downloadOperationRef.current.get(item.key) ?? -1,
-    )
+    const isCurrent = operationControllerRef.current!.beginDownload(item.key)
     const client = clientRef.current
     if (!client) {
       if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: 'not connected' } }))
