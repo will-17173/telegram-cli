@@ -9,6 +9,7 @@ import type { TelegramClientAdapter } from '../../telegram/types.js'
 import type { StoredMessageInput } from '../../storage/message-db.js'
 import { resolveAttachmentDestination } from '../../services/attachment-download.js'
 import { ListenAlbumAggregator } from '../../services/listen-album-aggregator.js'
+import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../../services/auto-download-coordinator.js'
 import { attachmentDownloadTarget, attachmentFileName, listenAttachmentKey } from '../../services/listen-attachment.js'
 import { buildListenMessage, type ListenAttachment, type ListenMessageRow } from '../listen-message.js'
 import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScrollState } from './listen-scroll.js'
@@ -24,6 +25,7 @@ export type ListenMessage = ListenMessageRow & {
 
 export type AttachmentDownloadState =
   | { status: 'idle' }
+  | { status: 'queued' }
   | { status: 'downloading'; progress: number | null }
   | { status: 'completed'; path: string }
   | { status: 'failed'; error: string }
@@ -141,6 +143,8 @@ type ListenAttachmentLineProps = {
 export function ListenAttachmentLine({ label, selected, state }: ListenAttachmentLineProps): React.JSX.Element {
   const action = state.status === 'idle'
     ? '󰇚 Download'
+    : state.status === 'queued'
+      ? 'Queued'
     : state.status === 'downloading'
       ? `Downloading${state.progress == null ? '...' : ` ${state.progress}%`}`
       : state.status === 'completed'
@@ -151,6 +155,49 @@ export function ListenAttachmentLine({ label, selected, state }: ListenAttachmen
       {selected ? '› ' : '  '}{label}  [{action}]
     </Text>
   )
+}
+
+export function applyAutoDownloadEvent(
+  current: Record<string, AttachmentDownloadState>,
+  event: AutoDownloadEvent,
+): Record<string, AttachmentDownloadState> {
+  if (event.status === 'cancelled') {
+    if (!(event.key in current)) return current
+    const next = { ...current }
+    delete next[event.key]
+    return next
+  }
+  const state: AttachmentDownloadState = event.status === 'queued'
+    ? { status: 'queued' }
+    : event.status === 'downloading'
+      ? { status: 'downloading', progress: event.progress }
+      : event.status === 'completed'
+        ? { status: 'completed', path: event.path }
+        : { status: 'failed', error: event.error }
+  return { ...current, [event.key]: state }
+}
+
+export function canManuallyDownload(state: AttachmentDownloadState): boolean {
+  return state.status === 'idle' || state.status === 'failed'
+}
+
+export function pruneAttachmentDownloadStates(
+  current: Record<string, AttachmentDownloadState>,
+  validKeys: ReadonlySet<string>,
+): Record<string, AttachmentDownloadState> {
+  const retained = Object.fromEntries(Object.entries(current).filter(([key, state]) => (
+    validKeys.has(key) || state.status === 'queued' || state.status === 'downloading'
+  )))
+  return Object.keys(retained).length === Object.keys(current).length ? current : retained
+}
+
+export function attachmentDownloadKeyAt(attachments: ListenAttachment[], index: number): string {
+  const attachment = attachments[index]
+  if (attachment == null) throw new Error(`Missing attachment at index ${index}`)
+  const sourceIndex = attachments.slice(0, index).filter((candidate) => (
+    candidate.chatId === attachment.chatId && candidate.messageId === attachment.messageId
+  )).length
+  return listenAttachmentKey(attachment, sourceIndex)
 }
 
 export function ListenImagePreview({ rows }: { rows: PreviewCell[][] }): React.JSX.Element {
@@ -207,6 +254,7 @@ function InteractiveListen({
   retrySeconds,
   sendTo,
   showMedia,
+  autoDownload,
   showChatName,
   createClient,
   stopSignal,
@@ -246,6 +294,8 @@ function InteractiveListen({
   const visibleMessages = takeListenViewport(messages, messagePaneHeight, scrollState.offset)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const albumAggregatorRef = useRef<ListenAlbumAggregator | null>(null)
+  const autoDownloaderRef = useRef<AutoDownloadCoordinator | null>(null)
+  const mountedRef = useRef(true)
   const stoppingRef = useRef(false)
   const seenRef = useRef<Set<string>>(new Set())
   const seenOrderRef = useRef<string[]>([])
@@ -276,12 +326,7 @@ function InteractiveListen({
     })
 
     const validAttachmentKeys = new Set(collectAttachments(messages).map((item) => item.key))
-    setDownloadStates((current) => {
-      const retained = Object.fromEntries(
-        Object.entries(current).filter(([key]) => validAttachmentKeys.has(key)),
-      )
-      return Object.keys(retained).length === Object.keys(current).length ? current : retained
-    })
+    setDownloadStates((current) => pruneAttachmentDownloadStates(current, validAttachmentKeys))
     setSelectedAttachmentIndex((current) => Math.min(current, Math.max(0, downloadableAttachments.length - 1)))
     if (downloadableAttachments.length === 0) setFocus('input')
   }, [messages, downloadableAttachments.length])
@@ -317,7 +362,8 @@ function InteractiveListen({
         return
       }
       if (key.return && selectedAttachment != null) {
-        void downloadAttachment(selectedAttachment)
+        const state = downloadStates[selectedAttachment.key] ?? { status: 'idle' }
+        if (canManuallyDownload(state)) void downloadAttachment(selectedAttachment)
       }
       return
     }
@@ -339,6 +385,7 @@ function InteractiveListen({
   })
 
   useEffect(() => {
+    mountedRef.current = true
     if (stopSignal.aborted) {
       exit()
       return
@@ -355,6 +402,14 @@ function InteractiveListen({
       },
     })
     albumAggregatorRef.current = albumAggregator
+    const autoDownloader = autoDownload
+      ? new AutoDownloadCoordinator({
+          onEvent: (event) => {
+            if (mountedRef.current) setDownloadStates((current) => applyAutoDownloadEvent(current, event))
+          },
+        })
+      : null
+    autoDownloaderRef.current = autoDownloader
 
     const run = async (): Promise<void> => {
       try {
@@ -363,6 +418,7 @@ function InteractiveListen({
           const client = createClient()
           let retry = false
           clientRef.current = client
+          autoDownloader?.setClient(client)
           if (sendTo != null) {
             void resolveSendTargetLabel(client, sendTo).then((label) => {
               if (label != null) setSendTargetLabel(label)
@@ -386,6 +442,7 @@ function InteractiveListen({
                   const inferred = inferSendTargetLabel(sendTo, message)
                   if (inferred != null) setSendTargetLabel(inferred)
                 }
+                autoDownloader?.enqueue(message)
                 albumAggregator.add(message)
               },
             })
@@ -411,7 +468,16 @@ function InteractiveListen({
             retry = true
           } finally {
             albumAggregator.flush()
+            if (retry) {
+              autoDownloader?.setClient(null)
+              await autoDownloader?.waitForActive()
+            } else if (!stopSignal.aborted) {
+              await autoDownloader?.waitForIdle()
+            } else {
+              autoDownloader?.stop()
+            }
             await client.close().catch(() => undefined)
+            if (stopSignal.aborted) await autoDownloader?.waitForActive()
             if (clientRef.current === client) clientRef.current = null
           }
           if (retry) {
@@ -431,13 +497,17 @@ function InteractiveListen({
     void run()
 
     return () => {
+      mountedRef.current = false
       stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.dispose()
       if (albumAggregatorRef.current === albumAggregator) albumAggregatorRef.current = null
       void clientRef.current?.close().catch(() => undefined)
       clientRef.current = null
+      autoDownloader?.stop()
+      void autoDownloader?.waitForActive()
+      if (autoDownloaderRef.current === autoDownloader) autoDownloaderRef.current = null
     }
-  }, [chats, createClient, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, onRequestStop])
+  }, [autoDownload, chats, createClient, persist, retrySeconds, sendTo, exit, stopSignal, onRequestStop])
 
   const sendMessage = async (text: string): Promise<void> => {
     const trimmed = text.trim()
@@ -506,6 +576,7 @@ function InteractiveListen({
     if (albumAggregator != null) flushListenBeforeExit(albumAggregator, exit)
     else setTimeout(exit, 0)
     onRequestStop()
+    autoDownloaderRef.current?.stop()
     clientRef.current?.close().catch(() => undefined)
   }
 
@@ -521,7 +592,7 @@ function InteractiveListen({
               <Text dimColor wrap="truncate-end">[{message.time}] {message.chatName == null ? message.sender : `${message.chatName} | ${message.sender}`}</Text>
               {message.content == null ? null : <Text wrap="truncate-end">{message.content}</Text>}
               {message.media.map((item, mediaIndex) => {
-                const attachmentKey = listenAttachmentKey(item, mediaIndex)
+                const attachmentKey = attachmentDownloadKeyAt(message.media, mediaIndex)
                 return (
                   <ListenAttachmentWithPreview
                     key={attachmentKey}
@@ -663,7 +734,7 @@ function normalizedPreviewWidth(previewWidth: number): number {
 
 function collectAttachments(messages: ListenMessage[]): DownloadableAttachment[] {
   return messages.flatMap((message) => message.media.map((attachment, index) => ({
-    key: listenAttachmentKey(attachment, index),
+    key: attachmentDownloadKeyAt(message.media, index),
     message,
     attachment,
   })))

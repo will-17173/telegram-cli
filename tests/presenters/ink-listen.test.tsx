@@ -3,7 +3,7 @@ import { render, renderToString, Text } from 'ink'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 
-import { attachmentDownloadTarget, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneListenMessageGroups, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
+import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -100,6 +100,52 @@ describe('ListenAttachmentLine', () => {
 
     expect(selectable).toContain('󰇚 Download')
     expect(completed).toContain('/tmp/photo.jpg')
+  })
+
+  it('renders queued auto-downloads', () => {
+    expect(renderToString(
+      <ListenAttachmentLine label="📎 Photo" selected={false} state={{ status: 'queued' }} />,
+    )).toContain('[Queued]')
+  })
+})
+
+describe('interactive auto-download state', () => {
+  it('maps every coordinator event to display state and removes cancelled entries', () => {
+    const key = '100:11:0'
+    let state = applyAutoDownloadEvent({}, { status: 'queued', key })
+    expect(state).toEqual({ [key]: { status: 'queued' } })
+    state = applyAutoDownloadEvent(state, { status: 'downloading', key, progress: 42 })
+    expect(state[key]).toEqual({ status: 'downloading', progress: 42 })
+    state = applyAutoDownloadEvent(state, { status: 'completed', key, path: '/tmp/photo.jpg' })
+    expect(state[key]).toEqual({ status: 'completed', path: '/tmp/photo.jpg' })
+    state = applyAutoDownloadEvent(state, { status: 'failed', key, error: 'network' })
+    expect(state[key]).toEqual({ status: 'failed', error: 'network' })
+    expect(applyAutoDownloadEvent(state, { status: 'cancelled', key })).toEqual({})
+  })
+
+  it('suppresses duplicate manual downloads while automatic work is active', () => {
+    expect(canManuallyDownload({ status: 'idle' })).toBe(true)
+    expect(canManuallyDownload({ status: 'failed', error: 'retry me' })).toBe(true)
+    expect(canManuallyDownload({ status: 'queued' })).toBe(false)
+    expect(canManuallyDownload({ status: 'downloading', progress: 1 })).toBe(false)
+    expect(canManuallyDownload({ status: 'completed', path: '/tmp/file' })).toBe(false)
+  })
+
+  it('uses per-source-message attachment indexes for album keys', () => {
+    const row = toListenMessage([storedPhoto(11, ''), storedPhoto(12, 'caption')], true)
+    expect(row.media.map((_, index) => attachmentDownloadKeyAt(row.media, index)))
+      .toEqual(['100:11:0', '100:12:0'])
+  })
+
+  it('retains active states until their delayed album becomes visible', () => {
+    expect(pruneAttachmentDownloadStates({
+      queued: { status: 'queued' },
+      active: { status: 'downloading', progress: 5 },
+      done: { status: 'completed', path: '/tmp/done' },
+    }, new Set())).toEqual({
+      queued: { status: 'queued' },
+      active: { status: 'downloading', progress: 5 },
+    })
   })
 })
 
