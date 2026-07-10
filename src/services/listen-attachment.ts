@@ -8,6 +8,7 @@ export type ListenAttachment = {
   kind: string
   label: string
   fileName: string | null
+  mimeType: string | null
   downloadable: boolean
   previewJpegBase64?: string
 }
@@ -36,7 +37,9 @@ export function listenAttachmentKey(attachment: ListenAttachment, index: number)
 
 export function attachmentFileName(attachment: ListenAttachment): string {
   if (attachment.fileName != null) return attachment.fileName
-  const extension = MEDIA_EXTENSIONS[attachment.kind] ?? 'bin'
+  const extension = attachment.mimeType == null
+    ? MEDIA_EXTENSIONS[attachment.kind] ?? 'bin'
+    : MIME_EXTENSIONS[attachment.mimeType.toLowerCase()] ?? MEDIA_EXTENSIONS[attachment.kind] ?? 'bin'
   return `${attachment.chatId}-${attachment.messageId}.${extension}`
 }
 
@@ -94,6 +97,7 @@ function describeMediaNode(node: RawRecord): MediaDescription[] {
     kind,
     label: `📎 ${kind}${details.length > 0 ? ` (${details})` : ''}`,
     fileName: firstString(source.fileName, source.file_name, source.filename, source.name),
+    mimeType: firstString(source.mime_type, source.mimeType, source.mime),
     downloadable: DOWNLOADABLE_MEDIA_KINDS.has(kind),
   }]
 }
@@ -210,4 +214,16 @@ const DOWNLOADABLE_MEDIA_KINDS = new Set(['Photo', 'Document', 'Video', 'Audio',
 const MEDIA_EXTENSIONS: Record<string, string> = {
   Photo: 'jpg', Video: 'mp4', Audio: 'mp3', Voice: 'ogg', Sticker: 'webp',
   Animation: 'mp4', Document: 'bin',
+}
+
+const MIME_EXTENSIONS: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'audio/mpeg': 'mp3',
+  'audio/ogg': 'ogg',
+  'image/gif': 'gif',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
 }

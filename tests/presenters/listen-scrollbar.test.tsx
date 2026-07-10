@@ -86,6 +86,7 @@ function listenRow(sender: string, previewRows = 0): ListenMessageRow {
       kind: 'Photo',
       label: 'Photo',
       fileName: null,
+      mimeType: null,
       downloadable: true,
       previewRows,
       previewCells: [],

@@ -15,6 +15,7 @@ describe('listen message formatting', () => {
       chatId: 100,
       downloadable: true,
       fileName: null,
+      mimeType: null,
       kind: 'Photo',
       label: '📎 Photo',
       messageId: 1,

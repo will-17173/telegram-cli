@@ -350,6 +350,7 @@ function message(sender: string, lineCount: number): ListenMessageRow {
       kind: 'Photo',
       label: `Photo ${index}`,
       fileName: null,
+      mimeType: null,
       downloadable: true,
       messageId: index + 1,
     })),

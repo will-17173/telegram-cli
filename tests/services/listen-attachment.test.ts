@@ -29,6 +29,7 @@ describe('listen attachment metadata', () => {
         kind: 'Photo',
         label: '📎 Photo',
         fileName: null,
+        mimeType: null,
         downloadable: true,
         previewJpegBase64: 'first-photo-preview',
       },
@@ -38,6 +39,7 @@ describe('listen attachment metadata', () => {
         kind: 'Document',
         label: '📎 Document (notes.pdf)',
         fileName: 'notes.pdf',
+        mimeType: null,
         downloadable: true,
       },
     ])
@@ -59,6 +61,21 @@ describe('listen attachment metadata', () => {
     ])
   })
 
+  it('uses a document MIME type when Telegram omits the filename', () => {
+    const [value] = discoverListenAttachments(message({
+      raw_json: {
+        _: 'message',
+        media: {
+          _: 'messageMediaDocument',
+          document: { mime_type: 'video/mp4', size: 7_700_000 },
+        },
+      },
+    }))
+
+    expect(value.mimeType).toBe('video/mp4')
+    expect(attachmentFileName(value)).toBe('100-12.mp4')
+  })
+
   it('builds a stable key and Telegram download target', () => {
     const value = attachment()
 
@@ -74,6 +91,7 @@ function attachment(overrides: Partial<ListenAttachment> = {}): ListenAttachment
     kind: 'Photo',
     label: '📎 Photo',
     fileName: null,
+    mimeType: null,
     downloadable: true,
     ...overrides,
   }
