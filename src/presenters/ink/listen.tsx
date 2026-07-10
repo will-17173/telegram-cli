@@ -10,7 +10,7 @@ import type { StoredMessageInput } from '../../storage/message-db.js'
 import { resolveAttachmentDestination } from '../../services/attachment-download.js'
 import { ListenAlbumAggregator } from '../../services/listen-album-aggregator.js'
 import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../../services/auto-download-coordinator.js'
-import { attachmentDownloadTarget, attachmentFileName, listenAttachmentKey } from '../../services/listen-attachment.js'
+import { attachmentDownloadTarget, attachmentFileName, discoverListenAttachments, listenAttachmentKey } from '../../services/listen-attachment.js'
 import { buildListenMessage, type ListenAttachment, type ListenMessageRow } from '../listen-message.js'
 import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScrollState } from './listen-scroll.js'
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
@@ -184,11 +184,96 @@ export function canManuallyDownload(state: AttachmentDownloadState): boolean {
 export function pruneAttachmentDownloadStates(
   current: Record<string, AttachmentDownloadState>,
   validKeys: ReadonlySet<string>,
+  pendingKeys: ReadonlySet<string> = new Set(),
 ): Record<string, AttachmentDownloadState> {
   const retained = Object.fromEntries(Object.entries(current).filter(([key, state]) => (
-    validKeys.has(key) || state.status === 'queued' || state.status === 'downloading'
+    validKeys.has(key) || pendingKeys.has(key) || state.status === 'queued' || state.status === 'downloading'
   )))
   return Object.keys(retained).length === Object.keys(current).length ? current : retained
+}
+
+type InteractiveCoordinator = Pick<AutoDownloadCoordinator, 'setClient' | 'enqueue' | 'waitForActive' | 'waitForIdle' | 'stop'>
+
+export async function runInteractiveAutoDownloadLifecycle(options: {
+  autoDownload: boolean
+  chats: Array<string | number> | undefined
+  persist: boolean
+  retrySeconds: number
+  signal: AbortSignal
+  createClient: () => TelegramClientAdapter
+  createCoordinator?: () => InteractiveCoordinator
+  acceptMessage?: (message: StoredMessageInput) => boolean
+  onBeforeEnqueue?: (message: StoredMessageInput) => void
+  onMessage: (message: StoredMessageInput) => void
+  onClient?: (client: TelegramClientAdapter | null) => void
+  onCoordinator?: (coordinator: InteractiveCoordinator | null) => void
+  onStatus?: (status: 'connecting' | 'connected' | 'stopped' | 'disconnected') => void
+  onError?: (error: unknown) => void
+  flush?: () => void
+  sleep?: (seconds: number) => Promise<void>
+}): Promise<void> {
+  const coordinator = options.autoDownload
+    ? (options.createCoordinator ?? (() => new AutoDownloadCoordinator()))()
+    : null
+  options.onCoordinator?.(coordinator)
+  let currentClient: TelegramClientAdapter | null = null
+  const abort = () => {
+    coordinator?.stop()
+    void currentClient?.close().catch(() => undefined)
+  }
+  options.signal.addEventListener('abort', abort)
+  try {
+    while (!options.signal.aborted) {
+      options.onStatus?.('connecting')
+      const client = options.createClient()
+      currentClient = client
+      options.onClient?.(client)
+      coordinator?.setClient(client)
+      let retry = false
+      try {
+        const result = await client.listen({
+          chats: options.chats,
+          signal: options.signal,
+          onConnected: () => options.onStatus?.('connected'),
+          onMessage: (message) => {
+            if (options.signal.aborted) return
+            if (options.acceptMessage?.(message) === false) return
+            options.onBeforeEnqueue?.(message)
+            coordinator?.enqueue(message)
+            options.onMessage(message)
+          },
+        })
+        if (options.persist && result === 'disconnected') {
+          retry = true
+          options.onStatus?.('disconnected')
+        } else {
+          options.onStatus?.('stopped')
+        }
+      } catch (error) {
+        if (options.persist && !options.signal.aborted) retry = true
+        options.onError?.(error)
+      } finally {
+        options.flush?.()
+        if (retry) {
+          coordinator?.setClient(null)
+          await coordinator?.waitForActive()
+        } else if (!options.signal.aborted) {
+          await coordinator?.waitForIdle()
+        } else {
+          coordinator?.stop()
+        }
+        await client.close().catch(() => undefined)
+        if (options.signal.aborted) await coordinator?.waitForActive()
+        if (currentClient === client) currentClient = null
+        options.onClient?.(null)
+      }
+      if (!retry) break
+      await (options.sleep ?? sleep)(options.retrySeconds)
+    }
+  } finally {
+    options.signal.removeEventListener('abort', abort)
+    options.onCoordinator?.(null)
+  }
 }
 
 export function attachmentDownloadKeyAt(attachments: ListenAttachment[], index: number): string {
@@ -295,6 +380,7 @@ function InteractiveListen({
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const albumAggregatorRef = useRef<ListenAlbumAggregator | null>(null)
   const autoDownloaderRef = useRef<AutoDownloadCoordinator | null>(null)
+  const pendingAttachmentKeysRef = useRef<Set<string>>(new Set())
   const mountedRef = useRef(true)
   const stoppingRef = useRef(false)
   const seenRef = useRef<Set<string>>(new Set())
@@ -326,7 +412,12 @@ function InteractiveListen({
     })
 
     const validAttachmentKeys = new Set(collectAttachments(messages).map((item) => item.key))
-    setDownloadStates((current) => pruneAttachmentDownloadStates(current, validAttachmentKeys))
+    setDownloadStates((current) => pruneAttachmentDownloadStates(
+      current,
+      validAttachmentKeys,
+      pendingAttachmentKeysRef.current,
+    ))
+    for (const key of validAttachmentKeys) pendingAttachmentKeysRef.current.delete(key)
     setSelectedAttachmentIndex((current) => Math.min(current, Math.max(0, downloadableAttachments.length - 1)))
     if (downloadableAttachments.length === 0) setFocus('input')
   }, [messages, downloadableAttachments.length])
@@ -411,90 +502,68 @@ function InteractiveListen({
       : null
     autoDownloaderRef.current = autoDownloader
 
-    const run = async (): Promise<void> => {
-      try {
-        while (true) {
-          setStatus('connecting...')
-          const client = createClient()
-          let retry = false
-          clientRef.current = client
-          autoDownloader?.setClient(client)
-          if (sendTo != null) {
-            void resolveSendTargetLabel(client, sendTo).then((label) => {
-              if (label != null) setSendTargetLabel(label)
-            })
-          }
-          try {
-            const result = await client.listen({
-              chats,
-              signal: stopSignal,
-              onConnected: () => setStatus('connected'),
-              onMessage: (message: StoredMessageInput) => {
-                const key = `${message.chat_id}:${message.msg_id}`
-                if (seenRef.current.has(key)) return
-                seenRef.current.add(key)
-                seenOrderRef.current.push(key)
-                if (seenRef.current.size > 5000) {
-                  const oldest = seenOrderRef.current.shift()
-                  if (oldest != null) seenRef.current.delete(oldest)
-                }
-                if (sendTo != null) {
-                  const inferred = inferSendTargetLabel(sendTo, message)
-                  if (inferred != null) setSendTargetLabel(inferred)
-                }
-                autoDownloader?.enqueue(message)
-                albumAggregator.add(message)
-              },
-            })
-
-            if (!persist || result === 'stopped') {
-              setStatus('stopped')
-              break
-            }
-            if (result === 'disconnected') {
-              if (!persist) {
-                setStatus('stopped')
-                break
-              }
-              setStatus(`disconnected, retry in ${retrySeconds}s...`)
-              retry = true
-            }
-          } catch (error) {
-            if (!persist) {
-              setStatus(`listen failed: ${messageFromError(error)}`)
-              break
-            }
-            setNote(`listen failed: ${messageFromError(error)}`)
-            retry = true
-          } finally {
-            albumAggregator.flush()
-            if (retry) {
-              autoDownloader?.setClient(null)
-              await autoDownloader?.waitForActive()
-            } else if (!stopSignal.aborted) {
-              await autoDownloader?.waitForIdle()
-            } else {
-              autoDownloader?.stop()
-            }
-            await client.close().catch(() => undefined)
-            if (stopSignal.aborted) await autoDownloader?.waitForActive()
-            if (clientRef.current === client) clientRef.current = null
-          }
-          if (retry) {
-            await sleep(retrySeconds)
-            continue
-          }
-          break
+    void runInteractiveAutoDownloadLifecycle({
+      autoDownload,
+      chats,
+      persist,
+      retrySeconds,
+      signal: stopSignal,
+      createClient,
+      createCoordinator: () => autoDownloader!,
+      onCoordinator: (coordinator) => { autoDownloaderRef.current = coordinator as AutoDownloadCoordinator | null },
+      onClient: (client) => {
+        clientRef.current = client
+        if (client != null && sendTo != null) {
+          void resolveSendTargetLabel(client, sendTo).then((label) => {
+            if (mountedRef.current && label != null) setSendTargetLabel(label)
+          })
         }
-      } finally {
-        if (!stopSignal.aborted) {
-          onRequestStop()
-          exit()
+      },
+      acceptMessage: (message) => {
+        const key = `${message.chat_id}:${message.msg_id}`
+        if (seenRef.current.has(key)) return false
+        seenRef.current.add(key)
+        seenOrderRef.current.push(key)
+        if (seenRef.current.size > 5000) {
+          const oldest = seenOrderRef.current.shift()
+          if (oldest != null) seenRef.current.delete(oldest)
         }
+        return true
+      },
+      onBeforeEnqueue: (message) => {
+        if (!mountedRef.current) return
+        discoverListenAttachments(message).forEach((attachment, index) => {
+          if (attachment.downloadable) pendingAttachmentKeysRef.current.add(listenAttachmentKey(attachment, index))
+        })
+      },
+      onMessage: (message) => {
+        if (!mountedRef.current) return
+        if (sendTo != null) {
+          const inferred = inferSendTargetLabel(sendTo, message)
+          if (inferred != null) setSendTargetLabel(inferred)
+        }
+        albumAggregator.add(message)
+      },
+      onStatus: (next) => {
+        if (!mountedRef.current) return
+        setStatus(next === 'connecting'
+          ? 'connecting...'
+          : next === 'disconnected'
+            ? `disconnected, retry in ${retrySeconds}s...`
+            : next)
+      },
+      onError: (error) => {
+        if (!mountedRef.current) return
+        if (persist) setNote(`listen failed: ${messageFromError(error)}`)
+        else setStatus(`listen failed: ${messageFromError(error)}`)
+      },
+      flush: () => albumAggregator.flush(),
+    }).finally(() => {
+      if (mountedRef.current && !stopSignal.aborted) {
+        onRequestStop()
+        exit()
       }
-    }
-
-    void run()
+    })
 
     return () => {
       mountedRef.current = false

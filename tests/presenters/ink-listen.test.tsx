@@ -3,7 +3,7 @@ import { render, renderToString, Text } from 'ink'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 
-import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
+import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, runInteractiveAutoDownloadLifecycle, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -142,10 +142,98 @@ describe('interactive auto-download state', () => {
       queued: { status: 'queued' },
       active: { status: 'downloading', progress: 5 },
       done: { status: 'completed', path: '/tmp/done' },
-    }, new Set())).toEqual({
+    }, new Set(), new Set(['queued', 'active']))).toEqual({
       queued: { status: 'queued' },
       active: { status: 'downloading', progress: 5 },
     })
+  })
+
+  it('retains a terminal album download through an unrelated render, then releases it for history pruning', () => {
+    const key = '100:11:0'
+    const completed = applyAutoDownloadEvent({}, { status: 'completed', key, path: '/tmp/photo.jpg' })
+    const whilePending = pruneAttachmentDownloadStates(completed, new Set(['other']), new Set([key]))
+    expect(whilePending[key]).toEqual({ status: 'completed', path: '/tmp/photo.jpg' })
+    expect(canManuallyDownload(whilePending[key]!)).toBe(false)
+
+    const onceRendered = pruneAttachmentDownloadStates(whilePending, new Set([key]), new Set())
+    expect(onceRendered[key]).toEqual({ status: 'completed', path: '/tmp/photo.jpg' })
+    expect(pruneAttachmentDownloadStates(onceRendered, new Set(), new Set())).toEqual({})
+  })
+})
+
+describe('interactive auto-download lifecycle', () => {
+  it('creates one coordinator, pauses across disconnect, resumes replacement, and drains normally', async () => {
+    const calls: string[] = []
+    const first = lifecycleClient('disconnected', calls, 'first')
+    const second = lifecycleClient('stopped', calls, 'second')
+    const clients = [first, second]
+    const coordinator = {
+      setClient: vi.fn((client: unknown) => calls.push(client == null ? 'pause' : 'resume')),
+      enqueue: vi.fn(() => true),
+      waitForActive: vi.fn(async () => { calls.push('active-drained') }),
+      waitForIdle: vi.fn(async () => { calls.push('idle-drained') }),
+      stop: vi.fn(),
+    }
+    const createCoordinator = vi.fn(() => coordinator)
+
+    await runInteractiveAutoDownloadLifecycle({
+      autoDownload: true,
+      chats: undefined,
+      persist: true,
+      retrySeconds: 0,
+      signal: new AbortController().signal,
+      createClient: () => clients.shift()!,
+      createCoordinator,
+      onMessage: () => undefined,
+      sleep: async () => undefined,
+    })
+
+    expect(createCoordinator).toHaveBeenCalledOnce()
+    expect(coordinator.enqueue).toHaveBeenCalledTimes(2)
+    expect(calls).toEqual([
+      'resume', 'first-listen', 'pause', 'active-drained', 'first-close',
+      'resume', 'second-listen', 'idle-drained', 'second-close',
+    ])
+  })
+
+  it('stops and closes promptly on abort, then waits for active cleanup', async () => {
+    const controller = new AbortController()
+    let resolveListen!: (value: 'stopped') => void
+    let resolveCleanup!: () => void
+    const listen = new Promise<'stopped'>((resolve) => { resolveListen = resolve })
+    const cleanup = new Promise<void>((resolve) => { resolveCleanup = resolve })
+    const close = vi.fn(async () => { resolveListen('stopped') })
+    const onMessage = vi.fn()
+    let deliver!: (message: StoredMessageInput) => void
+    const coordinator = {
+      setClient: vi.fn(), enqueue: vi.fn(() => true), stop: vi.fn(),
+      waitForIdle: vi.fn(async () => undefined), waitForActive: vi.fn(() => cleanup),
+    }
+    const run = runInteractiveAutoDownloadLifecycle({
+      autoDownload: true, chats: undefined, persist: true, retrySeconds: 1,
+      signal: controller.signal,
+      createClient: () => ({
+        listen: vi.fn((options: { onMessage: (message: StoredMessageInput) => void }) => {
+          deliver = options.onMessage
+          return listen
+        }),
+        close,
+      } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter),
+      createCoordinator: () => coordinator,
+      onMessage,
+    })
+    await Promise.resolve()
+    controller.abort()
+    deliver(storedPhoto(99, 'late'))
+    expect(onMessage).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(close).toHaveBeenCalled())
+    expect(coordinator.stop).toHaveBeenCalled()
+    let finished = false
+    void run.then(() => { finished = true })
+    await Promise.resolve()
+    expect(finished).toBe(false)
+    resolveCleanup()
+    await run
   })
 })
 
@@ -414,6 +502,17 @@ function storedPhoto(msgId: number, content: string): StoredMessageInput {
     timestamp: '2026-07-10T07:22:00.000Z',
     raw_json: { _: 'message', media: { _: 'messageMediaPhoto', photo: {} } },
   }
+}
+
+function lifecycleClient(result: 'disconnected' | 'stopped', calls: string[], name: string) {
+  return {
+    listen: vi.fn(async (options: { onMessage: (message: StoredMessageInput) => void }) => {
+      calls.push(`${name}-listen`)
+      options.onMessage(storedPhoto(name === 'first' ? 11 : 12, ''))
+      return result
+    }),
+    close: vi.fn(async () => { calls.push(`${name}-close`) }),
+  } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter
 }
 
 const twoByTwoJpeg =
