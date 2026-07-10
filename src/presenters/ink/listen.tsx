@@ -47,6 +47,12 @@ type ListenRuntimeOptions = {
 const MESSAGE_SEPARATOR = '────────────────────────────────────────────'
 /** Maximum number of grouped messages retained by a long-running interactive listener. */
 export const LISTEN_HISTORY_LIMIT = 500
+const LISTEN_IMAGE_PREVIEWS_ENABLED = false
+
+export function interactiveListenPreviewColorDepth(terminalColorDepth: number): number {
+  return LISTEN_IMAGE_PREVIEWS_ENABLED ? terminalColorDepth : 1
+}
+
 export type TerminalMetrics = {
   columns: number
   rows: number
@@ -217,7 +223,7 @@ function InteractiveListen({
   const [sendTargetLabel, setSendTargetLabel] = useState(sendTo == null ? '' : buildSendTargetLabel(sendTo))
   const terminalWidth = terminalMetrics.columns
   const terminalHeight = terminalMetrics.rows
-  const colorDepth = terminalMetrics.colorDepth
+  const previewColorDepth = interactiveListenPreviewColorDepth(terminalMetrics.colorDepth)
   const contentWidth = listenContentWidth(terminalWidth)
   const previewWidth = Math.max(1, Math.min(24, contentWidth - 2))
   const messageViewCacheRef = useRef<ListenMessageViewCache | null>(null)
@@ -226,9 +232,9 @@ function InteractiveListen({
     () => messageViewCacheRef.current!.build(messageGroups, {
       showMedia,
       previewWidth,
-      colorDepth,
+      colorDepth: previewColorDepth,
     }),
-    [messageGroups, showMedia, previewWidth, colorDepth],
+    [messageGroups, showMedia, previewWidth, previewColorDepth],
   )
   const reservedLines = 7 + (note ? 1 : 0)
   const messagePaneHeight = Math.max(2, terminalHeight - reservedLines)

@@ -3,7 +3,7 @@ import { render, renderToString, Text } from 'ink'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 
-import { attachmentDownloadTarget, flushListenBeforeExit, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneListenMessageGroups, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
+import { attachmentDownloadTarget, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneListenMessageGroups, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -197,6 +197,21 @@ describe('interactive album messages', () => {
     expect(decodePreview).toHaveBeenCalledOnce()
     expect(row.media[0]?.previewRows).toBe(1)
     expect(row.media[0]?.previewCells).toHaveLength(1)
+  })
+
+  it('keeps image previews hidden in the default interactive policy', () => {
+    const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
+    const colorDepth = interactiveListenPreviewColorDepth(24)
+
+    const row = toListenMessage(
+      [{ ...storedPhoto(99, ''), preview_jpeg_base64: twoByTwoJpeg }],
+      { showMedia: true, previewWidth: 24, colorDepth, decodePreview },
+    )
+
+    expect(colorDepth).toBe(1)
+    expect(decodePreview).not.toHaveBeenCalled()
+    expect(row.media[0]?.previewRows).toBeUndefined()
+    expect(row.media[0]?.previewCells).toBeUndefined()
   })
 
   it('does not decode unchanged previews again when a new group arrives', () => {
