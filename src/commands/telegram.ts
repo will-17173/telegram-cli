@@ -299,6 +299,12 @@ export function registerTelegramCommands(app: Command): void {
           while (true) {
             const client = createClient()
             let retry = false
+            let clientClosed = false
+            const closeClient = async () => {
+              if (clientClosed) return
+              clientClosed = true
+              await client.close().catch(() => undefined)
+            }
             autoDownloader?.setClient(client)
             try {
               const result = await client.listen({
@@ -329,6 +335,8 @@ export function registerTelegramCommands(app: Command): void {
               if (autoDownloader != null) {
                 if (controller.signal.aborted) {
                   autoDownloader.stop()
+                  await closeClient()
+                  await autoDownloader.waitForActive()
                 } else if (retry) {
                   autoDownloader.setClient(null)
                   await autoDownloader.waitForActive()
@@ -337,7 +345,7 @@ export function registerTelegramCommands(app: Command): void {
                   autoDownloader.setClient(null)
                 }
               }
-              await client.close().catch(() => undefined)
+              await closeClient()
             }
             if (retry) {
               await sleep(retrySeconds)

@@ -176,6 +176,11 @@ describe('listen command', () => {
   })
 
   it('closes the client immediately when listening is aborted', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
     let finishDownload: () => void = () => undefined
     client.downloadMessageMedia.mockImplementationOnce(async ({ destination }: DownloadMessageMediaOptions) => {
       await new Promise<void>((resolve) => { finishDownload = resolve })
@@ -188,16 +193,32 @@ describe('listen command', () => {
     })
 
     const listening = createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--auto-download'])
-    await vi.waitFor(() => expect(client.downloadMessageMedia).toHaveBeenCalledOnce())
+    let settled = false
+    void listening.then(() => { settled = true })
 
-    expect(client.close).toHaveBeenCalledOnce()
-    finishDownload()
-    await listening
+    try {
+      await vi.waitFor(() => expect(client.downloadMessageMedia).toHaveBeenCalledOnce())
+      expect(client.close).toHaveBeenCalledOnce()
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(settled).toBe(false)
+      expect(writes.join('')).not.toContain('listening completed\n')
+    } finally {
+      finishDownload()
+      await listening
+      write.mockRestore()
+    }
+
     const downloadDir = join(dataDir, 'Downloads', 'telegram-cli')
-    await vi.waitFor(() => {
-      expect(existsSync(join(downloadDir, 'IMG_001.jpg'))).toBe(true)
-      expect(readdirSync(downloadDir).some((entry) => entry.endsWith('.part'))).toBe(false)
-    })
+    const output = writes.join('')
+    const outputAfterCompletion = output
+    expect(settled).toBe(true)
+    expect(client.close).toHaveBeenCalledOnce()
+    expect(existsSync(join(downloadDir, 'IMG_001.jpg'))).toBe(true)
+    expect(readdirSync(downloadDir).some((entry) => entry.endsWith('.part'))).toBe(false)
+    expect(output.indexOf('downloaded: ')).toBeLessThan(output.indexOf('listening completed\n'))
+    expect(output.endsWith('listening completed\n')).toBe(true)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(writes.join('')).toBe(outputAfterCompletion)
   })
 
   it('downloads every message in an album', async () => {
