@@ -7,14 +7,18 @@ A TypeScript command-line client for syncing Telegram chats, listening to live m
 ## Features
 
 - Sign in to Telegram and inspect the current account or available chats.
+- Manage multiple Telegram accounts with isolated sessions and message databases.
 - Fetch chat history into a local SQLite database for fast, offline search.
 - Sync one chat incrementally or sync many chats with a single command.
 - Listen for new messages in real time, with optional attachment summaries.
+- Download attachments from channels that restrict content saving.
 - Search, filter, summarize, and export locally stored messages.
 - Send, edit, and delete messages from the command line.
 - Use human-readable output or structured JSON/YAML where supported.
 
 ## Installation
+
+Telegram CLI requires Node.js 22 or later.
 
 After the package is published to npm, install it globally with:
 
@@ -38,18 +42,22 @@ warning: using default Telegram API credentials. Run tg config set --api-id <id>
 
 Setting only one of `TG_API_ID` or `TG_API_HASH` is an error. A malformed or unreadable saved configuration file is also an error; the CLI does not fall back to the built-in credentials in either case.
 
-Personal credentials are stored locally as sensitive configuration. Never share them. The first command may prompt you to authenticate and create a local session.
+Personal credentials are stored locally as sensitive configuration. Never share them. API credentials are shared by all registered accounts, while each account keeps its own authentication session.
 
-You can optionally override local storage paths with environment variables:
+Run `tg account add` to authenticate and create a local session. Other commands never start the interactive login flow.
+
+You can override the root directory for configuration, account sessions, and message databases:
 
 ```sh
 export DATA_DIR=/path/to/tg-cli-data
-export DB_PATH=/path/to/messages.db
 ```
 
 ## Quick start
 
 ```sh
+# Add and authenticate the first account
+tg account add
+
 # Check authentication status
 tg status
 
@@ -72,6 +80,48 @@ tg listen <chat-or-id> [another-chat ...] --no-media
 tg send <chat> "Hello from tg"
 ```
 
+## Multiple accounts
+
+Each Telegram account has its own persisted authentication session and local message database. Add and authenticate an account interactively with:
+
+```sh
+tg account add
+```
+
+The first account you add becomes the current account. Adding another account does not switch the current account automatically. Use the account commands to inspect or change the selection:
+
+```sh
+# List registered accounts
+tg account list
+
+# Show the current account
+tg account current
+
+# Set the default account used by commands
+tg account switch <name>
+
+# Remove an account and its local session/data
+tg account remove <name> --force
+```
+
+Commands use the current account by default. Commands that support `--account` can target another registered account for one invocation without changing the current account:
+
+```sh
+tg chats --account <name>
+tg sync-all --account <name>
+tg search "keyword" --account <name>
+```
+
+Account names are shown by `tg account list`; they are normally derived from the Telegram username. Sessions and message databases remain isolated under each account's directory inside `DATA_DIR`.
+
+Telegram API credentials apply to every registered account. You don't need to configure separate API credentials when adding another account.
+
+## Online and local commands
+
+Online commands connect to Telegram and require a valid session. These include `status`, `whoami`, `chats`, `history`, `sync`, `sync-all`, `refresh`, `info`, `send`, `edit`, `delete`, and `listen`.
+
+Local commands read or modify the selected account's message database without connecting to Telegram. These include `search`, `recent`, `stats`, `top`, `timeline`, `today`, `filter`, `export`, and `purge`.
+
 ## Command reference
 
 Run the built-in help for the complete, current command list:
@@ -84,6 +134,11 @@ Common commands:
 
 | Command | Purpose |
 | --- | --- |
+| `tg account add` | Authenticate and register another Telegram account. |
+| `tg account list` | List registered accounts and show which one is current. |
+| `tg account current` | Show the current account. |
+| `tg account switch <name>` | Set the default account used by commands. |
+| `tg account remove <name> --force` | Remove an account and its local session/data. |
 | `tg status` | Check whether the Telegram account is authenticated. |
 | `tg whoami` | Show basic authenticated account information. |
 | `tg config set --api-id <id> --api-hash <hash>` | Save Telegram API credentials for persistent use. |
@@ -104,19 +159,66 @@ Common commands:
 | `tg purge <chat> --yes` | Remove a chat's locally stored messages. |
 | `tg info <chat>` | Show metadata for a Telegram chat. |
 
-All sync-like commands write to local SQLite storage, while `sync-all` and `refresh` can process many chats automatically based on local high-water marks.
+All sync-like commands write to local SQLite storage. The `sync-all` and `refresh` commands process multiple chats based on locally stored message IDs.
 
-Many commands support `--json` or `--yaml` for structured output. Use `tg <command> --help` to see each command's options.
+Many commands support `--json` or `--yaml` for structured output. Failed commands return a nonzero exit code, so scripts can detect errors without parsing human-readable text.
 
-### Notes
+Common options:
+
+| Option | Purpose |
+| --- | --- |
+| `--account <name>` | Use a registered account without changing the current account. |
+| `--json` / `--yaml` | Emit structured output when the command supports it. |
+| `-v`, `--verbose` | Enable debug logging. |
+| `-V`, `--version` | Print the installed version. |
+
+Use `tg <command> --help` to inspect command-specific options. For example, `listen` supports reconnection and plain-text modes, while `search` supports sender, time, regular-expression, and result-limit filters.
+
+### Sync and listen behavior
 
 - `sync-all` and `refresh` are batch operations for local persistence; they are not read-only.
 - `listen` prints a concise separator for each incoming message and can optionally suppress attachment summaries.
-- If you still see Telegram synchronization warnings in the console, command output continues to work in most cases.
+
+## Troubleshooting
+
+### No active account
+
+If a command reports `account_required`, add an account or select an existing one:
+
+```sh
+tg account add
+tg account switch <name>
+```
+
+### Session is no longer valid
+
+If Telegram returns `AUTH_KEY_UNREGISTERED`, remove the invalid local session and authenticate again:
+
+```sh
+tg account remove <name> --force
+tg account add
+```
+
+### Default API credentials warning
+
+The built-in API credentials remain usable, but the CLI prints a warning when it creates a Telegram client. Configure personal credentials to remove the warning:
+
+```sh
+tg config set --api-id <id> --api-hash <hash>
+```
+
+Set both `TG_API_ID` and `TG_API_HASH` when using environment variables. Setting only one causes a configuration error.
 
 ## Local data and privacy
 
-Synced messages are stored in a local SQLite database. Persisted configuration, authentication sessions, and local data remain on your machine unless you explicitly copy or export them.
+Persisted configuration, authentication sessions, and synced messages remain on your machine unless you copy or export them. The relevant files under `DATA_DIR` are:
+
+```text
+config.json
+accounts.json
+accounts/<name>/session
+accounts/<name>/messages.db
+```
 
 Treat persisted configuration, `.env`, Telegram credentials, session files, and SQLite data as sensitive. Never share them or commit them to version control.
 
