@@ -204,13 +204,13 @@ describe('interactive auto-download lifecycle', () => {
     const controller = createInteractiveOperationController()
     const lifecycle = controller.beginGeneration()
     const sendIsCurrent = controller.beginSend()
-    const downloadIsCurrent = controller.beginDownload('100:11:0')
+    const downloadOwnership = controller.beginDownload('100:11:0')
     const updates: string[] = []
     const send = Promise.resolve().then(() => {
       if (sendIsCurrent()) updates.push('sent')
     })
     const download = Promise.resolve().then(() => {
-      if (downloadIsCurrent()) updates.push('downloaded')
+      if (downloadOwnership.isCurrent()) updates.push('downloaded')
     })
     lifecycle.dispose()
     await Promise.all([send, download])
@@ -220,7 +220,7 @@ describe('interactive auto-download lifecycle', () => {
   it('prevents deferred manual progress and completion from overwriting a newer auto event', async () => {
     const controller = createInteractiveOperationController()
     controller.beginGeneration()
-    const manualIsCurrent = controller.beginDownload('100:11:0')
+    const manualOwnership = controller.beginDownload('100:11:0')
     let resolveManual!: () => void
     const manual = new Promise<void>((resolve) => { resolveManual = resolve })
     controller.claimDownload('100:11:0')
@@ -228,15 +228,38 @@ describe('interactive auto-download lifecycle', () => {
       status: 'downloading', key: '100:11:0', progress: 75,
     })
     const progress = () => {
-      if (manualIsCurrent()) state = { '100:11:0': { status: 'downloading', progress: 10 } }
+      if (manualOwnership.isCurrent()) state = { '100:11:0': { status: 'downloading', progress: 10 } }
     }
     const completion = manual.then(() => {
-      if (manualIsCurrent()) state = { '100:11:0': { status: 'completed', path: '/tmp/manual.jpg' } }
+      if (manualOwnership.isCurrent()) state = { '100:11:0': { status: 'completed', path: '/tmp/manual.jpg' } }
     })
     progress()
     resolveManual()
     await completion
     expect(state['100:11:0']).toEqual({ status: 'downloading', progress: 75 })
+  })
+
+  it('bounds ownership across many terminal auto-downloads without reviving stale callbacks', () => {
+    const controller = createInteractiveOperationController()
+    const lifecycle = controller.beginGeneration()
+    const stale = controller.beginDownload('same-key')
+    stale.release()
+    const replacement = controller.beginDownload('same-key')
+    expect(stale.isCurrent()).toBe(false)
+    expect(replacement.isCurrent()).toBe(true)
+    replacement.release()
+
+    const active = Array.from({ length: 1_000 }, (_, index) => (
+      controller.claimDownload(`key-${index}`)
+    ))
+    expect(controller.downloadOwnershipSize()).toBe(1_000)
+    active.forEach((ownership) => ownership.release())
+    expect(controller.downloadOwnershipSize()).toBe(0)
+    expect(stale.isCurrent()).toBe(false)
+
+    controller.claimDownload('left-active')
+    lifecycle.dispose()
+    expect(controller.downloadOwnershipSize()).toBe(0)
   })
 
   it('creates one coordinator, pauses across disconnect, resumes replacement, and drains normally', async () => {

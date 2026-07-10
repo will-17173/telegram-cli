@@ -198,7 +198,10 @@ export function createInteractiveOperationController() {
         isActive: () => active && generation === ownedGeneration,
         dispose: () => {
           active = false
-          if (generation === ownedGeneration) generation += 1
+          if (generation === ownedGeneration) {
+            generation += 1
+            downloadOperations.clear()
+          }
         },
       }
     },
@@ -211,11 +214,23 @@ export function createInteractiveOperationController() {
       const ownedGeneration = generation
       const operation = ++sequence
       downloadOperations.set(key, operation)
-      return () => generation === ownedGeneration && downloadOperations.get(key) === operation
+      return {
+        isCurrent: () => generation === ownedGeneration && downloadOperations.get(key) === operation,
+        release: () => {
+          if (downloadOperations.get(key) === operation) downloadOperations.delete(key)
+        },
+      }
     },
-    claimDownload(key: string): void {
-      downloadOperations.set(key, ++sequence)
+    claimDownload(key: string) {
+      const operation = ++sequence
+      downloadOperations.set(key, operation)
+      return {
+        release: () => {
+          if (downloadOperations.get(key) === operation) downloadOperations.delete(key)
+        },
+      }
     },
+    downloadOwnershipSize: () => downloadOperations.size,
   }
 }
 
@@ -553,8 +568,11 @@ function InteractiveListen({
       ? new AutoDownloadCoordinator({
           onEvent: (event) => {
             if (!isActive()) return
-            operationControllerRef.current!.claimDownload(event.key)
+            const ownership = operationControllerRef.current!.claimDownload(event.key)
             setDownloadStates((current) => applyAutoDownloadEvent(current, event, showMedia))
+            if (event.status === 'completed' || event.status === 'failed' || event.status === 'cancelled') {
+              ownership.release()
+            }
           },
         })
       : null
@@ -673,7 +691,8 @@ function InteractiveListen({
   }
 
   const downloadAttachment = async (item: DownloadableAttachment): Promise<void> => {
-    const isCurrent = operationControllerRef.current!.beginDownload(item.key)
+    const ownership = operationControllerRef.current!.beginDownload(item.key)
+    const isCurrent = ownership.isCurrent
     const client = clientRef.current
     if (!client) {
       if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: 'not connected' } }))
@@ -699,6 +718,8 @@ function InteractiveListen({
       if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'completed', path: destination } }))
     } catch (error) {
       if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: messageFromError(error) } }))
+    } finally {
+      ownership.release()
     }
   }
 
