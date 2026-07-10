@@ -55,9 +55,89 @@ describe('AutoDownloadCoordinator', () => {
     coordinator.enqueue(mediaMessage(2, 'good.jpg'))
     await coordinator.waitForIdle()
 
-    expect(remove).toHaveBeenCalledWith('/home/Downloads/telegram-cli/bad.jpg', { force: true })
-    expect(events.find((event) => event.status === 'failed')).toMatchObject({ key: '100:1:0', error: failure })
+    expect(remove).toHaveBeenCalledWith('/home/Downloads/telegram-cli/.100-1-0.part', { force: true })
+    expect(events.find((event) => event.status === 'failed')).toEqual({ key: '100:1:0', status: 'failed', error: 'network failed' })
     expect(client.calls.map((call) => call.msgId)).toEqual([1, 2])
+  })
+
+  it('publishes through an owned temporary file without overwriting a raced final path', async () => {
+    const existing = new Set<string>()
+    const published: Array<[string, string]> = []
+    const remove = vi.fn(async () => undefined)
+    const publish = vi.fn(async (temporary: string, destination: string) => {
+      published.push([temporary, destination])
+      if (destination.endsWith('/photo.jpg')) {
+        existing.add(destination)
+        throw Object.assign(new Error('already exists'), { code: 'EEXIST' })
+      }
+      existing.add(destination)
+    })
+    const events: AutoDownloadEvent[] = []
+    const client = downloadClient(async () => undefined)
+    const coordinator = setup({
+      exists: (path) => existing.has(path),
+      publish,
+      remove,
+      onEvent: (event) => events.push(event),
+    })
+    coordinator.setClient(client.adapter)
+
+    coordinator.enqueue(mediaMessage(1, 'photo.jpg'))
+    await coordinator.waitForIdle()
+
+    expect(client.calls[0]!.destination).toBe('/home/Downloads/telegram-cli/.100-1-0.part')
+    expect(published).toEqual([
+      ['/home/Downloads/telegram-cli/.100-1-0.part', '/home/Downloads/telegram-cli/photo.jpg'],
+      ['/home/Downloads/telegram-cli/.100-1-0.part', '/home/Downloads/telegram-cli/photo (2).jpg'],
+    ])
+    expect(existing.has('/home/Downloads/telegram-cli/photo.jpg')).toBe(true)
+    expect(remove).toHaveBeenCalledWith('/home/Downloads/telegram-cli/.100-1-0.part', { force: true })
+    expect(events.at(-1)).toEqual({ status: 'completed', key: '100:1:0', path: '/home/Downloads/telegram-cli/photo (2).jpg' })
+  })
+
+  it('normalizes Error, string, and non-error failures to strings', async () => {
+    const failures: unknown[] = [new Error('broken'), 'offline', { reason: 'unknown' }]
+    const events: AutoDownloadEvent[] = []
+    const client = downloadClient(async (_, index) => { throw failures[index] })
+    const coordinator = setup({ onEvent: (event) => events.push(event) })
+    coordinator.setClient(client.adapter)
+    failures.forEach((_, index) => coordinator.enqueue(mediaMessage(index + 1, `${index}.jpg`)))
+
+    await coordinator.waitForIdle()
+
+    expect(events.filter((event) => event.status === 'failed').map((event) => event.error)).toEqual([
+      'broken',
+      'offline',
+      '[object Object]',
+    ])
+  })
+
+  it('isolates throwing observers for queued, progress, terminal, and cancelled events', async () => {
+    const active = deferred()
+    const client = downloadClient((options) => {
+      options.onProgress?.(1, 2)
+      return active.promise
+    })
+    const observed: string[] = []
+    const coordinator = setup({
+      concurrency: 1,
+      onEvent: (event) => {
+        observed.push(event.status)
+        throw new Error(`observer rejected ${event.status}`)
+      },
+    })
+    coordinator.setClient(client.adapter)
+
+    expect(coordinator.enqueue(mediaMessage(1, 'one.jpg'))).toBe(true)
+    expect(coordinator.enqueue(mediaMessage(2, 'two.jpg'))).toBe(true)
+    await tick()
+    coordinator.stop()
+    active.resolve()
+    await coordinator.waitForActive()
+    await coordinator.waitForIdle()
+
+    expect(client.calls.map((call) => call.msgId)).toEqual([1])
+    expect(observed).toEqual(['queued', 'queued', 'downloading', 'downloading', 'cancelled', 'completed'])
   })
 
   it('pauses queued starts when the active client is removed and resumes with its replacement', async () => {
@@ -131,8 +211,8 @@ describe('AutoDownloadCoordinator', () => {
     await tick()
 
     expect(client.calls.map((call) => call.destination)).toEqual([
-      '/home/Downloads/telegram-cli/same.jpg',
-      '/home/Downloads/telegram-cli/same (2).jpg',
+      '/home/Downloads/telegram-cli/.100-1-0.part',
+      '/home/Downloads/telegram-cli/.100-2-0.part',
     ])
     expect(events.filter((event) => event.status === 'downloading').map((event) => event.progress)).toEqual([0, 42, null, 0, 42, null])
     transfers.forEach((transfer) => transfer.resolve())
@@ -146,6 +226,8 @@ function setup(overrides: Partial<ConstructorParameters<typeof AutoDownloadCoord
     exists: () => false,
     mkdir: async () => undefined,
     remove: async () => undefined,
+    publish: async () => undefined,
+    temporaryPath: (destination, key) => `${destination.slice(0, destination.lastIndexOf('/') + 1)}.${key.replaceAll(':', '-')}.part`,
     ...overrides,
   })
 }
