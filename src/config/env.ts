@@ -66,6 +66,11 @@ export function getConfigPath(): string {
   return join(getDataDir(), 'config.json')
 }
 
+export function getAccountRegistryPath(dataDir?: string): string {
+  const root = dataDir && dataDir.trim() ? resolvePath(dataDir) : getDataDir()
+  return join(root, 'accounts.json')
+}
+
 export function getDbPath(): string {
   const raw = process.env.DB_PATH
   const path = raw && raw.trim() ? resolvePath(raw) : join(getDataDir(), 'messages.db')
