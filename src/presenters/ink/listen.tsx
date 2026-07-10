@@ -28,7 +28,7 @@ export type AttachmentDownloadState =
   | { status: 'completed'; path: string }
   | { status: 'failed'; error: string }
 
-type DownloadableAttachment = {
+export type DownloadableAttachment = {
   key: string
   message: ListenMessage
   attachment: ListenAttachment
@@ -165,18 +165,22 @@ export function ListenImagePreview({ rows }: { rows: PreviewCell[][] }): React.J
 }
 
 type ListenAttachmentWithPreviewProps = ListenAttachmentLineProps & {
+  downloadable?: boolean
   previewCells?: PreviewCell[][]
 }
 
 export function ListenAttachmentWithPreview({
   label,
+  downloadable = true,
   selected,
   state,
   previewCells,
 }: ListenAttachmentWithPreviewProps): React.JSX.Element {
   return (
     <Box flexDirection="column">
-      <ListenAttachmentLine label={label} selected={selected} state={state} />
+      {downloadable
+        ? <ListenAttachmentLine label={label} selected={selected} state={state} />
+        : <Text wrap="truncate-end">  {label}</Text>}
       {previewCells == null ? null : <ListenImagePreview rows={previewCells} />}
     </Box>
   )
@@ -248,7 +252,7 @@ function InteractiveListen({
   const stoppingRef = useRef(false)
   const seenRef = useRef<Set<string>>(new Set())
   const seenOrderRef = useRef<string[]>([])
-  const downloadableAttachments = collectAttachments(visibleMessages)
+  const downloadableAttachments = collectDownloadableAttachments(visibleMessages)
   const selectedAttachment = downloadableAttachments[selectedAttachmentIndex] ?? downloadableAttachments[0]
   const { visible: scrollbarVisible, show: showScrollbar } = useTransientScrollbar()
   const scrollbarGeometry = calculateScrollbar({
@@ -274,7 +278,7 @@ function InteractiveListen({
         : { offset, unseenCount }
     })
 
-    const validAttachmentKeys = new Set(collectAttachments(messages).map((item) => item.key))
+    const validAttachmentKeys = new Set(collectDownloadableAttachments(messages).map((item) => item.key))
     setDownloadStates((current) => {
       const retained = Object.fromEntries(
         Object.entries(current).filter(([key]) => validAttachmentKeys.has(key)),
@@ -525,6 +529,7 @@ function InteractiveListen({
                   <ListenAttachmentWithPreview
                     key={attachmentKey}
                     label={item.label}
+                    downloadable={item.downloadable}
                     selected={focus === 'attachments' && selectedAttachment?.key === attachmentKey}
                     state={downloadStates[attachmentKey] ?? { status: 'idle' }}
                     previewCells={item.previewCells}
@@ -660,12 +665,16 @@ function normalizedPreviewWidth(previewWidth: number): number {
   return Math.max(1, Math.min(24, previewWidth))
 }
 
-function collectAttachments(messages: ListenMessage[]): DownloadableAttachment[] {
-  return messages.flatMap((message) => message.media.map((attachment, index) => ({
-    key: listenAttachmentKey(attachment, index),
-    message,
-    attachment,
-  })))
+export function collectDownloadableAttachments(messages: ListenMessage[]): DownloadableAttachment[] {
+  return messages.flatMap((message) => message.media.flatMap((attachment, index) => (
+    attachment.downloadable === true
+      ? [{
+          key: listenAttachmentKey(attachment, index),
+          message,
+          attachment,
+        }]
+      : []
+  )))
 }
 
 export { attachmentDownloadTarget } from '../../services/listen-attachment.js'
