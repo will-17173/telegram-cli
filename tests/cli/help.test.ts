@@ -7,6 +7,7 @@ describe('cli help', () => {
     const names = app.commands.map((command) => command.name()).sort()
 
     expect(names).toEqual([
+      'account',
       'chats',
       'config',
       'delete',
@@ -49,7 +50,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(22)
+    expect(commands).toHaveLength(23)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 
