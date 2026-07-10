@@ -9,6 +9,7 @@ import type { TelegramClientAdapter } from '../../telegram/types.js'
 import type { StoredMessageInput } from '../../storage/message-db.js'
 import { resolveAttachmentDestination } from '../../services/attachment-download.js'
 import { ListenAlbumAggregator } from '../../services/listen-album-aggregator.js'
+import { attachmentDownloadTarget, attachmentFileName, listenAttachmentKey } from '../../services/listen-attachment.js'
 import { buildListenMessage, type ListenAttachment, type ListenMessageRow } from '../listen-message.js'
 import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScrollState } from './listen-scroll.js'
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
@@ -476,7 +477,7 @@ function InteractiveListen({
     }
     const destination = resolveAttachmentDestination({
       homeDir: homedir(),
-      fileName: attachmentFileName(item),
+      fileName: attachmentFileName(item.attachment),
       exists: existsSync,
     })
     mkdirSync(dirname(destination), { recursive: true })
@@ -519,7 +520,7 @@ function InteractiveListen({
               <Text dimColor wrap="truncate-end">[{message.time}] {message.chatName == null ? message.sender : `${message.chatName} | ${message.sender}`}</Text>
               {message.content == null ? null : <Text wrap="truncate-end">{message.content}</Text>}
               {message.media.map((item, mediaIndex) => {
-                const attachmentKey = `${message.key}:${mediaIndex}`
+                const attachmentKey = listenAttachmentKey(item, mediaIndex)
                 return (
                   <ListenAttachmentWithPreview
                     key={attachmentKey}
@@ -661,35 +662,17 @@ function normalizedPreviewWidth(previewWidth: number): number {
 
 function collectAttachments(messages: ListenMessage[]): DownloadableAttachment[] {
   return messages.flatMap((message) => message.media.map((attachment, index) => ({
-    key: `${message.key}:${index}`,
+    key: listenAttachmentKey(attachment, index),
     message,
     attachment,
   })))
 }
 
-function attachmentFileName(item: DownloadableAttachment): string {
-  if (item.attachment.fileName != null) return item.attachment.fileName
-  const extension = MEDIA_EXTENSIONS[item.attachment.kind] ?? 'bin'
-  return `${item.attachment.chatId}-${item.attachment.messageId}.${extension}`
-}
-
-export function attachmentDownloadTarget(attachment: ListenAttachment): { chat: number; msgId: number } {
-  return { chat: attachment.chatId, msgId: attachment.messageId }
-}
+export { attachmentDownloadTarget } from '../../services/listen-attachment.js'
 
 export function flushListenBeforeExit(aggregator: Pick<ListenAlbumAggregator, 'flush'>, exit: () => void): void {
   aggregator.flush()
   setTimeout(exit, 0)
-}
-
-const MEDIA_EXTENSIONS: Record<string, string> = {
-  Photo: 'jpg',
-  Video: 'mp4',
-  Audio: 'mp3',
-  Voice: 'ogg',
-  Sticker: 'webp',
-  Animation: 'mp4',
-  Document: 'bin',
 }
 
 function messageFromError(error: unknown): string {
