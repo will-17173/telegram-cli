@@ -27,4 +27,17 @@ describe('resolveAttachmentDestination', () => {
 
     expect(destination).toBe('/Users/test/Downloads/telegram-cli/photo (3).jpg')
   })
+
+  it('treats reserved destinations as collisions', () => {
+    const reserved = new Set(['/Users/test/Downloads/telegram-cli/photo.jpg'])
+
+    const destination = resolveAttachmentDestination({
+      homeDir: '/Users/test',
+      fileName: 'photo.jpg',
+      exists: () => false,
+      reserved,
+    })
+
+    expect(destination).toBe('/Users/test/Downloads/telegram-cli/photo (2).jpg')
+  })
 })

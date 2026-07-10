@@ -4,13 +4,14 @@ type ResolveAttachmentDestinationOptions = {
   homeDir: string
   fileName: string
   exists: (path: string) => boolean
+  reserved?: ReadonlySet<string>
 }
 
 export function resolveAttachmentDestination(options: ResolveAttachmentDestinationOptions): string {
   const directory = join(options.homeDir, 'Downloads', 'telegram-cli')
   const safeName = sanitizeFileName(options.fileName)
   let destination = join(directory, safeName)
-  if (!options.exists(destination)) return destination
+  if (!collides(destination, options)) return destination
 
   const extension = extname(safeName)
   const baseName = parse(safeName).name
@@ -18,8 +19,12 @@ export function resolveAttachmentDestination(options: ResolveAttachmentDestinati
   do {
     destination = join(directory, `${baseName} (${index})${extension}`)
     index += 1
-  } while (options.exists(destination))
+  } while (collides(destination, options))
   return destination
+}
+
+function collides(path: string, options: ResolveAttachmentDestinationOptions): boolean {
+  return options.exists(path) || options.reserved?.has(path) === true
 }
 
 function sanitizeFileName(fileName: string): string {
