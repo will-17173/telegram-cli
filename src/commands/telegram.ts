@@ -329,7 +329,6 @@ export function registerTelegramCommands(app: Command): void {
               if (autoDownloader != null) {
                 if (controller.signal.aborted) {
                   autoDownloader.stop()
-                  await autoDownloader.waitForActive()
                 } else if (retry) {
                   autoDownloader.setClient(null)
                   await autoDownloader.waitForActive()

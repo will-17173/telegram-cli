@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -133,8 +133,10 @@ describe('listen command', () => {
     }
 
     expect(client.downloadMessageMedia).toHaveBeenCalledOnce()
-    expect(writes.join('')).not.toContain('📎 Photo')
-    expect(writes.join('')).toContain('downloaded: ')
+    const output = writes.join('')
+    expect(output).not.toContain('📎 Photo')
+    expect(output).toContain(`downloaded: ${join(dataDir, 'Downloads', 'telegram-cli', 'IMG_001.jpg')}\n`)
+    expect(output).not.toMatch(/Downloading|%|queued/)
   })
 
   it('does not download media unless --auto-download is present', async () => {
@@ -149,7 +151,15 @@ describe('listen command', () => {
       writes.push(String(chunk))
       return true
     })
-    client.downloadMessageMedia.mockRejectedValueOnce(new Error('network unavailable'))
+    client.downloadMessageMedia.mockImplementation(async ({ msgId, destination }: DownloadMessageMediaOptions) => {
+      if (msgId === 1) throw new Error('network unavailable')
+      writeFileSync(destination, 'downloaded')
+    })
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage({ ...fixtureMessage(), raw_json: { _: 'messageMediaPhoto', photo: { file_name: 'first.jpg' } } })
+      onMessage({ ...fixtureMessage(), msg_id: 2, raw_json: { _: 'messageMediaPhoto', photo: { file_name: 'second.jpg' } } })
+      return 'stopped'
+    })
 
     try {
       await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--auto-download'])
@@ -157,8 +167,37 @@ describe('listen command', () => {
       write.mockRestore()
     }
 
-    expect(writes.join('')).toContain('download failed: 100:1: network unavailable\n')
-    expect(writes.join('')).toContain('listening completed\n')
+    const output = writes.join('')
+    expect(client.downloadMessageMedia).toHaveBeenCalledTimes(2)
+    expect(output).toContain('download failed: 100:1: network unavailable\n')
+    expect(output).toContain(`downloaded: ${join(dataDir, 'Downloads', 'telegram-cli', 'second.jpg')}\n`)
+    expect(output).toContain('listening completed\n')
+    expect(output).not.toMatch(/Downloading|%|queued/)
+  })
+
+  it('closes the client immediately when listening is aborted', async () => {
+    let finishDownload: () => void = () => undefined
+    client.downloadMessageMedia.mockImplementationOnce(async ({ destination }: DownloadMessageMediaOptions) => {
+      await new Promise<void>((resolve) => { finishDownload = resolve })
+      writeFileSync(destination, 'downloaded')
+    })
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage(fixtureMessage())
+      process.emit('SIGINT')
+      return 'stopped'
+    })
+
+    const listening = createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--auto-download'])
+    await vi.waitFor(() => expect(client.downloadMessageMedia).toHaveBeenCalledOnce())
+
+    expect(client.close).toHaveBeenCalledOnce()
+    finishDownload()
+    await listening
+    const downloadDir = join(dataDir, 'Downloads', 'telegram-cli')
+    await vi.waitFor(() => {
+      expect(existsSync(join(downloadDir, 'IMG_001.jpg'))).toBe(true)
+      expect(readdirSync(downloadDir).some((entry) => entry.endsWith('.part'))).toBe(false)
+    })
   })
 
   it('downloads every message in an album', async () => {
@@ -171,7 +210,7 @@ describe('listen command', () => {
     await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--auto-download'])
 
     expect(client.downloadMessageMedia).toHaveBeenCalledTimes(2)
-    expect(client.downloadMessageMedia.mock.calls.map(([options]) => options.msgId)).toEqual([11, 12])
+    expect(client.downloadMessageMedia.mock.calls.map(([options]) => options.msgId).sort((a, b) => a - b)).toEqual([11, 12])
   })
 
   it('prints each received message to stdout', async () => {
