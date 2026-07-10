@@ -112,6 +112,7 @@ Many commands support `--json` or `--yaml` for structured output. Use `tg <comma
 
 - `sync-all` and `refresh` are batch operations for local persistence; they are not read-only.
 - `listen` prints a concise separator for each incoming message and can optionally suppress attachment summaries.
+- Capable true-color interactive terminals show embedded photo previews without downloading the original.
 - If you still see Telegram synchronization warnings in the console, command output continues to work in most cases.
 
 ## Local data and privacy
