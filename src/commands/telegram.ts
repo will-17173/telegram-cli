@@ -6,6 +6,7 @@ import type { TelegramClientAdapter, TelegramUser } from '../telegram/types.js'
 import { MessageService } from '../services/message-service.js'
 import { SyncService } from '../services/sync-service.js'
 import { ListenAlbumAggregator } from '../services/listen-album-aggregator.js'
+import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../services/auto-download-coordinator.js'
 import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '../presenters/human.js'
 import { formatListenLine } from '../presenters/listen-message.js'
 import { renderInteractiveListen } from '../presenters/ink/listen.js'
@@ -40,6 +41,7 @@ type ListenOptions = MachineOptions & {
   sendTo?: string
   media?: boolean
   interactive?: boolean
+  autoDownload?: boolean
 }
 
 export function registerTelegramCommands(app: Command): void {
@@ -240,12 +242,14 @@ export function registerTelegramCommands(app: Command): void {
     .option('--retry-seconds <seconds>', 'Reconnect delay', '5')
     .option('--send-to <chat>', 'Set default outgoing chat for interactive mode')
     .option('--no-media', 'Hide attachment summary for incoming messages')
+    .option('--auto-download', 'Download incoming attachments automatically')
     .option('--no-interactive', 'Use plain text listen output')
     .action(async (chats: string[], options: ListenOptions) => {
       const persist = Boolean(options.persist)
       const retrySeconds = Number.parseFloat(options.retrySeconds ?? '5')
       const parsedChats = parseChats(chats)?.map(parseChat)
       const showMedia = options.media !== false
+      const autoDownload = Boolean(options.autoDownload)
       const showChatName = parsedChats == null
       const useInteractive = options.interactive !== false && process.stdin.isTTY === true && process.stdout.isTTY === true
       const sendTo = options.sendTo == null ? resolveSingleSendTarget(parsedChats) : parseChat(options.sendTo)
@@ -261,6 +265,7 @@ export function registerTelegramCommands(app: Command): void {
           showChatName,
         })),
       })
+      let autoDownloader: AutoDownloadCoordinator | undefined
 
       process.on('SIGINT', stopListening)
       process.on('SIGTERM', stopListening)
@@ -276,6 +281,7 @@ export function registerTelegramCommands(app: Command): void {
               retrySeconds,
               sendTo,
               showMedia,
+              autoDownload,
               showChatName,
               createClient,
               stopSignal: controller.signal,
@@ -284,9 +290,16 @@ export function registerTelegramCommands(app: Command): void {
             return
           }
 
+          if (autoDownload) {
+            autoDownloader = new AutoDownloadCoordinator({
+              onEvent: printAutoDownloadEvent,
+            })
+          }
+
           while (true) {
             const client = createClient()
             let retry = false
+            autoDownloader?.setClient(client)
             try {
               const result = await client.listen({
                 chats: parsedChats,
@@ -300,6 +313,7 @@ export function registerTelegramCommands(app: Command): void {
                     const oldest = seenMessageOrder.shift()
                     if (oldest != null) seenMessages.delete(oldest)
                   }
+                  autoDownloader?.enqueue(message)
                   albumAggregator.add(message)
                 },
               })
@@ -312,6 +326,18 @@ export function registerTelegramCommands(app: Command): void {
               retry = true
             } finally {
               albumAggregator.flush()
+              if (autoDownloader != null) {
+                if (controller.signal.aborted) {
+                  autoDownloader.stop()
+                  await autoDownloader.waitForActive()
+                } else if (retry) {
+                  autoDownloader.setClient(null)
+                  await autoDownloader.waitForActive()
+                } else {
+                  await autoDownloader.waitForIdle()
+                  autoDownloader.setClient(null)
+                }
+              }
               await client.close().catch(() => undefined)
             }
             if (retry) {
@@ -326,10 +352,19 @@ export function registerTelegramCommands(app: Command): void {
         process.off('SIGTERM', stopListening)
         restoreUpdateWarnings()
         restoreUpdateErrors()
+        autoDownloader?.stop()
         albumAggregator.dispose()
       }
       process.stdout.write('listening completed\n')
     })
+}
+
+function printAutoDownloadEvent(event: AutoDownloadEvent): void {
+  if (event.status === 'completed') {
+    process.stdout.write(`downloaded: ${event.path}\n`)
+  } else if (event.status === 'failed') {
+    process.stdout.write(`download failed: ${event.key.split(':').slice(0, -1).join(':')}: ${event.error}\n`)
+  }
 }
 
 function parseChats(values: string[] | undefined): string[] | undefined {

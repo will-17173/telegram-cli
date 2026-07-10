@@ -4,13 +4,22 @@ import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
+import type { DownloadMessageMediaOptions } from '../../src/telegram/types.js'
 
 const renderInteractiveListen = vi.hoisted(() => vi.fn(async () => undefined))
+
+vi.mock('node:os', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:os')>()
+  return { ...original, homedir: () => process.env.DATA_DIR ?? original.homedir() }
+})
 
 vi.mock('../../src/presenters/ink/listen.js', () => ({ renderInteractiveListen }))
 
 const client = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
+  downloadMessageMedia: vi.fn(async ({ destination }: DownloadMessageMediaOptions) => {
+    writeFileSync(destination, 'downloaded')
+  }),
   listen: vi.fn(async ({ onMessage, signal }: { onMessage: (message: StoredMessageInput) => void; signal: AbortSignal }) => {
     if (!signal.aborted) {
       onMessage(fixtureMessage())
@@ -51,7 +60,18 @@ describe('listen command', () => {
     seedAccount(dataDir)
     vi.stubEnv('DATA_DIR', dataDir)
     client.close.mockClear()
-    client.listen.mockClear()
+    client.downloadMessageMedia.mockClear()
+    client.downloadMessageMedia.mockImplementation(async ({ destination }: DownloadMessageMediaOptions) => {
+      writeFileSync(destination, 'downloaded')
+    })
+    client.listen.mockReset()
+    client.listen.mockImplementation(async ({ onMessage, signal }: { onMessage: (message: StoredMessageInput) => void; signal: AbortSignal }) => {
+      if (!signal.aborted) {
+        onMessage(fixtureMessage())
+        onMessage(fixtureMessage())
+      }
+      return 'stopped'
+    })
     renderInteractiveListen.mockClear()
   })
 
@@ -81,6 +101,77 @@ describe('listen command', () => {
       sendTo: -1001,
       showMedia: true,
     }))
+  })
+
+  it('passes --auto-download to the interactive listener', async () => {
+    const stdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY')
+    const stdoutIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY')
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true })
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--auto-download'])
+    } finally {
+      restoreProperty(process.stdin, 'isTTY', stdinIsTty)
+      restoreProperty(process.stdout, 'isTTY', stdoutIsTty)
+    }
+
+    expect(renderInteractiveListen).toHaveBeenCalledWith(expect.objectContaining({ autoDownload: true }))
+  })
+
+  it('downloads media in plain mode even when its summary is hidden', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--auto-download', '--no-media'])
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(client.downloadMessageMedia).toHaveBeenCalledOnce()
+    expect(writes.join('')).not.toContain('📎 Photo')
+    expect(writes.join('')).toContain('downloaded: ')
+  })
+
+  it('does not download media unless --auto-download is present', async () => {
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'listen'])
+
+    expect(client.downloadMessageMedia).not.toHaveBeenCalled()
+  })
+
+  it('prints download failures without stopping the listener', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+    client.downloadMessageMedia.mockRejectedValueOnce(new Error('network unavailable'))
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--auto-download'])
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(writes.join('')).toContain('download failed: 100:1: network unavailable\n')
+    expect(writes.join('')).toContain('listening completed\n')
+  })
+
+  it('downloads every message in an album', async () => {
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage(albumMessage(11, ''))
+      onMessage(albumMessage(12, 'album caption'))
+      return 'stopped'
+    })
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--auto-download'])
+
+    expect(client.downloadMessageMedia).toHaveBeenCalledTimes(2)
+    expect(client.downloadMessageMedia.mock.calls.map(([options]) => options.msgId)).toEqual([11, 12])
   })
 
   it('prints each received message to stdout', async () => {

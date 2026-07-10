@@ -40,6 +40,7 @@ type ListenRuntimeOptions = {
   retrySeconds: number
   sendTo: string | number | undefined
   showMedia: boolean
+  autoDownload: boolean
   showChatName: boolean
   createClient: () => TelegramClientAdapter
   stopSignal: AbortSignal
