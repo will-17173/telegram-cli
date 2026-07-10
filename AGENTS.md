@@ -30,6 +30,8 @@ Vitest runs in the Node environment and discovers `tests/**/*.test.ts`. Add focu
 
 History follows Conventional Commit-style subjects such as `feat: add telegram adapter interface` and `fix: preflight output format conflicts`. Use an imperative, scoped summary and keep each commit focused. Pull requests should explain the behavioral change, list verification commands, and link relevant issues. Include terminal output or screenshots when human-readable Ink rendering changes, and call out changes to structured JSON/YAML contracts.
 
+Commit messages must be written in English and follow Conventional Commit format.
+
 ## Security & Configuration
 
 Never commit `.env`, Telegram credentials, session files, or generated SQLite databases. Configure local credentials with `TG_API_ID` and `TG_API_HASH`; use `DATA_DIR` or `DB_PATH` when test data must be isolated.

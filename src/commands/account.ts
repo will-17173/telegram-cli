@@ -58,7 +58,7 @@ export function registerAccountCommands(app: Command): void {
 
         const accounts = registry.accounts.map((account) => ({
           name: account.name,
-          display_name: account.display_name,
+          display_name: normalizeDisplayName(account.display_name),
           username: account.username,
           phone: account.phone,
           current: account.name === registry.current_account,
@@ -128,7 +128,7 @@ export function registerAccountCommands(app: Command): void {
             title: 'Current account',
             fields: [
               { label: 'Name', value: account.name },
-              { label: 'Display name', value: account.display_name },
+              { label: 'Display name', value: normalizeDisplayName(account.display_name) },
               { label: 'Username', value: `@${account.username}` },
               { label: 'User ID', value: String(account.user_id) },
               { label: 'Phone', value: account.phone },
@@ -339,6 +339,8 @@ async function addAccount(): Promise<{
     auth = await authenticateAccount(temporarySessionPath, credentials)
     const user = await auth.getMe()
     const mapped = mapAuthUser(user)
+    await auth.close()
+    auth = undefined
 
     const registration = await store.withLock(() => {
       const registry = store.read()
@@ -436,8 +438,8 @@ function mapAuthUser(user: AuthUser): {
   display_name: string
   name: string
 } {
-  const displayName = [
-    user.displayName,
+  const displayName = user.displayName?.trim()
+  const displayNameFallback = [
     user.firstName,
     user.lastName,
   ].filter((value): value is string => value != null && value.trim().length > 0).join(' ')
@@ -446,14 +448,31 @@ function mapAuthUser(user: AuthUser): {
   const phone = (user.phoneNumber ?? '').replace(/\D/g, '') || String(user.id)
   const preferredName = user.username?.trim().toLowerCase() || ''
   const name = preferredName.length > 0 ? preferredName : phone
+  const resolvedDisplayName = displayName && displayName.length > 0
+    ? displayName
+    : displayNameFallback
 
   return {
     user_id: user.id,
     username: username.toLowerCase(),
     phone,
-    display_name: displayName.length > 0 ? displayName : username,
+    display_name: resolvedDisplayName.length > 0 ? normalizeDisplayName(resolvedDisplayName) : username,
     name,
   }
+}
+
+function normalizeDisplayName(displayName: string): string {
+  const normalized = displayName.trim().replace(/\s+/g, ' ')
+  const words = normalized.split(' ')
+
+  for (let len = 1; len * 2 <= words.length; len += 1) {
+    if (words.length !== len * 2) continue
+    const first = words.slice(0, len).join(' ')
+    const second = words.slice(len).join(' ')
+    if (first === second) return first
+  }
+
+  return normalized
 }
 
 async function rollbackRegistration(store: AccountStore, name: string): Promise<void> {

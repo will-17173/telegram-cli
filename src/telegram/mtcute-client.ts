@@ -201,7 +201,13 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
 
   private async ensureReady(): Promise<void> {
     if (this.isReady) return
-    await this.client.start()
+    await this.client.connect()
+    try {
+      await this.client.getMe()
+    } catch (error) {
+      await this.client.disconnect().catch(() => undefined)
+      throw error
+    }
     this.isReady = true
   }
 

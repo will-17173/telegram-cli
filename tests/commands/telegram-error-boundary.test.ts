@@ -67,6 +67,28 @@ describe('Telegram command error boundary', () => {
     expect(client.close).toHaveBeenCalledOnce()
   })
 
+  it('shows a focused session error when auth key is unregistered', async () => {
+    const rpcError = new Error('Telegram API error 401: AUTH_KEY_UNREGISTERED') as Error & { code: number; text: string }
+    rpcError.code = 401
+    rpcError.text = 'AUTH_KEY_UNREGISTERED'
+
+    client.listChats.mockRejectedValueOnce(rpcError)
+
+    const result = await run(['chats', '--json'])
+    const payload = JSON.parse(result.stdout)
+
+    expect(payload).toEqual({
+      ok: false,
+      schema_version: '1',
+      error: {
+        code: 'telegram_account_session_expired',
+        message: 'Session for account "alice" is no longer valid. Re-add the account: tg account remove alice --force && tg account add.',
+      },
+    })
+    expect(result.code).toBe(1)
+    expect(client.close).toHaveBeenCalledOnce()
+  })
+
   it('renders a config error when client construction throws without trying to close', async () => {
     vi.stubEnv('OUTPUT', 'rich')
     createTelegramClient.mockImplementationOnce(() => { throw new Error('TG_API_ID is required') })

@@ -39,7 +39,7 @@ export function accountFailureFromError(error: unknown): HandlerResult<never> {
   const message = error instanceof Error ? error.message : String(error)
   const [code, detail] = splitError(message)
 
-  if (code === 'account_required' || code === 'account_not_found') {
+  if (code === 'account_required' || code === 'account_not_found' || code === 'account_session_missing') {
     return {
       ok: false,
       error: {

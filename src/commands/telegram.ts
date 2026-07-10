@@ -424,13 +424,40 @@ async function renderTelegramResult(
     try {
       return await handler(client, context)
     } catch (error) {
-      return commandFailure('telegram_error', error)
+      const authError = toAuthSessionError(error, context.account.name)
+      return authError ?? commandFailure('telegram_error', error)
     } finally {
       restoreStdoutWarnings()
       restoreStderrWarnings()
       await client.close().catch(() => undefined)
     }
   })
+}
+
+function toAuthSessionError(error: unknown, accountName: string): HandlerResult<never> | null {
+  if (isAuthKeyUnregistered(error)) {
+    return {
+      ok: false,
+      error: {
+        code: 'telegram_account_session_expired',
+        message: `Session for account "${accountName}" is no longer valid. Re-add the account: tg account remove ${accountName} --force && tg account add.`,
+      },
+    }
+  }
+  return null
+}
+
+function isAuthKeyUnregistered(error: unknown): boolean {
+  const candidate = error as { text?: unknown; message?: unknown; code?: unknown }
+  const text = typeof candidate.text === 'string'
+    ? candidate.text
+    : undefined
+
+  if (text === 'AUTH_KEY_UNREGISTERED') return true
+
+  const code = typeof candidate.code === 'number' ? candidate.code : undefined
+  const message = typeof candidate.message === 'string' ? candidate.message : ''
+  return message.includes('AUTH_KEY_UNREGISTERED') && code === 401
 }
 
 function commandFailure(code: string, error: unknown): HandlerResult<never> {

@@ -20,10 +20,12 @@ const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient
   const client = {
     start: vi.fn(async () => {
       mkdirSync(dirname(options.storage), { recursive: true })
-      writeFileSync(options.storage, 'session')
+      writeFileSync(options.storage, 'uncommitted-session')
     }),
     getMe: vi.fn(async () => AUTH_USER),
-    destroy: vi.fn(async () => undefined),
+    destroy: vi.fn(async () => {
+      writeFileSync(options.storage, 'committed-session')
+    }),
   }
   return client
 }))
@@ -118,6 +120,7 @@ describe('account commands', () => {
     expect(registry.current_account).toBe('aliceuser')
     expect(registry.accounts).toHaveLength(1)
     expect(registry.accounts[0]?.name).toBe('aliceuser')
+    expect(readFileSync(join(dataDir, 'accounts', 'aliceuser', 'session'), 'utf8')).toBe('committed-session')
   })
 
   it('returns current account information when current exists', async () => {
@@ -284,5 +287,42 @@ describe('account commands', () => {
     expect(yamlPayload.data.current_account).toBe('alice')
     expect(yamlPayload.data.accounts).toHaveLength(2)
     expect(yamlPayload.data.accounts.find((account: { name: string }) => account.name === 'bob')).toBeDefined()
+  })
+
+  it('normalizes duplicated display names when listing accounts', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 1,
+      current_account: 'alice',
+      accounts: [
+        { name: 'alice', user_id: 1001, username: 'alice', phone: '13800138000', display_name: '漫漫长夜 W 漫漫长夜 W' },
+      ],
+    })
+
+    const jsonResult = await run(['account', 'list', '--json'], dataDir)
+    const payload = JSON.parse(jsonResult.stdout)
+
+    expect(payload.ok).toBe(true)
+    expect(payload.data.accounts[0].display_name).toBe('漫漫长夜 W')
+  })
+
+  it('uses displayName as-is when adding an account', async () => {
+    const dataDir = createDataDir()
+    const originalAuthUser = { ...AUTH_USER }
+
+    AUTH_USER.displayName = '漫漫长夜 W'
+    AUTH_USER.firstName = '漫漫长夜'
+    AUTH_USER.lastName = 'W'
+
+    try {
+      const result = await run(['account', 'add', '--json'], dataDir)
+      const payload = JSON.parse(result.stdout)
+
+      expect(result.code).toBe(0)
+      expect(payload.ok).toBe(true)
+      expect(payload.data.account.display_name).toBe('漫漫长夜 W')
+    } finally {
+      Object.assign(AUTH_USER, originalAuthUser)
+    }
   })
 })
