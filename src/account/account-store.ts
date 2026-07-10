@@ -56,7 +56,7 @@ export class AccountStore {
       raw = readFileSync(this.path, 'utf8')
     } catch (error) {
       if (isNodeError(error) && error.code === 'ENOENT') {
-        return { ...EMPTY_REGISTRY }
+        return { ...EMPTY_REGISTRY, accounts: [] }
       }
       throw new AccountStoreError(`account_store_error: unable to read registry file: ${errorMessage(error)}`)
     }
@@ -109,7 +109,7 @@ export class AccountStore {
   }
 
   list(): AccountMeta[] {
-    return this.read().accounts
+    return [...this.read().accounts]
   }
 
   current(): AccountMeta | undefined {

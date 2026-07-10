@@ -2,7 +2,9 @@ import {
   existsSync,
   mkdtempSync,
   rmSync,
+  mkdirSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -134,6 +136,33 @@ describe('account store', () => {
     await Promise.all([first, second])
 
     expect(secondStarted).toEqual(['in'])
+  })
+
+  it('recovers from stale locks', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    const stale = new Date(Date.now() - 2_000)
+
+    mkdirSync(lockPath, { recursive: true })
+    utimesSync(lockPath, stale, stale)
+
+    const store = new AccountStore(path)
+    await expect(store.withLock(() => Promise.resolve())).resolves.toBeUndefined()
+    expect(existsSync(lockPath)).toBe(false)
+  })
+
+  it('raises lock timeout when another lock is active', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const storeA = new AccountStore(path)
+    const storeB = new AccountStore(path)
+
+    const hold = storeA.withLock(async () => {
+      await sleep(350)
+    })
+
+    await expect(storeB.withLock(() => Promise.resolve())).rejects.toThrow(/account_store_error: unable to acquire lock in time/)
+
+    await hold
   })
 
   it('preserves concurrent mutations under lock', async () => {
