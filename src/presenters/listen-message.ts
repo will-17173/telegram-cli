@@ -23,6 +23,14 @@ export type ListenAttachment = {
   fileName: string | null
   downloadable: boolean
   previewJpegBase64?: string
+  previewRows?: number
+  previewCells?: PreviewCell[][]
+}
+
+export type PreviewCell = {
+  glyph: '▀'
+  foreground: string
+  background: string
 }
 
 export function buildListenMessage(input: StoredMessageInput | StoredMessageInput[], options: ListenMessageFormatOptions = {}): ListenMessageRow {

@@ -1,10 +1,7 @@
 import jpeg from 'jpeg-js'
+import type { PreviewCell } from '../listen-message.js'
 
-export interface PreviewCell {
-  glyph: '▀'
-  foreground: string
-  background: string
-}
+export type { PreviewCell } from '../listen-message.js'
 
 export interface DecodedImagePreview {
   width: number

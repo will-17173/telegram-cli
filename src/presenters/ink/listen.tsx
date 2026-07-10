@@ -45,6 +45,8 @@ type ListenRuntimeOptions = {
 }
 
 const MESSAGE_SEPARATOR = '────────────────────────────────────────────'
+/** Maximum number of grouped messages retained by a long-running interactive listener. */
+export const LISTEN_HISTORY_LIMIT = 500
 export const LISTEN_COMPOSER_THEME = {
   background: '#454950',
   foreground: '#d7dae0',
@@ -121,31 +123,19 @@ export function ListenImagePreview({ rows }: { rows: PreviewCell[][] }): React.J
 }
 
 type ListenAttachmentWithPreviewProps = ListenAttachmentLineProps & {
-  previewJpegBase64?: string
-  contentWidth: number
-  colorDepth: number
+  previewCells?: PreviewCell[][]
 }
 
 export function ListenAttachmentWithPreview({
   label,
   selected,
   state,
-  previewJpegBase64,
-  contentWidth,
-  colorDepth,
+  previewCells,
 }: ListenAttachmentWithPreviewProps): React.JSX.Element {
-  const previewWidth = Math.max(1, Math.min(24, contentWidth - 2))
-  const preview = useMemo(
-    () => previewJpegBase64 != null && colorDepth >= 24
-      ? decodeImagePreview(previewJpegBase64, previewWidth)
-      : null,
-    [previewJpegBase64, previewWidth, colorDepth],
-  )
-
   return (
     <Box flexDirection="column">
       <ListenAttachmentLine label={label} selected={selected} state={state} />
-      {preview == null ? null : <ListenImagePreview rows={preview.rows} />}
+      {previewCells == null ? null : <ListenImagePreview rows={previewCells} />}
     </Box>
   )
 }
@@ -181,7 +171,7 @@ function InteractiveListen({
   const { exit } = useApp()
   const { stdout } = useStdout()
   const [status, setStatus] = useState('connecting...')
-  const [messages, setMessages] = useState<ListenMessage[]>([])
+  const [messageGroups, setMessageGroups] = useState<StoredMessageInput[][]>([])
   const [input, setInput] = useState('')
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
@@ -194,6 +184,17 @@ function InteractiveListen({
   const terminalHeight = stdout?.rows ?? 24
   const colorDepth = stdout?.getColorDepth?.() ?? 1
   const contentWidth = listenContentWidth(terminalWidth)
+  const previewWidth = Math.max(1, Math.min(24, contentWidth - 2))
+  const messageViewCacheRef = useRef<ListenMessageViewCache | null>(null)
+  if (messageViewCacheRef.current == null) messageViewCacheRef.current = new ListenMessageViewCache()
+  const messages = useMemo(
+    () => messageViewCacheRef.current!.build(messageGroups, {
+      showMedia,
+      previewWidth,
+      colorDepth,
+    }),
+    [messageGroups, showMedia, previewWidth, colorDepth],
+  )
   const reservedLines = 7 + (note ? 1 : 0)
   const messagePaneHeight = Math.max(2, terminalHeight - reservedLines)
   const visibleMessages = takeListenViewport(messages, messagePaneHeight, scrollState.offset)
@@ -217,6 +218,27 @@ function InteractiveListen({
   }, [messages.length, showScrollbar])
 
   useMouseScroll(handleMouseScroll)
+
+  useEffect(() => {
+    const maxOffset = Math.max(0, messages.length - 1)
+    setScrollState((current) => {
+      const offset = Math.min(current.offset, maxOffset)
+      const unseenCount = offset === 0 ? 0 : Math.min(current.unseenCount, messages.length)
+      return offset === current.offset && unseenCount === current.unseenCount
+        ? current
+        : { offset, unseenCount }
+    })
+
+    const validAttachmentKeys = new Set(collectAttachments(messages).map((item) => item.key))
+    setDownloadStates((current) => {
+      const retained = Object.fromEntries(
+        Object.entries(current).filter(([key]) => validAttachmentKeys.has(key)),
+      )
+      return Object.keys(retained).length === Object.keys(current).length ? current : retained
+    })
+    setSelectedAttachmentIndex((current) => Math.min(current, Math.max(0, downloadableAttachments.length - 1)))
+    if (downloadableAttachments.length === 0) setFocus('input')
+  }, [messages, downloadableAttachments.length])
 
   useInput((inputText, key) => {
     if (isMouseInput(inputText)) return
@@ -283,7 +305,7 @@ function InteractiveListen({
     const albumAggregator = new ListenAlbumAggregator({
       emit: (group) => {
         setScrollState((current) => applyMessageArrival(current))
-        setMessages((current) => [...current, toListenMessage(group, showMedia)])
+        setMessageGroups((current) => pruneListenMessageGroups([...current, group]).groups)
       },
     })
     albumAggregatorRef.current = albumAggregator
@@ -460,9 +482,7 @@ function InteractiveListen({
                     label={item.label}
                     selected={focus === 'attachments' && selectedAttachment?.key === attachmentKey}
                     state={downloadStates[attachmentKey] ?? { status: 'idle' }}
-                    previewJpegBase64={item.previewJpegBase64}
-                    contentWidth={contentWidth}
-                    colorDepth={colorDepth}
+                    previewCells={item.previewCells}
                   />
                 )
               })}
@@ -489,16 +509,109 @@ function InteractiveListen({
   )
 }
 
-export function toListenMessage(messages: StoredMessageInput[], showMedia: boolean): ListenMessage {
+export type ListenMessageRenderContext = {
+  showMedia: boolean
+  previewWidth: number
+  colorDepth: number
+  decodePreview?: typeof decodeImagePreview
+}
+
+type ListenMessageCacheEntry = {
+  group: StoredMessageInput[]
+  showMedia: boolean
+  previewWidth: number
+  colorDepth: number
+  decodePreview: typeof decodeImagePreview | undefined
+  message: ListenMessage
+}
+
+export class ListenMessageViewCache {
+  private entries = new Map<string, ListenMessageCacheEntry>()
+
+  get size(): number {
+    return this.entries.size
+  }
+
+  build(groups: StoredMessageInput[][], context: ListenMessageRenderContext): ListenMessage[] {
+    const previewWidth = normalizedPreviewWidth(context.previewWidth)
+    const nextEntries = new Map<string, ListenMessageCacheEntry>()
+    const messages = groups.map((group) => {
+      const first = group[0]
+      if (first == null) throw new Error('Cannot render an empty listen message group')
+      const key = `${first.chat_id}:${first.msg_id}`
+      const cached = this.entries.get(key)
+      if (
+        cached?.group === group
+        && cached.showMedia === context.showMedia
+        && cached.previewWidth === previewWidth
+        && cached.colorDepth === context.colorDepth
+        && cached.decodePreview === context.decodePreview
+      ) {
+        nextEntries.set(key, cached)
+        return cached.message
+      }
+      const message = toListenMessage(group, { ...context, previewWidth })
+      nextEntries.set(key, {
+        group,
+        showMedia: context.showMedia,
+        previewWidth,
+        colorDepth: context.colorDepth,
+        decodePreview: context.decodePreview,
+        message,
+      })
+      return message
+    })
+    this.entries = nextEntries
+    return messages
+  }
+}
+
+export function pruneListenMessageGroups(
+  groups: StoredMessageInput[][],
+  limit = LISTEN_HISTORY_LIMIT,
+): { groups: StoredMessageInput[][]; removedKeys: string[] } {
+  const retainedLimit = Math.max(0, limit)
+  const removeCount = Math.max(0, groups.length - retainedLimit)
+  const removed = groups.slice(0, removeCount)
+  return {
+    groups: groups.slice(removeCount),
+    removedKeys: removed.flatMap((group) => {
+      const first = group[0]
+      return first == null ? [] : [`${first.chat_id}:${first.msg_id}`]
+    }),
+  }
+}
+
+export function toListenMessage(
+  messages: StoredMessageInput[],
+  context: boolean | ListenMessageRenderContext,
+): ListenMessage {
   const message = messages[0]
   if (message == null) throw new Error('Cannot render an empty listen message group')
+  const renderContext = typeof context === 'boolean'
+    ? { showMedia: context, previewWidth: 1, colorDepth: 1 }
+    : context
+  const { showMedia, previewWidth, colorDepth } = renderContext
   const formatted = buildListenMessage(messages, { showMedia })
+  const decodePreview = renderContext.decodePreview ?? decodeImagePreview
+  const media = formatted.media.map((attachment) => {
+    if (attachment.previewJpegBase64 == null || colorDepth < 24) return attachment
+    const preview = decodePreview(attachment.previewJpegBase64, normalizedPreviewWidth(previewWidth))
+    return preview == null
+      ? attachment
+      : { ...attachment, previewRows: preview.rows.length, previewCells: preview.rows }
+  })
   return {
     key: `${message.chat_id}:${message.msg_id}`,
     chatId: message.chat_id,
     msgId: message.msg_id,
     ...formatted,
+    media,
   }
+}
+
+function normalizedPreviewWidth(previewWidth: number): number {
+  return Math.max(1, Math.min(24, previewWidth))
 }
 
 function collectAttachments(messages: ListenMessage[]): DownloadableAttachment[] {

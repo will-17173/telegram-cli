@@ -6,7 +6,10 @@ export type ListenScrollState = {
 }
 
 function messageLines(message: ListenMessageRow): number {
-  return 2 + (message.content == null ? 0 : 1) + message.media.length
+  return 2 + (message.content == null ? 0 : 1) + message.media.reduce(
+    (lines, attachment) => lines + 1 + (attachment.previewRows ?? 0),
+    0,
+  )
 }
 
 export function takeListenViewport<T extends ListenMessageRow>(
@@ -22,7 +25,10 @@ export function takeListenViewport<T extends ListenMessageRow>(
     const message = messages[index]
     if (message == null) continue
     const lineCount = messageLines(message)
-    if (usedLines + lineCount > maxLines) break
+    if (usedLines + lineCount > maxLines) {
+      if (visible.length === 0) visible.unshift(message)
+      break
+    }
     visible.unshift(message)
     usedLines += lineCount
   }

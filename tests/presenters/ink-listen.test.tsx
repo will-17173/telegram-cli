@@ -2,7 +2,7 @@ import React from 'react'
 import { renderToString } from 'ink'
 import { describe, expect, it, vi } from 'vitest'
 
-import { attachmentDownloadTarget, flushListenBeforeExit, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, ListenStatus, runInteractiveListen, toListenMessage } from '../../src/presenters/ink/listen.js'
+import { attachmentDownloadTarget, flushListenBeforeExit, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneListenMessageGroups, runInteractiveListen, toListenMessage } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -110,6 +110,19 @@ describe('ListenAttachmentWithPreview', () => {
     expect(output).not.toContain('▀')
   })
 
+  it('renders provided cells without requiring encoded image input', () => {
+    const output = renderToString(
+      <ListenAttachmentWithPreview
+        label="📎 Photo"
+        selected={false}
+        state={{ status: 'idle' }}
+        previewCells={[[{ glyph: '▀', foreground: '#112233', background: '#445566' }]]}
+      />,
+    )
+
+    expect(output).toContain('▀')
+  })
+
 })
 
 describe('ListenStatus', () => {
@@ -119,6 +132,7 @@ describe('ListenStatus', () => {
     expect(renderToString(<ListenStatus status="connected" unseenCount={0} />))
       .toBe('connected')
   })
+
 })
 
 describe('interactive album messages', () => {
@@ -150,6 +164,86 @@ describe('interactive album messages', () => {
     expect(decodePreview).toHaveBeenCalledOnce()
     expect(row.media[0]?.previewRows).toBe(1)
     expect(row.media[0]?.previewCells).toHaveLength(1)
+  })
+
+  it('does not decode unchanged previews again when a new group arrives', () => {
+    const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
+    const first = [{ ...storedPhoto(11, ''), preview_jpeg_base64: twoByTwoJpeg }]
+    const second = [{ ...storedPhoto(12, ''), preview_jpeg_base64: twoByTwoJpeg }]
+    const cache = new ListenMessageViewCache()
+    const context = { showMedia: true, previewWidth: 20, colorDepth: 24, decodePreview }
+
+    cache.build([first], context)
+    const rows = cache.build([first, second], context)
+
+    expect(decodePreview).toHaveBeenCalledTimes(2)
+    expect(rows.map((row) => row.key)).toEqual(['100:11', '100:12'])
+  })
+
+  it('bounds retained groups and cache entries while reusing retained previews', () => {
+    const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
+    const groups = Array.from({ length: LISTEN_HISTORY_LIMIT + 1 }, (_, index) => [
+      { ...storedPhoto(index + 1, ''), preview_jpeg_base64: twoByTwoJpeg },
+    ])
+    const cache = new ListenMessageViewCache()
+    const context = { showMedia: true, previewWidth: 20, colorDepth: 24, decodePreview }
+    const initial = pruneListenMessageGroups(groups.slice(0, LISTEN_HISTORY_LIMIT))
+
+    cache.build(initial.groups, context)
+    const retained = pruneListenMessageGroups(groups)
+    const rows = cache.build(retained.groups, context)
+
+    expect(retained.groups).toHaveLength(LISTEN_HISTORY_LIMIT)
+    expect(retained.removedKeys).toEqual(['100:1'])
+    expect(rows[0]?.key).toBe('100:2')
+    expect(cache.size).toBe(LISTEN_HISTORY_LIMIT)
+    expect(decodePreview).toHaveBeenCalledTimes(LISTEN_HISTORY_LIMIT + 1)
+  })
+
+  it('rebuilds albums on resize while preserving grouping and stable keys', () => {
+    const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
+    const album = [
+      { ...storedPhoto(11, ''), preview_jpeg_base64: twoByTwoJpeg },
+      { ...storedPhoto(12, 'caption'), preview_jpeg_base64: twoByTwoJpeg },
+    ]
+    const cache = new ListenMessageViewCache()
+
+    const before = cache.build([album], { showMedia: true, previewWidth: 10, colorDepth: 24, decodePreview })
+    const after = cache.build([album], { showMedia: true, previewWidth: 12, colorDepth: 24, decodePreview })
+
+    expect(decodePreview).toHaveBeenCalledTimes(4)
+    expect(after).toHaveLength(1)
+    expect(after[0]?.key).toBe(before[0]?.key)
+    expect(new Set(after.map((row) => row.key)).size).toBe(after.length)
+    expect(after[0]?.media.map((item) => item.messageId)).toEqual([11, 12])
+  })
+
+  it('caps preview decoding width at 24 cells', () => {
+    const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
+
+    toListenMessage([{ ...storedPhoto(11, ''), preview_jpeg_base64: twoByTwoJpeg }], {
+      showMedia: true,
+      previewWidth: 100,
+      colorDepth: 24,
+      decodePreview,
+    })
+
+    expect(decodePreview).toHaveBeenCalledWith(twoByTwoJpeg, 24)
+  })
+
+  it.each([
+    { showMedia: false, colorDepth: 24 },
+    { showMedia: true, colorDepth: 8 },
+  ])('does not decode or expose preview cells for $showMedia/$colorDepth capability', (capability) => {
+    const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
+    const row = toListenMessage([{ ...storedPhoto(11, ''), preview_jpeg_base64: twoByTwoJpeg }], {
+      ...capability,
+      previewWidth: 20,
+      decodePreview,
+    })
+
+    expect(decodePreview).not.toHaveBeenCalled()
+    expect(row.media.every((item) => item.previewRows == null && item.previewCells == null)).toBe(true)
   })
 
   it('flushes pending albums before deferring terminal exit', () => {

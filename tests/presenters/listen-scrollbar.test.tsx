@@ -3,6 +3,8 @@ import { renderToString } from 'ink'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ListenScrollbar, calculateScrollbar, createTransientVisibility, listenContentWidth } from '../../src/presenters/ink/listen-scrollbar.js'
+import { takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
+import type { ListenMessageRow } from '../../src/presenters/listen-message.js'
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
@@ -16,6 +18,18 @@ describe('calculateScrollbar', () => {
 
   it('returns no thumb when all messages fit', () => {
     expect(calculateScrollbar({ height: 10, total: 5, visible: 5, offset: 0 })).toBeNull()
+  })
+})
+
+describe('takeListenViewport oversized messages', () => {
+  it('keeps the oversized live candidate visible', () => {
+    expect(takeListenViewport([listenRow('old'), listenRow('live', 8)], 4, 0).map((row) => row.sender))
+      .toEqual(['live'])
+  })
+
+  it('keeps the oversized historical candidate visible', () => {
+    expect(takeListenViewport([listenRow('historical', 8), listenRow('live')], 4, 1).map((row) => row.sender))
+      .toEqual(['historical'])
   })
 })
 
@@ -60,3 +74,21 @@ describe('createTransientVisibility', () => {
     expect(setVisible).not.toHaveBeenCalledWith(false)
   })
 })
+
+function listenRow(sender: string, previewRows = 0): ListenMessageRow {
+  return {
+    time: '12:00',
+    sender,
+    content: null,
+    media: previewRows === 0 ? [] : [{
+      chatId: 1,
+      messageId: 1,
+      kind: 'Photo',
+      label: 'Photo',
+      fileName: null,
+      downloadable: true,
+      previewRows,
+      previewCells: [],
+    }],
+  }
+}
