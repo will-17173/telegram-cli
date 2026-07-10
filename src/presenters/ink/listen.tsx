@@ -557,7 +557,7 @@ export type ListenMessageRenderContext = {
   showMedia: boolean
   previewWidth: number
   colorDepth: number
-  showChatName: boolean
+  showChatName?: boolean
   decodePreview?: typeof decodeImagePreview
 }
 
@@ -636,7 +636,7 @@ export function toListenMessage(
   const renderContext = typeof context === 'boolean'
     ? { showMedia: context, previewWidth: 1, colorDepth: 1, showChatName: false }
     : context
-  const { showMedia, previewWidth, colorDepth, showChatName } = renderContext
+  const { showMedia, previewWidth, colorDepth, showChatName = false } = renderContext
   const formatted = buildListenMessage(messages, { showMedia, showChatName })
   const decodePreview = renderContext.decodePreview ?? decodeImagePreview
   const media = formatted.media.map((attachment) => {
