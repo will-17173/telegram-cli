@@ -43,6 +43,86 @@ describe('AutoDownloadCoordinator', () => {
     expect(events.filter((event) => event.status === 'queued')).toHaveLength(1)
   })
 
+  it('bounds pending work, reports overflow, and accepts new work after capacity frees', async () => {
+    const first = deferred()
+    const client = downloadClient((_, index) => index === 0 ? first.promise : Promise.resolve())
+    const events: AutoDownloadEvent[] = []
+    const coordinator = setup({ concurrency: 1, maxPending: 1, onEvent: (event) => events.push(event) })
+    coordinator.setClient(client.adapter)
+    coordinator.enqueue(mediaMessage(1, 'one.jpg'))
+    coordinator.enqueue(mediaMessage(2, 'two.jpg'))
+    coordinator.enqueue(mediaMessage(3, 'overflow.jpg'))
+    await tick()
+
+    expect(client.calls.map((call) => call.msgId)).toEqual([1])
+    expect(events).toContainEqual({ status: 'failed', key: '100:3:0', error: 'auto-download queue is full' })
+
+    first.resolve()
+    await coordinator.waitForIdle()
+    coordinator.enqueue(mediaMessage(4, 'later.jpg'))
+    await coordinator.waitForIdle()
+    expect(client.calls.map((call) => call.msgId)).toEqual([1, 2, 4])
+  })
+
+  it('bounds recent deduplication while never evicting an active task key', async () => {
+    const active = deferred()
+    const client = downloadClient((_, index) => index === 0 ? active.promise : Promise.resolve())
+    const coordinator = setup({ concurrency: 1, maxRecent: 1 })
+    coordinator.setClient(client.adapter)
+    const first = mediaMessage(1, 'one.jpg')
+    coordinator.enqueue(first)
+    coordinator.enqueue(first)
+    coordinator.enqueue(mediaMessage(2, 'two.jpg'))
+    await tick()
+    coordinator.enqueue(first)
+    expect(client.calls.map((call) => call.msgId)).toEqual([1])
+
+    active.resolve()
+    await coordinator.waitForIdle()
+    coordinator.enqueue(mediaMessage(3, 'three.jpg'))
+    await coordinator.waitForIdle()
+    coordinator.enqueue(first)
+    await coordinator.waitForIdle()
+    expect(client.calls.map((call) => call.msgId)).toEqual([1, 2, 3, 1])
+  })
+
+  it('uses a short owned temporary basename for a long valid final filename', async () => {
+    const client = downloadClient(async () => undefined)
+    const published: Array<[string, string]> = []
+    const coordinator = new AutoDownloadCoordinator({
+      homeDir: '/home', exists: () => false, mkdir: async () => undefined,
+      remove: async () => undefined,
+      publish: async (temporary, destination) => { published.push([temporary, destination]) },
+    })
+    coordinator.setClient(client.adapter)
+    coordinator.enqueue(mediaMessage(1, `${'a'.repeat(220)}.jpg`))
+    await coordinator.waitForIdle()
+
+    expect(new TextEncoder().encode(client.calls[0]!.destination.split('/').at(-1)).length).toBeLessThan(255)
+    expect(published[0]![1].endsWith(`${'a'.repeat(220)}.jpg`)).toBe(true)
+  })
+
+  it('retries default temporary names that already exist', async () => {
+    const uuids = ['occupied', 'owned']
+    const client = downloadClient(async () => undefined)
+    const remove = vi.fn(async () => undefined)
+    const coordinator = new AutoDownloadCoordinator({
+      homeDir: '/home',
+      exists: (path) => path.endsWith('/.telegram-cli-occupied.part'),
+      mkdir: async () => undefined,
+      remove,
+      publish: async () => undefined,
+      randomUUID: () => uuids.shift()!,
+    })
+    coordinator.setClient(client.adapter)
+    coordinator.enqueue(mediaMessage(1, 'photo.jpg'))
+    await coordinator.waitForIdle()
+
+    expect(client.calls[0]!.destination).toBe('/home/Downloads/telegram-cli/.telegram-cli-owned.part')
+    expect(remove).toHaveBeenCalledWith('/home/Downloads/telegram-cli/.telegram-cli-owned.part', { force: true })
+    expect(remove).not.toHaveBeenCalledWith('/home/Downloads/telegram-cli/.telegram-cli-occupied.part', { force: true })
+  })
+
   it('removes failed output, preserves the transfer error, and continues', async () => {
     const failure = new Error('network failed')
     const remove = vi.fn(async () => { throw new Error('cleanup failed') })

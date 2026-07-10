@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { link, mkdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import type { StoredMessageInput } from '../storage/message-db.js'
@@ -24,11 +24,14 @@ export type AutoDownloadEvent =
 
 type AutoDownloadCoordinatorOptions = {
   concurrency?: number
+  maxPending?: number
+  maxRecent?: number
   homeDir?: string
   exists?: (path: string) => boolean
   mkdir?: (path: string, options: { recursive: true }) => Promise<unknown>
   remove?: (path: string, options: { force: true }) => Promise<unknown>
   publish?: (temporary: string, destination: string) => Promise<unknown>
+  randomUUID?: () => string
   temporaryPath?: (destination: string, key: string) => string
   onEvent?: (event: AutoDownloadEvent) => void
 }
@@ -40,6 +43,8 @@ type DownloadTask = {
 
 export class AutoDownloadCoordinator {
   private readonly concurrency: number
+  private readonly maxPending: number
+  private readonly maxRecent: number
   private readonly homeDir: string
   private readonly exists: (path: string) => boolean
   private readonly makeDirectory: (path: string, options: { recursive: true }) => Promise<unknown>
@@ -48,8 +53,10 @@ export class AutoDownloadCoordinator {
   private readonly temporaryPath: (destination: string, key: string) => string
   private readonly onEvent: (event: AutoDownloadEvent) => void
   private readonly queue: DownloadTask[] = []
-  private readonly seen = new Set<string>()
+  private readonly inFlight = new Set<string>()
+  private readonly recent = new Set<string>()
   private readonly reserved = new Set<string>()
+  private readonly reservedTemporary = new Set<string>()
   private readonly activeWaiters = new Set<() => void>()
   private readonly idleWaiters = new Set<() => void>()
   private client: TelegramClientAdapter | null = null
@@ -58,12 +65,15 @@ export class AutoDownloadCoordinator {
 
   constructor(options: AutoDownloadCoordinatorOptions = {}) {
     this.concurrency = Math.max(1, Math.floor(options.concurrency ?? 3))
+    this.maxPending = Math.max(0, Math.floor(options.maxPending ?? 5000))
+    this.maxRecent = Math.max(0, Math.floor(options.maxRecent ?? 5000))
     this.homeDir = options.homeDir ?? homedir()
     this.exists = options.exists ?? existsSync
     this.makeDirectory = options.mkdir ?? mkdir
     this.removeFile = options.remove ?? rm
     this.publishFile = options.publish ?? link
-    this.temporaryPath = options.temporaryPath ?? ((destination) => `${destination}.telegram-cli-${randomUUID()}.part`)
+    const createUUID = options.randomUUID ?? randomUUID
+    this.temporaryPath = options.temporaryPath ?? ((destination) => join(dirname(destination), `.telegram-cli-${createUUID()}.part`))
     this.onEvent = options.onEvent ?? (() => undefined)
   }
 
@@ -72,8 +82,13 @@ export class AutoDownloadCoordinator {
     let added = false
     discoverListenAttachments(message).forEach((attachment, index) => {
       const key = listenAttachmentKey(attachment, index)
-      if (!attachment.downloadable || this.seen.has(key)) return
-      this.seen.add(key)
+      if (!attachment.downloadable || this.inFlight.has(key) || this.recent.has(key)) return
+      if (this.queue.length >= this.maxPending) {
+        this.remember(key)
+        this.emit({ status: 'failed', key, error: 'auto-download queue is full' })
+        return
+      }
+      this.inFlight.add(key)
       this.queue.push({ key, attachment })
       this.emit({ status: 'queued', key })
       added = true
@@ -90,7 +105,11 @@ export class AutoDownloadCoordinator {
   stop(): void {
     if (this.stopped) return
     this.stopped = true
-    for (const task of this.queue.splice(0)) this.emit({ status: 'cancelled', key: task.key })
+    for (const task of this.queue.splice(0)) {
+      this.inFlight.delete(task.key)
+      this.remember(task.key)
+      this.emit({ status: 'cancelled', key: task.key })
+    }
     this.resolveWaiters()
   }
 
@@ -111,6 +130,8 @@ export class AutoDownloadCoordinator {
       const client = this.client
       this.active += 1
       void this.run(task, client).catch(() => undefined).finally(() => {
+        this.inFlight.delete(task.key)
+        this.remember(task.key)
         this.active -= 1
         this.resolveWaiters()
         this.pump()
@@ -126,7 +147,7 @@ export class AutoDownloadCoordinator {
       reserved: this.reserved,
     })
     this.reserved.add(destination)
-    const temporary = this.temporaryPath(destination, task.key)
+    const temporary = this.reserveTemporary(destination, task.key)
     try {
       await this.makeDirectory(dirname(destination), { recursive: true })
       this.emit({ status: 'downloading', key: task.key, progress: 0 })
@@ -146,11 +167,31 @@ export class AutoDownloadCoordinator {
       this.emit({ status: 'failed', key: task.key, error: messageFromError(error) })
     } finally {
       this.reserved.delete(destination)
+      this.reservedTemporary.delete(temporary)
       try {
         await this.removeFile(temporary, { force: true })
       } catch {
         // Cleanup is best-effort and never targets a user-owned final path.
       }
+    }
+  }
+
+  private reserveTemporary(destination: string, key: string): string {
+    while (true) {
+      const candidate = this.temporaryPath(destination, key)
+      if (this.exists(candidate) || this.reservedTemporary.has(candidate)) continue
+      this.reservedTemporary.add(candidate)
+      return candidate
+    }
+  }
+
+  private remember(key: string): void {
+    if (this.maxRecent === 0) return
+    this.recent.delete(key)
+    this.recent.add(key)
+    while (this.recent.size > this.maxRecent) {
+      const oldest = this.recent.values().next().value
+      if (oldest != null) this.recent.delete(oldest)
     }
   }
 
