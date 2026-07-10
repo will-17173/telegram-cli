@@ -1,9 +1,12 @@
 import type { Command } from 'commander'
-import { outputFormatConflict, type HandlerResult } from './types.js'
-import { renderResult } from '../cli/output.js'
-import { QueryService } from '../services/query-service.js'
 
-type QueryFlags = {
+import { renderResult } from '../cli/output.js'
+import { MessageDB } from '../storage/message-db.js'
+import { QueryService } from '../services/query-service.js'
+import { outputFormatConflict, type HandlerResult } from './types.js'
+import { runWithAccountContext, type AccountCommandOptions } from './account-options.js'
+
+type QueryFlags = AccountCommandOptions & {
   chat?: string
   sender?: string
   hours?: string
@@ -123,10 +126,12 @@ async function renderQueryResult(options: QueryFlags, handler: (service: QuerySe
     return
   }
 
-  const service = new QueryService()
-  try {
-    await renderResult(handler(service), options)
-  } finally {
-    service.close()
-  }
+  await runWithAccountContext(options, (context) => {
+    const service = new QueryService(new MessageDB(context.dbPath))
+    try {
+      return handler(service)
+    } finally {
+      service.close()
+    }
+  })
 }

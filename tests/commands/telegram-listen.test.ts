@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
@@ -23,11 +26,40 @@ vi.mock('../../src/telegram/client-factory.js', () => ({
 
 import { createApp } from '../../src/cli/app.js'
 
+function seedAccount(dataDir: string): void {
+  const registryPath = join(dataDir, 'accounts.json')
+  writeFileSync(registryPath, `${JSON.stringify({
+    version: 1,
+    current_account: 'alice',
+    accounts: [
+      {
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+      },
+    ],
+  }, null, 2)}\n`)
+}
+
 describe('listen command', () => {
+  let dataDir: string
+
   beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-listen-'))
+    seedAccount(dataDir)
+    vi.stubEnv('DATA_DIR', dataDir)
     client.close.mockClear()
     client.listen.mockClear()
     renderInteractiveListen.mockClear()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    if (dataDir) rmSync(dataDir, { force: true, recursive: true })
+    dataDir = ''
+    delete process.env.DATA_DIR
   })
 
   it('uses the interactive Ink listener in a TTY', async () => {

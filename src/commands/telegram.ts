@@ -1,7 +1,5 @@
 import type { Command } from 'commander'
-import { renderResult } from '../cli/output.js'
 import type { HandlerResult } from './types.js'
-import { outputFormatConflict } from './types.js'
 import { MessageDB } from '../storage/message-db.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import type { TelegramClientAdapter, TelegramUser } from '../telegram/types.js'
@@ -11,11 +9,10 @@ import { ListenAlbumAggregator } from '../services/listen-album-aggregator.js'
 import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '../presenters/human.js'
 import { formatListenLine } from '../presenters/listen-message.js'
 import { renderInteractiveListen } from '../presenters/ink/listen.js'
+import { runWithAccountContext, type AccountCommandOptions } from './account-options.js'
+import type { AccountContext } from '../account/account-presets.js'
 
-type MachineOptions = {
-  json?: boolean
-  yaml?: boolean
-}
+type MachineOptions = AccountCommandOptions
 
 type SendFlags = MachineOptions & {
   reply?: string
@@ -37,7 +34,7 @@ type RefreshFlags = SyncFlags & {
   maxChats?: string
 }
 
-type ListenOptions = {
+type ListenOptions = MachineOptions & {
   persist?: boolean
   retrySeconds?: string
   sendTo?: string
@@ -265,56 +262,60 @@ export function registerTelegramCommands(app: Command): void {
       process.on('SIGTERM', stopListening)
 
       try {
-        if (useInteractive) {
-          await renderInteractiveListen({
-            chats: parsedChats,
-            persist,
-            retrySeconds,
-            sendTo,
-            showMedia,
-            createClient,
-            stopSignal: controller.signal,
-            onRequestStop: stopListening,
-          })
-          return
-        }
+        await runWithAccountContext(options, async (context) => {
+          const createClient = () => createTelegramClient(context.sessionPath)
 
-        while (true) {
-          const client = createClient()
-          let retry = false
-          try {
-            const result = await client.listen({
+          if (useInteractive) {
+            await renderInteractiveListen({
               chats: parsedChats,
-              signal: controller.signal,
-              onMessage: (message) => {
-                const key = `${message.chat_id}:${message.msg_id}`
-                if (seenMessages.has(key)) return
-                seenMessages.add(key)
-                seenMessageOrder.push(key)
-                if (seenMessages.size > 5000) {
-                  const oldest = seenMessageOrder.shift()
-                  if (oldest != null) seenMessages.delete(oldest)
-                }
-                albumAggregator.add(message)
-              },
+              persist,
+              retrySeconds,
+              sendTo,
+              showMedia,
+              createClient,
+              stopSignal: controller.signal,
+              onRequestStop: stopListening,
             })
-            if (!persist || result === 'stopped') break
-            if (result === 'disconnected') {
+            return
+          }
+
+          while (true) {
+            const client = createClient()
+            let retry = false
+            try {
+              const result = await client.listen({
+                chats: parsedChats,
+                signal: controller.signal,
+                onMessage: (message) => {
+                  const key = `${message.chat_id}:${message.msg_id}`
+                  if (seenMessages.has(key)) return
+                  seenMessages.add(key)
+                  seenMessageOrder.push(key)
+                  if (seenMessages.size > 5000) {
+                    const oldest = seenMessageOrder.shift()
+                    if (oldest != null) seenMessages.delete(oldest)
+                  }
+                  albumAggregator.add(message)
+                },
+              })
+              if (!persist || result === 'stopped') break
+              if (result === 'disconnected') {
+                retry = true
+              }
+            } catch (error) {
+              if (!persist) throw error
               retry = true
+            } finally {
+              albumAggregator.flush()
+              await client.close().catch(() => undefined)
             }
-          } catch (error) {
-            if (!persist) throw error
-            retry = true
-          } finally {
-            albumAggregator.flush()
-            await client.close().catch(() => undefined)
+            if (retry) {
+              await sleep(retrySeconds)
+              continue
+            }
+            break
           }
-          if (retry) {
-            await sleep(retrySeconds)
-            continue
-          }
-          break
-        }
+        })
       } finally {
         process.off('SIGINT', stopListening)
         process.off('SIGTERM', stopListening)
@@ -340,21 +341,21 @@ function parseChat(chat: string): string | number {
   return Number.isNaN(parsed) || String(parsed) !== chat.trim() ? chat : parsed
 }
 
-function createClient(): TelegramClientAdapter {
-  return createTelegramClient()
-}
-
 async function renderSyncResult(options: SyncFlags, handler: (service: SyncService) => Promise<HandlerResult>): Promise<void> {
-  await renderTelegramResult(options, async (client) => {
-    const result = await runWithSync(client, handler)
+  await renderTelegramResult(options, async (client, context) => {
+    const result = await runWithSync(client, context.dbPath, handler)
     return result.ok && result.human == null
       ? { ...result, human: syncSummary(result.data as Parameters<typeof syncSummary>[0]) }
       : result
   })
 }
 
-async function runWithSync(client: TelegramClientAdapter, handler: (service: SyncService) => Promise<HandlerResult>): Promise<HandlerResult> {
-  const service = new SyncService(client, new MessageDB())
+async function runWithSync(
+  client: TelegramClientAdapter,
+  dbPath: string,
+  handler: (service: SyncService) => Promise<HandlerResult>,
+): Promise<HandlerResult> {
+  const service = new SyncService(client, new MessageDB(dbPath))
   try {
     return await handler(service)
   } finally {
@@ -403,40 +404,33 @@ async function renderMessageResult(
   })
 }
 
-async function renderTelegramResult(options: MachineOptions, handler: (client: TelegramClientAdapter) => Promise<HandlerResult>): Promise<void> {
-  const conflict = outputFormatConflict(options)
-  if (conflict) {
-    await renderResult(conflict, { yaml: true })
-    return
-  }
+async function renderTelegramResult(
+  options: MachineOptions,
+  handler: (client: TelegramClientAdapter, context: AccountContext) => Promise<HandlerResult>,
+): Promise<void> {
+  await runWithAccountContext(options, async (context) => {
+    const restoreStdoutWarnings = hideBenignUpdateWarnings(process.stdout.write.bind(process.stdout), process.stdout)
+    const restoreStderrWarnings = hideBenignUpdateWarnings(process.stderr.write.bind(process.stderr), process.stderr)
 
-  const restoreStdoutWarnings = hideBenignUpdateWarnings(process.stdout.write.bind(process.stdout), process.stdout)
-  const restoreStderrWarnings = hideBenignUpdateWarnings(process.stderr.write.bind(process.stderr), process.stderr)
+    let client: TelegramClientAdapter
+    try {
+      client = createTelegramClient(context.sessionPath)
+    } catch (error) {
+      restoreStdoutWarnings()
+      restoreStderrWarnings()
+      return commandFailure('config_error', error)
+    }
 
-  let client: TelegramClientAdapter
-  try {
-    client = createClient()
-  } catch (error) {
-    restoreStdoutWarnings()
-    restoreStderrWarnings()
-    await renderResult(commandFailure('config_error', error), options)
-    return
-  }
-
-  let result: HandlerResult
-  try {
-    result = await handler(client)
-  } catch (error) {
-    result = commandFailure('telegram_error', error)
-  }
-
-  try {
-    await renderResult(result, options)
-  } finally {
-    restoreStdoutWarnings()
-    restoreStderrWarnings()
-    await client.close()
-  }
+    try {
+      return await handler(client, context)
+    } catch (error) {
+      return commandFailure('telegram_error', error)
+    } finally {
+      restoreStdoutWarnings()
+      restoreStderrWarnings()
+      await client.close().catch(() => undefined)
+    }
+  })
 }
 
 function commandFailure(code: string, error: unknown): HandlerResult<never> {

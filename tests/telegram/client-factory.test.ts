@@ -39,8 +39,8 @@ describe('createTelegramClient', () => {
     const { createTelegramClient } = await import('../../src/telegram/client-factory.js')
 
     const output = captureOutput(() => {
-      createTelegramClient()
-      createTelegramClient()
+      createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))
+      createTelegramClient(join(dataDir, 'accounts', 'bob', 'session'))
     })
 
     expect(output).toEqual({ stdout: '', stderr: WARNING })
@@ -48,12 +48,12 @@ describe('createTelegramClient', () => {
     expect(telegramClientConstructor).toHaveBeenNthCalledWith(1, {
       apiId: 2040,
       apiHash: 'b18441a1ff607e10a989891a5462e627',
-      storage: join(dataDir, 'sessions', 'tg_cli'),
+      storage: join(dataDir, 'accounts', 'alice', 'session'),
     })
     expect(telegramClientConstructor).toHaveBeenNthCalledWith(2, {
       apiId: 2040,
       apiHash: 'b18441a1ff607e10a989891a5462e627',
-      storage: join(dataDir, 'sessions', 'tg_cli'),
+      storage: join(dataDir, 'accounts', 'bob', 'session'),
     })
   })
 
@@ -69,8 +69,8 @@ describe('createTelegramClient', () => {
         return true
       })
 
-    expect(() => createTelegramClient()).toThrow('stderr unavailable')
-    expect(() => createTelegramClient()).not.toThrow()
+    expect(() => createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))).toThrow('stderr unavailable')
+    expect(() => createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))).not.toThrow()
 
     expect(stderr.join('')).toBe(WARNING)
     expect(stderrWrite).toHaveBeenCalledTimes(2)
@@ -82,11 +82,11 @@ describe('createTelegramClient', () => {
     const stderr: string[] = []
     const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
       stderr.push(String(chunk))
-      createTelegramClient()
+      createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))
       return true
     })
 
-    createTelegramClient()
+    createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))
 
     expect(stderr.join('')).toBe(WARNING)
     expect(stderrWrite).toHaveBeenCalledOnce()
@@ -98,14 +98,14 @@ describe('createTelegramClient', () => {
     vi.stubEnv('TG_API_HASH', 'environment_hash')
     const { createTelegramClient } = await import('../../src/telegram/client-factory.js')
 
-    const output = captureOutput(() => createTelegramClient())
+    const output = captureOutput(() => createTelegramClient(join(dataDir, 'accounts', 'alice', 'session')))
 
     expect(output).toEqual({ stdout: '', stderr: '' })
     expect(telegramClientConstructor).toHaveBeenCalledOnce()
     expect(telegramClientConstructor).toHaveBeenCalledWith({
       apiId: 12345,
       apiHash: 'environment_hash',
-      storage: join(dataDir, 'sessions', 'tg_cli'),
+      storage: join(dataDir, 'accounts', 'alice', 'session'),
     })
   })
 
@@ -113,14 +113,14 @@ describe('createTelegramClient', () => {
     writeCredentials(getConfigPath(), { apiId: 54321, apiHash: 'stored_hash' })
     const { createTelegramClient } = await import('../../src/telegram/client-factory.js')
 
-    const output = captureOutput(() => createTelegramClient())
+    const output = captureOutput(() => createTelegramClient(join(dataDir, 'accounts', 'alice', 'session')))
 
     expect(output).toEqual({ stdout: '', stderr: '' })
     expect(telegramClientConstructor).toHaveBeenCalledOnce()
     expect(telegramClientConstructor).toHaveBeenCalledWith({
       apiId: 54321,
       apiHash: 'stored_hash',
-      storage: join(dataDir, 'sessions', 'tg_cli'),
+      storage: join(dataDir, 'accounts', 'alice', 'session'),
     })
   })
 })

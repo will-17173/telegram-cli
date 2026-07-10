@@ -1,9 +1,12 @@
 import type { Command } from 'commander'
-import { outputFormatConflict, type HandlerResult } from './types.js'
-import { renderResult } from '../cli/output.js'
-import { DataService } from '../services/data-service.js'
 
-type DataFlags = {
+import { renderResult } from '../cli/output.js'
+import { MessageDB } from '../storage/message-db.js'
+import { DataService } from '../services/data-service.js'
+import { outputFormatConflict, type HandlerResult } from './types.js'
+import { runWithAccountContext, type AccountCommandOptions } from './account-options.js'
+
+type DataFlags = AccountCommandOptions & {
   format?: 'text' | 'json' | 'yaml'
   output?: string
   hours?: string
@@ -52,10 +55,12 @@ async function renderDataResult(options: DataFlags, handler: (service: DataServi
     return
   }
 
-  const service = new DataService()
-  try {
-    await renderResult(handler(service), options)
-  } finally {
-    service.close()
-  }
+  await runWithAccountContext(options, (context) => {
+    const service = new DataService(new MessageDB(context.dbPath))
+    try {
+      return handler(service)
+    } finally {
+      service.close()
+    }
+  })
 }

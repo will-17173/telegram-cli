@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const client = vi.hoisted(() => ({
@@ -11,11 +14,30 @@ vi.mock('../../src/telegram/client-factory.js', () => ({ createTelegramClient })
 
 import { createApp } from '../../src/cli/app.js'
 
+function seedAccount(dataDir: string): void {
+  const registryPath = join(dataDir, 'accounts.json')
+  writeFileSync(registryPath, `${JSON.stringify({
+    version: 1,
+    current_account: 'alice',
+    accounts: [
+      {
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+      },
+    ],
+  }, null, 2)}\n`)
+}
+
 afterEach(() => {
   vi.clearAllMocks()
   createTelegramClient.mockImplementation(() => client)
   vi.unstubAllEnvs()
+  process.env.DATA_DIR && rmSync(process.env.DATA_DIR, { force: true, recursive: true })
   process.exitCode = 0
+  delete process.env.DATA_DIR
 })
 
 describe('Telegram command error boundary', () => {
@@ -66,6 +88,9 @@ describe('Telegram command error boundary', () => {
 })
 
 async function run(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+  const dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-command-'))
+  seedAccount(dataDir)
+  vi.stubEnv('DATA_DIR', dataDir)
   const stdout: string[] = []
   const stderr: string[] = []
   const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {

@@ -10,6 +10,7 @@ export function createApp(): Command {
     .name('tg')
     .description('Telegram CLI for syncing chats, searching messages, and local analysis.')
     .option('-v, --verbose', 'Enable debug logging')
+    .option('--account <account>', 'Select an account for account-dependent commands')
     .version('0.1.0')
 
   registerQueryCommands(app)

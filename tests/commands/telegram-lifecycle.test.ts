@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -34,14 +34,38 @@ vi.mock('../../src/cli/output.js', () => ({ renderResult }))
 
 import { createApp } from '../../src/cli/app.js'
 
+function seedAccount(dataDir: string): void {
+  const registryPath = join(dataDir, 'accounts.json')
+  const account = {
+    name: 'alice',
+    user_id: 1,
+    username: 'alice',
+    phone: '10086',
+    display_name: 'Alice',
+  }
+  writeFileSync(registryPath, `${JSON.stringify({
+    version: 1,
+    current_account: account.name,
+    accounts: [account],
+  }, null, 2)}\n`)
+}
+
+let currentDataDir = ''
+
 beforeEach(() => {
-  process.env.DB_PATH = join(mkdtempSync(join(tmpdir(), 'tg-cli-command-')), 'messages.db')
+  currentDataDir = mkdtempSync(join(tmpdir(), 'tg-cli-command-'))
+  seedAccount(currentDataDir)
+  vi.stubEnv('DATA_DIR', currentDataDir)
+  vi.stubEnv('DB_PATH', join(currentDataDir, 'messages.db'))
 })
 
 afterEach(() => {
   vi.clearAllMocks()
   process.exitCode = 0
+  if (currentDataDir) rmSync(currentDataDir, { force: true, recursive: true })
+  delete process.env.DATA_DIR
   delete process.env.DB_PATH
+  currentDataDir = ''
 })
 
 describe('Telegram command lifecycle', () => {

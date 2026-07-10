@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import YAML from 'yaml'
@@ -25,7 +25,15 @@ import { createApp } from '../../src/cli/app.js'
 import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
 import { fixtureMessages, message } from '../fixtures/messages.js'
 
+const seededDataDirs: string[] = []
+
 async function run(args: string[], env: Record<string, string> = {}): Promise<{ stdout: string; stderr: string; code: number }> {
+  if (!('DATA_DIR' in env) && process.env.DATA_DIR == null) {
+    const dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-command-'))
+    seedAccount(dataDir)
+    seededDataDirs.push(dataDir)
+    env = { ...env, DATA_DIR: dataDir }
+  }
   const stdout: string[] = []
   const stderr: string[] = []
   const oldOut = process.stdout.write
@@ -46,18 +54,52 @@ async function run(args: string[], env: Record<string, string> = {}): Promise<{ 
   return { stdout: stdout.join(''), stderr: stderr.join(''), code: Number(process.exitCode ?? 0) }
 }
 
+function seedAccount(
+  dataDir: string,
+  currentAccount: string | null = 'alice',
+  accounts?: Array<{
+    name: string
+    user_id: number
+    username: string
+    phone: string
+    display_name: string
+  }>,
+): void {
+  const normalizedAccounts = accounts ?? [
+    {
+      name: 'alice',
+      user_id: 1001,
+      username: 'alice',
+      phone: '13800138000',
+      display_name: 'Alice',
+    },
+  ]
+  const registryPath = join(dataDir, 'accounts.json')
+  writeFileSync(registryPath, `${JSON.stringify({
+    version: 1,
+    current_account: currentAccount,
+    accounts: normalizedAccounts,
+  }, null, 2)}\n`)
+}
+
 function seed(messages: StoredMessageInput[] = fixtureMessages()): string {
-  const dbPath = join(mkdtempSync(join(tmpdir(), 'tg-cli-contract-')), 'messages.db')
+  const dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-contract-'))
+  seedAccount(dataDir)
+  vi.stubEnv('DATA_DIR', dataDir)
+  seededDataDirs.push(dataDir)
+  const dbPath = join(dataDir, 'accounts', 'alice', 'messages.db')
   const db = new MessageDB(dbPath)
   db.insertBatch(messages)
   db.close()
-  vi.stubEnv('DB_PATH', dbPath)
   return dbPath
 }
 
 afterEach(() => {
   vi.unstubAllEnvs()
   process.exitCode = 0
+  for (const dataDir of seededDataDirs.splice(0)) {
+    rmSync(dataDir, { force: true, recursive: true })
+  }
 })
 
 describe('local command contracts', () => {
@@ -287,6 +329,35 @@ describe('local command contracts', () => {
     const result = await run(['search', '[', '--regex', '--yaml'])
     expect(result.code).toBe(1)
     expect(result.stdout).toContain('code: invalid_regex')
+  })
+
+  it('resolves explicit --account without changing current account', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-contract-account-explicit-'))
+    seededDataDirs.push(dataDir)
+    const aliceDb = new MessageDB(join(dataDir, 'accounts', 'alice', 'messages.db'))
+    const bobDb = new MessageDB(join(dataDir, 'accounts', 'bob', 'messages.db'))
+    aliceDb.insertBatch([message({ msg_id: 1, chat_name: 'AliceChat', content: 'hello alice' })])
+    bobDb.insertBatch([message({ msg_id: 2, chat_name: 'BobChat', content: 'hello bob' })])
+    aliceDb.close()
+    bobDb.close()
+    seedAccount(dataDir, 'alice', [
+      { name: 'alice', user_id: 1001, username: 'alice', phone: '13800138000', display_name: 'Alice' },
+      { name: 'bob', user_id: 2002, username: 'bob', phone: '13900139000', display_name: 'Bob' },
+    ])
+
+    const result = await run(['stats', '--account', 'bob', '--json'], { DATA_DIR: dataDir })
+    expect(result.code).toBe(0)
+    expect(JSON.parse(result.stdout).data.total).toBe(1)
+  })
+
+  it('returns account_required when no current account is available', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-contract-no-account-'))
+    seededDataDirs.push(dataDir)
+    seedAccount(dataDir, null, [])
+
+    const result = await run(['stats'], { DATA_DIR: dataDir })
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain('code: account_required')
   })
 })
 

@@ -1,6 +1,7 @@
 import { TelegramClient } from '@mtcute/node'
 
-import { getSessionPath, getTelegramCredentials } from '../config/env.js'
+import { getTelegramCredentials } from '../config/env.js'
+import { getSessionPath } from '../config/env.js'
 import { MtcuteTelegramClient } from './mtcute-client.js'
 import type { TelegramClientAdapter } from './types.js'
 
@@ -8,8 +9,9 @@ const DEFAULT_CREDENTIALS_WARNING = 'warning: using default Telegram API credent
 
 let hasWarnedAboutDefaultCredentials = false
 
-export function createTelegramClient(): TelegramClientAdapter {
+export function createTelegramClient(sessionPath?: string): TelegramClientAdapter {
   const credentials = getTelegramCredentials()
+  const storage = sessionPath ?? getSessionPath()
 
   if (credentials.source === 'default' && !hasWarnedAboutDefaultCredentials) {
     hasWarnedAboutDefaultCredentials = true
@@ -24,7 +26,7 @@ export function createTelegramClient(): TelegramClientAdapter {
   const client = new TelegramClient({
     apiId: credentials.apiId,
     apiHash: credentials.apiHash,
-    storage: getSessionPath(),
+    storage,
   })
 
   return new MtcuteTelegramClient(client)
