@@ -1,0 +1,148 @@
+import { setTimeout as delayMs } from 'node:timers/promises'
+import type { HandlerResult } from '../commands/types.js'
+import { actionDetail, syncSummary } from '../presenters/human.js'
+import { MessageDB } from '../storage/message-db.js'
+import type { TelegramChat, TelegramClientAdapter } from '../telegram/types.js'
+
+const FIRST_SYNC_LIMIT = 500
+
+type RefreshResult = {
+  new_messages: number
+  chats: number
+  updated_chats: string[]
+  results: Record<string, number>
+  failures: Record<string, string>
+}
+
+export class SyncService {
+  private readonly db: MessageDB
+
+  constructor(private readonly tg: TelegramClientAdapter, db?: MessageDB) {
+    this.db = db ?? new MessageDB()
+  }
+
+  async history(options: { chat: string; limit: number }): Promise<HandlerResult> {
+    const invalid = validateLimit(options.limit)
+    if (invalid) return invalid
+    try {
+      const messages = await this.tg.fetchHistory({ chat: parseChat(options.chat), limit: options.limit })
+      const stored = this.db.insertBatch(messages)
+      const data = { stored, chat: options.chat }
+      return { ok: true, data, human: actionDetail('History Synced', { chat: data.chat, stored: data.stored }) }
+    } catch (error) {
+      return telegramFailure(error)
+    }
+  }
+
+  async sync(options: { chat: string; limit: number }): Promise<HandlerResult> {
+    const invalid = validateLimit(options.limit)
+    if (invalid) return invalid
+    const chatId = this.db.resolveChatId(options.chat)
+    const minId = chatId == null ? 0 : this.db.getLastMsgId(chatId) ?? 0
+    const limit = minId === 0 && options.limit > FIRST_SYNC_LIMIT ? FIRST_SYNC_LIMIT : options.limit
+    try {
+      const messages = await this.tg.fetchHistory({ chat: parseChat(options.chat), limit, minId })
+      const stored = this.db.insertBatch(messages)
+      const data = { synced: stored, chat: options.chat }
+      return { ok: true, data, human: actionDetail('Sync Complete', { chat: data.chat, synced: data.synced }) }
+    } catch (error) {
+      return telegramFailure(error)
+    }
+  }
+
+  async refresh(options: { limit: number; delay: number; maxChats?: number }): Promise<HandlerResult<RefreshResult>> {
+    const invalid = validateRefreshOptions(options)
+    if (invalid) return invalid
+
+    let dialogs: TelegramChat[]
+    try {
+      dialogs = await this.tg.listChats()
+    } catch (error) {
+      return telegramFailure(error)
+    }
+    const selected = options.maxChats == null ? dialogs : dialogs.slice(0, options.maxChats)
+    const results: Record<string, number> = {}
+    const failures: Record<string, string> = {}
+    for (let index = 0; index < selected.length; index += 1) {
+      const dialog = selected[index]
+      const lastId = this.db.getLastMsgId(dialog.id) ?? 0
+      const limit = lastId === 0 && options.limit > FIRST_SYNC_LIMIT ? FIRST_SYNC_LIMIT : options.limit
+      try {
+        const messages = await this.tg.fetchHistory({ chat: dialog.id, limit, minId: lastId })
+        results[dialog.name] = this.db.insertBatch(messages)
+      } catch (error) {
+        results[dialog.name] = 0
+        failures[dialog.name] = errorMessage(error)
+      }
+      if (options.delay > 0 && index < selected.length - 1) {
+        const jitter = options.delay * (Math.random() * 0.4 - 0.2)
+        await delayMs((options.delay + jitter) * 1000)
+      }
+    }
+    const updated_chats = Object.entries(results)
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name]) => name)
+    const data = {
+      new_messages: Object.values(results).reduce((sum, count) => sum + count, 0),
+      chats: selected.length,
+      updated_chats,
+      results,
+      failures,
+    }
+    return {
+      ok: true,
+      data,
+      human: syncSummary(data),
+    }
+  }
+
+  close(): void {
+    this.db.close()
+  }
+}
+
+function validateRefreshOptions(options: { limit: number; delay: number; maxChats?: number }): HandlerResult<never> | undefined {
+  const invalidLimit = validateLimit(options.limit)
+  if (invalidLimit) return invalidLimit
+  if (!Number.isFinite(options.delay) || options.delay < 0) return invalidOption('delay must be a non-negative number.')
+  if (options.maxChats != null && (!isPositiveInteger(options.maxChats))) {
+    return invalidOption('maxChats must be a positive integer.')
+  }
+  return undefined
+}
+
+function validateLimit(limit: number): HandlerResult<never> | undefined {
+  return isPositiveInteger(limit) ? undefined : invalidOption('limit must be a positive integer.')
+}
+
+function invalidOption(message: string): HandlerResult<never> {
+  return { ok: false, error: { code: 'invalid_option', message } }
+}
+
+function telegramFailure(error: unknown): HandlerResult<never> {
+  const details = errorDetails(error)
+  return {
+    ok: false,
+    error: details == null
+      ? { code: 'telegram_error', message: errorMessage(error) }
+      : { code: 'telegram_error', message: errorMessage(error), details },
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function errorDetails(error: unknown): unknown {
+  return error instanceof Error ? { name: error.name } : undefined
+}
+
+function isPositiveInteger(value: number): boolean {
+  return Number.isInteger(value) && value > 0
+}
+
+function parseChat(chat: string): string | number {
+  const parsed = Number.parseInt(chat, 10)
+  return !Number.isNaN(parsed) && String(parsed) === chat.trim() ? parsed : chat
+}

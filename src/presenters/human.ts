@@ -1,0 +1,256 @@
+import type { HumanOutput, DetailField } from '../commands/types.js'
+import type { StoredMessage } from '../storage/message-db.js'
+import type { TelegramChat } from '../telegram/types.js'
+
+type DisplayUser = {
+  id: number | string
+  name?: unknown
+  username?: unknown
+  phone?: unknown
+}
+
+type CountRow = {
+  name?: unknown
+  count?: number
+  sender_name?: unknown
+  chat_name?: unknown
+  msg_count?: number
+}
+
+type TimelineRow = { period: string; count?: number; msg_count?: number }
+
+type ChatCountRow = { chat_name?: unknown; msg_count: number }
+
+type SyncResult = {
+  chat?: unknown
+  stored?: number
+  synced?: number
+  new_messages?: number
+  chats?: number
+  results?: Record<string, number>
+  failures?: Record<string, string>
+}
+
+const MAX_NESTING_DEPTH = 4
+const MAX_COLLECTION_ENTRIES = 20
+const MAX_STRING_LENGTH = 200
+const MAX_RENDERED_LENGTH = 2_000
+
+export function chatTable(chats: TelegramChat[]): HumanOutput & { kind: 'table' } {
+  return {
+    kind: 'table',
+    title: 'Chats',
+    columns: ['ID', 'NAME', 'TYPE', 'UNREAD'],
+    rows: chats.map((chat) => [String(chat.id), display(chat.name), display(chat.type), String(chat.unread)]),
+    emptyText: 'No chats found.',
+  }
+}
+
+export function userDetail(user: DisplayUser, title = 'User'): HumanOutput & { kind: 'detail' } {
+  return {
+    kind: 'detail',
+    title,
+    fields: [
+      { label: 'Name', value: display(user.name) },
+      { label: 'Username', value: username(user.username) },
+      { label: 'ID', value: display(user.id) },
+      { label: 'Phone', value: display(user.phone) },
+    ],
+  }
+}
+
+export function recordDetail(title: string, record: Record<string, unknown>): HumanOutput & { kind: 'detail' } {
+  return {
+    kind: 'detail',
+    title,
+    fields: Object.entries(record).map(([label, value]) => ({ label, value: display(value) })),
+  }
+}
+
+export function actionDetail(title: string, values: Record<string, unknown>): HumanOutput & { kind: 'detail' } {
+  return {
+    kind: 'detail',
+    title,
+    fields: Object.entries(values).map(([label, value]) => {
+      const field: DetailField = { label, value: display(value) }
+      if (value === true) field.tone = 'success'
+      if (value === false) field.tone = 'danger'
+      return field
+    }),
+  }
+}
+
+export function messageTable(messages: StoredMessage[], title = 'Messages', emptyText = 'No messages found.'): HumanOutput & { kind: 'table' } {
+  return {
+    kind: 'table',
+    title,
+    columns: ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
+    rows: messages.map((message) => [
+      display(message.timestamp),
+      display(message.chat_name),
+      display(message.sender_name),
+      display(message.content),
+    ]),
+    emptyText,
+  }
+}
+
+export function statsSummary(stats: Record<string, number>, title = 'Stats', chats?: ChatCountRow[]): HumanOutput & { kind: 'summary' } {
+  const summary: HumanOutput & { kind: 'summary' } = {
+    kind: 'summary',
+    title,
+    fields: Object.entries(stats).map(([label, value]) => ({
+      label: sentenceCase(label),
+      value: String(value),
+    })),
+  }
+  if (chats != null) {
+    summary.table = {
+      columns: ['CHAT', 'MESSAGES'],
+      rows: chats.map((chat) => [display(chat.chat_name), String(chat.msg_count)]),
+      emptyText: 'No chats found.',
+    }
+  }
+  return summary
+}
+
+export function topTable(title: string, rows: CountRow[]): HumanOutput & { kind: 'table' } {
+  return {
+    kind: 'table',
+    title,
+    columns: ['NAME', 'COUNT'],
+    rows: rows.map((row) => [
+      display(row.name ?? row.sender_name ?? row.chat_name),
+      display(row.count ?? row.msg_count),
+    ]),
+    emptyText: 'No results found.',
+  }
+}
+
+export function timelineView(title: string, rows: TimelineRow[]): HumanOutput & { kind: 'timeline' } {
+  return {
+    kind: 'timeline',
+    title,
+    rows: rows.map((row) => ({ period: row.period, count: row.count ?? row.msg_count ?? 0 })),
+  }
+}
+
+export function syncSummary(result: SyncResult): HumanOutput & { kind: 'summary' } {
+  if (result.results == null) {
+    const count = result.synced ?? result.stored ?? 0
+    return {
+      kind: 'summary',
+      title: 'Sync complete',
+      fields: [
+        { label: 'Chat', value: display(result.chat) },
+        { label: 'Messages', value: String(count), tone: 'success' },
+      ],
+    }
+  }
+
+  const failures = result.failures ?? {}
+  const failureCount = Object.keys(failures).length
+  const selectedChats = result.chats ?? Object.keys(result.results).length
+  const allFailed = selectedChats > 0 && failureCount >= selectedChats
+  const title = allFailed ? 'Sync failed' : failureCount > 0 ? 'Sync partially complete' : 'Sync complete'
+  const newMessagesTone = allFailed ? 'danger' : failureCount > 0 ? 'warning' : 'success'
+  return {
+    kind: 'summary',
+    title,
+    fields: [
+      { label: 'Chats', value: String(selectedChats) },
+      { label: 'New messages', value: String(result.new_messages ?? sum(Object.values(result.results))), tone: newMessagesTone },
+      { label: 'Failures', value: String(failureCount), tone: failureCount ? 'danger' : 'success' },
+    ],
+    table: {
+      columns: ['CHAT', 'MESSAGES', 'STATUS'],
+      rows: Object.entries(result.results).map(([chat, count]) => [chat, String(count), failures[chat] ?? 'OK']),
+      emptyText: 'No chats synced.',
+    },
+  }
+}
+
+function display(value: unknown): string {
+  if (value == null || value === '') return '—'
+  if (typeof value === 'string') return truncate(formatTimestamp(value), MAX_STRING_LENGTH, '…')
+  if (typeof value === 'object') {
+    return safeJson(value)
+  }
+  return String(value)
+}
+
+function safeJson(value: object): string {
+  const seen = new WeakSet<object>()
+  try {
+    const bounded = boundValue(value, 0, seen)
+    return truncate(JSON.stringify(bounded) ?? '—', MAX_RENDERED_LENGTH, '… [truncated]')
+  } catch (error) {
+    return `[Unserializable: ${error instanceof Error ? error.message : String(error)}]`
+  }
+}
+
+function boundValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (typeof value === 'bigint') return String(value)
+  if (typeof value === 'string') return truncate(value, MAX_STRING_LENGTH, '…')
+  if (value == null || typeof value !== 'object') return value
+  if (seen.has(value)) return '[Circular]'
+  if (depth >= MAX_NESTING_DEPTH) return '[Max depth]'
+  seen.add(value)
+
+  if (Array.isArray(value)) {
+    const bounded = value.slice(0, MAX_COLLECTION_ENTRIES)
+      .map((item) => boundValue(item, depth + 1, seen))
+    if (value.length > MAX_COLLECTION_ENTRIES) bounded.push(`… (+${value.length - MAX_COLLECTION_ENTRIES} more)`)
+    return bounded
+  }
+
+  const entries = Object.entries(value)
+  const bounded = Object.fromEntries(entries.slice(0, MAX_COLLECTION_ENTRIES)
+    .map(([key, item]) => [key, boundValue(item, depth + 1, seen)]))
+  if (entries.length > MAX_COLLECTION_ENTRIES) bounded[`… (+${entries.length - MAX_COLLECTION_ENTRIES} more)`] = null
+  return bounded
+}
+
+function truncate(value: string, maximum: number, marker: string): string {
+  if (value.length <= maximum) return value
+  return value.slice(0, Math.max(0, maximum - marker.length)) + marker
+}
+
+function username(value: unknown): string {
+  const text = display(value)
+  if (text === '—') return text
+  return text.startsWith('@') ? text : `@${text}`
+}
+
+function formatTimestamp(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(value)
+  if (match == null || !hasValidIsoComponents(match)) return value
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function hasValidIsoComponents(match: RegExpExecArray): boolean {
+  const [year, month, day, hour, minute, second, offsetHour, offsetMinute] = match.slice(1).map((part) => Number(part ?? 0))
+  if (hour! > 23 || minute! > 59 || second! > 59 || offsetHour! > 23 || offsetMinute! > 59) return false
+
+  const wallClock = new Date(0)
+  wallClock.setUTCFullYear(year!, month! - 1, day!)
+  wallClock.setUTCHours(hour!, minute!, second!, 0)
+  return wallClock.getUTCFullYear() === year
+    && wallClock.getUTCMonth() === month! - 1
+    && wallClock.getUTCDate() === day
+}
+
+function pad(value: number, length = 2): string {
+  return String(value).padStart(length, '0')
+}
+
+function sentenceCase(value: string): string {
+  const words = value.replaceAll('_', ' ')
+  return words.length === 0 ? words : words[0]!.toUpperCase() + words.slice(1)
+}
+
+function sum(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0)
+}

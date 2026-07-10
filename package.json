@@ -1,0 +1,50 @@
+{
+  "name": "@will-17173/telegram-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "bin": {
+    "tg": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "pnpm clean && tsc -p tsconfig.build.json",
+    "dev": "tsx src/dev.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm test && pnpm typecheck && pnpm build"
+  },
+  "dependencies": {
+    "@mtcute/node": "^0.30.3",
+    "better-sqlite3": "^12.10.0",
+    "commander": "^14.0.2",
+    "ink": "^6.5.1",
+    "jpeg-js": "^0.4.4",
+    "react": "^19.2.1",
+    "string-width": "^8.2.2",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "dotenv": "^17.2.3",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
