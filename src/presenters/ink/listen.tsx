@@ -160,7 +160,9 @@ export function ListenAttachmentLine({ label, selected, state }: ListenAttachmen
 export function applyAutoDownloadEvent(
   current: Record<string, AttachmentDownloadState>,
   event: AutoDownloadEvent,
+  showMedia = true,
 ): Record<string, AttachmentDownloadState> {
+  if (!showMedia) return Object.keys(current).length === 0 ? current : {}
   if (event.status === 'cancelled') {
     if (!(event.key in current)) return current
     const next = { ...current }
@@ -190,6 +192,20 @@ export function pruneAttachmentDownloadStates(
     validKeys.has(key) || pendingKeys.has(key) || state.status === 'queued' || state.status === 'downloading'
   )))
   return Object.keys(retained).length === Object.keys(current).length ? current : retained
+}
+
+export function registerPendingAttachmentKeys(
+  pendingKeys: Set<string>,
+  message: StoredMessageInput,
+  showMedia: boolean,
+): void {
+  if (!showMedia) {
+    pendingKeys.clear()
+    return
+  }
+  discoverListenAttachments(message).forEach((attachment, index) => {
+    if (attachment.downloadable) pendingKeys.add(listenAttachmentKey(attachment, index))
+  })
 }
 
 type InteractiveCoordinator = Pick<AutoDownloadCoordinator, 'setClient' | 'enqueue' | 'waitForActive' | 'waitForIdle' | 'stop'>
@@ -412,6 +428,7 @@ function InteractiveListen({
     })
 
     const validAttachmentKeys = new Set(collectAttachments(messages).map((item) => item.key))
+    if (!showMedia) pendingAttachmentKeysRef.current.clear()
     setDownloadStates((current) => pruneAttachmentDownloadStates(
       current,
       validAttachmentKeys,
@@ -496,7 +513,7 @@ function InteractiveListen({
     const autoDownloader = autoDownload
       ? new AutoDownloadCoordinator({
           onEvent: (event) => {
-            if (mountedRef.current) setDownloadStates((current) => applyAutoDownloadEvent(current, event))
+            if (mountedRef.current) setDownloadStates((current) => applyAutoDownloadEvent(current, event, showMedia))
           },
         })
       : null
@@ -532,9 +549,7 @@ function InteractiveListen({
       },
       onBeforeEnqueue: (message) => {
         if (!mountedRef.current) return
-        discoverListenAttachments(message).forEach((attachment, index) => {
-          if (attachment.downloadable) pendingAttachmentKeysRef.current.add(listenAttachmentKey(attachment, index))
-        })
+        registerPendingAttachmentKeys(pendingAttachmentKeysRef.current, message, showMedia)
       },
       onMessage: (message) => {
         if (!mountedRef.current) return
@@ -576,7 +591,7 @@ function InteractiveListen({
       void autoDownloader?.waitForActive()
       if (autoDownloaderRef.current === autoDownloader) autoDownloaderRef.current = null
     }
-  }, [autoDownload, chats, createClient, persist, retrySeconds, sendTo, exit, stopSignal, onRequestStop])
+  }, [autoDownload, chats, createClient, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, onRequestStop])
 
   const sendMessage = async (text: string): Promise<void> => {
     const trimmed = text.trim()

@@ -3,7 +3,7 @@ import { render, renderToString, Text } from 'ink'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 
-import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, runInteractiveAutoDownloadLifecycle, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
+import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, registerPendingAttachmentKeys, runInteractiveAutoDownloadLifecycle, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -159,6 +159,21 @@ describe('interactive auto-download state', () => {
     expect(onceRendered[key]).toEqual({ status: 'completed', path: '/tmp/photo.jpg' })
     expect(pruneAttachmentDownloadStates(onceRendered, new Set(), new Set())).toEqual({})
   })
+
+  it('does not retain hidden-media downloads as pending render ownership', () => {
+    const pending = new Set<string>(['old-visible-key'])
+    registerPendingAttachmentKeys(pending, storedPhoto(11, ''), false)
+    registerPendingAttachmentKeys(pending, storedPhoto(12, ''), false)
+    expect(pending).toEqual(new Set())
+
+    const completed = applyAutoDownloadEvent({}, {
+      status: 'completed', key: '100:12:0', path: '/tmp/photo.jpg',
+    })
+    expect(pruneAttachmentDownloadStates(completed, new Set(), pending)).toEqual({})
+    expect(applyAutoDownloadEvent(completed, {
+      status: 'completed', key: '100:13:0', path: '/tmp/another.jpg',
+    }, false)).toEqual({})
+  })
 })
 
 describe('interactive auto-download lifecycle', () => {
@@ -175,6 +190,7 @@ describe('interactive auto-download lifecycle', () => {
       stop: vi.fn(),
     }
     const createCoordinator = vi.fn(() => coordinator)
+    const hiddenPending = new Set<string>(['stale'])
 
     await runInteractiveAutoDownloadLifecycle({
       autoDownload: true,
@@ -184,12 +200,14 @@ describe('interactive auto-download lifecycle', () => {
       signal: new AbortController().signal,
       createClient: () => clients.shift()!,
       createCoordinator,
+      onBeforeEnqueue: (message) => registerPendingAttachmentKeys(hiddenPending, message, false),
       onMessage: () => undefined,
       sleep: async () => undefined,
     })
 
     expect(createCoordinator).toHaveBeenCalledOnce()
     expect(coordinator.enqueue).toHaveBeenCalledTimes(2)
+    expect(hiddenPending).toEqual(new Set())
     expect(calls).toEqual([
       'resume', 'first-listen', 'pause', 'active-drained', 'first-close',
       'resume', 'second-listen', 'idle-drained', 'second-close',
