@@ -183,6 +183,15 @@ export function canManuallyDownload(state: AttachmentDownloadState): boolean {
   return state.status === 'idle' || state.status === 'failed'
 }
 
+export function isCurrentAsyncOperation(
+  expectedGeneration: number,
+  currentGeneration: number,
+  expectedOperation: number,
+  currentOperation: number,
+): boolean {
+  return expectedGeneration === currentGeneration && expectedOperation === currentOperation
+}
+
 export function pruneAttachmentDownloadStates(
   current: Record<string, AttachmentDownloadState>,
   validKeys: ReadonlySet<string>,
@@ -397,7 +406,10 @@ function InteractiveListen({
   const albumAggregatorRef = useRef<ListenAlbumAggregator | null>(null)
   const autoDownloaderRef = useRef<AutoDownloadCoordinator | null>(null)
   const pendingAttachmentKeysRef = useRef<Set<string>>(new Set())
-  const mountedRef = useRef(true)
+  const generationRef = useRef(0)
+  const sendOperationRef = useRef(0)
+  const downloadOperationRef = useRef<Map<string, number>>(new Map())
+  const operationSequenceRef = useRef(0)
   const stoppingRef = useRef(false)
   const seenRef = useRef<Set<string>>(new Set())
   const seenOrderRef = useRef<string[]>([])
@@ -493,7 +505,9 @@ function InteractiveListen({
   })
 
   useEffect(() => {
-    mountedRef.current = true
+    const generation = ++generationRef.current
+    let active = true
+    const isActive = () => active && generationRef.current === generation
     if (stopSignal.aborted) {
       exit()
       return
@@ -505,6 +519,7 @@ function InteractiveListen({
     stopSignal.addEventListener('abort', stopFromSignal)
     const albumAggregator = new ListenAlbumAggregator({
       emit: (group) => {
+        if (!isActive()) return
         setScrollState((current) => applyMessageArrival(current))
         setMessageGroups((current) => pruneListenMessageGroups([...current, group]).groups)
       },
@@ -513,7 +528,9 @@ function InteractiveListen({
     const autoDownloader = autoDownload
       ? new AutoDownloadCoordinator({
           onEvent: (event) => {
-            if (mountedRef.current) setDownloadStates((current) => applyAutoDownloadEvent(current, event, showMedia))
+            if (!isActive()) return
+            downloadOperationRef.current.set(event.key, ++operationSequenceRef.current)
+            setDownloadStates((current) => applyAutoDownloadEvent(current, event, showMedia))
           },
         })
       : null
@@ -527,16 +544,20 @@ function InteractiveListen({
       signal: stopSignal,
       createClient,
       createCoordinator: () => autoDownloader!,
-      onCoordinator: (coordinator) => { autoDownloaderRef.current = coordinator as AutoDownloadCoordinator | null },
+      onCoordinator: (coordinator) => {
+        if (isActive()) autoDownloaderRef.current = coordinator as AutoDownloadCoordinator | null
+      },
       onClient: (client) => {
+        if (!isActive()) return
         clientRef.current = client
         if (client != null && sendTo != null) {
           void resolveSendTargetLabel(client, sendTo).then((label) => {
-            if (mountedRef.current && label != null) setSendTargetLabel(label)
+            if (isActive() && label != null) setSendTargetLabel(label)
           })
         }
       },
       acceptMessage: (message) => {
+        if (!isActive()) return false
         const key = `${message.chat_id}:${message.msg_id}`
         if (seenRef.current.has(key)) return false
         seenRef.current.add(key)
@@ -548,11 +569,11 @@ function InteractiveListen({
         return true
       },
       onBeforeEnqueue: (message) => {
-        if (!mountedRef.current) return
+        if (!isActive()) return
         registerPendingAttachmentKeys(pendingAttachmentKeysRef.current, message, showMedia)
       },
       onMessage: (message) => {
-        if (!mountedRef.current) return
+        if (!isActive()) return
         if (sendTo != null) {
           const inferred = inferSendTargetLabel(sendTo, message)
           if (inferred != null) setSendTargetLabel(inferred)
@@ -560,7 +581,7 @@ function InteractiveListen({
         albumAggregator.add(message)
       },
       onStatus: (next) => {
-        if (!mountedRef.current) return
+        if (!isActive()) return
         setStatus(next === 'connecting'
           ? 'connecting...'
           : next === 'disconnected'
@@ -568,20 +589,23 @@ function InteractiveListen({
             : next)
       },
       onError: (error) => {
-        if (!mountedRef.current) return
+        if (!isActive()) return
         if (persist) setNote(`listen failed: ${messageFromError(error)}`)
         else setStatus(`listen failed: ${messageFromError(error)}`)
       },
-      flush: () => albumAggregator.flush(),
+      flush: () => {
+        if (isActive()) albumAggregator.flush()
+      },
     }).finally(() => {
-      if (mountedRef.current && !stopSignal.aborted) {
+      if (isActive() && !stopSignal.aborted) {
         onRequestStop()
         exit()
       }
     })
 
     return () => {
-      mountedRef.current = false
+      active = false
+      if (generationRef.current === generation) generationRef.current += 1
       stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.dispose()
       if (albumAggregatorRef.current === albumAggregator) albumAggregatorRef.current = null
@@ -606,6 +630,11 @@ function InteractiveListen({
       setNote('connection is not ready')
       return
     }
+    const generation = generationRef.current
+    const operation = ++sendOperationRef.current
+    const isCurrent = () => isCurrentAsyncOperation(
+      generation, generationRef.current, operation, sendOperationRef.current,
+    )
 
     setInput('')
     setSending(true)
@@ -616,18 +645,27 @@ function InteractiveListen({
         message: trimmed,
         linkPreview: true,
       })
-      setNote('sent')
+      if (isCurrent()) setNote('sent')
     } catch (error) {
-      setNote(`send failed: ${messageFromError(error)}`)
+      if (isCurrent()) setNote(`send failed: ${messageFromError(error)}`)
     } finally {
-      setSending(false)
+      if (isCurrent()) setSending(false)
     }
   }
 
   const downloadAttachment = async (item: DownloadableAttachment): Promise<void> => {
+    const generation = generationRef.current
+    const operation = ++operationSequenceRef.current
+    downloadOperationRef.current.set(item.key, operation)
+    const isCurrent = () => isCurrentAsyncOperation(
+      generation,
+      generationRef.current,
+      operation,
+      downloadOperationRef.current.get(item.key) ?? -1,
+    )
     const client = clientRef.current
     if (!client) {
-      setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: 'not connected' } }))
+      if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: 'not connected' } }))
       return
     }
     const destination = resolveAttachmentDestination({
@@ -642,13 +680,14 @@ function InteractiveListen({
         ...attachmentDownloadTarget(item.attachment),
         destination,
         onProgress: (downloaded, total) => {
+          if (!isCurrent()) return
           const progress = Number.isFinite(total) && total > 0 ? Math.round(downloaded / total * 100) : null
           setDownloadStates((current) => ({ ...current, [item.key]: { status: 'downloading', progress } }))
         },
       })
-      setDownloadStates((current) => ({ ...current, [item.key]: { status: 'completed', path: destination } }))
+      if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'completed', path: destination } }))
     } catch (error) {
-      setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: messageFromError(error) } }))
+      if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: messageFromError(error) } }))
     }
   }
 

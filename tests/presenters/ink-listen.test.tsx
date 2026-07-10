@@ -3,7 +3,7 @@ import { render, renderToString, Text } from 'ink'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 
-import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, registerPendingAttachmentKeys, runInteractiveAutoDownloadLifecycle, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
+import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, flushListenBeforeExit, interactiveListenPreviewColorDepth, isCurrentAsyncOperation, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, registerPendingAttachmentKeys, runInteractiveAutoDownloadLifecycle, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -177,6 +177,35 @@ describe('interactive auto-download state', () => {
 })
 
 describe('interactive auto-download lifecycle', () => {
+  it('rejects deferred send and download continuations from an old generation', async () => {
+    let generation = 1
+    const sendOperation = 1
+    const downloadOperation = 2
+    const updates: string[] = []
+    const send = Promise.resolve().then(() => {
+      if (isCurrentAsyncOperation(1, generation, sendOperation, sendOperation)) updates.push('sent')
+    })
+    const download = Promise.resolve().then(() => {
+      if (isCurrentAsyncOperation(1, generation, downloadOperation, downloadOperation)) updates.push('downloaded')
+    })
+    generation += 1
+    await Promise.all([send, download])
+    expect(updates).toEqual([])
+  })
+
+  it('prevents an old manual completion from overwriting a newer auto event', () => {
+    const generation = 1
+    const manualOperation = 1
+    const autoOperation = 2
+    let state = applyAutoDownloadEvent({}, {
+      status: 'downloading', key: '100:11:0', progress: 75,
+    })
+    if (isCurrentAsyncOperation(generation, generation, manualOperation, autoOperation)) {
+      state = { '100:11:0': { status: 'completed', path: '/tmp/manual.jpg' } }
+    }
+    expect(state['100:11:0']).toEqual({ status: 'downloading', progress: 75 })
+  })
+
   it('creates one coordinator, pauses across disconnect, resumes replacement, and drains normally', async () => {
     const calls: string[] = []
     const first = lifecycleClient('disconnected', calls, 'first')
