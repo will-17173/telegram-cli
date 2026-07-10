@@ -234,6 +234,25 @@ export function createInteractiveOperationController() {
   }
 }
 
+type DownloadOwnership = {
+  isCurrent: () => boolean
+  release: () => void
+}
+
+export async function runOwnedAttachmentOperation(
+  ownership: DownloadOwnership,
+  operation: () => void | Promise<void>,
+  onError: (error: unknown) => void,
+): Promise<void> {
+  try {
+    await operation()
+  } catch (error) {
+    if (ownership.isCurrent()) onError(error)
+  } finally {
+    ownership.release()
+  }
+}
+
 export function pruneAttachmentDownloadStates(
   current: Record<string, AttachmentDownloadState>,
   validKeys: ReadonlySet<string>,
@@ -693,19 +712,16 @@ function InteractiveListen({
   const downloadAttachment = async (item: DownloadableAttachment): Promise<void> => {
     const ownership = operationControllerRef.current!.beginDownload(item.key)
     const isCurrent = ownership.isCurrent
-    const client = clientRef.current
-    if (!client) {
-      if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: 'not connected' } }))
-      return
-    }
-    const destination = resolveAttachmentDestination({
-      homeDir: homedir(),
-      fileName: attachmentFileName(item.attachment),
-      exists: existsSync,
-    })
-    mkdirSync(dirname(destination), { recursive: true })
-    setDownloadStates((current) => ({ ...current, [item.key]: { status: 'downloading', progress: 0 } }))
-    try {
+    await runOwnedAttachmentOperation(ownership, async () => {
+      const client = clientRef.current
+      if (!client) throw new Error('not connected')
+      const destination = resolveAttachmentDestination({
+        homeDir: homedir(),
+        fileName: attachmentFileName(item.attachment),
+        exists: existsSync,
+      })
+      mkdirSync(dirname(destination), { recursive: true })
+      if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'downloading', progress: 0 } }))
       await client.downloadMessageMedia({
         ...attachmentDownloadTarget(item.attachment),
         destination,
@@ -716,11 +732,9 @@ function InteractiveListen({
         },
       })
       if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'completed', path: destination } }))
-    } catch (error) {
-      if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: messageFromError(error) } }))
-    } finally {
-      ownership.release()
-    }
+    }, (error) => {
+      setDownloadStates((current) => ({ ...current, [item.key]: { status: 'failed', error: messageFromError(error) } }))
+    })
   }
 
   const stopListening = (): void => {

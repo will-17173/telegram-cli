@@ -3,7 +3,7 @@ import { render, renderToString, Text } from 'ink'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 
-import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, createInteractiveOperationController, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, registerPendingAttachmentKeys, runInteractiveAutoDownloadLifecycle, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
+import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, createInteractiveOperationController, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, registerPendingAttachmentKeys, runInteractiveAutoDownloadLifecycle, runInteractiveListen, runOwnedAttachmentOperation, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -260,6 +260,22 @@ describe('interactive auto-download lifecycle', () => {
     controller.claimDownload('left-active')
     lifecycle.dispose()
     expect(controller.downloadOwnershipSize()).toBe(0)
+  })
+
+  it.each([
+    ['no client', () => { throw new Error('not connected') }],
+    ['setup failure', () => { throw new Error('mkdir failed') }],
+  ])('releases manual ownership after %s', async (_, operation) => {
+    const controller = createInteractiveOperationController()
+    controller.beginGeneration()
+    const ownership = controller.beginDownload('100:11:0')
+    const errors: string[] = []
+
+    await runOwnedAttachmentOperation(ownership, operation, (error) => errors.push(String(error)))
+
+    expect(errors).toHaveLength(1)
+    expect(controller.downloadOwnershipSize()).toBe(0)
+    expect(ownership.isCurrent()).toBe(false)
   })
 
   it('creates one coordinator, pauses across disconnect, resumes replacement, and drains normally', async () => {
