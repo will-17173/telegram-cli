@@ -6,11 +6,13 @@ type RawRecord = Record<string, unknown>
 
 type ListenMessageFormatOptions = {
   showMedia?: boolean
+  showChatName?: boolean
 }
 
 export type ListenMessageRow = {
   time: string
   sender: string
+  chatName?: string
   content: string | null
   media: ListenAttachment[]
 }
@@ -58,6 +60,7 @@ export function buildListenMessage(input: StoredMessageInput | StoredMessageInpu
   return {
     time: formatListenTimestamp(message.timestamp),
     sender: message.sender_name ?? (message.sender_id == null ? 'Unknown' : String(message.sender_id)),
+    chatName: options.showChatName ? (message.chat_name ?? 'Unknown') : undefined,
     content: contentPreview(content, media.length > 0),
     media,
   }
@@ -65,7 +68,8 @@ export function buildListenMessage(input: StoredMessageInput | StoredMessageInpu
 
 export function formatListenLine(message: StoredMessageInput | StoredMessageInput[], options: ListenMessageFormatOptions = {}): string {
   const row = buildListenMessage(message, options)
-  const lines = [`[${row.time}] ${row.sender}`, ...(row.content == null ? [] : [row.content]), ...row.media.map((item) => item.label), MESSAGE_SEPARATOR]
+  const sender = row.chatName == null ? row.sender : `${row.chatName} | ${row.sender}`
+  const lines = [`[${row.time}] ${sender}`, ...(row.content == null ? [] : [row.content]), ...row.media.map((item) => item.label), MESSAGE_SEPARATOR]
   return `${lines.join('\n')}\n`
 }
 

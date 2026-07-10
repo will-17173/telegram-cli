@@ -246,6 +246,7 @@ export function registerTelegramCommands(app: Command): void {
       const retrySeconds = Number.parseFloat(options.retrySeconds ?? '5')
       const parsedChats = parseChats(chats)?.map(parseChat)
       const showMedia = options.media !== false
+      const showChatName = parsedChats == null
       const useInteractive = options.interactive !== false && process.stdin.isTTY === true && process.stdout.isTTY === true
       const sendTo = options.sendTo == null ? resolveSingleSendTarget(parsedChats) : parseChat(options.sendTo)
       const seenMessages = new Set<string>()
@@ -255,7 +256,10 @@ export function registerTelegramCommands(app: Command): void {
       const restoreUpdateWarnings = hideBenignUpdateWarnings(process.stdout.write.bind(process.stdout), process.stdout)
       const restoreUpdateErrors = hideBenignUpdateWarnings(process.stderr.write.bind(process.stderr), process.stderr)
       const albumAggregator = new ListenAlbumAggregator({
-        emit: (messages) => process.stdout.write(formatListenLine(messages, { showMedia })),
+        emit: (messages) => process.stdout.write(formatListenLine(messages, {
+          showMedia,
+          showChatName,
+        })),
       })
 
       process.on('SIGINT', stopListening)
@@ -272,6 +276,7 @@ export function registerTelegramCommands(app: Command): void {
               retrySeconds,
               sendTo,
               showMedia,
+              showChatName,
               createClient,
               stopSignal: controller.signal,
               onRequestStop: stopListening,

@@ -100,10 +100,31 @@ describe('listen command', () => {
 
     expect(client.listen).toHaveBeenCalledOnce()
     expect(output).toContain('Alice')
+    expect(output).toContain('TestGroup')
     expect(output).toContain('Hello from listen')
     expect(output).toContain('────────')
     expect(output.split('Hello from listen\n').length - 1).toBe(1)
     expect(output).toContain('listening completed\n')
+  })
+
+  it('omits chat names when a specific chat is provided', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '-1001'])
+    } finally {
+      write.mockRestore()
+    }
+
+    const output = writes.join('')
+
+    expect(output).toContain('Alice')
+    expect(output).toContain('Hello from listen')
+    expect(output).not.toContain('TestGroup')
   })
 
   it('shows attached media by default', async () => {

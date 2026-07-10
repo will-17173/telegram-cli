@@ -39,6 +39,7 @@ type ListenRuntimeOptions = {
   retrySeconds: number
   sendTo: string | number | undefined
   showMedia: boolean
+  showChatName: boolean
   createClient: () => TelegramClientAdapter
   stopSignal: AbortSignal
   onRequestStop: () => void
@@ -204,6 +205,7 @@ function InteractiveListen({
   retrySeconds,
   sendTo,
   showMedia,
+  showChatName,
   createClient,
   stopSignal,
   onRequestStop,
@@ -233,8 +235,9 @@ function InteractiveListen({
       showMedia,
       previewWidth,
       colorDepth: previewColorDepth,
+      showChatName,
     }),
-    [messageGroups, showMedia, previewWidth, previewColorDepth],
+    [messageGroups, showMedia, previewWidth, previewColorDepth, showChatName],
   )
   const reservedLines = 7 + (note ? 1 : 0)
   const messagePaneHeight = Math.max(2, terminalHeight - reservedLines)
@@ -513,7 +516,7 @@ function InteractiveListen({
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}
           {visibleMessages.map((message) => (
             <Box key={message.key} flexDirection="column">
-              <Text dimColor wrap="truncate-end">[{message.time}] {message.sender}</Text>
+              <Text dimColor wrap="truncate-end">[{message.time}] {message.chatName == null ? message.sender : `${message.chatName} | ${message.sender}`}</Text>
               {message.content == null ? null : <Text wrap="truncate-end">{message.content}</Text>}
               {message.media.map((item, mediaIndex) => {
                 const attachmentKey = `${message.key}:${mediaIndex}`
@@ -554,6 +557,7 @@ export type ListenMessageRenderContext = {
   showMedia: boolean
   previewWidth: number
   colorDepth: number
+  showChatName: boolean
   decodePreview?: typeof decodeImagePreview
 }
 
@@ -630,10 +634,10 @@ export function toListenMessage(
   const message = messages[0]
   if (message == null) throw new Error('Cannot render an empty listen message group')
   const renderContext = typeof context === 'boolean'
-    ? { showMedia: context, previewWidth: 1, colorDepth: 1 }
+    ? { showMedia: context, previewWidth: 1, colorDepth: 1, showChatName: false }
     : context
-  const { showMedia, previewWidth, colorDepth } = renderContext
-  const formatted = buildListenMessage(messages, { showMedia })
+  const { showMedia, previewWidth, colorDepth, showChatName } = renderContext
+  const formatted = buildListenMessage(messages, { showMedia, showChatName })
   const decodePreview = renderContext.decodePreview ?? decodeImagePreview
   const media = formatted.media.map((attachment) => {
     if (attachment.previewJpegBase64 == null || colorDepth < 24) return attachment

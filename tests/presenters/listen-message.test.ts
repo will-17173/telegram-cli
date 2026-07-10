@@ -48,6 +48,15 @@ describe('listen message formatting', () => {
     expect(row.media.map((item) => item.label)).toEqual(['📎 Photo', '📎 Photo'])
   })
 
+  it('includes chat name when showChatName is enabled', () => {
+    const message = mediaMessage()
+    const row = buildListenMessage(message, { showChatName: true })
+    const output = formatListenLine(message, { showChatName: true })
+
+    expect(row.chatName).toBe('TestGroup')
+    expect(output).toContain('TestGroup | Alice')
+  })
+
   it('associates a photo preview with its attachment when media is shown', () => {
     const message = mediaMessage({ previewJpegBase64: 'jpeg-preview' })
 
