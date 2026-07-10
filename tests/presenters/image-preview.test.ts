@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import jpeg from 'jpeg-js'
+import { describe, expect, it, vi } from 'vitest'
 
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 
@@ -31,5 +32,36 @@ describe('decodeImagePreview', () => {
 
   it('returns null for malformed input', () => {
     expect(decodeImagePreview('not a jpeg', 2)).toBeNull()
+  })
+
+  it('rejects encoded JPEG payloads larger than 64 KiB', () => {
+    const oversized = Buffer.concat([
+      Buffer.from(twoByTwoJpeg, 'base64'),
+      Buffer.alloc(64 * 1024),
+    ])
+
+    expect(decodeImagePreview(oversized.toString('base64'), 2)).toBeNull()
+  })
+
+  it('rejects JPEG dimensions above the decoder resolution limit', () => {
+    const oversizedDimensions = Buffer.from(twoByTwoJpeg, 'base64')
+    const startOfFrame = oversizedDimensions.indexOf(Buffer.from([0xff, 0xc0]))
+    oversizedDimensions.writeUInt16BE(1001, startOfFrame + 5)
+    oversizedDimensions.writeUInt16BE(1000, startOfFrame + 7)
+
+    expect(decodeImagePreview(oversizedDimensions.toString('base64'), 2)).toBeNull()
+  })
+
+  it('decodes with conservative jpeg-js resource limits', () => {
+    const decode = vi.spyOn(jpeg, 'decode')
+
+    expect(decodeImagePreview(twoByTwoJpeg, 2)).not.toBeNull()
+    expect(decode).toHaveBeenCalledWith(expect.any(Buffer), {
+      useTArray: true,
+      maxResolutionInMP: 1,
+      maxMemoryUsageInMB: 16,
+    })
+
+    decode.mockRestore()
   })
 })

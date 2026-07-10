@@ -1,8 +1,9 @@
 import React from 'react'
-import { renderToString } from 'ink'
+import { render, renderToString, Text } from 'ink'
+import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 
-import { attachmentDownloadTarget, flushListenBeforeExit, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneListenMessageGroups, runInteractiveListen, toListenMessage } from '../../src/presenters/ink/listen.js'
+import { attachmentDownloadTarget, flushListenBeforeExit, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneListenMessageGroups, runInteractiveListen, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -23,6 +24,38 @@ describe('runInteractiveListen', () => {
 
     expect(result).toBe('completed')
     expect(calls).toEqual([ENABLE_MOUSE_REPORTING, 'run', DISABLE_MOUSE_REPORTING])
+  })
+})
+
+describe('useTerminalMetrics', () => {
+  it('reacts to stdout resize and removes its sole listener on unmount', async () => {
+    const stdout = new MockStdout(80, 24, 24)
+    const renderStdout = new MockStdout(80, 24, 24)
+    const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
+    const onMetrics = vi.fn()
+    const app = render(
+      <TerminalMetricsHarness stdout={stdout} decodePreview={decodePreview} onMetrics={onMetrics} />,
+      { stdout: renderStdout as unknown as NodeJS.WriteStream, patchConsole: false },
+    )
+
+    await vi.waitFor(() => expect(onMetrics).toHaveBeenLastCalledWith({ columns: 80, rows: 24, colorDepth: 24 }))
+    expect(stdout.listenerCount('resize')).toBe(1)
+    expect(decodePreview).toHaveBeenLastCalledWith(twoByTwoJpeg, 24)
+
+    stdout.columns = 12
+    stdout.rows = 10
+    stdout.colorDepth = 8
+    stdout.emit('resize')
+
+    await vi.waitFor(() => expect(onMetrics).toHaveBeenLastCalledWith({ columns: 12, rows: 10, colorDepth: 8 }))
+    expect(decodePreview).toHaveBeenCalledTimes(1)
+
+    stdout.colorDepth = 24
+    stdout.emit('resize')
+    await vi.waitFor(() => expect(decodePreview).toHaveBeenLastCalledWith(twoByTwoJpeg, 9))
+
+    app.unmount()
+    expect(stdout.listenerCount('resize')).toBe(0)
   })
 })
 
@@ -332,3 +365,43 @@ const twoByTwoJpeg =
   'gQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SF' +
   'hoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEA' +
   'AhEDEQA/AOs0W1t30SwZ4ImZraMklASTtFViaFJVppRW76LuYujTm+aUU2/I/wD/2Q=='
+
+class MockStdout extends EventEmitter {
+  isTTY = true
+
+  constructor(
+    public columns: number,
+    public rows: number,
+    public colorDepth: number,
+  ) {
+    super()
+  }
+
+  getColorDepth(): number {
+    return this.colorDepth
+  }
+
+  write(): boolean {
+    return true
+  }
+}
+
+function TerminalMetricsHarness({
+  stdout,
+  decodePreview,
+  onMetrics,
+}: {
+  stdout: MockStdout
+  decodePreview: typeof decodeImagePreview
+  onMetrics: (metrics: { columns: number; rows: number; colorDepth: number }) => void
+}): React.JSX.Element {
+  const metrics = useTerminalMetrics(stdout)
+  React.useEffect(() => onMetrics(metrics), [metrics, onMetrics])
+  toListenMessage([{ ...storedPhoto(99, ''), preview_jpeg_base64: twoByTwoJpeg }], {
+    showMedia: true,
+    previewWidth: metrics.columns - 3,
+    colorDepth: metrics.colorDepth,
+    decodePreview,
+  })
+  return <Text>{metrics.columns}x{metrics.rows}@{metrics.colorDepth}</Text>
+}

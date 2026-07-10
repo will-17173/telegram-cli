@@ -47,6 +47,40 @@ type ListenRuntimeOptions = {
 const MESSAGE_SEPARATOR = '────────────────────────────────────────────'
 /** Maximum number of grouped messages retained by a long-running interactive listener. */
 export const LISTEN_HISTORY_LIMIT = 500
+export type TerminalMetrics = {
+  columns: number
+  rows: number
+  colorDepth: number
+}
+
+type ResizableStdout = {
+  columns?: number
+  rows?: number
+  getColorDepth?: () => number
+  on: (event: 'resize', listener: () => void) => unknown
+  off: (event: 'resize', listener: () => void) => unknown
+}
+
+export function useTerminalMetrics(stdout: ResizableStdout | undefined): TerminalMetrics {
+  const readMetrics = useCallback((): TerminalMetrics => ({
+    columns: stdout?.columns ?? 80,
+    rows: stdout?.rows ?? 24,
+    colorDepth: stdout?.getColorDepth?.() ?? 1,
+  }), [stdout])
+  const [metrics, setMetrics] = useState<TerminalMetrics>(readMetrics)
+
+  useEffect(() => {
+    setMetrics(readMetrics())
+    if (stdout == null) return
+    const handleResize = () => setMetrics(readMetrics())
+    stdout.on('resize', handleResize)
+    return () => {
+      stdout.off('resize', handleResize)
+    }
+  }, [stdout, readMetrics])
+
+  return metrics
+}
 export const LISTEN_COMPOSER_THEME = {
   background: '#454950',
   foreground: '#d7dae0',
@@ -170,6 +204,7 @@ function InteractiveListen({
 }: ListenRuntimeOptions): React.JSX.Element {
   const { exit } = useApp()
   const { stdout } = useStdout()
+  const terminalMetrics = useTerminalMetrics(stdout)
   const [status, setStatus] = useState('connecting...')
   const [messageGroups, setMessageGroups] = useState<StoredMessageInput[][]>([])
   const [input, setInput] = useState('')
@@ -180,9 +215,9 @@ function InteractiveListen({
   const [downloadStates, setDownloadStates] = useState<Record<string, AttachmentDownloadState>>({})
   const [scrollState, setScrollState] = useState<ListenScrollState>({ offset: 0, unseenCount: 0 })
   const [sendTargetLabel, setSendTargetLabel] = useState(sendTo == null ? '' : buildSendTargetLabel(sendTo))
-  const terminalWidth = stdout?.columns ?? 80
-  const terminalHeight = stdout?.rows ?? 24
-  const colorDepth = stdout?.getColorDepth?.() ?? 1
+  const terminalWidth = terminalMetrics.columns
+  const terminalHeight = terminalMetrics.rows
+  const colorDepth = terminalMetrics.colorDepth
   const contentWidth = listenContentWidth(terminalWidth)
   const previewWidth = Math.max(1, Math.min(24, contentWidth - 2))
   const messageViewCacheRef = useRef<ListenMessageViewCache | null>(null)
