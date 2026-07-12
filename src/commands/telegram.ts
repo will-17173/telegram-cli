@@ -10,7 +10,7 @@ import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '
 import { formatListenLine } from '../presenters/listen-message.js'
 import { renderInteractiveListen } from '../presenters/ink/listen.js'
 import { runWithAccountContext, type AccountCommandOptions } from './account-options.js'
-import type { AccountContext } from '../account/account-presets.js'
+import { hideBenignUpdateWarnings, runTelegramCommand } from './telegram-runner.js'
 
 type MachineOptions = AccountCommandOptions
 
@@ -48,29 +48,22 @@ export function registerTelegramCommands(app: Command): void {
     .option('--json')
     .option('--yaml')
     .action(async (options: MachineOptions) => {
-      await renderTelegramResult(options, async (client) => {
-        try {
-          const user = await client.getCurrentUser()
-          return {
-            ok: true,
-            data: {
-              authenticated: true,
-              user: normalizeTelegramUser(user),
-            },
-            human: {
-              kind: 'summary',
-              title: 'Telegram status',
-              fields: [
-                { label: 'Authenticated', value: 'Yes', tone: 'success' },
-                ...userDetail(normalizeTelegramUser(user)).fields,
-              ],
-            },
-          }
-        } catch (error) {
-          return {
-            ok: false,
-            error: { code: 'auth_error', message: errorMessage(error) },
-          }
+      await runTelegramCommand(options, async (client) => {
+        const user = await client.getCurrentUser()
+        return {
+          ok: true,
+          data: {
+            authenticated: true,
+            user: normalizeTelegramUser(user),
+          },
+          human: {
+            kind: 'summary',
+            title: 'Telegram status',
+            fields: [
+              { label: 'Authenticated', value: 'Yes', tone: 'success' },
+              ...userDetail(normalizeTelegramUser(user)).fields,
+            ],
+          },
         }
       })
     })
@@ -80,19 +73,12 @@ export function registerTelegramCommands(app: Command): void {
     .option('--json')
     .option('--yaml')
     .action(async (options: MachineOptions) => {
-      await renderTelegramResult(options, async (client) => {
-        try {
-          const user = normalizeTelegramUser(await client.getCurrentUser())
-          return {
-            ok: true,
-            data: { user },
-            human: userDetail(user),
-          }
-        } catch (error) {
-          return {
-            ok: false,
-            error: { code: 'auth_error', message: errorMessage(error) },
-          }
+      await runTelegramCommand(options, async (client) => {
+        const user = normalizeTelegramUser(await client.getCurrentUser())
+        return {
+          ok: true,
+          data: { user },
+          human: userDetail(user),
         }
       })
     })
@@ -103,7 +89,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--json')
     .option('--yaml')
     .action(async (options: MachineOptions & { type?: string }) => {
-      await renderTelegramResult(options, async (client) => {
+      await runTelegramCommand(options, async (client) => {
         const chats = await client.listChats(options.type as any)
         return { ok: true, data: chats, human: chatTable(chats) }
       })
@@ -177,7 +163,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--json')
     .option('--yaml')
     .action(async (chat: string, options: MachineOptions) => {
-      await renderTelegramResult(options, async (client) => {
+      await runTelegramCommand(options, async (client) => {
         const info = await client.getChatInfo(parseChat(chat))
         if (!info) return { ok: false, error: { code: 'chat_not_found', message: `Chat '${chat}' not found on Telegram.` } }
         return { ok: true, data: info, human: recordDetail('Chat info', info) }
@@ -253,8 +239,8 @@ export function registerTelegramCommands(app: Command): void {
       const seenMessageOrder: string[] = []
       const controller = new AbortController()
       const stopListening = () => controller.abort()
-      const restoreUpdateWarnings = hideBenignUpdateWarnings(process.stdout.write.bind(process.stdout), process.stdout)
-      const restoreUpdateErrors = hideBenignUpdateWarnings(process.stderr.write.bind(process.stderr), process.stderr)
+      const restoreUpdateWarnings = hideBenignUpdateWarnings(process.stdout)
+      const restoreUpdateErrors = hideBenignUpdateWarnings(process.stderr)
       const albumAggregator = new ListenAlbumAggregator({
         emit: (messages) => process.stdout.write(formatListenLine(messages, {
           showMedia,
@@ -347,7 +333,7 @@ function parseChat(chat: string): string | number {
 }
 
 async function renderSyncResult(options: SyncFlags, handler: (service: SyncService) => Promise<HandlerResult>): Promise<void> {
-  await renderTelegramResult(options, async (client, context) => {
+  await runTelegramCommand(options, async (client, context) => {
     const result = await runWithSync(client, context.dbPath, handler)
     return result.ok && result.human == null
       ? { ...result, human: syncSummary(result.data as Parameters<typeof syncSummary>[0]) }
@@ -368,105 +354,18 @@ async function runWithSync(
   }
 }
 
-type StreamWrite = typeof process.stdout.write
-
-const BENIGN_UPDATE_WARNINGS = [
-  'pts_before does not match local_pts',
-  'local pts not available for postponed updateNewChannelMessage',
-  'error fetching common difference',
-  'error fetching difference for',
-  'Session is reset',
-  'MtprotoSession.resetState',
-] as const
-
-function hideBenignUpdateWarnings(write: StreamWrite, stream: NodeJS.WritableStream): () => void {
-  stream.write = ((chunk: Parameters<StreamWrite>[0], encoding?: Parameters<StreamWrite>[1], cb?: Parameters<StreamWrite>[2]) => {
-    const rendered = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString()
-    const isBenignUpdateWarning = BENIGN_UPDATE_WARNINGS.some((warning) => rendered.includes(warning))
-      || (rendered.includes('error fetching difference for') && rendered.includes('400 CHANNEL_INVALID'))
-    if (isBenignUpdateWarning) {
-      return true
-    }
-    return write.call(stream, chunk, encoding, cb)
-  }) as StreamWrite
-
-  return () => {
-    stream.write = write
-  }
-}
-
 async function renderMessageResult(
   options: MachineOptions,
   title: string,
   handler: (service: MessageService) => Promise<HandlerResult>,
 ): Promise<void> {
-  await renderTelegramResult(options, async (client) => {
+  await runTelegramCommand(options, async (client) => {
     const service = new MessageService(client)
     const result = await handler(service)
     return result.ok && result.human == null
       ? { ...result, human: actionDetail(title, result.data as Record<string, unknown>) }
       : result
   })
-}
-
-async function renderTelegramResult(
-  options: MachineOptions,
-  handler: (client: TelegramClientAdapter, context: AccountContext) => Promise<HandlerResult>,
-): Promise<void> {
-  await runWithAccountContext(options, async (context) => {
-    const restoreStdoutWarnings = hideBenignUpdateWarnings(process.stdout.write.bind(process.stdout), process.stdout)
-    const restoreStderrWarnings = hideBenignUpdateWarnings(process.stderr.write.bind(process.stderr), process.stderr)
-
-    let client: TelegramClientAdapter
-    try {
-      client = createTelegramClient(context.sessionPath)
-    } catch (error) {
-      restoreStdoutWarnings()
-      restoreStderrWarnings()
-      return commandFailure('config_error', error)
-    }
-
-    try {
-      return await handler(client, context)
-    } catch (error) {
-      const authError = toAuthSessionError(error, context.account.name)
-      return authError ?? commandFailure('telegram_error', error)
-    } finally {
-      restoreStdoutWarnings()
-      restoreStderrWarnings()
-      await client.close().catch(() => undefined)
-    }
-  })
-}
-
-function toAuthSessionError(error: unknown, accountName: string): HandlerResult<never> | null {
-  if (isAuthKeyUnregistered(error)) {
-    return {
-      ok: false,
-      error: {
-        code: 'telegram_account_session_expired',
-        message: `Session for account "${accountName}" is no longer valid. Re-add the account: tg account remove ${accountName} --force && tg account add.`,
-      },
-    }
-  }
-  return null
-}
-
-function isAuthKeyUnregistered(error: unknown): boolean {
-  const candidate = error as { text?: unknown; message?: unknown; code?: unknown }
-  const text = typeof candidate.text === 'string'
-    ? candidate.text
-    : undefined
-
-  if (text === 'AUTH_KEY_UNREGISTERED') return true
-
-  const code = typeof candidate.code === 'number' ? candidate.code : undefined
-  const message = typeof candidate.message === 'string' ? candidate.message : ''
-  return message.includes('AUTH_KEY_UNREGISTERED') && code === 401
-}
-
-function commandFailure(code: string, error: unknown): HandlerResult<never> {
-  return { ok: false, error: { code, message: errorMessage(error) } }
 }
 
 function normalizeTelegramUser(user: TelegramUser): {
@@ -486,10 +385,6 @@ function normalizeTelegramUser(user: TelegramUser): {
     last_name: user.last_name,
     phone: user.phone,
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function sleep(seconds: number): Promise<void> {

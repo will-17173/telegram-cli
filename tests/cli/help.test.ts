@@ -14,6 +14,7 @@ describe('cli help', () => {
       'edit',
       'export',
       'filter',
+      'group',
       'history',
       'info',
       'listen',
@@ -72,7 +73,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(23)
+    expect(commands).toHaveLength(24)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 
@@ -83,5 +84,45 @@ describe('cli help', () => {
     expect(help).toContain('Export locally stored messages from a')
     expect(help).toContain('Show Telegram authentication status')
     expect(help).toContain('Manage Telegram CLI configuration')
+  })
+
+  it('registers the read-only group command surface', () => {
+    const group = createApp().commands.find((command) => command.name() === 'group')
+
+    expect(group).toBeDefined()
+    expect(group?.description()).toBe('Inspect Telegram groups, members, and audit events')
+    expect(group?.commands.map((command) => command.name())).toEqual(['info', 'members', 'member', 'audit'])
+    expect(group?.commands.map((command) => command.description())).toEqual([
+      'Show Telegram group information',
+      'List Telegram group members',
+      'Show a Telegram group member',
+      'List Telegram group audit events',
+    ])
+  })
+
+  it('registers exact group subcommand options without a conflicting account option', () => {
+    const group = createApp().commands.find((command) => command.name() === 'group')
+    const options = Object.fromEntries(group?.commands.map((command) => [
+      command.name(),
+      command.options.map((option) => option.long),
+    ]) ?? [])
+
+    expect(options).toEqual({
+      info: ['--json', '--yaml'],
+      members: ['--type', '--query', '--limit', '--json', '--yaml'],
+      member: ['--json', '--yaml'],
+      audit: ['--query', '--user', '--type', '--limit', '--json', '--yaml'],
+    })
+    expect(group?.commands.flatMap((command) => command.options.map((option) => option.long))).not.toContain('--account')
+  })
+
+  it('describes audit user filtering as action-author filtering only', () => {
+    const group = createApp().commands.find((command) => command.name() === 'group')
+    const audit = group?.commands.find((command) => command.name() === 'audit')
+    const help = audit?.helpInformation() ?? ''
+
+    expect(help).toContain('--user <user>')
+    expect(help).toContain('Filter by action author')
+    expect(help).not.toContain('actor or target')
   })
 })
