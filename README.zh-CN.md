@@ -61,6 +61,35 @@ warning: using default Telegram API credentials. Run tg config set --api-id <id>
 
 个人凭据会作为敏感配置存储在本地，切勿与他人分享。所有已添加账号共用一套 API 凭据，但每个账号都有独立的身份验证会话。
 
+如需为 Telegram 连接持久化配置代理，请运行：
+
+```sh
+tg config set --proxy socks5://127.0.0.1:1080
+```
+
+如需仅覆盖单次命令，可在该命令的环境中设置 `TG_PROXY`：
+
+```sh
+TG_PROXY=http://127.0.0.1:8080 tg status
+```
+
+支持的代理形式包括 `socks4://`、`socks5://`、`http://` 和 `https://` 代理 URL，以及 `tg://proxy?...` 和 `https://t.me/proxy?...` 形式的 MTProxy 链接。去除首尾空白后，非空的 `TG_PROXY` 值会覆盖持久化代理；如果 `TG_PROXY` 为空或未设置，CLI 会回退到已保存的代理；如果两者均未配置，则直接连接。
+
+所选代理会应用于账号登录和所有需要连接 Telegram 的命令，并非只应用于示例中的单个命令。代理 URL 可能包含用户名和密码或 MTProxy secret，因此应视为敏感信息。CLI 输出不会打印已配置的代理 URL。在命令行中直接输入包含凭据的代理 URL，可能会使其留在 shell 历史记录中，或通过进程检查被看到。请通过受到适当保护的环境或 secret 加载机制提供 `TG_PROXY`，或以其他方式避免将明文 secret 写入共享的 shell 历史记录和脚本。
+
+如需以人类可读、JSON 或 YAML 格式查看生效配置，请运行：
+
+```sh
+tg config list
+tg config list --json
+tg config list --yaml
+tg config list --show-secrets
+```
+
+该命令报告的是生效配置，而非 `config.json` 的原始内容。API 凭据会依次从环境变量、已保存配置和内置默认值中解析。代理则独立解析，依次使用 `TG_PROXY` 和已保存配置；两者均未配置时，代理保持缺省状态。
+
+输出恰好报告五个字段：生效的 API ID、API hash、凭据来源、代理 URL 以及代理来源。API hash 默认脱敏；使用 `--show-secrets` 可显示完整值。代理 URL 始终完整输出，并可能包含凭据或 MTProxy secret，因此请勿将 `config list` 输出写入日志或与他人分享。`tg config list` 不会创建 Telegram 客户端，也不会发起网络连接。
+
 运行 `tg account add` 完成身份验证并创建本地会话。其他命令不会启动交互式登录流程。
 
 你可以通过环境变量修改配置、账号会话和消息数据库的根目录：
@@ -158,6 +187,8 @@ tg --help
 | `tg account remove <name> --force` | 删除账号及其本地会话和数据。 |
 | `tg whoami` | 显示当前登录账号的基本信息。 |
 | `tg config set --api-id <id> --api-hash <hash>` | 持久化保存 Telegram API 凭据。 |
+| `tg config set --proxy <url>` | 为账号登录及所有需要连接 Telegram 的命令保存可选代理。 |
+| `tg config list [--show-secrets]` | 显示生效配置值及其来源；代理 URL 始终可见。 |
 | `tg status` | 检查 Telegram 账户是否已完成身份验证。 |
 | `tg chats` | 列出可用聊天。 |
 | `tg history <chat> -n <limit>` | 获取并保存完整聊天历史（默认最多 1000 条）。 |
@@ -239,6 +270,8 @@ accounts/<name>/messages.db
 
 请将持久化配置、`.env`、Telegram 凭据、会话文件和 SQLite 数据视为敏感信息，切勿与他人分享或将它们提交到版本控制中。
 
+除 API 凭据外，`config.json` 文件还可能包含可选的 `proxy` 设置。CLI 的成功和错误输出不会打印已保存的代理 URL，但代理 URL 可能包含凭据或 MTProxy secret，因此仍须保护 `config.json`、环境和 shell 历史记录。
+
 ## 开发
 
 本项目使用 pnpm：
@@ -249,6 +282,20 @@ pnpm dev --help
 pnpm test
 pnpm typecheck
 ```
+
+开发时，可以将当前源码目录设置为全局 `tg` 命令，并直接运行 TypeScript 源码。在项目根目录执行：
+
+```sh
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/tg <<EOF
+#!/bin/sh
+exec "$(pwd)/node_modules/.bin/tsx" "$(pwd)/src/dev.ts" "\$@"
+EOF
+chmod +x ~/.local/bin/tg
+rehash
+```
+
+请确保 `~/.local/bin` 已加入 `PATH`。之后执行 `tg` 时会加载最新的源码修改。
 
 在本地进行源码开发时，请在项目根目录创建 `.env` 文件：
 

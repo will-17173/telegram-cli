@@ -33,7 +33,7 @@ describe('cli help', () => {
     ])
   })
 
-  it('registers config set with ordinary credential options', () => {
+  it('registers config set with ordinary configuration options', () => {
     const config = createApp().commands.find((command) => command.name() === 'config')
     const set = config?.commands.find((command) => command.name() === 'set')
 
@@ -41,10 +41,32 @@ describe('cli help', () => {
     expect(set?.options.map((option) => option.long)).toEqual([
       '--api-id',
       '--api-hash',
+      '--proxy',
       '--json',
       '--yaml',
     ])
     expect(set?.options.every((option) => !option.mandatory)).toBe(true)
+    expect(set?.description()).toBe('Save Telegram API credentials and proxy settings')
+  })
+
+  it('registers the config set and list subcommands', () => {
+    const config = createApp().commands.find((command) => command.name() === 'config')
+
+    expect(config?.commands.map((command) => command.name())).toEqual(['set', 'list'])
+  })
+
+  it('registers config list with optional structured output options only', () => {
+    const config = createApp().commands.find((command) => command.name() === 'config')
+    const list = config?.commands.find((command) => command.name() === 'list')
+
+    expect(list).toBeDefined()
+    expect(list?.options.map((option) => option.long)).toEqual([
+      '--show-secrets',
+      '--json',
+      '--yaml',
+    ])
+    expect(list?.options.every((option) => !option.mandatory)).toBe(true)
+    expect(list?.description()).toBe('Show effective Telegram CLI configuration')
   })
 
   it('describes every top-level command', () => {

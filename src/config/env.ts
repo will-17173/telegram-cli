@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import {
   MissingCredentialsError,
   readCredentials,
+  readProxy,
   validateCredentials,
   type TelegramCredentials,
 } from './credential-store.js'
@@ -18,6 +19,13 @@ export type CredentialSource = 'environment' | 'stored' | 'default'
 
 export type ResolvedTelegramCredentials = TelegramCredentials & {
   source: CredentialSource
+}
+
+export type ProxySource = 'environment' | 'stored'
+
+export type ResolvedTelegramProxy = {
+  url: string
+  source: ProxySource
 }
 
 export function getTelegramCredentials(): ResolvedTelegramCredentials {
@@ -48,6 +56,20 @@ export function getTelegramCredentials(): ResolvedTelegramCredentials {
       source: 'default',
     }
   }
+}
+
+export function getTelegramProxyConfiguration(): ResolvedTelegramProxy | undefined {
+  const proxy = process.env.TG_PROXY?.trim()
+  if (proxy) {
+    return { url: proxy, source: 'environment' }
+  }
+
+  const storedProxy = readProxy(getConfigPath())
+  return storedProxy ? { url: storedProxy, source: 'stored' } : undefined
+}
+
+export function getTelegramProxy(): string | undefined {
+  return getTelegramProxyConfiguration()?.url
 }
 
 export function getSessionName(): string {

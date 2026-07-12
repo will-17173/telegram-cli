@@ -15,7 +15,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   MissingCredentialsError,
   readCredentials,
+  readProxy,
   validateCredentials,
+  writeConfiguration,
   writeCredentials,
 } from '../../src/config/credential-store.js'
 
@@ -52,6 +54,74 @@ describe('credential store', () => {
     const contents = readFileSync(path, 'utf8')
     expect(JSON.parse(contents)).toEqual({ api_id: 12345, api_hash: 'secret' })
     expect(contents.endsWith('\n')).toBe(true)
+  })
+
+  it('reads the old credential-only document and reports no proxy', () => {
+    const path = join(tempDir(), 'config.json')
+    writeFileSync(path, '{\n  "api_id": 12345,\n  "api_hash": "secret"\n}\n')
+
+    expect(readCredentials(path)).toEqual({ apiId: 12345, apiHash: 'secret' })
+    expect(readProxy(path)).toBeUndefined()
+  })
+
+  it('reads a proxy-only configuration while credentials remain missing', () => {
+    const path = join(tempDir(), 'config.json')
+    writeFileSync(path, '{"proxy":"socks5://127.0.0.1:1080"}')
+
+    expect(readProxy(path)).toBe('socks5://127.0.0.1:1080')
+    expect(() => readCredentials(path)).toThrow(MissingCredentialsError)
+  })
+
+  it('returns undefined when reading a proxy from a missing file', () => {
+    const path = join(tempDir(), 'missing.json')
+
+    expect(readProxy(path)).toBeUndefined()
+  })
+
+  it('preserves the proxy when updating credentials', () => {
+    const path = join(tempDir(), 'config.json')
+    writeFileSync(path, '{"proxy":"socks5://127.0.0.1:1080","ignored":true}')
+
+    writeConfiguration(path, { credentials: { apiId: 12345, apiHash: ' secret ' } })
+
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      api_id: 12345,
+      api_hash: 'secret',
+      proxy: 'socks5://127.0.0.1:1080',
+    })
+  })
+
+  it('preserves the proxy when writing credentials through the legacy API', () => {
+    const path = join(tempDir(), 'config.json')
+    writeFileSync(path, '{"proxy":"socks5://127.0.0.1:1080"}')
+
+    writeCredentials(path, { apiId: 12345, apiHash: 'secret' })
+
+    expect(readProxy(path)).toBe('socks5://127.0.0.1:1080')
+    expect(readCredentials(path)).toEqual({ apiId: 12345, apiHash: 'secret' })
+  })
+
+  it('preserves credentials when updating and trimming the proxy', () => {
+    const path = join(tempDir(), 'config.json')
+    writeCredentials(path, { apiId: 12345, apiHash: 'secret' })
+
+    writeConfiguration(path, { proxy: '  socks5://127.0.0.1:1080  ' })
+
+    expect(readCredentials(path)).toEqual({ apiId: 12345, apiHash: 'secret' })
+    expect(readProxy(path)).toBe('socks5://127.0.0.1:1080')
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      api_id: 12345,
+      api_hash: 'secret',
+      proxy: 'socks5://127.0.0.1:1080',
+    })
+  })
+
+  it('writes a normalized proxy-only configuration', () => {
+    const path = join(tempDir(), 'nested', 'config.json')
+
+    writeConfiguration(path, { proxy: '  http://localhost:8080  ' })
+
+    expect(readFileSync(path, 'utf8')).toBe('{\n  "proxy": "http://localhost:8080"\n}\n')
   })
 
   it.runIf(process.platform !== 'win32')('sets the credential file mode to 0600', () => {
@@ -112,6 +182,42 @@ describe('credential store', () => {
       expect(error).not.toBeInstanceOf(MissingCredentialsError)
       expect((error as Error).message).toBe('Stored Telegram API configuration is invalid.')
     }
+  })
+
+  it.each([
+    '{"proxy":""}',
+    '{"proxy":"   "}',
+    '{"proxy":123}',
+    '{"api_id":12345}',
+    '{"api_hash":"secret"}',
+    '{"api_id":12345,"proxy":"socks5://localhost:1080"}',
+    '{"api_hash":"secret","proxy":"socks5://localhost:1080"}',
+  ])('rejects malformed generalized configuration: %s', (contents) => {
+    const path = join(tempDir(), 'config.json')
+    writeFileSync(path, contents)
+
+    expect(() => readProxy(path)).toThrow('Stored Telegram API configuration is invalid.')
+  })
+
+  it('rejects an empty configuration update', () => {
+    const path = join(tempDir(), 'config.json')
+
+    expect(() => writeConfiguration(path, {})).toThrow(
+      'Stored Telegram API configuration is invalid.',
+    )
+    expect(existsSync(path)).toBe(false)
+  })
+
+  it('does not mutate an existing file when a proxy update is invalid', () => {
+    const path = join(tempDir(), 'config.json')
+    const original = '{"api_id":54321,"api_hash":"existing","ignored":true}\n'
+    writeFileSync(path, original)
+
+    expect(() => writeConfiguration(path, { proxy: '   ' })).toThrow(
+      'Stored Telegram API configuration is invalid.',
+    )
+
+    expect(readFileSync(path, 'utf8')).toBe(original)
   })
 
   it('does not classify an unreadable configuration path as missing', () => {

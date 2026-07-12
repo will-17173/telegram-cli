@@ -8,10 +8,12 @@ import { writeCredentials } from '../../src/config/credential-store.js'
 import { getConfigPath } from '../../src/config/env.js'
 
 const telegramClientConstructor = vi.hoisted(() => vi.fn(function MockTelegramClient() {}))
+const proxyTransportFromUrl = vi.hoisted(() => vi.fn())
 
 vi.mock('@mtcute/node', () => ({
   TelegramClient: telegramClientConstructor,
   MtPeerNotFoundError: class MtPeerNotFoundError extends Error {},
+  proxyTransportFromUrl,
 }))
 
 const WARNING = 'warning: using default Telegram API credentials. Run tg config set --api-id <id> --api-hash <hash> to configure your own.\n'
@@ -24,7 +26,9 @@ beforeEach(() => {
   vi.stubEnv('TG_API_ID', '')
   vi.stubEnv('TG_API_HASH', '')
   vi.stubEnv('TG_SESSION_NAME', '')
+  vi.stubEnv('TG_PROXY', '')
   telegramClientConstructor.mockClear()
+  proxyTransportFromUrl.mockReset()
   vi.resetModules()
 })
 
@@ -106,6 +110,26 @@ describe('createTelegramClient', () => {
       apiId: 12345,
       apiHash: 'environment_hash',
       storage: join(dataDir, 'accounts', 'alice', 'session'),
+    })
+  })
+
+  it('passes configured proxy transport to mtcute', async () => {
+    const transport = { kind: 'proxy-transport' }
+    vi.stubEnv('TG_API_ID', '12345')
+    vi.stubEnv('TG_API_HASH', 'environment_hash')
+    vi.stubEnv('TG_PROXY', 'socks5://127.0.0.1:1080')
+    proxyTransportFromUrl.mockReturnValue(transport)
+    const { createTelegramClient } = await import('../../src/telegram/client-factory.js')
+
+    createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))
+
+    expect(proxyTransportFromUrl).toHaveBeenCalledOnce()
+    expect(proxyTransportFromUrl).toHaveBeenCalledWith('socks5://127.0.0.1:1080')
+    expect(telegramClientConstructor).toHaveBeenCalledWith({
+      apiId: 12345,
+      apiHash: 'environment_hash',
+      storage: join(dataDir, 'accounts', 'alice', 'session'),
+      transport,
     })
   })
 

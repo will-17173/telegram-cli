@@ -4,9 +4,10 @@ import { randomUUID } from 'node:crypto'
 import { TelegramClient } from '@mtcute/node'
 import type { Command } from 'commander'
 
-import { getAccountRegistryPath, getDataDir, getTelegramCredentials } from '../config/env.js'
+import { getAccountRegistryPath, getDataDir, getTelegramCredentials, getTelegramProxy } from '../config/env.js'
 import { AccountStore, type AccountMeta } from '../account/account-store.js'
 import { accountSessionPath } from '../account/account-presets.js'
+import { telegramTransportOptions } from '../telegram/proxy.js'
 import { outputFormatConflict, type HandlerResult, type OutputFlags } from './types.js'
 import { renderResult } from '../cli/output.js'
 
@@ -413,6 +414,7 @@ async function authenticateAccount(sessionPath: string, credentials: ReturnType<
     apiId: credentials.apiId,
     apiHash: credentials.apiHash,
     storage: sessionPath,
+    ...telegramTransportOptions(getTelegramProxy()),
   }) as unknown as {
     start: () => Promise<void>
     getMe: () => Promise<AuthUser>

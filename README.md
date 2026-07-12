@@ -61,6 +61,35 @@ Setting only one of `TG_API_ID` or `TG_API_HASH` is an error. A malformed or unr
 
 Personal credentials are stored locally as sensitive configuration. Never share them. API credentials are shared by all registered accounts, while each account keeps its own authentication session.
 
+To persist a proxy for Telegram connections, run:
+
+```sh
+tg config set --proxy socks5://127.0.0.1:1080
+```
+
+For a one-command override, set `TG_PROXY` in the command environment:
+
+```sh
+TG_PROXY=http://127.0.0.1:8080 tg status
+```
+
+Supported proxy forms are `socks4://`, `socks5://`, `http://`, and `https://` proxy URLs, plus MTProxy links in the forms `tg://proxy?...` and `https://t.me/proxy?...`. A non-empty `TG_PROXY` value, after trimming surrounding whitespace, overrides the persisted proxy. If `TG_PROXY` is empty or unset, the CLI falls back to the stored proxy; if neither is configured, it connects directly.
+
+The selected proxy applies to account login and every Telegram-backed command, not only the command used in the example. Proxy URLs can contain usernames and passwords or MTProxy secrets, so treat them as sensitive. CLI output does not print the configured proxy URL. A credential-bearing proxy URL entered literally on a command line may remain in shell history or be visible through process inspection. Provide `TG_PROXY` through an appropriately protected environment or secret-loading mechanism, or otherwise avoid placing literal secrets in shared shell histories and scripts.
+
+To inspect the effective configuration in human-readable, JSON, or YAML format, run:
+
+```sh
+tg config list
+tg config list --json
+tg config list --yaml
+tg config list --show-secrets
+```
+
+This reports the effective configuration rather than the raw contents of `config.json`. API credentials are resolved from environment variables first, then stored configuration, then the built-in default. The proxy is resolved independently from `TG_PROXY` first, then stored configuration, then remains absent when neither is configured.
+
+The output reports exactly five fields: the effective API ID, API hash, credential source, proxy URL, and proxy source. The API hash is masked by default; use `--show-secrets` to display it in full. The proxy URL is always printed in full and may contain credentials or an MTProxy secret, so avoid writing `config list` output to logs or sharing it. `tg config list` does not create a Telegram client or make a network connection.
+
 Run `tg account add` to authenticate and create a local session. Other commands never start the interactive login flow.
 
 You can override the root directory for configuration, account sessions, and message databases:
@@ -159,6 +188,8 @@ Common commands:
 | `tg status` | Check whether the Telegram account is authenticated. |
 | `tg whoami` | Show basic authenticated account information. |
 | `tg config set --api-id <id> --api-hash <hash>` | Save Telegram API credentials for persistent use. |
+| `tg config set --proxy <url>` | Save an optional proxy for account login and Telegram-backed commands. |
+| `tg config list [--show-secrets]` | Show effective configuration values and sources; the proxy URL is always visible. |
 | `tg chats` | List available chats. |
 | `tg history <chat> -n <limit>` | Fetch and store full chat history (default up to 1000 messages). |
 | `tg sync <chat>` | Incrementally sync new messages for one chat. |
@@ -239,6 +270,8 @@ accounts/<name>/messages.db
 
 Treat persisted configuration, `.env`, Telegram credentials, session files, and SQLite data as sensitive. Never share them or commit them to version control.
 
+The `config.json` file may contain an optional `proxy` setting in addition to API credentials. CLI success and error output does not print the stored proxy URL, but you must still protect `config.json`, the environment, and shell history because proxy URLs can contain credentials or MTProxy secrets.
+
 ## Development
 
 This project uses pnpm:
@@ -249,6 +282,20 @@ pnpm dev --help
 pnpm test
 pnpm typecheck
 ```
+
+During development, expose the current checkout as a global `tg` command that runs the TypeScript source directly. From the project root:
+
+```sh
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/tg <<EOF
+#!/bin/sh
+exec "$(pwd)/node_modules/.bin/tsx" "$(pwd)/src/dev.ts" "\$@"
+EOF
+chmod +x ~/.local/bin/tg
+rehash
+```
+
+Make sure `~/.local/bin` is in `PATH`. Subsequent `tg` invocations load the latest source changes.
 
 For local source development, create a `.env` file in the project root:
 

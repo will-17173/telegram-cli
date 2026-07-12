@@ -1,8 +1,9 @@
 import { TelegramClient } from '@mtcute/node'
 
-import { getTelegramCredentials } from '../config/env.js'
+import { getTelegramCredentials, getTelegramProxy } from '../config/env.js'
 import { getSessionPath } from '../config/env.js'
 import { MtcuteTelegramClient } from './mtcute-client.js'
+import { telegramTransportOptions } from './proxy.js'
 import type { TelegramClientAdapter } from './types.js'
 
 const DEFAULT_CREDENTIALS_WARNING = 'warning: using default Telegram API credentials. Run tg config set --api-id <id> --api-hash <hash> to configure your own.\n'
@@ -27,6 +28,7 @@ export function createTelegramClient(sessionPath?: string): TelegramClientAdapte
     apiId: credentials.apiId,
     apiHash: credentials.apiHash,
     storage,
+    ...telegramTransportOptions(getTelegramProxy()),
   })
 
   return new MtcuteTelegramClient(client)
