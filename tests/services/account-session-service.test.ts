@@ -246,6 +246,29 @@ describe('AccountSessionService', () => {
     expect(result.ok ? '' : result.error.message).not.toContain('cleanup denied')
   })
 
+  it('reports every retained cleanup artifact after successful login', async () => {
+    await setAuthState(store, 'logged_out')
+    const removePath = vi.fn(() => {
+      throw new Error('cleanup denied')
+    })
+    service = new AccountSessionService({ dataDir, store, authenticate, removePath })
+
+    const result = await service.login({ name: 'alice' })
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'account_session_cleanup_failed',
+        details: {
+          recovery_path: expect.stringMatching(/\.session-.+\.bak$/),
+          recovery_paths: [expect.any(String), expect.any(String)],
+        },
+      },
+    })
+    expect(store.get('alice')?.auth_state).toBe('authenticated')
+    expect(workflowArtifacts(dataDir)).toHaveLength(2)
+  })
+
   it('rejects a different identity and keeps the staged session out', async () => {
     await setAuthState(store, 'logged_out')
     authenticate.mockImplementationOnce(async (path) => {

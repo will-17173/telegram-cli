@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto'
 const DEFAULT_LOCK_TIMEOUT_MS = 200
 const DEFAULT_LOCK_RETRY_MS = 10
 const DEFAULT_LOCK_STALE_MS = 1_000
+const MAX_TIMER_DELAY_MS = 2_147_483_647
 const LOCK_OWNER_FILE = 'owner'
 
 export type AccountStoreOptions = {
@@ -315,13 +316,24 @@ export class AccountStore {
   }
 
   private releaseLock(owner: string): void {
-    const isolatedPath = this.isolateCanonicalLock('release')
-    if (!isolatedPath) return
-    if (this.readLockOwner(isolatedPath) === owner) {
-      this.removeLockPath(isolatedPath)
+    while (true) {
+      const isolatedPath = this.isolateCanonicalLock('release')
+      if (!isolatedPath) return
+      if (this.readLockOwner(isolatedPath) !== owner) {
+        this.restoreIsolatedLock(isolatedPath)
+        return
+      }
+
+      const deletingPath = `${this.lockPath}.deleting-${randomUUID()}`
+      try {
+        this.renameLockPath(isolatedPath, deletingPath)
+      } catch (error) {
+        if (!exists(isolatedPath)) continue
+        throw new AccountStoreError(`account_store_error: unable to finalize lock release: ${errorMessage(error)}`)
+      }
+      this.removeLockPath(deletingPath)
       return
     }
-    this.restoreIsolatedLock(isolatedPath)
   }
 
   private isLockExpired(path: string): boolean {
@@ -361,7 +373,7 @@ export class AccountStore {
     try {
       this.renameLockPath(isolatedPath, this.lockPath)
     } catch (error) {
-      if (isNodeError(error) && (error.code === 'EEXIST' || error.code === 'ENOTEMPTY' || error.code === 'ENOENT')) return
+      if (exists(this.lockPath) || !exists(isolatedPath)) return
       throw new AccountStoreError(`account_store_error: unable to restore isolated lock: ${errorMessage(error)}`)
     }
   }
@@ -392,14 +404,18 @@ export class AccountStore {
 
 function validLockTimings(heartbeatMs: number, retryMs: number, staleMs: number, timeoutMs: number): boolean {
   return (
-    Number.isFinite(heartbeatMs)
-    && Number.isFinite(retryMs)
-    && Number.isFinite(staleMs)
-    && Number.isFinite(timeoutMs)
+    Number.isSafeInteger(heartbeatMs)
+    && Number.isSafeInteger(retryMs)
+    && Number.isSafeInteger(staleMs)
+    && Number.isSafeInteger(timeoutMs)
     && heartbeatMs > 0
     && retryMs > 0
     && staleMs > 0
     && timeoutMs > 0
+    && heartbeatMs <= MAX_TIMER_DELAY_MS
+    && retryMs <= MAX_TIMER_DELAY_MS
+    && staleMs <= MAX_TIMER_DELAY_MS
+    && timeoutMs <= MAX_TIMER_DELAY_MS
     && heartbeatMs * 2 < staleMs
   )
 }

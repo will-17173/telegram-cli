@@ -105,7 +105,7 @@ export class AccountSessionService {
       let preserveTombstone = false
       let preserveTemporaryDir = false
       let completedAccount: AccountMeta | undefined
-      let cleanupRecoveryPath: string | undefined
+      const cleanupRecoveryPaths: string[] = []
 
       try {
         let authenticated: AuthenticatedSession
@@ -170,15 +170,16 @@ export class AccountSessionService {
 
         completedAccount = updated
       } finally {
-        if (!preserveTemporaryDir && !safelyRemove(this.removePath, temporaryDir)) cleanupRecoveryPath = temporaryDir
-        if (!preserveTombstone && !safelyRemove(this.removePath, tombstonePath)) cleanupRecoveryPath = tombstonePath
+        if (!preserveTemporaryDir && !safelyRemove(this.removePath, temporaryDir)) cleanupRecoveryPaths.push(temporaryDir)
+        if (!preserveTombstone && !safelyRemove(this.removePath, tombstonePath)) cleanupRecoveryPaths.push(tombstonePath)
       }
 
-      if (cleanupRecoveryPath) {
+      if (cleanupRecoveryPaths.length > 0) {
+        const primaryRecoveryPath = cleanupRecoveryPaths[cleanupRecoveryPaths.length - 1]!
         return failure(
           'account_session_cleanup_failed',
           'Account login succeeded, but secure session cleanup did not complete.',
-          { recovery_path: cleanupRecoveryPath },
+          { recovery_path: primaryRecoveryPath, recovery_paths: cleanupRecoveryPaths },
         )
       }
       return success(completedAccount, true)

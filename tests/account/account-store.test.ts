@@ -8,10 +8,11 @@ import {
   utimesSync,
   writeFileSync,
   readFileSync,
+  readdirSync,
   renameSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccountStore, type AccountMeta } from '../../src/account/account-store.js'
 
@@ -262,6 +263,29 @@ describe('account store', () => {
     expect(readFileSync(join(lockPath, 'owner'), 'utf8')).toBe(replacementOwner)
   })
 
+  it('retries release when a verified candidate is restored before deletion', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    let interleavingForced = false
+    const store = new AccountStore(path, {
+      lockOperations: {
+        renamePath(source, destination) {
+          if (!interleavingForced && source.includes('.isolated-release-') && destination.includes('.deleting-')) {
+            renameSync(source, lockPath)
+            interleavingForced = true
+          }
+          renameSync(source, destination)
+        },
+      },
+    })
+
+    await store.withLock(() => undefined)
+
+    expect(interleavingForced).toBe(true)
+    expect(existsSync(lockPath)).toBe(false)
+    expect(lockArtifacts(path)).toEqual([])
+  })
+
   it('does not reap a lease refreshed after canonical isolation', async () => {
     const path = join(tempDir(), REGISTRY_PATH)
     const lockPath = `${path}.lock`
@@ -313,10 +337,59 @@ describe('account store', () => {
     expect(readFileSync(join(lockPath, 'owner'), 'utf8')).toBe(replacementOwner)
   })
 
+  it('treats a cross-platform restore error as contention only when canonical exists', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    mkdirSync(lockPath)
+    writeFileSync(join(lockPath, 'owner'), 'live-owner', 'utf8')
+    let contentionForced = false
+    const store = new AccountStore(path, {
+      lockTimeoutMs: 20,
+      lockRetryMs: 2,
+      lockOperations: {
+        renamePath(source, destination) {
+          if (!contentionForced && source.includes('.isolated-reap-') && destination === lockPath) {
+            mkdirSync(lockPath)
+            writeFileSync(join(lockPath, 'owner'), 'replacement-owner', 'utf8')
+            contentionForced = true
+            throw Object.assign(new Error('platform rename denied'), { code: 'EPERM' })
+          }
+          renameSync(source, destination)
+        },
+      },
+    })
+
+    await expect(store.withLock(() => undefined)).rejects.toThrow(/unable to acquire lock in time/)
+
+    expect(contentionForced).toBe(true)
+    expect(readFileSync(join(lockPath, 'owner'), 'utf8')).toBe('replacement-owner')
+  })
+
+  it('keeps multiple live isolated candidates from admitting a new owner', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    for (const suffix of ['one', 'two']) {
+      const candidate = `${lockPath}.isolated-reap-${suffix}`
+      mkdirSync(candidate)
+      writeFileSync(join(candidate, 'owner'), `owner-${suffix}`, 'utf8')
+    }
+    let entered = false
+    const store = new AccountStore(path, { lockTimeoutMs: 20, lockRetryMs: 2 })
+
+    await expect(store.withLock(() => {
+      entered = true
+    })).rejects.toThrow(/unable to acquire lock in time/)
+
+    expect(entered).toBe(false)
+    expect(lockOwnerValues(path).sort()).toEqual(['owner-one', 'owner-two'])
+  })
+
   it.each([
     { lockHeartbeatMs: 0, lockStaleMs: 1_000 },
     { lockHeartbeatMs: 600, lockStaleMs: 1_000 },
     { lockHeartbeatMs: 100, lockStaleMs: 0 },
+    { lockHeartbeatMs: 1.5, lockStaleMs: 1_000 },
+    { lockTimeoutMs: 2_147_483_648 },
   ])('rejects unsafe lock timing options %#', (options) => {
     expect(() => new AccountStore(join(tempDir(), REGISTRY_PATH), options)).toThrow(/account_store_error: invalid lock timing options/)
   })
@@ -349,3 +422,16 @@ describe('account store', () => {
     expect(names).toEqual(['alice', 'bob'])
   })
 })
+
+function lockArtifacts(registryPath: string): string[] {
+  const lockName = `${REGISTRY_PATH}.lock`
+  return readdirSync(dirname(registryPath)).filter((name) => name.startsWith(lockName)).sort()
+}
+
+function lockOwnerValues(registryPath: string): string[] {
+  const parent = dirname(registryPath)
+  return lockArtifacts(registryPath).flatMap((name) => {
+    const ownerPath = join(parent, name, 'owner')
+    return existsSync(ownerPath) ? [readFileSync(ownerPath, 'utf8')] : []
+  })
+}
