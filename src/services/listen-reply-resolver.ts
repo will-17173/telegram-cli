@@ -33,6 +33,7 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
       const found = lookup(messages)
       if (found.replyId == null || found.chatId == null) return found.context
       const { replyId, chatId } = found
+      if (asyncDb != null && db == null) return buildReplyContext(replyId)
       if (db == null) {
         if (!existsSync(dbPath)) return buildReplyContext(replyId)
         db = new MessageDB(dbPath, { readonly: true })
@@ -52,6 +53,10 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
           if (closed) {
             await opened.closeAsync()
             throw new Error('Listen reply resolver closed while opening database')
+          }
+          if (db != null) {
+            await opened.closeAsync()
+            return db
           }
           db = opened
           return opened

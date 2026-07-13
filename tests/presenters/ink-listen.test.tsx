@@ -724,6 +724,31 @@ describe('interactive album messages', () => {
     expect(resolver.remember).toHaveBeenCalledOnce()
     expect(resolver.closeAsync).toHaveBeenCalledOnce()
   })
+
+  it('awaits one shared resolver shutdown promise across repeated close calls', async () => {
+    let finishClose!: () => void
+    const pendingClose = new Promise<void>((resolve) => { finishClose = resolve })
+    const resolver = {
+      resolve: vi.fn(() => undefined), remember: vi.fn(), close: vi.fn(),
+      closeAsync: vi.fn(() => pendingClose),
+    }
+    const queue = createInteractiveListenGroupQueue({
+      resolver, isActive: () => true, onGroup: vi.fn(), onError: vi.fn(),
+    })
+
+    let settled = false
+    const first = queue.close()
+    const second = queue.close()
+    void first.then(() => { settled = true })
+    await Promise.resolve()
+
+    expect(second).toBe(first)
+    expect(settled).toBe(false)
+    expect(resolver.closeAsync).toHaveBeenCalledOnce()
+    finishClose()
+    await first
+    expect(settled).toBe(true)
+  })
   it('creates one row and keeps each attachment download message ID', () => {
     const row = toListenMessage([
       storedPhoto(11, ''),

@@ -1,14 +1,17 @@
 import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createListenReplyResolver } from '../../src/services/listen-reply-resolver.js'
 import { __setMessageDbSnapshotCopyHookForTests, MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
 
 describe('listen reply resolver', () => {
   const dirs: string[] = []
-  afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })))
+  afterEach(() => {
+    vi.restoreAllMocks()
+    dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true }))
+  })
 
   function setup(): { dbPath: string; db: MessageDB } {
     const dir = mkdtempSync(join(tmpdir(), 'listen-reply-'))
@@ -51,6 +54,43 @@ describe('listen reply resolver', () => {
     expect(first).toMatchObject({ resolved: true, content: 'async database' })
     expect(second).toMatchObject({ resolved: true, content: 'async database' })
     await resolver.closeAsync()
+  })
+
+  it('does not open a sync snapshot while an async open is pending', async () => {
+    const { dbPath, db } = setup()
+    db.insertMessage(message(7, { content: 'database' }))
+    db.close()
+    let finishOpen!: (value: MessageDB) => void
+    const pendingOpen = new Promise<MessageDB>((resolve) => { finishOpen = resolve })
+    const opened = new MessageDB(dbPath, { readonly: true })
+    const closeAsync = vi.spyOn(opened, 'closeAsync')
+    const open = vi.spyOn(MessageDB, 'openReadonly').mockReturnValueOnce(pendingOpen)
+    const resolver = createListenReplyResolver(dbPath)
+
+    const asyncResult = resolver.resolveAsync([reply(8, 7)])
+    expect(resolver.resolve([reply(9, 7)])).toEqual({ messageId: 7, resolved: false })
+    finishOpen(opened)
+    await asyncResult
+    await resolver.closeAsync()
+
+    expect(open).toHaveBeenCalledOnce()
+    expect(closeAsync).toHaveBeenCalledOnce()
+    open.mockRestore()
+  })
+
+  it('reuses a synchronously opened snapshot from resolveAsync', async () => {
+    const { dbPath, db } = setup()
+    db.insertMessage(message(7, { content: 'database' }))
+    db.close()
+    const open = vi.spyOn(MessageDB, 'openReadonly')
+    const resolver = createListenReplyResolver(dbPath)
+
+    expect(resolver.resolve([reply(8, 7)])).toMatchObject({ resolved: true })
+    expect(await resolver.resolveAsync([reply(9, 7)])).toMatchObject({ resolved: true })
+    await resolver.closeAsync()
+
+    expect(open).not.toHaveBeenCalled()
+    open.mockRestore()
   })
 
   it('resolves a reply committed in an uncheckpointed WAL', () => {

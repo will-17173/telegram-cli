@@ -469,6 +469,7 @@ export function createInteractiveListenGroupQueue(options: {
   let resolveScheduled: (() => void) | null = null
   let closing = false
   let closed = false
+  let closePromise: Promise<void> | null = null
 
   const closeResolver = async (): Promise<void> => {
     if (closed) return
@@ -499,7 +500,6 @@ export function createInteractiveListenGroupQueue(options: {
       resolveScheduled?.()
       resolveScheduled = null
       scheduled = null
-      if (closing) await closeResolver()
     }
   }
   return {
@@ -510,10 +510,14 @@ export function createInteractiveListenGroupQueue(options: {
       scheduled = new Promise<void>((resolve) => { resolveScheduled = resolve })
       schedule(() => { void drain() })
     },
-    async close(): Promise<void> {
-      closing = true
-      if (scheduled != null) await scheduled
-      await closeResolver()
+    close(): Promise<void> {
+      closePromise ??= (async () => {
+        closing = true
+        const drainCompletion = scheduled
+        if (drainCompletion != null) await drainCompletion
+        await closeResolver()
+      })()
+      return closePromise
     },
   }
 }
