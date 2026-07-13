@@ -251,13 +251,18 @@ export function registerTelegramCommands(app: Command): void {
       const seenMessages = new Set<string>()
       const seenMessageOrder: string[] = []
       const controller = new AbortController()
+      const shutdownListeners = new Set<() => void>()
       const stopListening = () => controller.abort()
+      const requestShutdown = () => {
+        if (shutdownListeners.size === 0) stopListening()
+        else for (const listener of shutdownListeners) listener()
+      }
       const restoreUpdateWarnings = hideBenignUpdateWarnings(process.stdout)
       const restoreUpdateErrors = hideBenignUpdateWarnings(process.stderr)
       let autoDownloader: AutoDownloadCoordinator | undefined
 
-      process.on('SIGINT', stopListening)
-      process.on('SIGTERM', stopListening)
+      process.on('SIGINT', requestShutdown)
+      process.on('SIGTERM', requestShutdown)
 
       try {
         await runWithAuthenticatedAccountContext(options, async (context) => {
@@ -275,6 +280,12 @@ export function registerTelegramCommands(app: Command): void {
               showChatName,
               createClient,
               stopSignal: controller.signal,
+              shutdownRequests: {
+                subscribe: (listener) => {
+                  shutdownListeners.add(listener)
+                  return () => shutdownListeners.delete(listener)
+                },
+              },
               onRequestStop: stopListening,
             })
             return
@@ -367,8 +378,8 @@ export function registerTelegramCommands(app: Command): void {
           }
         }, command)
       } finally {
-        process.off('SIGINT', stopListening)
-        process.off('SIGTERM', stopListening)
+        process.off('SIGINT', requestShutdown)
+        process.off('SIGTERM', requestShutdown)
         restoreUpdateWarnings()
         restoreUpdateErrors()
         autoDownloader?.stop()

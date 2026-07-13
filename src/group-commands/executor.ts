@@ -51,7 +51,9 @@ export async function executeGroupCommand(request: ParsedGroupCommandRequest, co
     ? await context.groups.execute({ ...request, chat: context.chat }, { ownershipPassword: context.ownershipPassword! })
     : await context.groups.execute({ ...request, chat: context.chat })
   if (result.ok && !isReadOnlyGroupCommand(key) && context.invalidateGroup) {
-    await Promise.resolve(context.invalidateGroup(context.chat)).catch(() => undefined)
+    const invalidation = Promise.resolve(context.invalidateGroup(context.chat)).catch(() => undefined)
+    if (request.key === 'admin transfer-owner') void invalidation
+    else await invalidation
   }
   return result
 }

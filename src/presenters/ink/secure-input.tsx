@@ -45,7 +45,7 @@ export function SecureInput({ label, onSubmit, onCancel }: {
         const code = character.codePointAt(0)
         return code != null && code >= 32 && (code < 127 || code > 159)
       }).join('')
-      const combined = (secret.current.join('') + printable).slice(0, MAX_SECURE_INPUT_LENGTH)
+      const combined = Array.from(secret.current.join('') + printable).slice(0, MAX_SECURE_INPUT_LENGTH).join('')
       secret.current.fill('')
       secret.current.length = 0
       secret.current.push(...Array.from(graphemeSegmenter.segment(combined), part => part.segment).slice(0, MAX_SECURE_INPUT_LENGTH))

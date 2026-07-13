@@ -428,7 +428,7 @@ describe('InteractiveListen slash commands', () => {
     controller.abort()
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('outcome is indeterminate'))
     await vi.waitFor(() => expect(onRequestStop).toHaveBeenCalledOnce())
-    await vi.waitFor(() => expect(client.close).toHaveBeenCalled())
+    await vi.waitFor(() => expect(client.close).toHaveBeenCalledOnce())
 
     expect(lastTerminalFrame(stdout.output)).not.toContain('Done')
     expect(client.groups.transferOwnership).toHaveBeenCalledTimes(1)
@@ -442,7 +442,9 @@ describe('InteractiveListen slash commands', () => {
     let rejectTransfer!: (error: Error) => void
     const transfer = new Promise<{ operation: 'transferOwnership'; chat_id: number; target_id: number }>((resolve, reject) => { resolveTransfer = resolve; rejectTransfer = reject })
     const controller = new AbortController()
-    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const neverRefreshes = new Promise<never>(() => undefined)
+    const getGroup = vi.fn().mockResolvedValueOnce(groupDetails()).mockResolvedValueOnce(groupDetails()).mockImplementationOnce(() => neverRefreshes)
+    const client = interactiveClient({ getGroup })
     client.groups.transferOwnership.mockImplementation(() => transfer)
     const onRequestStop = vi.fn()
     const stdout = new MockStdout(70, 24, 24)
@@ -465,6 +467,8 @@ describe('InteractiveListen slash commands', () => {
 
     await vi.waitFor(() => expect(stdout.output).toContain(outcome === 'success' ? 'Done' : 'Telegram request failed.'))
     await vi.waitFor(() => expect(onRequestStop).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(client.close).toHaveBeenCalledOnce())
+    expect(getGroup).toHaveBeenCalledTimes(outcome === 'success' ? 3 : 2)
     expect(stdout.output).not.toContain('outcome is indeterminate')
     expect(stdout.output).not.toContain('secret')
     app.unmount()

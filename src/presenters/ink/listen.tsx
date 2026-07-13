@@ -62,6 +62,7 @@ export type ListenRuntimeOptions = {
   showChatName: boolean
   createClient: () => TelegramClientAdapter
   stopSignal: AbortSignal
+  shutdownRequests?: { subscribe: (listener: () => void) => () => void }
   onRequestStop: () => void
   createReplyResolver?: (dbPath: string, limit: number) => ListenReplyResolver
 }
@@ -339,16 +340,23 @@ export async function runInteractiveAutoDownloadLifecycle(options: {
     : null
   options.onCoordinator?.(coordinator)
   let currentClient: TelegramClientAdapter | null = null
+  let closeCurrentClient: (() => Promise<void>) | null = null
   const abort = () => {
     coordinator?.stop()
-    void currentClient?.close().catch(() => undefined)
+    void closeCurrentClient?.()
   }
   options.signal.addEventListener('abort', abort)
   try {
     while (!options.signal.aborted) {
       options.onStatus?.('connecting')
       const client = options.createClient()
+      let closePromise: Promise<void> | undefined
+      const closeClient = (): Promise<void> => {
+        closePromise ??= Promise.resolve(client.close()).catch(() => undefined)
+        return closePromise
+      }
       currentClient = client
+      closeCurrentClient = closeClient
       options.onClient?.(client)
       coordinator?.setClient(client)
       let retry = false
@@ -384,9 +392,10 @@ export async function runInteractiveAutoDownloadLifecycle(options: {
         } else {
           coordinator?.stop()
         }
-        await client.close().catch(() => undefined)
+        await closeClient()
         if (options.signal.aborted) await coordinator?.waitForActive()
         if (currentClient === client) currentClient = null
+        if (closeCurrentClient === closeClient) closeCurrentClient = null
         options.onClient?.(null)
       }
       if (!retry) break
@@ -620,6 +629,7 @@ export function InteractiveListen({
   stopSignal,
   onRequestStop,
   createReplyResolver,
+  shutdownRequests,
 }: ListenRuntimeOptions): React.JSX.Element {
   const { exit } = useApp()
   const { stdout } = useStdout()
@@ -1002,6 +1012,7 @@ export function InteractiveListen({
     }
 
     const stopFromSignal = () => {
+      if (stoppingRef.current) return
       if (irreversibleGroupWriteRef.current) {
         if (shutdownRequestedRef.current) {
           if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
@@ -1024,7 +1035,8 @@ export function InteractiveListen({
       }
       stopListening()
     }
-    stopSignal.addEventListener('abort', stopFromSignal)
+    const unsubscribeShutdown = shutdownRequests?.subscribe(stopFromSignal)
+    if (shutdownRequests == null) stopSignal.addEventListener('abort', stopFromSignal)
     const groupQueue = createInteractiveListenRuntime(dbPath, createReplyResolver ?? createListenReplyResolver, {
       isActive,
       onGroup: (group) => {
@@ -1129,7 +1141,8 @@ export function InteractiveListen({
     return () => {
       groupLookupGenerationRef.current = {}
       knownGroupRef.current = undefined
-      stopSignal.removeEventListener('abort', stopFromSignal)
+      unsubscribeShutdown?.()
+      if (shutdownRequests == null) stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.flush()
       generation.dispose()
       albumAggregator.dispose()
