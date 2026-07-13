@@ -1,4 +1,13 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -235,6 +244,88 @@ describe('ArchiveService', () => {
 
     expect(source.downloadMedia).not.toHaveBeenCalled()
     expect(readFileSync(outside, 'utf8')).toBe('keep')
+  })
+
+  it.each(['media directory', 'chat directory', 'destination file'] as const)(
+    'rejects a symlinked archive media %s without touching its target',
+    async (layer) => {
+      const output = outputDirectory()
+      const outside = outputDirectory()
+      const sentinel = join(outside, 'sentinel.txt')
+      writeFileSync(sentinel, 'keep')
+      const mediaDirectory = join(output, 'media')
+      const chatDirectory = join(mediaDirectory, '-100')
+      const destination = join(chatDirectory, '40-report.pdf')
+      if (layer === 'media directory') {
+        symlinkSync(outside, mediaDirectory, 'dir')
+      } else if (layer === 'chat directory') {
+        mkdirSync(mediaDirectory)
+        symlinkSync(outside, chatDirectory, 'dir')
+      } else {
+        mkdirSync(chatDirectory, { recursive: true })
+        symlinkSync(sentinel, destination, 'file')
+      }
+      const attached = {
+        ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+        attachment: {
+          type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
+        },
+      }
+      const source = sourceFor(undefined, { [-100]: [[attached]] })
+      source.downloadMedia.mockImplementation(async ({ destination: target }: { destination: string }) => {
+        writeFileSync(target, 'outside write')
+      })
+
+      const result = await new ArchiveService(source).archive(input(output, {
+        full: true,
+        media: true,
+      }))
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'archive_partial_failure',
+          details: { warnings: [expect.objectContaining({ code: 'archive_media_failed' })] },
+        },
+      })
+      expect(source.downloadMedia).not.toHaveBeenCalled()
+      expect(readFileSync(sentinel, 'utf8')).toBe('keep')
+      expect(readdirSync(outside)).toEqual(['sentinel.txt'])
+      expect(JSON.stringify(result)).not.toContain(outside)
+    },
+  )
+
+  it('rejects a media-directory symlink while retrying a durable archive link', async () => {
+    const output = outputDirectory()
+    const outside = outputDirectory()
+    const sentinel = join(outside, 'sentinel.txt')
+    writeFileSync(sentinel, 'keep')
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachment: {
+        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
+      },
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+    source.downloadMedia.mockRejectedValueOnce(new Error('first download failed'))
+    const service = new ArchiveService(source)
+    await service.archive(input(output, { full: true, media: true }))
+    rmSync(join(output, 'media'), { recursive: true })
+    symlinkSync(outside, join(output, 'media'), 'dir')
+
+    const result = await service.archive(input(output, { full: true, media: true }))
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'archive_partial_failure',
+        details: { warnings: [expect.objectContaining({ code: 'archive_media_failed' })] },
+      },
+    })
+    expect(source.downloadMedia).toHaveBeenCalledTimes(1)
+    expect(readFileSync(sentinel, 'utf8')).toBe('keep')
+    expect(readdirSync(outside)).toEqual(['sentinel.txt'])
+    expect(JSON.stringify(result)).not.toContain(outside)
   })
 
   it('downloads media atomically to a deterministic path and reuses non-empty files', async () => {

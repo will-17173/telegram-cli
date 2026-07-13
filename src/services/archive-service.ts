@@ -4,17 +4,19 @@ import {
   constants,
   createReadStream,
   existsSync,
+  fstatSync,
   fsyncSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
+  realpathSync,
   renameSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, posix, relative, sep } from 'node:path'
 import type { ParsedTimeRange } from '../commands/time-range.js'
 import type { HandlerResult } from '../commands/types.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../telegram/archive-types.js'
@@ -71,6 +73,19 @@ type ChatArchiveResult = {
   warnings: ArchiveCommandResult['warnings']
   finalize: () => void
   rollback: () => void
+}
+
+type MediaDownloadResult = {
+  path?: string
+  archived: boolean
+  reused?: boolean
+  warning?: ArchiveCommandResult['warnings'][number]
+}
+
+type PreparedMediaTarget = {
+  destination: string
+  directory: string
+  reused: boolean
 }
 
 export type ArchiveTransactionOperations = {
@@ -296,8 +311,6 @@ export class ArchiveService {
       if (incremental && downloadMedia) {
         const links = await scanArchivedMediaLinks(createReadStream(destination), chat.id)
         for (const link of links) {
-          const mediaDestination = safeArchiveMediaDestination(output, link.path)
-          if (mediaDestination == null || nonEmptyFile(mediaDestination)) continue
           const downloaded = await this.downloadMediaFile(
             output,
             chat,
@@ -305,7 +318,7 @@ export class ArchiveService {
             link.path,
             token,
           )
-          if (downloaded.archived) media += 1
+          if (downloaded.archived && !downloaded.reused) media += 1
           if (downloaded.warning != null) warnings.push(downloaded.warning)
         }
       }
@@ -419,7 +432,7 @@ export class ArchiveService {
     chat: ArchiveChat,
     message: ArchiveMessage,
     token: string,
-  ): Promise<{ path?: string; archived: boolean; warning?: ArchiveCommandResult['warnings'][number] }> {
+  ): Promise<MediaDownloadResult> {
     const attachment = message.attachment
     if (attachment == null || !attachment.downloadable) return { archived: false }
 
@@ -434,44 +447,105 @@ export class ArchiveService {
     messageId: number,
     relativePath: string,
     token: string,
-  ): Promise<{ path?: string; archived: boolean; warning?: ArchiveCommandResult['warnings'][number] }> {
-    const destination = safeArchiveMediaDestination(output, relativePath)
-    if (destination == null) return { archived: false }
-    if (nonEmptyFile(destination)) return { path: relativePath, archived: true }
+  ): Promise<MediaDownloadResult> {
+    let prepared: PreparedMediaTarget
+    try {
+      prepared = this.prepareMediaTarget(output, chat.id, messageId, relativePath)
+    } catch {
+      return mediaDownloadFailure(chat.id, messageId, relativePath)
+    }
+    if (prepared.reused) return { path: relativePath, archived: true, reused: true }
 
-    const directory = dirname(destination)
-    mkdirSync(directory, { recursive: true })
+    const { destination, directory } = prepared
     const temporary = join(directory, `.${basename(destination)}.${token}.tmp`)
     try {
+      assertMissingPath(temporary)
+      const beforeDownload = this.prepareMediaTarget(output, chat.id, messageId, relativePath)
+      assertSameMediaTarget(prepared, beforeDownload)
+      if (beforeDownload.reused) return { path: relativePath, archived: true, reused: true }
       await this.source.downloadMedia({
         chat: chat.id,
         messageId,
         destination: temporary,
       })
-      if (!existsSync(temporary) || statSync(temporary).size === 0) {
-        throw new Error('archive_empty_media')
-      }
-      const descriptor = openSync(temporary, constants.O_RDONLY)
+      assertRegularNonEmptyFile(temporary)
+      const descriptor = openSync(
+        temporary,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      )
       try {
+        const status = fstatSync(descriptor)
+        if (!status.isFile() || status.size === 0) throw new Error('archive_unsafe_media_temp')
         fsyncSync(descriptor)
       } finally {
         closeSync(descriptor)
       }
+      const current = this.prepareMediaTarget(output, chat.id, messageId, relativePath)
+      assertSameMediaTarget(prepared, current)
+      if (current.reused) {
+        removeOwnedQuietly([temporary])
+        return { path: relativePath, archived: true, reused: true }
+      }
+      assertRegularNonEmptyFile(temporary)
       renameSync(temporary, destination)
       this.transaction.syncDirectory(directory)
       return { path: relativePath, archived: true }
     } catch {
       removeOwnedQuietly([temporary])
-      const fileName = basename(relativePath).slice(`${messageId}-`.length)
-      return {
-        path: relativePath,
-        archived: false,
-        warning: {
-          chat_id: chat.id,
-          code: 'archive_media_failed',
-          message: `Media download failed for message #${messageId} attachment ${fileName}.`,
-        },
+      return mediaDownloadFailure(chat.id, messageId, relativePath)
+    }
+  }
+
+  private prepareMediaTarget(
+    output: string,
+    chatId: number,
+    messageId: number,
+    relativePath: string,
+  ): PreparedMediaTarget {
+    const expectedPrefix = `${messageId}-`
+    const components = relativePath.split('/')
+    if (components.length !== 3
+      || components[0] !== 'media'
+      || components[1] !== String(chatId)
+      || !components[2]?.startsWith(expectedPrefix)
+      || sanitizeAttachmentFileName(components[2].slice(expectedPrefix.length))
+        !== components[2].slice(expectedPrefix.length)) {
+      throw new Error('archive_unsafe_media_path')
+    }
+
+    const root = realpathSync(output)
+    if (!lstatSync(root).isDirectory()) throw new Error('archive_unsafe_media_root')
+    let directory = root
+    for (const component of components.slice(0, -1)) {
+      const next = join(directory, component)
+      let status
+      try {
+        status = lstatSync(next)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        mkdirSync(next, { mode: 0o700 })
+        this.transaction.syncDirectory(directory)
+        status = lstatSync(next)
       }
+      if (status.isSymbolicLink() || !status.isDirectory()) {
+        throw new Error('archive_unsafe_media_directory')
+      }
+      const realDirectory = realpathSync(next)
+      if (!pathIsWithin(root, realDirectory)) throw new Error('archive_unsafe_media_directory')
+      directory = realDirectory
+    }
+
+    const destination = join(directory, components.at(-1)!)
+    if (!pathIsWithin(root, destination)) throw new Error('archive_unsafe_media_destination')
+    try {
+      const status = lstatSync(destination)
+      if (status.isSymbolicLink() || !status.isFile()) {
+        throw new Error('archive_unsafe_media_destination')
+      }
+      return { destination, directory, reused: status.size > 0 }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      return { destination, directory, reused: false }
     }
   }
 }
@@ -529,23 +603,55 @@ function maxDefined(left: number | null, right: number | null): number | undefin
   return Math.max(left, right)
 }
 
-function nonEmptyFile(path: string): boolean {
+function pathIsWithin(root: string, candidate: string): boolean {
+  const fromRoot = relative(root, candidate)
+  return fromRoot !== ''
+    && fromRoot !== '..'
+    && !fromRoot.startsWith(`..${sep}`)
+    && !isAbsolute(fromRoot)
+}
+
+function assertMissingPath(path: string): void {
   try {
-    const status = statSync(path)
-    return status.isFile() && status.size > 0
-  } catch {
-    return false
+    lstatSync(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  throw new Error('archive_unsafe_media_temp')
+}
+
+function assertSameMediaTarget(
+  expected: PreparedMediaTarget,
+  actual: PreparedMediaTarget,
+): void {
+  if (expected.destination !== actual.destination || expected.directory !== actual.directory) {
+    throw new Error('archive_unsafe_media_destination')
   }
 }
 
-function safeArchiveMediaDestination(output: string, relativePath: string): string | null {
-  const root = resolve(output)
-  const destination = resolve(root, ...relativePath.split('/'))
-  const fromRoot = relative(root, destination)
-  if (fromRoot === '' || fromRoot === '..' || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
-    return null
+function assertRegularNonEmptyFile(path: string): void {
+  const status = lstatSync(path)
+  if (status.isSymbolicLink() || !status.isFile() || status.size === 0) {
+    throw new Error('archive_unsafe_media_temp')
   }
-  return destination
+}
+
+function mediaDownloadFailure(
+  chatId: number,
+  messageId: number,
+  relativePath: string,
+): MediaDownloadResult {
+  const fileName = basename(relativePath).slice(`${messageId}-`.length)
+  return {
+    path: relativePath,
+    archived: false,
+    warning: {
+      chat_id: chatId,
+      code: 'archive_media_failed',
+      message: `Media download failed for message #${messageId} attachment ${fileName}.`,
+    },
+  }
 }
 
 function validateEffectiveRange(range: EffectiveRange): void {
