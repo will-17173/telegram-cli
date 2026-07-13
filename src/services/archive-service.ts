@@ -1,8 +1,11 @@
 import {
   closeSync,
+  copyFileSync,
   constants,
   createReadStream,
+  existsSync,
   fsyncSync,
+  linkSync,
   mkdirSync,
   openSync,
   renameSync,
@@ -56,6 +59,8 @@ type EffectiveRange = {
 type ChatArchiveResult = {
   state: ArchiveChatState
   messages: number
+  finalize: () => void
+  rollback: () => string | null
 }
 
 type ArchiveServiceDependencies = {
@@ -89,6 +94,7 @@ export class ArchiveService {
       updated_at: timestamp,
       chats: {},
     }
+    let manifestPersisted = existing != null
 
     const chats = await this.source.resolveChats({
       chats: input.all ? undefined : input.chats,
@@ -119,8 +125,21 @@ export class ArchiveService {
             [String(chat.id)]: archived.state,
           },
         }
-        this.writeManifest(manifestPath, candidate)
+        try {
+          this.writeManifest(manifestPath, candidate)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          try {
+            restoreManifestSnapshot(manifestPath, manifestPersisted ? manifest : null)
+          } catch {
+            throw new Error(`${message}; archive_manifest_recovery_failed`)
+          }
+          const rollbackFailure = archived.rollback()
+          throw new Error(rollbackFailure == null ? message : `${message}; ${rollbackFailure}`)
+        }
         manifest = candidate
+        manifestPersisted = true
+        archived.finalize()
         result.completed.push({
           chat_id: chat.id,
           title: chat.title,
@@ -181,10 +200,21 @@ export class ArchiveService {
       ownedPaths.push(temporary)
       await writeArchiveFile(temporary, renderArchiveHeader(chat, now), segments.reverse())
       removeOwned(segments)
+      const backup = existsSync(destination)
+        ? join(output, `.${basename(file)}.${token}.backup`)
+        : undefined
+      if (backup != null) {
+        ownedPaths.push(backup)
+        backupFile(destination, backup)
+      }
       renameSync(temporary, destination)
 
       return {
         messages,
+        finalize: () => {
+          if (backup != null) removeOwnedQuietly([backup])
+        },
+        rollback: () => rollbackDestination(destination, backup),
         state: {
           title: chat.title,
           file,
@@ -271,6 +301,58 @@ function writeExclusive(path: string, value: string): void {
   } finally {
     if (descriptor != null) closeSync(descriptor)
   }
+}
+
+function backupFile(source: string, backup: string): void {
+  try {
+    linkSync(source, backup)
+  } catch {
+    copyFileSync(source, backup, constants.COPYFILE_EXCL)
+    const descriptor = openSync(backup, constants.O_RDONLY)
+    try {
+      fsyncSync(descriptor)
+    } finally {
+      closeSync(descriptor)
+    }
+  }
+}
+
+function rollbackDestination(destination: string, backup?: string): string | null {
+  try {
+    if (backup == null) {
+      unlinkSync(destination)
+    } else {
+      renameSync(backup, destination)
+    }
+    return null
+  } catch {
+    return 'archive_rollback_failed'
+  }
+}
+
+function restoreManifestSnapshot(path: string, manifest: ArchiveManifest | null): void {
+  let failure: unknown
+  try {
+    if (manifest == null) {
+      try {
+        unlinkSync(path)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    } else {
+      writeArchiveManifest(path, manifest)
+    }
+  } catch (error) {
+    failure = error
+  }
+
+  try {
+    const restored = readArchiveManifest(path)
+    if (JSON.stringify(restored) === JSON.stringify(manifest)) return
+  } catch {
+    // Report the recovery failure below without exposing filesystem paths.
+  }
+  throw failure ?? new Error('archive_manifest_recovery_failed')
 }
 
 async function writeArchiveFile(path: string, header: string, segments: string[]): Promise<void> {

@@ -307,5 +307,58 @@ describe('ArchiveService', () => {
     expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats).toEqual({
       '-200': expect.objectContaining({ last_message_id: 2 }),
     })
+    expect(existsSync(join(output, '-100-team.md'))).toBe(false)
+    expect(readdirSync(output).filter((file) => /\.(?:tmp|segment|backup)$/u.test(file))).toEqual([])
+  })
+
+  it('restores exact prior archive bytes when its manifest commit fails', async () => {
+    const output = outputDirectory()
+    const priorBytes = Buffer.from([0x23, 0x20, 0x6f, 0x6c, 0x64, 0x0a, 0x00, 0xff])
+    existingManifest(output)
+    writeFileSync(join(output, '-100-team.md'), priorBytes)
+    const originalManifest = readArchiveManifest(join(output, 'archive-manifest.json'))
+    const source = sourceFor()
+    const service = new ArchiveService(source, {
+      writeManifest() {
+        throw new Error('manifest unavailable')
+      },
+    })
+
+    const result = await service.archive(input(output, { rebuild: true }))
+
+    expect(result.failed).toEqual([{
+      chat_id: -100,
+      title: 'Team',
+      error: 'manifest unavailable',
+    }])
+    expect(readFileSync(join(output, '-100-team.md'))).toEqual(priorBytes)
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))).toEqual(originalManifest)
+    expect(readdirSync(output).filter((file) => /\.(?:tmp|segment|backup)$/u.test(file))).toEqual([])
+  })
+
+  it('restores the prior manifest when the writer commits and then throws', async () => {
+    const output = outputDirectory()
+    const priorBytes = Buffer.from('prior archive bytes')
+    existingManifest(output)
+    writeFileSync(join(output, '-100-team.md'), priorBytes)
+    const originalManifest = readArchiveManifest(join(output, 'archive-manifest.json'))
+    const source = sourceFor()
+    const service = new ArchiveService(source, {
+      writeManifest(path, manifest) {
+        writeArchiveManifest(path, manifest)
+        throw new Error('directory sync failed')
+      },
+    })
+
+    const result = await service.archive(input(output, { rebuild: true }))
+
+    expect(result.failed).toEqual([{
+      chat_id: -100,
+      title: 'Team',
+      error: 'directory sync failed',
+    }])
+    expect(readFileSync(join(output, '-100-team.md'))).toEqual(priorBytes)
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))).toEqual(originalManifest)
+    expect(readdirSync(output).filter((file) => /\.(?:tmp|segment|backup)$/u.test(file))).toEqual([])
   })
 })
