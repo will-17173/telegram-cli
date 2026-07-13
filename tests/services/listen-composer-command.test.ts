@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { REPLY_COMMAND_USAGE } from '../../src/listen-commands/catalog.js'
 import { executeListenReply, parseListenComposerInput } from '../../src/services/listen-composer-command.js'
 import type { TelegramClientAdapter } from '../../src/telegram/types.js'
 
@@ -30,7 +31,7 @@ describe('parseListenComposerInput', () => {
   })
 
   it.each([
-    ['/reply', 'usage: /reply <message-id> [content] [--file <path> ...]'],
+    ['/reply', `usage: /${REPLY_COMMAND_USAGE}`],
     ['/reply nope hello', 'reply message ID must be a positive integer'],
     ['/reply 0 hello', 'reply message ID must be a positive integer'],
     ['/reply 42 --file', '--file requires a path'],

@@ -1,5 +1,6 @@
 import type { StoredMessageInput } from '../storage/message-db.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
+import { REPLY_COMMAND_USAGE } from '../listen-commands/catalog.js'
 
 export type ListenComposerCommand =
   | { kind: 'message'; content: string }
@@ -39,7 +40,7 @@ export function parseListenComposerInput(input: string): ListenComposerCommand {
   const tokens = tokenize(trimmed)
   if (typeof tokens === 'string') return { kind: 'error', error: tokens }
   if (tokens.length < 2) {
-    return { kind: 'error', error: 'usage: /reply <message-id> [content] [--file <path> ...]' }
+    return { kind: 'error', error: `usage: /${REPLY_COMMAND_USAGE}` }
   }
 
   const reply = Number(tokens[1])
