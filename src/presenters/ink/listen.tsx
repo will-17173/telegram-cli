@@ -837,7 +837,7 @@ export function InteractiveListen({
       if (failure && 'error' in failure) { setNote(failure.error.message); return }
       inputGenerationRef.current++
       setInput(completeListenCommand(input, selected))
-      groupCommand.setState({ kind: 'menu', selectedIndex: selected })
+      groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
       setFocus('input')
       return
     }
@@ -883,6 +883,7 @@ export function InteractiveListen({
         if (parsed.kind === 'complete') {
           inputGenerationRef.current++
           setInput(parsed.input)
+          groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
           return
         }
         if (parsed.kind === 'error') {

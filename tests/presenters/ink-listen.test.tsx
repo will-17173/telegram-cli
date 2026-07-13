@@ -142,6 +142,34 @@ describe('InteractiveListen slash commands', () => {
     controller.abort(); app.unmount()
   })
 
+  it('resets selection after Tab completes the second discovered command', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› reply'))
+    stdin.write('\u001b[B'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› member add'))
+    stdin.write('\t'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /member add'))
+    stdin.write('\r'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Missing argument: users'))
+    expect(lastTerminalFrame(stdout.output)).not.toContain('No matching command')
+    controller.abort(); app.unmount()
+  })
+
+  it('resets selection after Enter completes the second discovered command', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› reply'))
+    stdin.write('\u001b[B'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› member add'))
+    stdin.write('\r'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /member add'))
+    stdin.write('\r'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Missing argument: users'))
+    expect(lastTerminalFrame(stdout.output)).not.toContain('No matching command')
+    controller.abort(); app.unmount()
+  })
+
   it('executes a selected reply without submitting it as a group command', async () => {
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
