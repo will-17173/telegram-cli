@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   symlinkSync,
@@ -12,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readArchiveManifest, writeArchiveManifest } from '../../src/services/archive-manifest.js'
+import { archiveMediaFile } from '../../src/services/archive-layout.js'
 import { renderArchiveMessage } from '../../src/services/archive-markdown.js'
 import { ArchiveService, type ArchiveServiceInput } from '../../src/services/archive-service.js'
 import type { ArchiveCommandResult, ArchiveManifest } from '../../src/services/archive-types.js'
@@ -151,6 +153,27 @@ describe('ArchiveService', () => {
     expect(source.iterHistoryPages).toHaveBeenLastCalledWith(expect.objectContaining({ minId: 41 }))
     expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats['-100']?.last_message_id)
       .toBe(42)
+  })
+
+  it('ignores foreign-chat markers and recovers the max message date in one pass', async () => {
+    const output = outputDirectory()
+    const forty = message(40, -100, '2026-07-10T12:00:00.000Z')
+    const source = sourceFor(undefined, { [-100]: [[forty]] })
+    const service = new ArchiveService(source)
+    await service.archive(input(output, { full: true }))
+    const markdownPath = join(output, '-100-team.md')
+    writeFileSync(markdownPath, [
+      readFileSync(markdownPath, 'utf8').trimEnd(),
+      renderArchiveMessage(message(999, -999, '2026-07-13T12:00:00.000Z')),
+      renderArchiveMessage(message(41, -100, '2026-07-11T12:00:00.000Z')),
+    ].join('\n\n---\n\n'))
+    source.iterHistoryPages.mockImplementation(() => (async function* () {})())
+
+    await service.archive(input(output, { full: true }))
+
+    expect(source.iterHistoryPages).toHaveBeenLastCalledWith(expect.objectContaining({ minId: 41 }))
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats['-100'])
+      .toMatchObject({ last_message_id: 41, last_message_date: '2026-07-11T12:00:00.000Z' })
   })
 
   it('retains attachment metadata and returns a sanitized partial failure when media fails', async () => {
@@ -353,6 +376,66 @@ describe('ArchiveService', () => {
     expect(archiveDetails(first).completed[0]?.media_archived).toBe(1)
     expect(archiveDetails(second).completed[0]?.media_archived).toBe(1)
     expect(readdirSync(dirname(mediaPath)).filter((file) => file.endsWith('.tmp'))).toEqual([])
+  })
+
+  it('uses a bounded canonical portable media basename and label', async () => {
+    const output = outputDirectory()
+    const fileName = `${'文件'.repeat(300)}.PDF. `
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachment: { type: 'document', file_name: fileName, file_size: 3, downloadable: true },
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+    source.downloadMedia
+      .mockRejectedValueOnce(new Error('first download failed'))
+      .mockImplementationOnce(async ({ destination }: { destination: string }) => {
+        writeFileSync(destination, 'pdf')
+      })
+
+    const service = new ArchiveService(source)
+    await service.archive(input(output, { full: true, media: true }))
+    const retry = await service.archive(input(output, { full: true, media: true }))
+
+    const relativePath = archiveMediaFile(-100, 40, fileName)
+    const component = relativePath.split('/').at(-1)!
+    expect(Buffer.byteLength(component)).toBeLessThanOrEqual(255)
+    expect(readFileSync(join(output, '-100-team.md'), 'utf8')).toContain(`](${relativePath})`)
+    const attachmentLine = readFileSync(join(output, '-100-team.md'), 'utf8')
+      .split('\n').find((line) => line.startsWith('Attachment:'))!
+    expect(Buffer.byteLength(attachmentLine)).toBeLessThan(4096)
+    expect(retry).toMatchObject({
+      ok: true,
+      data: { completed: [expect.objectContaining({ messages_archived: 0, media_archived: 1 })] },
+    })
+    expect(source.downloadMedia).toHaveBeenCalledTimes(2)
+  })
+
+  it('stages adapter downloads under the trusted output root during a parent swap', async () => {
+    const output = outputDirectory()
+    const outside = outputDirectory()
+    const sentinel = join(outside, 'sentinel.txt')
+    writeFileSync(sentinel, 'keep')
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachment: { type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true },
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+    let stagingPath = ''
+    source.downloadMedia.mockImplementation(async ({ destination }: { destination: string }) => {
+      stagingPath = destination
+      rmSync(join(output, 'media'), { recursive: true })
+      symlinkSync(outside, join(output, 'media'), 'dir')
+      writeFileSync(destination, 'pdf')
+    })
+
+    const result = await new ArchiveService(source).archive(input(output, { full: true, media: true }))
+
+    expect(dirname(stagingPath)).toBe(realpathSync(output))
+    expect(result).toMatchObject({ ok: false, error: { code: 'archive_partial_failure' } })
+    expect(readFileSync(sentinel, 'utf8')).toBe('keep')
+    expect(readdirSync(outside)).toEqual(['sentinel.txt'])
+    expect(readdirSync(output).filter((name) => name.includes('.media-stage.'))).toEqual([])
+    expect(JSON.stringify(result)).not.toContain(outside)
   })
 
   it('renders attachment metadata without downloading when media is disabled', async () => {

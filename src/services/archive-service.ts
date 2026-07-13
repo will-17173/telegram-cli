@@ -16,11 +16,12 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { basename, dirname, isAbsolute, join, posix, relative, sep } from 'node:path'
+import type { Stats } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { ParsedTimeRange } from '../commands/time-range.js'
 import type { HandlerResult } from '../commands/types.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../telegram/archive-types.js'
-import { archiveChatFile } from './archive-layout.js'
+import { archiveChatFile, archiveMediaFile } from './archive-layout.js'
 import {
   readArchiveManifest,
   validateArchiveAccount,
@@ -29,10 +30,8 @@ import {
 import {
   renderArchiveHeader,
   renderArchiveMessage,
-  scanArchivedMediaLinks,
-  scanArchivedMessageIds,
+  scanArchiveRecovery,
 } from './archive-markdown.js'
-import { sanitizeAttachmentFileName } from './attachment-download.js'
 import type {
   ArchiveChatState,
   ArchiveCommandResult,
@@ -83,8 +82,10 @@ type MediaDownloadResult = {
 }
 
 type PreparedMediaTarget = {
+  root: string
   destination: string
   directory: string
+  identities: string[]
   reused: boolean
 }
 
@@ -302,26 +303,26 @@ export class ArchiveService {
 
     try {
       const incremental = previous != null && !rebuild && existsSync(destination)
-      const scanned = incremental
-        ? await scanArchivedMessageIds(createReadStream(destination))
-        : { ids: new Set<number>(), maxId: null }
+      const recovery = incremental
+        ? await scanArchiveRecovery(createReadStream(destination), {
+          expectedChatId: chat.id,
+          onMedia: downloadMedia ? async (link) => {
+            const downloaded = await this.downloadMediaFile(
+              output,
+              chat,
+              link.messageId,
+              link.path,
+              token,
+            )
+            if (downloaded.archived && !downloaded.reused) media += 1
+            if (downloaded.warning != null) warnings.push(downloaded.warning)
+          } : undefined,
+        })
+        : { maxId: null, maxTimestamp: null }
       const effectiveMinId = incremental
-        ? maxDefined(previous.last_message_id, scanned.maxId)
+        ? maxDefined(previous.last_message_id, recovery.maxId)
         : undefined
-      if (incremental && downloadMedia) {
-        const links = await scanArchivedMediaLinks(createReadStream(destination), chat.id)
-        for (const link of links) {
-          const downloaded = await this.downloadMediaFile(
-            output,
-            chat,
-            link.messageId,
-            link.path,
-            token,
-          )
-          if (downloaded.archived && !downloaded.reused) media += 1
-          if (downloaded.warning != null) warnings.push(downloaded.warning)
-        }
-      }
+      const fetchedIds = new Set<number>()
       let pageNumber = 0
       for await (const page of this.source.iterHistoryPages({
         chat: chat.id,
@@ -332,8 +333,8 @@ export class ArchiveService {
         if (page.length === 0) continue
         const unseen = page.filter((item) => {
           if (effectiveMinId != null && item.msg_id <= effectiveMinId) return false
-          if (scanned.ids.has(item.msg_id)) return false
-          scanned.ids.add(item.msg_id)
+          if (fetchedIds.has(item.msg_id)) return false
+          fetchedIds.add(item.msg_id)
           return true
         })
         if (unseen.length === 0) continue
@@ -398,7 +399,7 @@ export class ArchiveService {
           full_history: incremental ? previous.full_history : range.full,
           last_message_id: newest?.msg_id ?? effectiveMinId ?? null,
           last_message_date: newest?.timestamp == null
-            ? previous?.last_message_date ?? null
+            ? recoveredCursorTimestamp(previous, recovery, effectiveMinId)
             : new Date(newest.timestamp).toISOString(),
           last_run: now.toISOString(),
         },
@@ -436,8 +437,11 @@ export class ArchiveService {
     const attachment = message.attachment
     if (attachment == null || !attachment.downloadable) return { archived: false }
 
-    const safeName = sanitizeAttachmentFileName(attachment.file_name ?? 'attachment')
-    const relativePath = posix.join('media', String(chat.id), `${message.msg_id}-${safeName}`)
+    const relativePath = archiveMediaFile(
+      chat.id,
+      message.msg_id,
+      attachment.file_name ?? 'attachment',
+    )
     return this.downloadMediaFile(output, chat, message.msg_id, relativePath, token)
   }
 
@@ -456,26 +460,37 @@ export class ArchiveService {
     }
     if (prepared.reused) return { path: relativePath, archived: true, reused: true }
 
-    const { destination, directory } = prepared
-    const temporary = join(directory, `.${basename(destination)}.${token}.tmp`)
+    const { destination, directory, root } = prepared
+    const temporary = join(root, `.media-stage.${token}.${chat.id}.${messageId}.tmp`)
+    let stagingOwned = false
+    let stagingIdentity = ''
     try {
-      assertMissingPath(temporary)
+      stagingIdentity = createOwnedStagingFile(temporary)
+      stagingOwned = true
       const beforeDownload = this.prepareMediaTarget(output, chat.id, messageId, relativePath)
       assertSameMediaTarget(prepared, beforeDownload)
-      if (beforeDownload.reused) return { path: relativePath, archived: true, reused: true }
+      if (beforeDownload.reused) {
+        removeOwnedStagingFile(temporary, stagingIdentity)
+        stagingOwned = false
+        return { path: relativePath, archived: true, reused: true }
+      }
       await this.source.downloadMedia({
         chat: chat.id,
         messageId,
         destination: temporary,
       })
-      assertRegularNonEmptyFile(temporary)
+      assertOwnedRegularNonEmptyFile(temporary, stagingIdentity)
       const descriptor = openSync(
         temporary,
         constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
       )
       try {
         const status = fstatSync(descriptor)
-        if (!status.isFile() || status.size === 0) throw new Error('archive_unsafe_media_temp')
+        if (!status.isFile()
+          || status.size === 0
+          || fileIdentity(status) !== stagingIdentity) {
+          throw new Error('archive_unsafe_media_temp')
+        }
         fsyncSync(descriptor)
       } finally {
         closeSync(descriptor)
@@ -483,15 +498,19 @@ export class ArchiveService {
       const current = this.prepareMediaTarget(output, chat.id, messageId, relativePath)
       assertSameMediaTarget(prepared, current)
       if (current.reused) {
-        removeOwnedQuietly([temporary])
+        removeOwnedStagingFile(temporary, stagingIdentity)
+        stagingOwned = false
         return { path: relativePath, archived: true, reused: true }
       }
-      assertRegularNonEmptyFile(temporary)
+      assertOwnedRegularNonEmptyFile(temporary, stagingIdentity)
+      // Node has no openat/renameat. Revalidation pins every parent identity immediately
+      // before this commit, but a same-user directory swap can still race the rename itself.
       renameSync(temporary, destination)
+      stagingOwned = false
       this.transaction.syncDirectory(directory)
       return { path: relativePath, archived: true }
     } catch {
-      removeOwnedQuietly([temporary])
+      if (stagingOwned) removeOwnedStagingFile(temporary, stagingIdentity)
       return mediaDownloadFailure(chat.id, messageId, relativePath)
     }
   }
@@ -508,13 +527,15 @@ export class ArchiveService {
       || components[0] !== 'media'
       || components[1] !== String(chatId)
       || !components[2]?.startsWith(expectedPrefix)
-      || sanitizeAttachmentFileName(components[2].slice(expectedPrefix.length))
-        !== components[2].slice(expectedPrefix.length)) {
+      || archiveMediaFile(chatId, messageId, components[2].slice(expectedPrefix.length))
+        !== relativePath) {
       throw new Error('archive_unsafe_media_path')
     }
 
     const root = realpathSync(output)
-    if (!lstatSync(root).isDirectory()) throw new Error('archive_unsafe_media_root')
+    const rootStatus = lstatSync(root)
+    if (!rootStatus.isDirectory()) throw new Error('archive_unsafe_media_root')
+    const identities = [fileIdentity(rootStatus)]
     let directory = root
     for (const component of components.slice(0, -1)) {
       const next = join(directory, component)
@@ -532,6 +553,7 @@ export class ArchiveService {
       }
       const realDirectory = realpathSync(next)
       if (!pathIsWithin(root, realDirectory)) throw new Error('archive_unsafe_media_directory')
+      identities.push(fileIdentity(status))
       directory = realDirectory
     }
 
@@ -542,10 +564,10 @@ export class ArchiveService {
       if (status.isSymbolicLink() || !status.isFile()) {
         throw new Error('archive_unsafe_media_destination')
       }
-      return { destination, directory, reused: status.size > 0 }
+      return { root, destination, directory, identities, reused: status.size > 0 }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      return { destination, directory, reused: false }
+      return { root, destination, directory, identities, reused: false }
     }
   }
 }
@@ -603,6 +625,17 @@ function maxDefined(left: number | null, right: number | null): number | undefin
   return Math.max(left, right)
 }
 
+function recoveredCursorTimestamp(
+  previous: ArchiveChatState | undefined,
+  recovery: { maxId: number | null; maxTimestamp: string | null },
+  effectiveMinId: number | undefined,
+): string | null {
+  if (effectiveMinId == null) return null
+  if (recovery.maxId === effectiveMinId) return recovery.maxTimestamp
+  if (previous?.last_message_id === effectiveMinId) return previous.last_message_date
+  return null
+}
+
 function pathIsWithin(root: string, candidate: string): boolean {
   const fromRoot = relative(root, candidate)
   return fromRoot !== ''
@@ -611,29 +644,58 @@ function pathIsWithin(root: string, candidate: string): boolean {
     && !isAbsolute(fromRoot)
 }
 
-function assertMissingPath(path: string): void {
+function createOwnedStagingFile(path: string): string {
+  const descriptor = openSync(
+    path,
+    constants.O_CREAT
+      | constants.O_EXCL
+      | constants.O_WRONLY
+      | (constants.O_NOFOLLOW ?? 0),
+    0o600,
+  )
   try {
-    lstatSync(path)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw error
+    const status = fstatSync(descriptor)
+    if (!status.isFile()) throw new Error('archive_unsafe_media_temp')
+    return fileIdentity(status)
+  } finally {
+    closeSync(descriptor)
   }
-  throw new Error('archive_unsafe_media_temp')
 }
 
 function assertSameMediaTarget(
   expected: PreparedMediaTarget,
   actual: PreparedMediaTarget,
 ): void {
-  if (expected.destination !== actual.destination || expected.directory !== actual.directory) {
+  if (expected.root !== actual.root
+    || expected.destination !== actual.destination
+    || expected.directory !== actual.directory
+    || expected.identities.length !== actual.identities.length
+    || expected.identities.some((identity, index) => identity !== actual.identities[index])) {
     throw new Error('archive_unsafe_media_destination')
   }
 }
 
-function assertRegularNonEmptyFile(path: string): void {
+function fileIdentity(status: Stats): string {
+  return `${status.dev}:${status.ino}`
+}
+
+function assertOwnedRegularNonEmptyFile(path: string, identity: string): void {
   const status = lstatSync(path)
-  if (status.isSymbolicLink() || !status.isFile() || status.size === 0) {
+  if (status.isSymbolicLink()
+    || !status.isFile()
+    || status.size === 0
+    || fileIdentity(status) !== identity) {
     throw new Error('archive_unsafe_media_temp')
+  }
+}
+
+function removeOwnedStagingFile(path: string, identity: string): void {
+  try {
+    const status = lstatSync(path)
+    if (status.isSymbolicLink() || !status.isFile() || fileIdentity(status) !== identity) return
+    unlinkSync(path)
+  } catch {
+    // Never follow or remove a staging path whose ownership can no longer be proven.
   }
 }
 

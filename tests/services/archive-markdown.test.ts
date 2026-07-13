@@ -1,8 +1,9 @@
 import { Readable } from 'node:stream'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   renderArchiveHeader,
   renderArchiveMessage,
+  scanArchiveRecovery,
   scanArchivedMessageIds,
 } from '../../src/services/archive-markdown.js'
 import type { ArchiveMessage } from '../../src/services/archive-markdown.js'
@@ -223,6 +224,39 @@ describe('archive markdown', () => {
     await expect(scanArchivedMessageIds(Readable.from(chunks))).resolves.toEqual({
       ids: new Set([77]),
       maxId: 77,
+    })
+  })
+
+  it('single-pass recovery filters foreign chats and streams media candidates', async () => {
+    const onMedia = vi.fn(async () => undefined)
+    const content = [
+      renderArchiveMessage(message({ chat_id: -999, msg_id: 900 })),
+      renderArchiveMessage(message({ msg_id: 43, timestamp: '2026-07-13T11:00:00.000Z' }), 'media/-100123/43-report.pdf'),
+    ].join('\n\n---\n\n')
+
+    await expect(scanArchiveRecovery(Readable.from([content]), {
+      expectedChatId: -100123,
+      onMedia,
+    })).resolves.toEqual({
+      maxId: 43,
+      maxTimestamp: '2026-07-13T11:00:00.000Z',
+    })
+    expect(onMedia).toHaveBeenCalledWith({ messageId: 43, path: 'media/-100123/43-report.pdf' })
+  })
+
+  it('keeps bounded recovery state across a large archive', async () => {
+    const lines = Array.from({ length: 20_000 }, (_, index) => [
+      `<!-- tg:message chat=-100123 id=${index + 1} -->`,
+      `**Alice** — 2026-07-13T10:00:00.000Z`,
+      '',
+      'text',
+    ].join('\n'))
+
+    await expect(scanArchiveRecovery(Readable.from([lines.join('\n\n---\n\n')]), {
+      expectedChatId: -100123,
+    })).resolves.toEqual({
+      maxId: 20_000,
+      maxTimestamp: '2026-07-13T10:00:00.000Z',
     })
   })
 })

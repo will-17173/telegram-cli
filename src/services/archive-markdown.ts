@@ -1,7 +1,7 @@
 import { StringDecoder } from 'node:string_decoder'
 import { posix } from 'node:path'
 import type { ArchiveMessage } from '../telegram/archive-types.js'
-import { sanitizeAttachmentFileName } from './attachment-download.js'
+import { archiveMediaFile } from './archive-layout.js'
 
 export type { ArchiveMessage } from '../telegram/archive-types.js'
 
@@ -92,8 +92,8 @@ function senderName(message: ArchiveMessage): string {
 }
 
 function mediaLabel(message: ArchiveMessage, mediaPath: string): string {
-  return (message.attachment?.file_name
-    ?? posix.basename(mediaPath.replaceAll('\\', '/'))) || 'attachment'
+  const basename = posix.basename(mediaPath.replaceAll('\\', '/'))
+  return basename.replace(/^\d+-/u, '') || 'attachment'
 }
 
 function escapeLinkDestination(value: string): string {
@@ -282,6 +282,11 @@ export type ArchivedMediaLink = {
   path: string
 }
 
+export type ArchiveRecovery = {
+  maxId: number | null
+  maxTimestamp: string | null
+}
+
 function decodeArchiveLinkDestination(value: string): string | null {
   let decoded = ''
   for (let index = 0; index < value.length; index += 1) {
@@ -333,27 +338,34 @@ function archivedMediaLink(
   const safeName = pathMatch[3]!
   if (safeName.includes('/')
     || safeName.includes('\\')
-    || sanitizeAttachmentFileName(safeName) !== safeName) {
+    || archiveMediaFile(chatId, messageId, safeName) !== path) {
     return null
   }
   return { messageId, path }
 }
 
-export async function scanArchivedMediaLinks(
+export async function scanArchiveRecovery(
   input: NodeJS.ReadableStream,
-  expectedChatId: number,
-): Promise<ArchivedMediaLink[]> {
-  const links: ArchivedMediaLink[] = []
-  const seen = new Set<string>()
+  options: {
+    expectedChatId: number
+    onMedia?: (link: ArchivedMediaLink) => void | Promise<void>
+  },
+): Promise<ArchiveRecovery> {
   const decoder = new StringDecoder('utf8')
   let line = ''
   let discardingLine = false
   let currentMessageId: number | null = null
+  let maxId: number | null = null
+  let maxTimestamp: string | null = null
 
-  const consumeLine = (value: string): void => {
+  const consumeLine = async (value: string): Promise<void> => {
     const marker = canonicalMarker(value)
     if (marker != null) {
-      currentMessageId = marker.chatId === expectedChatId ? marker.messageId : null
+      currentMessageId = marker.chatId === options.expectedChatId ? marker.messageId : null
+      if (currentMessageId != null && (maxId == null || currentMessageId > maxId)) {
+        maxId = currentMessageId
+        maxTimestamp = null
+      }
       return
     }
     if (value === '---' || value === '---\r') {
@@ -361,13 +373,16 @@ export async function scanArchivedMediaLinks(
       return
     }
     if (currentMessageId == null) return
-    const link = archivedMediaLink(value, expectedChatId, currentMessageId)
-    if (link == null) return
-    const key = `${link.messageId}\u0000${link.path}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      links.push(link)
+    const normalized = value.endsWith('\r') ? value.slice(0, -1) : value
+    const timestampMatch = /^\*\*.*\*\* — (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)$/u.exec(normalized)
+    if (timestampMatch != null && currentMessageId === maxId) {
+      const parsed = new Date(timestampMatch[1]!)
+      if (Number.isFinite(parsed.getTime()) && parsed.toISOString() === timestampMatch[1]) {
+        maxTimestamp = timestampMatch[1]!
+      }
     }
+    const link = archivedMediaLink(value, options.expectedChatId, currentMessageId)
+    if (link != null) await options.onMedia?.(link)
   }
 
   const append = (value: string): void => {
@@ -380,12 +395,12 @@ export async function scanArchivedMediaLinks(
     line += value
   }
 
-  const consume = (value: string): void => {
+  const consume = async (value: string): Promise<void> => {
     let offset = 0
     let newline = value.indexOf('\n', offset)
     while (newline !== -1) {
       append(value.slice(offset, newline))
-      if (!discardingLine) consumeLine(line)
+      if (!discardingLine) await consumeLine(line)
       line = ''
       discardingLine = false
       offset = newline + 1
@@ -396,15 +411,15 @@ export async function scanArchivedMediaLinks(
 
   for await (const chunk of input as AsyncIterable<unknown>) {
     if (typeof chunk === 'string') {
-      consume(decoder.end())
-      consume(chunk)
+      await consume(decoder.end())
+      await consume(chunk)
     } else if (chunk instanceof Uint8Array) {
-      consume(decoder.write(chunk))
+      await consume(decoder.write(chunk))
     } else {
       throw new TypeError('archive_input_chunk_must_be_string_or_buffer')
     }
   }
-  consume(decoder.end())
-  if (!discardingLine && line !== '') consumeLine(line)
-  return links
+  await consume(decoder.end())
+  if (!discardingLine && line !== '') await consumeLine(line)
+  return { maxId, maxTimestamp }
 }

@@ -67,4 +67,11 @@ describe('archive layout', () => {
     expect(components.every((component) => Buffer.byteLength(component) <= 255)).toBe(true)
     expect(components.at(-1)).not.toContain('\uFFFD')
   })
+
+  it('normalizes equivalent Unicode and portable trailing/reserved forms deterministically', () => {
+    expect(archiveMediaFile(-100, 40, 'Cafe\u0301.txt'))
+      .toBe(archiveMediaFile(-100, 40, 'Café.txt'))
+    expect(archiveMediaFile(-100, 40, 'report. ')).toBe('media/-100/40-report')
+    expect(archiveMediaFile(-100, 40, 'NUL.txt.')).toBe('media/-100/40-nul-txt')
+  })
 })
