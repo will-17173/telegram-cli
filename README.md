@@ -55,7 +55,7 @@ tg config set --api-id <id> --api-hash <hash>
 If both `TG_API_ID` and `TG_API_HASH` are unset and the saved configuration file is missing, the CLI uses built-in Telegram API credentials. When a Telegram client is created, it writes this warning to stderr once per process:
 
 ```text
-warning: using default Telegram API credentials. Run tg config set --api-id <id> --api-hash <hash> to configure your own.
+warning: using default Telegram API credentials, which have stricter flood limits and may trigger FLOOD_WAIT during frequent or large requests. Run tg config set --api-id <id> --api-hash <hash> to configure your own.
 ```
 
 Setting only one of `TG_API_ID` or `TG_API_HASH` is an error. A malformed or unreadable saved configuration file is also an error; the CLI does not fall back to the built-in credentials in either case.

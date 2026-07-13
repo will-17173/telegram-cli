@@ -55,10 +55,10 @@ tg config set --api-id <id> --api-hash <hash>
 如果 `TG_API_ID` 和 `TG_API_HASH` 均未设置，且已保存的配置文件不存在，CLI 会使用内置的 Telegram API 凭据。创建 Telegram 客户端时，每个进程只会向 stderr 输出一次以下警告：
 
 ```text
-warning: using default Telegram API credentials. Run tg config set --api-id <id> --api-hash <hash> to configure your own.
+warning: using default Telegram API credentials, which have stricter flood limits and may trigger FLOOD_WAIT during frequent or large requests. Run tg config set --api-id <id> --api-hash <hash> to configure your own.
 ```
 
-这表示 CLI 正在使用默认凭据；如需配置自己的凭据，请运行 `tg config set --api-id <id> --api-hash <hash>`。只设置 `TG_API_ID` 或 `TG_API_HASH` 其中之一会导致错误。已保存的配置文件格式错误或无法读取也会导致错误；这两种情况下 CLI 都不会改用内置凭据。
+这表示 CLI 正在使用限制更严格的默认凭据；频繁请求或大量同步可能触发 `FLOOD_WAIT`。如需配置自己的凭据，请运行 `tg config set --api-id <id> --api-hash <hash>`。只设置 `TG_API_ID` 或 `TG_API_HASH` 其中之一会导致错误。已保存的配置文件格式错误或无法读取也会导致错误；这两种情况下 CLI 都不会改用内置凭据。
 
 个人凭据会作为敏感配置存储在本地，切勿与他人分享。所有已添加账号共用一套 API 凭据，但每个账号都有独立的身份验证会话。
 

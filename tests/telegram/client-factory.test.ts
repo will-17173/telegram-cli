@@ -16,7 +16,7 @@ vi.mock('@mtcute/node', () => ({
   proxyTransportFromUrl,
 }))
 
-const WARNING = 'warning: using default Telegram API credentials. Run tg config set --api-id <id> --api-hash <hash> to configure your own.\n'
+const WARNING = 'warning: using default Telegram API credentials, which have stricter flood limits and may trigger FLOOD_WAIT during frequent or large requests. Run tg config set --api-id <id> --api-hash <hash> to configure your own.\n'
 
 let dataDir: string
 
