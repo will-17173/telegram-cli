@@ -18,6 +18,7 @@ vi.mock('../../src/presenters/ink/listen.js', () => ({ renderInteractiveListen }
 
 const client = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
+  fetchHistory: vi.fn(async () => []),
   downloadMessageMedia: vi.fn(async ({ destination }: DownloadMessageMediaOptions) => {
     writeFileSync(destination, 'downloaded')
   }),
@@ -61,6 +62,7 @@ describe('listen command', () => {
     seedAccount(dataDir)
     vi.stubEnv('DATA_DIR', dataDir)
     client.close.mockClear()
+    client.fetchHistory.mockClear()
     client.downloadMessageMedia.mockClear()
     client.downloadMessageMedia.mockImplementation(async ({ destination }: DownloadMessageMediaOptions) => {
       writeFileSync(destination, 'downloaded')
@@ -354,6 +356,7 @@ describe('listen command', () => {
       write.mockRestore()
     }
     expect(writes.join('')).toContain('Alice (#7): live original')
+    expect(client.fetchHistory).not.toHaveBeenCalled()
   })
 
   it('resolves a reply from the active account database without persisting live messages', async () => {
@@ -379,6 +382,7 @@ describe('listen command', () => {
     expect(check.count()).toBe(1)
     check.close()
     expect(writes.join('')).toContain('Alice (#7): stored original')
+    expect(client.fetchHistory).not.toHaveBeenCalled()
   })
 
   it('shows missing reply context when the target is not local', async () => {
@@ -397,6 +401,7 @@ describe('listen command', () => {
       write.mockRestore()
     }
     expect(writes.join('')).toContain('↳ Reply to message #99 (not found locally)')
+    expect(client.fetchHistory).not.toHaveBeenCalled()
   })
 
   it('flushes a pending album before waiting to reconnect', async () => {

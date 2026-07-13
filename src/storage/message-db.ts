@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { getDbPath } from '../config/env.js'
 import { canonicalChatId } from './chat-resolver.js'
@@ -46,7 +46,22 @@ export type TodayOptions = {
 export class MessageDB {
   private readonly db: Database.Database
 
-  constructor(path = getDbPath()) {
+  constructor(path = getDbPath(), options: { readonly?: boolean } = {}) {
+    if (options.readonly) {
+      const probe = new Database(path, { readonly: true, fileMustExist: true })
+      probe.close()
+      const snapshot = readFileSync(path)
+      // A WAL-mode header makes an in-memory deserialize look for disk sidecars.
+      // Closed writers have checkpointed the main file, so read it as a rollback-mode snapshot.
+      if (snapshot[18] === 2 && snapshot[19] === 2) {
+        snapshot[18] = 1
+        snapshot[19] = 1
+      }
+      this.db = new Database(snapshot)
+      this.db.pragma('query_only = ON')
+      return
+    }
+
     mkdirSync(dirname(path), { recursive: true })
     this.db = new Database(path)
     this.db.pragma('journal_mode = WAL')

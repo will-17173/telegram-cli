@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { groupLogicalMessages } from '../presenters/logical-message.js'
 import { MessageDB, type StoredMessage, type StoredMessageInput } from '../storage/message-db.js'
 import { buildReplyContext, type ReplyContext } from './reply-context.js'
@@ -9,7 +10,7 @@ export type ListenReplyResolver = {
 }
 
 export function createListenReplyResolver(dbPath: string, limit = 500): ListenReplyResolver {
-  const db = new MessageDB(dbPath)
+  let db: MessageDB | undefined
   const memory = new Map<string, StoredMessageInput>()
   let closed = false
 
@@ -21,6 +22,10 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
       const target = memory.get(messageKey(logical.first.platform, logical.first.chat_id, replyId))
       if (target != null) return buildReplyContext(replyId, asStoredMessage(target))
       if (logical.first.platform !== 'telegram') return buildReplyContext(replyId)
+      if (db == null) {
+        if (!existsSync(dbPath)) return buildReplyContext(replyId)
+        db = new MessageDB(dbPath, { readonly: true })
+      }
       return buildReplyContext(replyId, db.getMessagesByKeys([{
         chatId: logical.first.chat_id,
         msgId: replyId,
@@ -39,7 +44,7 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
     close() {
       if (closed) return
       closed = true
-      db.close()
+      db?.close()
     },
   }
 }

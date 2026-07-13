@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -44,6 +44,40 @@ describe('listen reply resolver', () => {
     const resolver = createListenReplyResolver(dbPath)
     expect(resolver.resolve([reply(8, 99)])).toEqual({ messageId: 99, resolved: false })
     resolver.close()
+  })
+
+  it('does not create a directory, database, or SQLite sidecars when the database is absent', () => {
+    const root = mkdtempSync(join(tmpdir(), 'listen-reply-missing-'))
+    dirs.push(root)
+    const parent = join(root, 'nested', 'account')
+    const dbPath = join(parent, 'messages.db')
+    const resolver = createListenReplyResolver(dbPath)
+
+    expect(resolver.resolve([reply(8, 99)])).toEqual({ messageId: 99, resolved: false })
+    resolver.close()
+
+    expect(existsSync(parent)).toBe(false)
+    expect(existsSync(dbPath)).toBe(false)
+    expect(existsSync(`${dbPath}-wal`)).toBe(false)
+    expect(existsSync(`${dbPath}-shm`)).toBe(false)
+  })
+
+  it('reads an existing database without modifying it or creating SQLite sidecars', () => {
+    const { dbPath, db } = setup()
+    db.insertMessage(message(7, { content: 'read only original' }))
+    db.close()
+    rmSync(`${dbPath}-wal`, { force: true })
+    rmSync(`${dbPath}-shm`, { force: true })
+    const before = statSync(dbPath)
+    const resolver = createListenReplyResolver(dbPath)
+
+    expect(resolver.resolve([reply(8, 7)])).toMatchObject({ resolved: true, content: 'read only original' })
+    resolver.close()
+
+    const after = statSync(dbPath)
+    expect({ size: after.size, mtimeMs: after.mtimeMs }).toEqual({ size: before.size, mtimeMs: before.mtimeMs })
+    expect(existsSync(`${dbPath}-wal`)).toBe(false)
+    expect(existsSync(`${dbPath}-shm`)).toBe(false)
   })
 
   it('returns undefined for a non-reply and non-Telegram database fallback', () => {
