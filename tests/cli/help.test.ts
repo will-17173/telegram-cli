@@ -77,6 +77,15 @@ describe('cli help', () => {
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 
+  it('lists page delay for history and sync', () => {
+    const app = createApp()
+
+    for (const name of ['history', 'sync']) {
+      const command = app.commands.find((candidate) => candidate.name() === name)
+      expect(command?.options.map((option) => option.long)).toContain('--delay')
+    }
+  })
+
   it('shows command purposes in top-level help', () => {
     const help = createApp().helpInformation()
 

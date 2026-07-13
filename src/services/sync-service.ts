@@ -21,11 +21,11 @@ export class SyncService {
     this.db = db ?? new MessageDB()
   }
 
-  async history(options: { chat: string; limit: number }): Promise<HandlerResult> {
-    const invalid = validateLimit(options.limit)
+  async history(options: { chat: string; limit: number; pageDelay: number }): Promise<HandlerResult> {
+    const invalid = validateHistoryOptions(options)
     if (invalid) return invalid
     try {
-      const messages = await this.tg.fetchHistory({ chat: parseChat(options.chat), limit: options.limit })
+      const messages = await this.tg.fetchHistory({ chat: parseChat(options.chat), limit: options.limit, pageDelay: options.pageDelay })
       const stored = this.db.insertBatch(messages)
       const data = { stored, chat: options.chat }
       return { ok: true, data, human: actionDetail('History Synced', { chat: data.chat, stored: data.stored }) }
@@ -34,14 +34,14 @@ export class SyncService {
     }
   }
 
-  async sync(options: { chat: string; limit: number }): Promise<HandlerResult> {
-    const invalid = validateLimit(options.limit)
+  async sync(options: { chat: string; limit: number; pageDelay: number }): Promise<HandlerResult> {
+    const invalid = validateHistoryOptions(options)
     if (invalid) return invalid
     const chatId = this.db.resolveChatId(options.chat)
     const minId = chatId == null ? 0 : this.db.getLastMsgId(chatId) ?? 0
     const limit = minId === 0 && options.limit > FIRST_SYNC_LIMIT ? FIRST_SYNC_LIMIT : options.limit
     try {
-      const messages = await this.tg.fetchHistory({ chat: parseChat(options.chat), limit, minId })
+      const messages = await this.tg.fetchHistory({ chat: parseChat(options.chat), limit, minId, pageDelay: options.pageDelay })
       const stored = this.db.insertBatch(messages)
       const data = { synced: stored, chat: options.chat }
       return { ok: true, data, human: actionDetail('Sync Complete', { chat: data.chat, synced: data.synced }) }
@@ -68,7 +68,7 @@ export class SyncService {
       const lastId = this.db.getLastMsgId(dialog.id) ?? 0
       const limit = lastId === 0 && options.limit > FIRST_SYNC_LIMIT ? FIRST_SYNC_LIMIT : options.limit
       try {
-        const messages = await this.tg.fetchHistory({ chat: dialog.id, limit, minId: lastId })
+        const messages = await this.tg.fetchHistory({ chat: dialog.id, limit, minId: lastId, pageDelay: 1 })
         results[dialog.name] = this.db.insertBatch(messages)
       } catch (error) {
         results[dialog.name] = 0
@@ -105,7 +105,7 @@ export class SyncService {
 function validateRefreshOptions(options: { limit: number; delay: number; maxChats?: number }): HandlerResult<never> | undefined {
   const invalidLimit = validateLimit(options.limit)
   if (invalidLimit) return invalidLimit
-  if (!Number.isFinite(options.delay) || options.delay < 0) return invalidOption('delay must be a non-negative number.')
+  if (!isNonNegativeNumber(options.delay)) return invalidOption('delay must be a non-negative number.')
   if (options.maxChats != null && (!isPositiveInteger(options.maxChats))) {
     return invalidOption('maxChats must be a positive integer.')
   }
@@ -114,6 +114,15 @@ function validateRefreshOptions(options: { limit: number; delay: number; maxChat
 
 function validateLimit(limit: number): HandlerResult<never> | undefined {
   return isPositiveInteger(limit) ? undefined : invalidOption('limit must be a positive integer.')
+}
+
+function validateHistoryOptions(options: { limit: number; pageDelay: number }): HandlerResult<never> | undefined {
+  const invalidLimit = validateLimit(options.limit)
+  if (invalidLimit) return invalidLimit
+  if (!isNonNegativeNumber(options.pageDelay)) {
+    return invalidOption('pageDelay must be a non-negative number.')
+  }
+  return undefined
 }
 
 function invalidOption(message: string): HandlerResult<never> {
@@ -140,6 +149,10 @@ function errorDetails(error: unknown): unknown {
 
 function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0
+}
+
+function isNonNegativeNumber(value: number): boolean {
+  return Number.isFinite(value) && value >= 0
 }
 
 function parseChat(chat: string): string | number {

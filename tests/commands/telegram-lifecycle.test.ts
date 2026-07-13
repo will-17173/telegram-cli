@@ -308,7 +308,7 @@ describe('Telegram command lifecycle', () => {
   })
 
   it('preserves service-owned history human output', async () => {
-    await createApp().exitOverride().parseAsync(['node', 'tg', 'history', 'General', '--limit', '10'])
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'history', 'General', '--limit', '10', '--delay', '2.5'])
 
     expect(renderResult).toHaveBeenCalledWith({
       ok: true,
@@ -319,6 +319,7 @@ describe('Telegram command lifecycle', () => {
         fields: [{ label: 'chat', value: 'General' }, { label: 'stored', value: '1' }],
       },
     }, expect.any(Object))
+    expect(client.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({ pageDelay: 2.5 }))
   })
 
   it('preserves refresh human output from the service', async () => {

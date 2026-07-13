@@ -28,6 +28,7 @@ type DeleteFlags = MachineOptions
 
 type SyncFlags = MachineOptions & {
   limit?: string
+  delay?: string
 }
 
 type RefreshFlags = SyncFlags & {
@@ -101,22 +102,26 @@ export function registerTelegramCommands(app: Command): void {
     .description('Fetch chat history and store it locally')
     .argument('<chat>')
     .option('-n, --limit <limit>', 'Max messages to fetch', '1000')
+    .option('--delay <delay>', 'Seconds between history pages', '1')
     .option('--json')
     .option('--yaml')
     .action(async (chat: string, options: SyncFlags) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
-      await renderSyncResult(options, async (service) => service.history({ chat, limit }))
+      const pageDelay = Number.parseFloat(options.delay ?? '0')
+      await renderSyncResult(options, async (service) => service.history({ chat, limit, pageDelay }))
     })
 
   app.command('sync')
     .description('Sync new messages from a Telegram chat')
     .argument('<chat>')
     .option('-n, --limit <limit>', 'Max messages to fetch', '5000')
+    .option('--delay <delay>', 'Seconds between history pages', '1')
     .option('--json')
     .option('--yaml')
     .action(async (chat: string, options: SyncFlags) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
-      await renderSyncResult(options, async (service) => service.sync({ chat, limit }))
+      const pageDelay = Number.parseFloat(options.delay ?? '0')
+      await renderSyncResult(options, async (service) => service.sync({ chat, limit, pageDelay }))
     })
 
   app.command('sync-all')

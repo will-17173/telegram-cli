@@ -15,8 +15,8 @@ function service(): { sync: SyncService; db: MessageDB; fake: FakeTelegramClient
 
 describe('SyncService', () => {
   it('fetches chat history into sqlite', async () => {
-    const { sync, db } = service()
-    const result = await sync.history({ chat: 'TestGroup', limit: 100 })
+    const { sync, db, fake } = service()
+    const result = await sync.history({ chat: 'TestGroup', limit: 100, pageDelay: 2.5 })
     expect(result).toEqual({
       ok: true,
       data: { stored: 2, chat: 'TestGroup' },
@@ -30,11 +30,12 @@ describe('SyncService', () => {
       },
     })
     expect(db.count()).toBe(2)
+    expect(fake.fetchHistoryCalls.at(-1)).toMatchObject({ chat: 'TestGroup', limit: 100, pageDelay: 2.5 })
     sync.close()
   })
 
   it('syncs all dialogs and continues on available chats', async () => {
-    const { sync } = service()
+    const { sync, fake } = service()
     const result = await sync.refresh({ limit: 5000, delay: 0 })
     expect(result).toEqual({
       ok: true,
@@ -60,16 +61,26 @@ describe('SyncService', () => {
         },
       },
     })
+    expect(fake.fetchHistoryCalls.at(-1)).toMatchObject({ pageDelay: 1 })
     sync.close()
   })
 
   it('rejects invalid sync options before fetching', async () => {
-    const { sync, db } = service()
+    const { sync, db, fake } = service()
 
-    await expect(sync.history({ chat: 'TestGroup', limit: 0 })).resolves.toMatchObject({
+    await expect(sync.history({ chat: 'TestGroup', limit: 0, pageDelay: 1 })).resolves.toMatchObject({
       ok: false,
       error: { code: 'invalid_option' },
     })
+    await expect(sync.history({ chat: 'TestGroup', limit: 100, pageDelay: -1 })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'invalid_option' },
+    })
+    await expect(sync.sync({ chat: 'TestGroup', limit: 100, pageDelay: Number.NaN })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'invalid_option' },
+    })
+    expect(fake.fetchHistoryCalls).toEqual([])
     await expect(sync.refresh({ limit: Number.NaN, delay: 0 })).resolves.toMatchObject({
       ok: false,
       error: { code: 'invalid_option' },
@@ -90,7 +101,7 @@ describe('SyncService', () => {
     const { sync, db, fake } = service()
     db.insertBatch([message({ msg_id: 7 })])
 
-    const result = await sync.sync({ chat: 'TestGroup', limit: 100 })
+    const result = await sync.sync({ chat: 'TestGroup', limit: 100, pageDelay: 2.5 })
 
     expect(result).toEqual({
       ok: true,
@@ -104,14 +115,14 @@ describe('SyncService', () => {
         ],
       },
     })
-    expect(fake.fetchHistoryCalls.at(-1)).toMatchObject({ chat: 'TestGroup', limit: 100, minId: 7 })
+    expect(fake.fetchHistoryCalls.at(-1)).toMatchObject({ chat: 'TestGroup', limit: 100, minId: 7, pageDelay: 2.5 })
     sync.close()
   })
 
   it('sync applies first-sync cap for a new chat', async () => {
     const { sync, fake } = service()
 
-    await sync.sync({ chat: 'TestGroup', limit: 5000 })
+    await sync.sync({ chat: 'TestGroup', limit: 5000, pageDelay: 1 })
 
     expect(fake.fetchHistoryCalls.at(-1)).toMatchObject({ chat: 'TestGroup', limit: 500, minId: 0 })
     sync.close()
@@ -120,7 +131,7 @@ describe('SyncService', () => {
   it('rejects fractional count options', async () => {
     const { sync } = service()
 
-    await expect(sync.history({ chat: 'TestGroup', limit: 1.5 })).resolves.toMatchObject({
+    await expect(sync.history({ chat: 'TestGroup', limit: 1.5, pageDelay: 1 })).resolves.toMatchObject({
       ok: false,
       error: { code: 'invalid_option' },
     })
@@ -180,7 +191,7 @@ describe('SyncService', () => {
     const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-')), 'messages.db'))
     const sync = new SyncService(fake, db)
 
-    const result = await sync.history({ chat: 'TestGroup', limit: 100 })
+    const result = await sync.history({ chat: 'TestGroup', limit: 100, pageDelay: 1 })
 
     expect(result).toMatchObject({
       ok: false,
