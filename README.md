@@ -130,6 +130,25 @@ tg listen <chat-or-id> --no-interactive --auto-download --no-media
 tg send <chat> "Hello from tg"
 ```
 
+## Send messages and attachments
+
+`send` requires `<chat>`. Send text, one or more files, or files with a caption:
+
+```sh
+# Text only
+tg send <chat> "Text only"
+
+# Files only; repeat --file to preserve this order
+tg send <chat> --file ./photo.jpg --file ./clip.mp4
+
+# Caption and files
+tg send <chat> "Group caption" --file ./photo.jpg --file ./clip.mp4
+```
+
+`--file` is repeatable. Multiple files are sent in the specified order as one Telegram media group. The message is optional only when at least one file is present. When files are present, the message becomes the group caption; the CLI does not send it as a separate text message.
+
+Telegram determines which file combinations and group sizes it accepts. If Telegram rejects the requested combination or limit, the command returns an error and does not silently split the files into separate messages or groups.
+
 ## Multiple accounts
 
 Each Telegram account has its own persisted authentication session and local message database. Add and authenticate an account interactively with:
@@ -230,7 +249,7 @@ Common commands:
 | `tg recent`, `tg today`, `tg stats`, `tg top`, `tg timeline` | Explore local message data. |
 | `tg filter <keywords>` | Filter local messages by keyword with optional chat/hour filters. |
 | `tg export <chat>` | Export local messages from a chat. |
-| `tg send <chat> "Hello from tg"` | Send a message. |
+| `tg send <chat> [message] [--file <path> ...]` | Send text, files, or a captioned media group. |
 | `tg edit <chat> <msgId> <text>` | Edit a message. |
 | `tg delete <chat> <msgIds...>` | Delete one or more messages. |
 | `tg purge <chat> --yes` | Remove a chat's locally stored messages. |
