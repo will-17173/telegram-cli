@@ -325,7 +325,9 @@ describe('Telegram command lifecycle', () => {
   it.each([
     ['history', '1oops'],
     ['history', 'Infinity'],
+    ['history', ''],
     ['sync', '-1'],
+    ['sync', '   '],
   ])('rejects malformed %s page delay %s before fetching', async (command, delay) => {
     await createApp().exitOverride().parseAsync(['node', 'tg', command, 'General', '--delay', delay])
 

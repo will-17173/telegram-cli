@@ -107,7 +107,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--yaml')
     .action(async (chat: string, options: SyncFlags) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
-      const pageDelay = Number(options.delay ?? '0')
+      const pageDelay = parsePageDelay(options.delay)
       await renderSyncResult(options, async (service) => service.history({ chat, limit, pageDelay }))
     })
 
@@ -120,7 +120,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--yaml')
     .action(async (chat: string, options: SyncFlags) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
-      const pageDelay = Number(options.delay ?? '0')
+      const pageDelay = parsePageDelay(options.delay)
       await renderSyncResult(options, async (service) => service.sync({ chat, limit, pageDelay }))
     })
 
@@ -372,6 +372,11 @@ function parseChats(values: string[] | undefined): string[] | undefined {
 
 function resolveSingleSendTarget(chats: Array<string | number> | undefined): string | number | undefined {
   return chats?.length === 1 ? chats[0] : undefined
+}
+
+function parsePageDelay(value: string | undefined): number {
+  const raw = value ?? '0'
+  return raw.trim() === '' ? Number.NaN : Number(raw)
 }
 
 function parseChat(chat: string): string | number {
