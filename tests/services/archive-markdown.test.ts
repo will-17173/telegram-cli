@@ -41,6 +41,28 @@ describe('archive markdown', () => {
     ].join('\n'))
   })
 
+  it('folds line breaks in header and message metadata fields', () => {
+    expect(renderArchiveHeader(
+      { id: -100123, title: 'Team\r\nRelease', type: 'super\rgroup' },
+      new Date('2026-07-13T12:00:00.000Z'),
+    )).toContain('# Team Release\n\n- Chat ID: `-100123`\n- Type: `super group`')
+
+    const block = renderArchiveMessage(message({
+      sender_name: 'Alice\nAdmin',
+      media_group_id: 'album\r\n42',
+      attachment: {
+        type: 'application\npdf',
+        file_name: 'quarterly\rreport.pdf',
+        file_size: 2048,
+        downloadable: true,
+      },
+    }))
+
+    expect(block).toContain('**Alice Admin** —')
+    expect(block).toContain('Media group: `album 42`')
+    expect(block).toContain('Attachment: quarterly report.pdf; type: application pdf;')
+  })
+
   it('renders a recoverable message marker, metadata, text, and media link', () => {
     const block = renderArchiveMessage(
       message(),
@@ -76,6 +98,29 @@ describe('archive markdown', () => {
     expect(block).toContain('\\| col \\| value \\|')
     expect(block).toContain('&lt;!-- tg:message chat=-9 id=999 --&gt;')
     expect(block).toContain('\\[click\\]\\(bad\\)')
+  })
+
+  it('neutralizes multiline Markdown block syntax while preserving line structure', () => {
+    const block = renderArchiveMessage(message({
+      text: [
+        'Section',
+        '===',
+        '---',
+        '    indented code',
+        '\ttab code',
+        'ordinary text',
+      ].join('\n'),
+      attachment: null,
+    }))
+
+    expect(block).toContain([
+      'Section',
+      '\\===',
+      '\\---',
+      '&#32;   indented code',
+      '&#9;tab code',
+      'ordinary text',
+    ].join('\n'))
   })
 
   it('renders deterministic metadata when media was not downloaded', () => {
@@ -140,6 +185,38 @@ describe('archive markdown', () => {
     ]))).resolves.toEqual({
       ids: new Set([42, 43]),
       maxId: 43,
+    })
+  })
+
+  it('handles Buffer-split markers and split UTF-8 code points', async () => {
+    const content = Buffer.from(
+      '前缀 🚀\n<!-- tg:message chat=-100123 id=42 -->\n',
+      'utf8',
+    )
+    const rocketStart = content.indexOf(Buffer.from('🚀'))
+    const markerStart = content.indexOf(Buffer.from('<!--'))
+    const chunks = [
+      content.subarray(0, rocketStart + 1),
+      content.subarray(rocketStart + 1, markerStart + 13),
+      content.subarray(markerStart + 13, markerStart + 37),
+      content.subarray(markerStart + 37),
+    ]
+
+    await expect(scanArchivedMessageIds(Readable.from(chunks))).resolves.toEqual({
+      ids: new Set([42]),
+      maxId: 42,
+    })
+  })
+
+  it('discards a very long non-marker line and resumes at the next line', async () => {
+    const chunks = [
+      ...Array.from({ length: 4096 }, () => Buffer.alloc(1024, 0x78)),
+      Buffer.from('\n<!-- tg:message chat=-100123 id=77 -->'),
+    ]
+
+    await expect(scanArchivedMessageIds(Readable.from(chunks))).resolves.toEqual({
+      ids: new Set([77]),
+      maxId: 77,
     })
   })
 })
