@@ -18,6 +18,7 @@ type MachineOptions = AccountCommandOptions
 type SendFlags = MachineOptions & {
   reply?: string
   preview: boolean
+  file: string[]
 }
 
 type EditFlags = MachineOptions & {
@@ -180,16 +181,18 @@ export function registerTelegramCommands(app: Command): void {
   app.command('send')
     .description('Send a message to a Telegram chat')
     .argument('<chat>')
-    .argument('<message>')
+    .argument('[message]')
+    .option('-f, --file <path>', 'File to attach (repeatable)', collectOption, [])
     .option('-r, --reply <reply>', 'Message ID to reply to')
     .option('--no-preview')
     .option('--json')
     .option('--yaml')
-    .action(async (chat: string, message: string, options: SendFlags) => {
+    .action(async (chat: string, message: string | undefined, options: SendFlags) => {
       const reply = options.reply == null ? undefined : Number.parseInt(options.reply, 10)
       await renderMessageResult(options, 'Message sent', (service) => service.send({
         chat,
         message,
+        files: options.file,
         reply,
         linkPreview: options.preview,
       }))
@@ -355,6 +358,10 @@ export function registerTelegramCommands(app: Command): void {
       }
       process.stdout.write('listening completed\n')
     })
+}
+
+function collectOption(value: string, previous: string[]): string[] {
+  return [...previous, value]
 }
 
 function printAutoDownloadEvent(event: AutoDownloadEvent): void {
