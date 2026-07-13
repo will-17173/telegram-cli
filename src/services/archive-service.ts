@@ -9,12 +9,14 @@ import {
   mkdirSync,
   openSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 import type { ParsedTimeRange } from '../commands/time-range.js'
+import type { HandlerResult } from '../commands/types.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../telegram/archive-types.js'
 import { archiveChatFile } from './archive-layout.js'
 import {
@@ -22,7 +24,12 @@ import {
   validateArchiveAccount,
   writeArchiveManifest,
 } from './archive-manifest.js'
-import { renderArchiveHeader, renderArchiveMessage } from './archive-markdown.js'
+import {
+  renderArchiveHeader,
+  renderArchiveMessage,
+  scanArchivedMessageIds,
+} from './archive-markdown.js'
+import { sanitizeAttachmentFileName } from './attachment-download.js'
 import type {
   ArchiveChatState,
   ArchiveCommandResult,
@@ -59,6 +66,8 @@ type EffectiveRange = {
 type ChatArchiveResult = {
   state: ArchiveChatState
   messages: number
+  media: number
+  warnings: ArchiveCommandResult['warnings']
   finalize: () => void
   rollback: () => void
 }
@@ -73,6 +82,7 @@ export type ArchiveTransactionOperations = {
 
 type ArchiveServiceDependencies = {
   writeManifest?: typeof writeArchiveManifest
+  writeArchive?: typeof writeArchiveFile
   restoreManifest?: (path: string, manifest: ArchiveManifest | null) => void
   transaction?: Partial<ArchiveTransactionOperations>
 }
@@ -85,6 +95,7 @@ class ArchiveOperationError extends Error {
 
 export class ArchiveService {
   private readonly writeManifest: typeof writeArchiveManifest
+  private readonly writeArchive: typeof writeArchiveFile
   private readonly restoreManifest: (path: string, manifest: ArchiveManifest | null) => void
   private readonly transaction: ArchiveTransactionOperations
 
@@ -93,6 +104,7 @@ export class ArchiveService {
     dependencies: ArchiveServiceDependencies = {},
   ) {
     this.writeManifest = dependencies.writeManifest ?? writeArchiveManifest
+    this.writeArchive = dependencies.writeArchive ?? writeArchiveFile
     this.restoreManifest = dependencies.restoreManifest ?? restoreManifestSnapshot
     const sync = dependencies.transaction?.syncDirectory ?? syncDirectory
     this.transaction = {
@@ -125,7 +137,7 @@ export class ArchiveService {
     }
   }
 
-  async archive(input: ArchiveServiceInput): Promise<ArchiveCommandResult> {
+  async archive(input: ArchiveServiceInput): Promise<HandlerResult<ArchiveCommandResult>> {
     validateInput(input)
 
     const now = input.now ?? new Date()
@@ -163,7 +175,15 @@ export class ArchiveService {
       try {
         const range = effectiveRange(input, previous, now)
         validateEffectiveRange(range)
-        const archived = await this.archiveChat(chat, input.output, range, now, previous)
+        const archived = await this.archiveChat(
+          chat,
+          input.output,
+          range,
+          now,
+          previous,
+          input.rebuild === true,
+          input.media === true,
+        )
         const candidate: ArchiveManifest = {
           ...manifest,
           account_name: input.account.name,
@@ -205,8 +225,9 @@ export class ArchiveService {
           title: chat.title,
           file: archived.state.file,
           messages_archived: archived.messages,
-          media_archived: 0,
+          media_archived: archived.media,
         })
+        result.warnings.push(...archived.warnings)
         if (cleanupFailed) {
           result.warnings.push({
             chat_id: chat.id,
@@ -225,7 +246,21 @@ export class ArchiveService {
       }
     }
 
-    return result
+    if (result.failed.length === 0 && result.warnings.length === 0) {
+      return { ok: true, data: result }
+    }
+    return {
+      ok: false,
+      error: {
+        code: 'archive_partial_failure',
+        message: 'Archive completed with one or more chat or attachment failures.',
+        details: {
+          completed: result.completed,
+          failed: result.failed,
+          warnings: result.warnings,
+        },
+      },
+    }
   }
 
   private async archiveChat(
@@ -234,6 +269,8 @@ export class ArchiveService {
     range: EffectiveRange,
     now: Date,
     previous?: ArchiveChatState,
+    rebuild = false,
+    downloadMedia = false,
   ): Promise<ChatArchiveResult> {
     const file = previous?.file ?? archiveChatFile(chat.id, chat.title)
     const destination = join(output, file)
@@ -244,32 +281,63 @@ export class ArchiveService {
     let replacementAttempted = false
     let newest: ArchiveMessage | undefined
     let messages = 0
+    let media = 0
+    const warnings: ArchiveCommandResult['warnings'] = []
 
     try {
+      const incremental = previous != null && !rebuild && existsSync(destination)
+      const scanned = incremental
+        ? await scanArchivedMessageIds(createReadStream(destination))
+        : { ids: new Set<number>(), maxId: null }
+      const effectiveMinId = incremental
+        ? maxDefined(previous.last_message_id, scanned.maxId)
+        : undefined
       let pageNumber = 0
       for await (const page of this.source.iterHistoryPages({
         chat: chat.id,
         since: range.since,
         until: range.until,
+        minId: effectiveMinId,
       })) {
         if (page.length === 0) continue
+        const unseen = page.filter((item) => {
+          if (effectiveMinId != null && item.msg_id <= effectiveMinId) return false
+          if (scanned.ids.has(item.msg_id)) return false
+          scanned.ids.add(item.msg_id)
+          return true
+        })
+        if (unseen.length === 0) continue
         const segment = join(output, `.${basename(file)}.${token}.${pageNumber}.segment`)
         pageNumber += 1
         ownedPaths.push(segment)
 
-        const chronological = [...page].reverse()
-        writeExclusive(segment, chronological.map((item) => renderArchiveMessage(item)).join(BLOCK_SEPARATOR))
+        const chronological = [...unseen].reverse()
+        const rendered: string[] = []
+        for (const item of chronological) {
+          const downloaded = downloadMedia
+            ? await this.downloadAttachment(output, chat, item, token)
+            : { path: undefined, archived: false, warning: undefined }
+          if (downloaded.archived) media += 1
+          if (downloaded.warning != null) warnings.push(downloaded.warning)
+          rendered.push(renderArchiveMessage(item, downloaded.path))
+        }
+        writeExclusive(segment, rendered.join(BLOCK_SEPARATOR))
         segments.push(segment)
         messages += chronological.length
 
-        for (const item of page) {
+        for (const item of unseen) {
           if (newest == null || item.msg_id > newest.msg_id) newest = item
         }
       }
 
       const temporary = join(output, `.${basename(file)}.${token}.tmp`)
       ownedPaths.push(temporary)
-      await writeArchiveFile(temporary, renderArchiveHeader(chat, now), segments.reverse())
+      await this.writeArchive(
+        temporary,
+        renderArchiveHeader(chat, now),
+        segments.reverse(),
+        incremental ? destination : undefined,
+      )
       removeOwned(segments)
       backup = existsSync(destination)
         ? join(output, `.${basename(file)}.${token}.backup`)
@@ -282,6 +350,8 @@ export class ArchiveService {
 
       return {
         messages,
+        media,
+        warnings,
         finalize: () => {
           if (backup != null) this.transaction.cleanupBackup(backup)
         },
@@ -289,12 +359,16 @@ export class ArchiveService {
         state: {
           title: chat.title,
           file,
-          initial_since: range.since?.toISOString() ?? null,
-          initial_until: range.until?.toISOString() ?? null,
-          full_history: range.full,
-          last_message_id: newest?.msg_id ?? null,
+          initial_since: incremental
+            ? previous.initial_since
+            : range.since?.toISOString() ?? null,
+          initial_until: incremental
+            ? previous.initial_until
+            : range.until?.toISOString() ?? null,
+          full_history: incremental ? previous.full_history : range.full,
+          last_message_id: newest?.msg_id ?? effectiveMinId ?? null,
           last_message_date: newest?.timestamp == null
-            ? null
+            ? previous?.last_message_date ?? null
             : new Date(newest.timestamp).toISOString(),
           last_run: now.toISOString(),
         },
@@ -320,6 +394,60 @@ export class ArchiveService {
         }
       }
       throw error
+    }
+  }
+
+  private async downloadAttachment(
+    output: string,
+    chat: ArchiveChat,
+    message: ArchiveMessage,
+    token: string,
+  ): Promise<{ path?: string; archived: boolean; warning?: ArchiveCommandResult['warnings'][number] }> {
+    const attachment = message.attachment
+    if (attachment == null || !attachment.downloadable) return { archived: false }
+
+    const safeName = sanitizeAttachmentFileName(attachment.file_name ?? 'attachment')
+    const relative = join('media', String(chat.id), `${message.msg_id}-${safeName}`)
+    const destination = join(output, relative)
+    try {
+      if (existsSync(destination) && statSync(destination).size > 0) {
+        return { path: relative, archived: true }
+      }
+    } catch {
+      // Retry through a fresh owned temporary file below.
+    }
+
+    const directory = dirname(destination)
+    mkdirSync(directory, { recursive: true })
+    const temporary = join(directory, `.${basename(destination)}.${token}.tmp`)
+    try {
+      await this.source.downloadMedia({
+        chat: chat.id,
+        messageId: message.msg_id,
+        destination: temporary,
+      })
+      if (!existsSync(temporary) || statSync(temporary).size === 0) {
+        throw new Error('archive_empty_media')
+      }
+      const descriptor = openSync(temporary, constants.O_RDONLY)
+      try {
+        fsyncSync(descriptor)
+      } finally {
+        closeSync(descriptor)
+      }
+      renameSync(temporary, destination)
+      this.transaction.syncDirectory(directory)
+      return { path: relative, archived: true }
+    } catch {
+      removeOwnedQuietly([temporary])
+      return {
+        archived: false,
+        warning: {
+          chat_id: chat.id,
+          code: 'archive_media_failed',
+          message: `Media download failed for message #${message.msg_id} attachment ${safeName}.`,
+        },
+      }
     }
   }
 }
@@ -369,6 +497,12 @@ function effectiveRange(
 
 function validDate(value: Date): boolean {
   return value instanceof Date && Number.isFinite(value.getTime())
+}
+
+function maxDefined(left: number | null, right: number | null): number | undefined {
+  if (left == null) return right ?? undefined
+  if (right == null) return left
+  return Math.max(left, right)
 }
 
 function validateEffectiveRange(range: EffectiveRange): void {
@@ -466,18 +600,29 @@ function syncDirectory(path: string): void {
   }
 }
 
-async function writeArchiveFile(path: string, header: string, segments: string[]): Promise<void> {
+async function writeArchiveFile(
+  path: string,
+  header: string,
+  segments: string[],
+  source?: string,
+): Promise<void> {
   let descriptor: number | null = null
   try {
     descriptor = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
-    writeFileSync(descriptor, header, 'utf8')
+    if (source == null) {
+      writeFileSync(descriptor, header, 'utf8')
+    } else {
+      for await (const chunk of createReadStream(source)) {
+        writeFileSync(descriptor, chunk)
+      }
+    }
     for (const segment of segments) {
       writeFileSync(descriptor, BLOCK_SEPARATOR, 'utf8')
       for await (const chunk of createReadStream(segment)) {
         writeFileSync(descriptor, chunk)
       }
     }
-    writeFileSync(descriptor, '\n', 'utf8')
+    if (segments.length > 0 || source == null) writeFileSync(descriptor, '\n', 'utf8')
     fsyncSync(descriptor)
     const completed = descriptor
     descriptor = null

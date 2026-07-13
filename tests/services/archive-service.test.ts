@@ -1,10 +1,11 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readArchiveManifest, writeArchiveManifest } from '../../src/services/archive-manifest.js'
+import { renderArchiveMessage } from '../../src/services/archive-markdown.js'
 import { ArchiveService, type ArchiveServiceInput } from '../../src/services/archive-service.js'
-import type { ArchiveManifest } from '../../src/services/archive-types.js'
+import type { ArchiveCommandResult, ArchiveManifest } from '../../src/services/archive-types.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../../src/telegram/archive-types.js'
 
 const directories: string[] = []
@@ -41,6 +42,7 @@ function sourceFor(
 ): TelegramArchiveAdapter & {
   resolveChats: ReturnType<typeof vi.fn>
   iterHistoryPages: ReturnType<typeof vi.fn>
+  downloadMedia: ReturnType<typeof vi.fn>
 } {
   return {
     resolveChats: vi.fn(async () => chats),
@@ -49,6 +51,10 @@ function sourceFor(
     })()),
     downloadMedia: vi.fn(async () => undefined),
   }
+}
+
+function archiveDetails(result: Awaited<ReturnType<ArchiveService['archive']>>): ArchiveCommandResult {
+  return result.ok ? result.data : result.error.details as ArchiveCommandResult
 }
 
 function input(output: string, overrides: Partial<ArchiveServiceInput> = {}): ArchiveServiceInput {
@@ -91,6 +97,177 @@ function existingManifest(output: string, overrides: Partial<ArchiveManifest['ch
 }
 
 describe('ArchiveService', () => {
+  it('incrementally appends only messages newer than the effective cursor', async () => {
+    const output = outputDirectory()
+    const forty = message(40, -100, '2026-07-10T12:00:00.000Z')
+    const fortyOne = message(41, -100, '2026-07-11T12:00:00.000Z')
+    const fortyTwo = message(42, -100, '2026-07-12T12:00:00.000Z')
+    const source = sourceFor(undefined, { [-100]: [[fortyOne, forty]] })
+    const service = new ArchiveService(source)
+
+    await service.archive(input(output, { range: { since: new Date('2026-07-01T00:00:00.000Z') } }))
+    source.iterHistoryPages.mockImplementation(() => (async function* () {
+      yield [fortyTwo, fortyOne]
+    })())
+    await service.archive(input(output, { now: new Date('2026-08-13T12:00:00.000Z') }))
+
+    const markdown = readFileSync(join(output, '-100-team.md'), 'utf8')
+    expect([...markdown.matchAll(/id=(\d+)/gu)].map((match) => Number(match[1])))
+      .toEqual([40, 41, 42])
+    expect(source.iterHistoryPages).toHaveBeenLastCalledWith(expect.objectContaining({ minId: 41 }))
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats['-100'])
+      .toMatchObject({ initial_since: '2026-07-01T00:00:00.000Z', full_history: false })
+  })
+
+  it('recovers when Markdown advanced before its manifest cursor', async () => {
+    const output = outputDirectory()
+    const forty = message(40, -100, '2026-07-10T12:00:00.000Z')
+    const fortyOne = message(41, -100, '2026-07-11T12:00:00.000Z')
+    const fortyTwo = message(42, -100, '2026-07-12T12:00:00.000Z')
+    const source = sourceFor(undefined, { [-100]: [[forty]] })
+    const service = new ArchiveService(source)
+    await service.archive(input(output, { full: true }))
+
+    const markdownPath = join(output, '-100-team.md')
+    writeFileSync(markdownPath, `${readFileSync(markdownPath, 'utf8').trimEnd()}\n\n---\n\n${renderArchiveMessage(fortyOne)}\n`)
+    source.iterHistoryPages.mockImplementation(() => (async function* () {
+      yield [fortyTwo, fortyOne]
+    })())
+
+    await service.archive(input(output, { full: true }))
+
+    const markdown = readFileSync(markdownPath, 'utf8')
+    expect([...markdown.matchAll(/id=(\d+)/gu)].map((match) => Number(match[1])))
+      .toEqual([40, 41, 42])
+    expect(source.iterHistoryPages).toHaveBeenLastCalledWith(expect.objectContaining({ minId: 41 }))
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats['-100']?.last_message_id)
+      .toBe(42)
+  })
+
+  it('retains attachment metadata and returns a sanitized partial failure when media fails', async () => {
+    const output = outputDirectory()
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachment: {
+        type: 'document',
+        file_name: 'report.pdf',
+        file_size: 123,
+        downloadable: true,
+      },
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+    source.downloadMedia.mockRejectedValue(new Error('/secret/session.tmp failed'))
+
+    const result = await new ArchiveService(source).archive(input(output, {
+      full: true,
+      media: true,
+    }))
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'archive_partial_failure',
+        details: {
+          completed: [expect.objectContaining({ chat_id: -100, media_archived: 0 })],
+          warnings: [expect.objectContaining({ chat_id: -100, code: 'archive_media_failed' })],
+        },
+      },
+    })
+    expect(readFileSync(join(output, '-100-team.md'), 'utf8')).toContain('report.pdf')
+    expect(JSON.stringify(result)).not.toContain('/secret/')
+    expect(readdirSync(output).some((file) => file.includes('.tmp'))).toBe(false)
+  })
+
+  it('downloads media atomically to a deterministic path and reuses non-empty files', async () => {
+    const output = outputDirectory()
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachment: {
+        type: 'document', file_name: '../report.pdf', file_size: 3, downloadable: true,
+      },
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+    source.downloadMedia.mockImplementation(async ({ destination }: { destination: string }) => {
+      writeFileSync(destination, 'pdf')
+    })
+    const service = new ArchiveService(source)
+
+    const first = await service.archive(input(output, { full: true, media: true }))
+    const second = await service.archive(input(output, { full: true, media: true, rebuild: true }))
+
+    const mediaPath = join(output, 'media', '-100', '40-report.pdf')
+    expect(readFileSync(mediaPath, 'utf8')).toBe('pdf')
+    expect(readFileSync(join(output, '-100-team.md'), 'utf8'))
+      .toContain('(media/-100/40-report.pdf)')
+    expect(source.downloadMedia).toHaveBeenCalledTimes(1)
+    expect(archiveDetails(first).completed[0]?.media_archived).toBe(1)
+    expect(archiveDetails(second).completed[0]?.media_archived).toBe(1)
+    expect(readdirSync(dirname(mediaPath)).filter((file) => file.endsWith('.tmp'))).toEqual([])
+  })
+
+  it('renders attachment metadata without downloading when media is disabled', async () => {
+    const output = outputDirectory()
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachment: {
+        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
+      },
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+
+    const result = await new ArchiveService(source).archive(input(output, { full: true }))
+
+    expect(result.ok).toBe(true)
+    expect(source.downloadMedia).not.toHaveBeenCalled()
+    expect(readFileSync(join(output, '-100-team.md'), 'utf8')).toContain('report.pdf')
+  })
+
+  it('preserves the prior incremental file and cursor after a temporary write failure', async () => {
+    const output = outputDirectory()
+    const forty = message(40, -100, '2026-07-10T12:00:00.000Z')
+    const fortyOne = message(41, -100, '2026-07-11T12:00:00.000Z')
+    await new ArchiveService(sourceFor(undefined, { [-100]: [[forty]] }))
+      .archive(input(output, { full: true }))
+    const prior = readFileSync(join(output, '-100-team.md'))
+
+    const failed = await new ArchiveService(sourceFor(undefined, { [-100]: [[fortyOne]] }), {
+      writeArchive: async () => { throw new Error('/secret/temp/archive.tmp') },
+    }).archive(input(output, { full: true }))
+
+    expect(failed).toMatchObject({ ok: false, error: { code: 'archive_partial_failure' } })
+    expect(readFileSync(join(output, '-100-team.md'))).toEqual(prior)
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats['-100']?.last_message_id)
+      .toBe(40)
+    expect(JSON.stringify(failed)).not.toContain('/secret/')
+
+    await new ArchiveService(sourceFor(undefined, { [-100]: [[fortyOne]] }))
+      .archive(input(output, { full: true }))
+    const markdown = readFileSync(join(output, '-100-team.md'), 'utf8')
+    expect([...markdown.matchAll(/id=(\d+)/gu)].map((match) => Number(match[1])))
+      .toEqual([40, 41])
+  })
+
+  it('preserves the prior incremental file and cursor after a Markdown rename failure', async () => {
+    const output = outputDirectory()
+    const forty = message(40, -100, '2026-07-10T12:00:00.000Z')
+    const fortyOne = message(41, -100, '2026-07-11T12:00:00.000Z')
+    await new ArchiveService(sourceFor(undefined, { [-100]: [[forty]] }))
+      .archive(input(output, { full: true }))
+    const prior = readFileSync(join(output, '-100-team.md'))
+
+    const failed = await new ArchiveService(sourceFor(undefined, { [-100]: [[fortyOne]] }), {
+      transaction: {
+        replaceDestination() { throw new Error('/secret/rename') },
+      },
+    }).archive(input(output, { full: true }))
+
+    expect(failed).toMatchObject({ ok: false, error: { code: 'archive_partial_failure' } })
+    expect(readFileSync(join(output, '-100-team.md'))).toEqual(prior)
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats['-100']?.last_message_id)
+      .toBe(40)
+    expect(JSON.stringify(failed)).not.toContain('/secret/')
+  })
+
   it('defaults an initial archive to the exact preceding seven days', async () => {
     const output = outputDirectory()
     const source = sourceFor()
@@ -113,8 +290,8 @@ describe('ArchiveService', () => {
 
     const result = await new ArchiveService(source).archive(input(output))
 
-    expect(result.failed).toEqual([])
-    expect(result.completed).toEqual([expect.objectContaining({
+    expect(archiveDetails(result).failed).toEqual([])
+    expect(archiveDetails(result).completed).toEqual([expect.objectContaining({
       chat_id: -100,
       messages_archived: 4,
       media_archived: 0,
@@ -224,8 +401,8 @@ describe('ArchiveService', () => {
 
     const result = await new ArchiveService(source).archive(input(output, { rebuild: true }))
 
-    expect(result.completed).toEqual([])
-    expect(result.failed).toEqual([{
+    expect(archiveDetails(result).completed).toEqual([])
+    expect(archiveDetails(result).failed).toEqual([{
       chat_id: -100,
       title: 'Team',
       error: 'archive_invalid_time_range',
@@ -268,8 +445,8 @@ describe('ArchiveService', () => {
       rebuild: true,
     }))
 
-    expect(result.completed).toEqual([expect.objectContaining({ chat_id: -100 })])
-    expect(result.failed).toEqual([{ chat_id: -200, title: 'Broken', error: 'archive_chat_failed' }])
+    expect(archiveDetails(result).completed).toEqual([expect.objectContaining({ chat_id: -100 })])
+    expect(archiveDetails(result).failed).toEqual([{ chat_id: -200, title: 'Broken', error: 'archive_chat_failed' }])
     expect(readFileSync(join(output, '-200-broken.md'), 'utf8')).toBe(oldArchive)
     const manifest = readArchiveManifest(join(output, 'archive-manifest.json'))!
     expect(manifest.chats['-100']).toBeDefined()
@@ -298,12 +475,12 @@ describe('ArchiveService', () => {
 
     const result = await service.archive(input(output, { all: true, chats: [], full: true }))
 
-    expect(result.failed).toEqual([{
+    expect(archiveDetails(result).failed).toEqual([{
       chat_id: -100,
       title: 'Team',
       error: 'archive_manifest_commit_failed',
     }])
-    expect(result.completed).toEqual([expect.objectContaining({ chat_id: -200 })])
+    expect(archiveDetails(result).completed).toEqual([expect.objectContaining({ chat_id: -200 })])
     expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats).toEqual({
       '-200': expect.objectContaining({ last_message_id: 2 }),
     })
@@ -326,7 +503,7 @@ describe('ArchiveService', () => {
 
     const result = await service.archive(input(output, { rebuild: true }))
 
-    expect(result.failed).toEqual([{
+    expect(archiveDetails(result).failed).toEqual([{
       chat_id: -100,
       title: 'Team',
       error: 'archive_manifest_commit_failed',
@@ -352,7 +529,7 @@ describe('ArchiveService', () => {
 
     const result = await service.archive(input(output, { rebuild: true }))
 
-    expect(result.failed).toEqual([{
+    expect(archiveDetails(result).failed).toEqual([{
       chat_id: -100,
       title: 'Team',
       error: 'archive_manifest_commit_failed',
@@ -384,7 +561,7 @@ describe('ArchiveService', () => {
     const result = await service.archive(input(output, { all: true, chats: [], full: true }))
 
     expect(rollbackDestination).toHaveBeenCalledOnce()
-    expect(result.failed).toEqual([{
+    expect(archiveDetails(result).failed).toEqual([{
       chat_id: -100,
       title: 'Team',
       error: 'archive_manifest_commit_failed;archive_manifest_recovery_failed;archive_rollback_failed',
@@ -412,7 +589,7 @@ describe('ArchiveService', () => {
 
     const result = await service.archive(input(output, { all: true, chats: [], full: true }))
 
-    expect(result.failed[0]?.error).toBe('archive_manifest_commit_failed;archive_rollback_failed')
+    expect(archiveDetails(result).failed[0]?.error).toBe('archive_manifest_commit_failed;archive_rollback_failed')
     expect(source.iterHistoryPages).toHaveBeenCalledTimes(1)
   })
 
@@ -431,7 +608,7 @@ describe('ArchiveService', () => {
 
     const result = await service.archive(input(output))
 
-    expect(result.failed).toEqual([{ chat_id: -100, title: 'Team', error: 'archive_persistence_failed' }])
+    expect(archiveDetails(result).failed).toEqual([{ chat_id: -100, title: 'Team', error: 'archive_persistence_failed' }])
     expect(existsSync(join(output, '-100-team.md'))).toBe(false)
     expect(syncs).toBe(2)
     expect(JSON.stringify(result)).not.toContain('/secret/')
@@ -451,8 +628,8 @@ describe('ArchiveService', () => {
 
     const result = await service.archive(input(output, { rebuild: true }))
 
-    expect(result.completed).toEqual([expect.objectContaining({ chat_id: -100 })])
-    expect(result.warnings).toEqual([{
+    expect(archiveDetails(result).completed).toEqual([expect.objectContaining({ chat_id: -100 })])
+    expect(archiveDetails(result).warnings).toEqual([{
       chat_id: -100,
       code: 'archive_backup_cleanup_failed',
       message: 'Archive committed, but recovery-backup cleanup could not be confirmed.',
@@ -477,8 +654,8 @@ describe('ArchiveService', () => {
 
     const result = await service.archive(input(output, { rebuild: true }))
 
-    expect(result.completed).toEqual([expect.objectContaining({ chat_id: -100 })])
-    expect(result.warnings).toEqual([{
+    expect(archiveDetails(result).completed).toEqual([expect.objectContaining({ chat_id: -100 })])
+    expect(archiveDetails(result).warnings).toEqual([{
       chat_id: -100,
       code: 'archive_backup_cleanup_failed',
       message: 'Archive committed, but recovery-backup cleanup could not be confirmed.',
