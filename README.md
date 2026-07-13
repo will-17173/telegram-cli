@@ -4,22 +4,18 @@
 
 A TypeScript command-line client for syncing Telegram chats, listening to live messages, searching locally stored messages, and inspecting groups from the terminal.
 
-## Features
+## What you can do
 
-- Sign in to Telegram and inspect the current account or available chats.
-- Manage multiple Telegram accounts with isolated sessions, message databases, and interactive account switching.
-- Fetch chat history into a local SQLite database for fast, offline search.
-- Sync one chat incrementally or sync many chats with a single command.
-- Listen for new messages in real time, with optional attachment summaries.
-- Download attachments from channels that restrict content saving.
-- Search, filter, summarize, and export locally stored messages, with reply context and media-group summaries in recent results.
+- Manage multiple Telegram accounts with isolated sessions and message databases.
+- Sync chat history to SQLite for offline search, filtering, analysis, and export.
+- Listen for new messages and download incoming attachments.
 - Send, edit, and delete messages from the command line.
-- Inspect and manage groups, members, administrators, invites, forum topics, and messages.
-- Use human-readable output or structured JSON/YAML where supported.
+- Inspect and manage groups, members, administrators, invites, and forum topics.
+- Use human-readable output or structured JSON and YAML in scripts and agent workflows.
 
 ## Built for AI agents
 
-Telegram CLI gives AI agents a command-based interface to Telegram and locally synced messages. After a human authenticates an account with `tg account add`, an agent can run online and local commands without browser automation.
+Telegram CLI gives AI agents a command-based interface to Telegram and locally synced messages. After you authenticate an account with `tg account add`, an agent can run online and local commands without browser automation.
 
 The CLI supports agent workflows through these interfaces:
 
@@ -49,15 +45,40 @@ Add `--global` to make the skill available across projects instead of installing
 
 Telegram CLI requires Node.js 22 or later.
 
-After the package is published to npm, install it globally with:
+Install the package globally from npm:
 
 ```sh
 npm install -g @will-17173/telegram-cli
 ```
 
+## Quick start
+
+Authenticate an account, check its status, and list its chats:
+
+```sh
+tg account add
+tg status
+tg chats
+```
+
+Choose a chat name, username, or ID from `tg chats`, then sync and search its messages:
+
+```sh
+tg sync <chat>
+tg search "keyword" --chat <chat>
+```
+
+You can also sync multiple chats, listen for incoming messages, or send a message:
+
+```sh
+tg sync-all --max-chats 20 --delay 1
+tg listen <chat-or-id> --auto-download
+tg send <chat> "Hello from tg"
+```
+
 ## Configuration
 
-Configuring personal Telegram API credentials is optional. To use your own, create them at [my.telegram.org](https://my.telegram.org), then save them with:
+Personal Telegram application programming interface (API) credentials are optional. To use your own, create them at [my.telegram.org](https://my.telegram.org), then save them with:
 
 ```sh
 tg config set --api-id <id> --api-hash <hash>
@@ -85,9 +106,7 @@ For a one-command override, set `TG_PROXY` in the command environment:
 TG_PROXY=http://127.0.0.1:8080 tg status
 ```
 
-Supported proxy forms are `socks4://`, `socks5://`, `http://`, and `https://` proxy URLs, plus MTProxy links in the forms `tg://proxy?...` and `https://t.me/proxy?...`. A non-empty `TG_PROXY` value, after trimming surrounding whitespace, overrides the persisted proxy. If `TG_PROXY` is empty or unset, the CLI falls back to the stored proxy; if neither is configured, it connects directly.
-
-The selected proxy applies to account login and every Telegram-backed command, not only the command used in the example. Proxy URLs can contain usernames and passwords or MTProxy secrets, so treat them as sensitive. CLI output does not print the configured proxy URL. A credential-bearing proxy URL entered literally on a command line may remain in shell history or be visible through process inspection. Provide `TG_PROXY` through an appropriately protected environment or secret-loading mechanism, or otherwise avoid placing literal secrets in shared shell histories and scripts.
+Telegram CLI supports SOCKS4, SOCKS5, HTTP, HTTPS, and MTProxy. The proxy applies to account login and every Telegram-backed command. Treat proxy URLs that contain credentials as sensitive.
 
 To inspect the effective configuration in human-readable, JSON, or YAML format, run:
 
@@ -98,9 +117,7 @@ tg config list --yaml
 tg config list --show-secrets
 ```
 
-This reports the effective configuration rather than the raw contents of `config.json`. API credentials are resolved from environment variables first, then stored configuration, then the built-in default. The proxy is resolved independently from `TG_PROXY` first, then stored configuration, then remains absent when neither is configured.
-
-The output reports exactly five fields: the effective API ID, API hash, credential source, proxy URL, and proxy source. The API hash is masked by default; use `--show-secrets` to display it in full. The proxy URL is always printed in full and may contain credentials or an MTProxy secret, so avoid writing `config list` output to logs or sharing it. `tg config list` does not create a Telegram client or make a network connection.
+This reports the effective configuration rather than the raw contents of `config.json`. The API hash is masked by default; use `--show-secrets` to display it in full.
 
 Run `tg account add` to authenticate and create a local session. Other commands never start the interactive login flow.
 
@@ -108,37 +125,6 @@ You can override the root directory for configuration, account sessions, and mes
 
 ```sh
 export DATA_DIR=/path/to/tg-cli-data
-```
-
-## Quick start
-
-```sh
-# Add and authenticate the first account
-tg account add
-
-# Check authentication status
-tg status
-
-# List chats, then use a chat name, username, or ID where `<chat>` appears
-tg chats
-
-# Save a chat's history locally
-tg sync <chat>
-
-# Search the locally synced messages
-tg search "keyword" --chat <chat>
-
-# Sync across all chats
-tg sync-all --max-chats 20 --delay 1
-
-# Listen for new messages and automatically download incoming attachments
-tg listen <chat-or-id> --auto-download
-
-# Use plain output, download attachments, and hide their message summaries
-tg listen <chat-or-id> --no-interactive --auto-download --no-media
-
-# Send a message
-tg send <chat> "Hello from tg"
 ```
 
 ## Send messages and attachments
@@ -203,7 +189,7 @@ Telegram API credentials apply to every registered account. You don't need to co
 
 ## Group management
 
-The `group` command keeps read-only inspection alongside management families for members, administrators, chat settings, invite links, forum topics, and messages. Use family help to see the current actions:
+The `group` command supports read-only inspection and management of members, administrators, chat settings, invite links, forum topics, and messages. Use each command group's help to see its actions:
 
 ```sh
 # Group details
@@ -226,7 +212,14 @@ tg group topic --help
 
 `group members` accepts exactly these seven `--type` filters: `recent`, `all`, `admins`, `banned`, `restricted`, `bots`, and `contacts`. It defaults to `recent` and 100 results; `--limit` accepts 1 through 200. Telegram can return fewer members than its reported total, so a page is not guaranteed to enumerate the whole group.
 
-`group audit` requires group administrator rights. Its `--limit` range is 1 through 500, with a default of 100 events. Its repeatable `--user` filter selects action authors. The repeatable `--type` filter accepts exactly these 17 stable grouped event types: `info_changed`, `settings_changed`, `member_joined`, `member_left`, `member_invited`, `member_banned`, `member_unbanned`, `member_restricted`, `member_unrestricted`, `admin_promoted`, `admin_demoted`, `message_deleted`, `message_edited`, `message_pinned`, `invite_changed`, `topic_changed`, and `other`.
+`group audit` requires group administrator rights. Its `--limit` range is 1 through 500, with a default of 100 events. Its repeatable `--user` filter selects action authors. The repeatable `--type` filter accepts these event groups:
+
+- **Chat**: `info_changed`, `settings_changed`
+- **Members**: `member_joined`, `member_left`, `member_invited`, `member_banned`, `member_unbanned`, `member_restricted`, `member_unrestricted`
+- **Administrators**: `admin_promoted`, `admin_demoted`
+- **Messages**: `message_deleted`, `message_edited`, `message_pinned`
+- **Invites and topics**: `invite_changed`, `topic_changed`
+- **Other**: `other`
 
 Inspection and management actions use human-readable output by default; actions that expose `--json` or `--yaml` provide structured success or error output. Failures set a nonzero exit status. They use the current account unless `--account <name>` selects another registered account for that invocation.
 
@@ -245,13 +238,13 @@ Interactive `tg listen` presents every supported slash command in one menu. This
 /member mute @alice 2h
 ```
 
-Typing `/` opens the unified command menu, with reply first. Matching ranks exact paths, prefixes, then ordered fuzzy matches, so `/rep` and `/rpy` find `/reply`, while `/ban` finds `/member ban`. Use Up/Down to move through matches. Tab completes the selected command; Enter also completes an incomplete selection, or runs a complete command. Esc closes the menu, result, or confirmation.
+Typing `/` opens the unified command menu, with reply first. Matching ranks exact paths, prefixes, then ordered fuzzy matches, so `/rep` and `/rpy` find `/reply`, while `/ban` finds `/member ban`. Use **Up** and **Down** to move through matches. **Tab** completes the selected command. **Enter** completes an incomplete selection or runs a complete command. **Esc** closes the menu, result, or confirmation.
 
 Group-command availability and permission checks are unchanged: unavailable actions remain disabled, risky actions open a confirmation modal, and chat deletion also asks for the exact title. When listening to more than one chat, set an unambiguous outgoing target with `--send-to <chat>` before using group commands, for example `tg listen @team @ops --send-to @team`.
 
 ## Online and local commands
 
-Online commands connect to Telegram and require a valid session. These include `status`, `whoami`, `chats`, `history`, `sync`, `sync-all`, `refresh`, `info`, all `group` inspection and management families, `send`, `edit`, `delete`, and `listen`.
+Online commands connect to Telegram and require a valid session. These include `status`, `whoami`, `chats`, `history`, `sync`, `sync-all`, `refresh`, `info`, all `group` inspection and management commands, `send`, `edit`, `delete`, and `listen`.
 
 Local commands read or modify the selected account's message database without connecting to Telegram. These include `search`, `recent`, `stats`, `top`, `timeline`, `today`, `filter`, `export`, and `purge`.
 
@@ -329,6 +322,8 @@ Use `tg <command> --help` to inspect command-specific options. For example, `lis
 
 ### Sync and listen behavior
 
+These rules describe how synchronization, listening, replies, and downloads affect local data and terminal output.
+
 - `sync-all` and `refresh` are batch operations for local persistence; they are not read-only.
 - `listen` prints a concise separator for each incoming message and can optionally suppress attachment summaries.
 - Telegram media groups appear as one incoming message with a combined attachment summary.
@@ -340,6 +335,8 @@ Use `tg <command> --help` to inspect command-specific options. For example, `lis
 - Download failures are reported without stopping the listener. `--no-media` hides attachment summaries only; downloads still run when it is combined with `--auto-download`.
 
 ## Troubleshooting
+
+Use these steps to resolve common account, session, and API credential errors.
 
 ### No active account
 
@@ -381,8 +378,6 @@ accounts/<name>/messages.db
 ```
 
 Treat persisted configuration, `.env`, Telegram credentials, session files, and SQLite data as sensitive. Never share them or commit them to version control.
-
-The `config.json` file may contain an optional `proxy` setting in addition to API credentials. CLI success and error output does not print the stored proxy URL, but you must still protect `config.json`, the environment, and shell history because proxy URLs can contain credentials or MTProxy secrets.
 
 ## Development
 
