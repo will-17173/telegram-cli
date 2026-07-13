@@ -4,6 +4,11 @@ import { buildListenMessage, formatListenLine } from '../../src/presenters/liste
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
 
 describe('listen message formatting', () => {
+  it('preserves the sender id for interactive presentation', () => {
+    expect(buildListenMessage(mediaMessage()).senderId).toBe(1)
+    expect(buildListenMessage({ ...mediaMessage(), sender_id: null }).senderId).toBeNull()
+  })
+
   it('omits the no-text placeholder for media-only messages', () => {
     const message = mediaMessage()
 

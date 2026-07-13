@@ -79,6 +79,7 @@ function listenRow(sender: string, previewRows = 0): ListenMessageRow {
   return {
     time: '12:00',
     sender,
+    senderId: null,
     content: null,
     media: previewRows === 0 ? [] : [{
       chatId: 1,

@@ -13,6 +13,7 @@ import {
   collectDownloadableAttachments,
   createInteractiveOperationController,
   flushListenBeforeExit,
+  formatInteractiveListenSender,
   interactiveListenPreviewColorDepth,
   LISTEN_COMPOSER_THEME,
   ListenAttachmentLine,
@@ -111,6 +112,25 @@ describe('ListenComposer', () => {
       target: '#f0d38a',
       hint: '#9bdca8',
     })
+  })
+})
+
+describe('interactive listen sender formatting', () => {
+  it('appends sender ids in single-chat and multi-chat headers', () => {
+    expect(formatInteractiveListenSender({ sender: 'Alice', senderId: 123 }))
+      .toBe('Alice (123)')
+    expect(formatInteractiveListenSender({ sender: 'Alice', senderId: 123, chatName: 'News' }))
+      .toBe('News | Alice (123)')
+  })
+
+  it('keeps the sender name unchanged when the id is missing', () => {
+    expect(formatInteractiveListenSender({ sender: 'Alice', senderId: null }))
+      .toBe('Alice')
+  })
+
+  it('does not repeat the id when it is already the sender fallback', () => {
+    expect(formatInteractiveListenSender({ sender: '123', senderId: 123 }))
+      .toBe('123')
   })
 })
 
@@ -475,6 +495,7 @@ describe('collectDownloadableAttachments', () => {
       msgId: 1,
       time: '16:44',
       sender: 'Alice',
+      senderId: null,
       content: null,
       media: [
         {
@@ -714,6 +735,7 @@ function message(sender: string, lineCount: number): ListenMessageRow {
   return {
     time: '16:44',
     sender,
+    senderId: null,
     content: null,
     media: Array.from({ length: mediaCount }, (_, index) => ({
       chatId: 100,

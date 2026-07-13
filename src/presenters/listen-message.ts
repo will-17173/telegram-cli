@@ -11,6 +11,7 @@ type ListenMessageFormatOptions = {
 export type ListenMessageRow = {
   time: string
   sender: string
+  senderId: number | null
   chatName?: string
   content: string | null
   media: ListenAttachment[]
@@ -36,6 +37,7 @@ export function buildListenMessage(input: StoredMessageInput | StoredMessageInpu
   return {
     time: formatListenTimestamp(message.timestamp),
     sender: message.sender_name ?? (message.sender_id == null ? 'Unknown' : String(message.sender_id)),
+    senderId: message.sender_id,
     chatName: options.showChatName ? (message.chat_name ?? 'Unknown') : undefined,
     content: contentPreview(content, media.length > 0),
     media,

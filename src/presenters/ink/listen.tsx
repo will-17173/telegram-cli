@@ -427,6 +427,15 @@ export function ListenStatus({ status, unseenCount }: { status: string; unseenCo
   return <Text dimColor>{status}{unseenCount > 0 ? ` · ↓ ${unseenCount} new messages` : ''}</Text>
 }
 
+export function formatInteractiveListenSender(
+  message: Pick<ListenMessageRow, 'sender' | 'senderId' | 'chatName'>,
+): string {
+  const sender = message.senderId == null || message.sender === String(message.senderId)
+    ? message.sender
+    : `${message.sender} (${message.senderId})`
+  return message.chatName == null ? sender : `${message.chatName} | ${sender}`
+}
+
 export function ListenStatusArea({
   status,
   unseenCount,
@@ -808,7 +817,7 @@ function InteractiveListen({
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}
           {visibleMessages.map((message) => (
             <Box key={message.key} flexDirection="column">
-              <Text dimColor wrap="truncate-end">[{message.time}] {message.chatName == null ? message.sender : `${message.chatName} | ${message.sender}`}</Text>
+              <Text dimColor wrap="truncate-end">[{message.time}] {formatInteractiveListenSender(message)}</Text>
               {message.content == null ? null : <Text wrap="truncate-end">{message.content}</Text>}
               {message.media.map((item, mediaIndex) => {
                 const attachmentKey = attachmentDownloadKeyAt(message.media, mediaIndex)
