@@ -329,7 +329,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
           request: { chat, until: until?.toISOString() ?? null },
         })
         return cloneNotificationState(
-          this.setMuteUntilResult ?? this.notificationStates[String(chat)] ?? defaultNotificationState(chat, until),
+          this.setMuteUntilResult ?? defaultNotificationState(chat, until),
         )
       },
     }
@@ -601,7 +601,7 @@ function defaultNotificationState(chat: string | number, until: Date | null): Te
     chat_name: String(chat),
     explicit_muted: until == null ? false : true,
     mute_until: until?.toISOString() ?? null,
-    effective_muted: until != null,
+    effective_muted: until != null && until.getTime() > Date.now(),
   }
 }
 
