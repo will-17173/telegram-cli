@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
 import { GROUP_COMMAND_CATALOG, GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
@@ -66,6 +68,20 @@ describe('LISTEN_COMMANDS', () => {
       })
       expect(command.groupDefinition).toBe(GROUP_COMMAND_CATALOG[key])
     })
+  })
+
+  it('derives the canonical definition sequence directly from GROUP_COMMANDS', () => {
+    expect(
+      LISTEN_COMMANDS.filter(command => command.kind === 'group')
+        .map(command => command.groupDefinition),
+    ).toEqual(GROUP_COMMANDS)
+
+    const source = readFileSync(
+      new URL('../../src/listen-commands/catalog.ts', import.meta.url),
+      'utf8',
+    )
+    expect(source).toMatch(/GROUP_COMMANDS\.map\(/)
+    expect(source).not.toMatch(/createGroupCommand\(GROUP_COMMAND_CATALOG\[/)
   })
 
   it('has unique IDs and paths', () => {
