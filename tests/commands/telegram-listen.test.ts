@@ -101,6 +101,7 @@ describe('listen command', () => {
     expect(renderInteractiveListen).toHaveBeenCalledOnce()
     expect(renderInteractiveListen).toHaveBeenCalledWith(expect.objectContaining({
       chats: [-1001],
+      dbPath: expect.stringMatching(/messages\.db$/),
       sendTo: -1001,
       showMedia: true,
     }))

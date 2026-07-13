@@ -11,6 +11,7 @@ import {
   calculateListenMessagePaneHeight,
   canManuallyDownload,
   collectDownloadableAttachments,
+  createInteractiveListenGroupResolver,
   createInteractiveOperationController,
   flushListenBeforeExit,
   formatInteractiveListenSender,
@@ -23,6 +24,7 @@ import {
   LISTEN_HISTORY_LIMIT,
   type ListenMessage,
   ListenMessageViewCache,
+  ListenMessageBody,
   ListenStatus,
   ListenStatusArea,
   pruneAttachmentDownloadStates,
@@ -561,6 +563,86 @@ describe('calculateListenMessagePaneHeight', () => {
 })
 
 describe('interactive album messages', () => {
+  it('renders reply context, current content, media summary, then every album download row', () => {
+    const row = toListenMessage([
+      storedPhoto(11, ''),
+      storedPhoto(12, 'album caption'),
+    ], {
+      showMedia: true,
+      previewWidth: 24,
+      colorDepth: 1,
+      replyContext: { messageId: 7, resolved: true, timestamp: '2026-07-10T07:20:00.000Z', senderId: 2, senderName: 'Bob', content: 'earlier' },
+    })
+
+    const output = renderToString(<ListenMessageBody message={row} />)
+    expect(output).toContain('📎 2 Photos')
+    expect(output.match(/Download/g)).toHaveLength(2)
+    expect(output.indexOf('Bob (#7): earlier')).toBeLessThan(output.indexOf('album caption'))
+    expect(output.indexOf('album caption')).toBeLessThan(output.indexOf('📎 2 Photos'))
+    expect(output.indexOf('📎 2 Photos')).toBeLessThan(output.indexOf('Download'))
+  })
+
+  it('renders a missing reply and hides all media when showMedia is false', () => {
+    const row = toListenMessage([storedPhoto(11, 'current')], {
+      showMedia: false,
+      previewWidth: 24,
+      colorDepth: 1,
+      replyContext: { messageId: 99, resolved: false },
+    })
+
+    const output = renderToString(<ListenMessageBody message={row} />)
+    expect(output).toContain('↳ Reply to message #99 (not found locally)')
+    expect(output).toContain('current')
+    expect(output).not.toContain('📎')
+    expect(output).not.toContain('Download')
+  })
+
+  it('resolves before building across reconnects, remembers afterward, and closes once on cleanup', () => {
+    const calls: string[] = []
+    const resolver = {
+      resolve: vi.fn(() => {
+        calls.push('resolve')
+        return { messageId: 7, resolved: true as const, timestamp: '2026-07-10T07:20:00.000Z', senderId: 2, senderName: 'Memory', content: 'target' }
+      }),
+      remember: vi.fn(() => calls.push('remember')),
+      close: vi.fn(() => calls.push('close')),
+    }
+    const factory = vi.fn(() => resolver)
+    const runtime = createInteractiveListenGroupResolver('/tmp/messages.db', factory)
+
+    const row = runtime.resolve([storedPhoto(11, 'current')], {
+      showMedia: true,
+      previewWidth: 1,
+      colorDepth: 1,
+    })
+    runtime.resolve([storedPhoto(12, 'after reconnect')], {
+      showMedia: true,
+      previewWidth: 1,
+      colorDepth: 1,
+    })
+    runtime.close()
+    runtime.close()
+
+    expect(factory).toHaveBeenCalledWith('/tmp/messages.db', LISTEN_HISTORY_LIMIT)
+    expect(row.replyContext?.resolved && row.replyContext.senderName).toBe('Memory')
+    expect(calls).toEqual(['resolve', 'remember', 'resolve', 'remember', 'close'])
+  })
+
+  it('closes the resolver when interactive reply resolution fails', () => {
+    const resolver = {
+      resolve: vi.fn(() => { throw new Error('snapshot failed') }),
+      remember: vi.fn(),
+      close: vi.fn(),
+    }
+    const runtime = createInteractiveListenGroupResolver('/tmp/messages.db', () => resolver)
+
+    expect(() => runtime.resolve([storedPhoto(11, 'current')], {
+      showMedia: true,
+      previewWidth: 1,
+      colorDepth: 1,
+    })).toThrow('snapshot failed')
+    expect(resolver.close).toHaveBeenCalledOnce()
+  })
   it('creates one row and keeps each attachment download message ID', () => {
     const row = toListenMessage([
       storedPhoto(11, ''),
@@ -700,6 +782,17 @@ describe('interactive album messages', () => {
 })
 
 describe('listen scroll state', () => {
+  it('accounts for reply and media summary lines without dropping attachment preview rows', () => {
+    const old = message('old', 2)
+    const current = message('current', 3)
+    current.content = 'body'
+    current.replyContext = { messageId: 1, resolved: false }
+    current.mediaSummary = '📎 1 Photo'
+    current.media[0] = { ...current.media[0]!, previewRows: 2, previewCells: [] }
+
+    expect(takeListenViewport([old, current], 8, 0).map((item) => item.sender)).toEqual(['current'])
+    expect(takeListenViewport([old, current], 10, 0).map((item) => item.sender)).toEqual(['old', 'current'])
+  })
   it('selects complete messages at the live and historical positions', () => {
     const messages = [message('old', 2), message('middle', 3), message('new', 2)]
 

@@ -265,6 +265,7 @@ export function registerTelegramCommands(app: Command): void {
 
           if (useInteractive) {
             await renderInteractiveListen({
+              dbPath: context.dbPath,
               chats: parsedChats,
               persist,
               retrySeconds,

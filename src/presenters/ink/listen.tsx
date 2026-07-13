@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Text, render, useApp, useInput, useStdout } from 'ink'
 import stringWidth from 'string-width'
 import { existsSync, mkdirSync } from 'node:fs'
@@ -16,6 +16,8 @@ import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScroll
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
 import { isMouseInput, useMouseScroll, withMouseReporting, type MouseScrollDirection } from './mouse-scroll.js'
+import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
+import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
 
 export type ListenMessage = ListenMessageRow & {
   key: string
@@ -37,6 +39,7 @@ export type DownloadableAttachment = {
 }
 
 type ListenRuntimeOptions = {
+  dbPath: string
   chats: Array<string | number> | undefined
   persist: boolean
   retrySeconds: number
@@ -47,6 +50,7 @@ type ListenRuntimeOptions = {
   createClient: () => TelegramClientAdapter
   stopSignal: AbortSignal
   onRequestStop: () => void
+  createReplyResolver?: (dbPath: string, limit: number) => ListenReplyResolver
 }
 
 const MESSAGE_SEPARATOR = '────────────────────────────────────────────'
@@ -423,6 +427,61 @@ export function ListenAttachmentWithPreview({
   )
 }
 
+export function ListenMessageBody({ message }: { message: ListenMessage }): React.JSX.Element {
+  return (
+    <Box flexDirection="column">
+      {message.replyContext == null ? null : <Text wrap="truncate-end">{formatReplyContext(message.replyContext)}</Text>}
+      {message.content == null ? null : <Text wrap="truncate-end">{message.content}</Text>}
+      {message.mediaSummary == null ? null : <Text wrap="truncate-end">{message.mediaSummary}</Text>}
+      {message.media.map((item, mediaIndex) => (
+        <ListenAttachmentWithPreview
+          key={attachmentDownloadKeyAt(message.media, mediaIndex)}
+          label={item.label}
+          downloadable={item.downloadable}
+          selected={false}
+          state={{ status: 'idle' }}
+          previewCells={item.previewCells}
+        />
+      ))}
+    </Box>
+  )
+}
+
+export function createInteractiveListenGroupResolver(
+  dbPath: string,
+  factory: (dbPath: string, limit: number) => ListenReplyResolver = createListenReplyResolver,
+) {
+  const resolver = factory(dbPath, LISTEN_HISTORY_LIMIT)
+  let closed = false
+  const close = (): void => {
+    if (closed) return
+    closed = true
+    resolver.close()
+  }
+  const resolveContext = (messages: StoredMessageInput[]): ReplyContext | undefined => {
+    try {
+      return resolver.resolve(messages)
+    } catch (error) {
+      close()
+      throw error
+    }
+  }
+  return {
+    resolve(messages: StoredMessageInput[], context: ListenMessageRenderContext): ListenMessage {
+      try {
+        const replyContext = resolveContext(messages)
+        const message = toListenMessage(messages, { ...context, replyContext })
+        resolver.remember(messages)
+        return message
+      } catch (error) {
+        close()
+        throw error
+      }
+    },
+    close,
+  }
+}
+
 export function ListenStatus({ status, unseenCount }: { status: string; unseenCount: number }): React.JSX.Element {
   return <Text dimColor>{status}{unseenCount > 0 ? ` · ↓ ${unseenCount} new messages` : ''}</Text>
 }
@@ -477,6 +536,7 @@ export async function renderInteractiveListen(options: ListenRuntimeOptions): Pr
 }
 
 function InteractiveListen({
+  dbPath,
   chats,
   persist,
   retrySeconds,
@@ -487,12 +547,13 @@ function InteractiveListen({
   createClient,
   stopSignal,
   onRequestStop,
+  createReplyResolver,
 }: ListenRuntimeOptions): React.JSX.Element {
   const { exit } = useApp()
   const { stdout } = useStdout()
   const terminalMetrics = useTerminalMetrics(stdout)
   const [status, setStatus] = useState('connecting...')
-  const [messageGroups, setMessageGroups] = useState<StoredMessageInput[][]>([])
+  const [messages, setMessages] = useState<ListenMessage[]>([])
   const [input, setInput] = useState('')
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
@@ -506,17 +567,8 @@ function InteractiveListen({
   const previewColorDepth = interactiveListenPreviewColorDepth(terminalMetrics.colorDepth)
   const contentWidth = listenContentWidth(terminalWidth)
   const previewWidth = Math.max(1, Math.min(24, contentWidth - 2))
-  const messageViewCacheRef = useRef<ListenMessageViewCache | null>(null)
-  if (messageViewCacheRef.current == null) messageViewCacheRef.current = new ListenMessageViewCache()
-  const messages = useMemo(
-    () => messageViewCacheRef.current!.build(messageGroups, {
-      showMedia,
-      previewWidth,
-      colorDepth: previewColorDepth,
-      showChatName,
-    }),
-    [messageGroups, showMedia, previewWidth, previewColorDepth, showChatName],
-  )
+  const renderContextRef = useRef<ListenMessageRenderContext>({ showMedia, previewWidth, colorDepth: previewColorDepth, showChatName })
+  renderContextRef.current = { showMedia, previewWidth, colorDepth: previewColorDepth, showChatName }
   const messagePaneHeight = calculateListenMessagePaneHeight(terminalHeight, note.length > 0, autoDownload)
   const visibleMessages = takeListenViewport(messages, messagePaneHeight, scrollState.offset)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
@@ -631,11 +683,20 @@ function InteractiveListen({
       stopListening()
     }
     stopSignal.addEventListener('abort', stopFromSignal)
+    const groupResolver = createInteractiveListenGroupResolver(dbPath, createReplyResolver)
     const albumAggregator = new ListenAlbumAggregator({
       emit: (group) => {
         if (!isActive()) return
+        const message = groupResolver.resolve(group, renderContextRef.current)
         setScrollState((current) => applyMessageArrival(current))
-        setMessageGroups((current) => pruneListenMessageGroups([...current, group]).groups)
+        setMessages((current) => [...current, message].slice(-LISTEN_HISTORY_LIMIT))
+      },
+      onError: (error) => {
+        if (!isActive()) return
+        groupResolver.close()
+        setStatus(`listen failed: ${messageFromError(error)}`)
+        onRequestStop()
+        exit()
       },
     })
     albumAggregatorRef.current = albumAggregator
@@ -716,6 +777,7 @@ function InteractiveListen({
       generation.dispose()
       stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.dispose()
+      groupResolver.close()
       if (albumAggregatorRef.current === albumAggregator) albumAggregatorRef.current = null
       void clientRef.current?.close().catch(() => undefined)
       clientRef.current = null
@@ -723,7 +785,7 @@ function InteractiveListen({
       void autoDownloader?.waitForActive()
       if (autoDownloaderRef.current === autoDownloader) autoDownloaderRef.current = null
     }
-  }, [autoDownload, chats, createClient, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, onRequestStop])
+  }, [autoDownload, chats, createClient, createReplyResolver, dbPath, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, onRequestStop])
 
   const sendMessage = async (text: string): Promise<void> => {
     const trimmed = text.trim()
@@ -818,7 +880,9 @@ function InteractiveListen({
           {visibleMessages.map((message) => (
             <Box key={message.key} flexDirection="column">
               <Text dimColor wrap="truncate-end">[{message.time}] {formatInteractiveListenSender(message)}</Text>
+              {message.replyContext == null ? null : <Text wrap="truncate-end">{formatReplyContext(message.replyContext)}</Text>}
               {message.content == null ? null : <Text wrap="truncate-end">{message.content}</Text>}
+              {message.mediaSummary == null ? null : <Text wrap="truncate-end">{message.mediaSummary}</Text>}
               {message.media.map((item, mediaIndex) => {
                 const attachmentKey = attachmentDownloadKeyAt(message.media, mediaIndex)
                 return (
@@ -861,7 +925,10 @@ export type ListenMessageRenderContext = {
   colorDepth: number
   showChatName?: boolean
   decodePreview?: typeof decodeImagePreview
+  replyContext?: ReplyContext
 }
+
+type ResolvedListenGroup = { messages: StoredMessageInput[]; replyContext?: ReplyContext }
 
 type ListenMessageCacheEntry = {
   group: StoredMessageInput[]
@@ -879,10 +946,12 @@ export class ListenMessageViewCache {
     return this.entries.size
   }
 
-  build(groups: StoredMessageInput[][], context: ListenMessageRenderContext): ListenMessage[] {
+  build(groups: Array<StoredMessageInput[] | ResolvedListenGroup>, context: ListenMessageRenderContext): ListenMessage[] {
     const previewWidth = normalizedPreviewWidth(context.previewWidth)
     const nextEntries = new Map<string, ListenMessageCacheEntry>()
-    const messages = groups.map((group) => {
+    const messages = groups.map((input) => {
+      const group = Array.isArray(input) ? input : input.messages
+      const replyContext = Array.isArray(input) ? context.replyContext : input.replyContext
       const first = group[0]
       if (first == null) throw new Error('Cannot render an empty listen message group')
       const key = `${first.chat_id}:${first.msg_id}`
@@ -897,7 +966,7 @@ export class ListenMessageViewCache {
         nextEntries.set(key, cached)
         return cached.message
       }
-      const message = toListenMessage(group, { ...context, previewWidth })
+      const message = toListenMessage(group, { ...context, previewWidth, replyContext })
       nextEntries.set(key, {
         group,
         showMedia: context.showMedia,
@@ -913,17 +982,17 @@ export class ListenMessageViewCache {
   }
 }
 
-export function pruneListenMessageGroups(
-  groups: StoredMessageInput[][],
+export function pruneListenMessageGroups<T extends StoredMessageInput[] | ResolvedListenGroup>(
+  groups: T[],
   limit = LISTEN_HISTORY_LIMIT,
-): { groups: StoredMessageInput[][]; removedKeys: string[] } {
+): { groups: T[]; removedKeys: string[] } {
   const retainedLimit = Math.max(0, limit)
   const removeCount = Math.max(0, groups.length - retainedLimit)
   const removed = groups.slice(0, removeCount)
   return {
     groups: groups.slice(removeCount),
     removedKeys: removed.flatMap((group) => {
-      const first = group[0]
+      const first = Array.isArray(group) ? group[0] : group.messages[0]
       return first == null ? [] : [`${first.chat_id}:${first.msg_id}`]
     }),
   }
@@ -938,8 +1007,8 @@ export function toListenMessage(
   const renderContext = typeof context === 'boolean'
     ? { showMedia: context, previewWidth: 1, colorDepth: 1, showChatName: false }
     : context
-  const { showMedia, previewWidth, colorDepth, showChatName = false } = renderContext
-  const formatted = buildListenMessage(messages, { showMedia, showChatName })
+  const { showMedia, previewWidth, colorDepth, showChatName = false, replyContext } = renderContext
+  const formatted = buildListenMessage(messages, { showMedia, showChatName, replyContext })
   const decodePreview = renderContext.decodePreview ?? decodeImagePreview
   const media = formatted.media.map((attachment) => {
     if (attachment.previewJpegBase64 == null || colorDepth < 24) return attachment
