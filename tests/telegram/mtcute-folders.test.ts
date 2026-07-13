@@ -358,6 +358,10 @@ describe('MtcuteTelegramFolderAdapter', () => {
       getPeer: vi.fn().mockResolvedValue(resolvedPeer),
       resolvePeer: vi.fn().mockResolvedValue(channelPeer),
       editFolder: vi.fn().mockResolvedValue(dynamic),
+      iterDialogs: vi.fn()
+        .mockImplementationOnce(() => asyncItems([]))
+        .mockImplementationOnce(() => asyncItems([]))
+        .mockImplementationOnce(() => asyncItems([{ peer: resolvedPeer }])),
     })
     const adapter = new MtcuteTelegramFolderAdapter(client, vi.fn())
 
@@ -389,6 +393,9 @@ describe('MtcuteTelegramFolderAdapter', () => {
         getPeer: vi.fn().mockResolvedValue(bot),
         resolvePeer: vi.fn().mockResolvedValue(peer),
         editFolder: vi.fn().mockResolvedValue(excluded),
+        iterDialogs: vi.fn()
+          .mockImplementationOnce(() => asyncItems([{ peer: bot }]))
+          .mockImplementationOnce(() => asyncItems([])),
       })
       const adapter = new MtcuteTelegramFolderAdapter(client, vi.fn())
 
@@ -404,11 +411,115 @@ describe('MtcuteTelegramFolderAdapter', () => {
     },
   )
 
-  it('rejects unresolved chats and unsupported chatlist mutations', async () => {
+  it('supports representable chatlist add and explicit include/pin removal', async () => {
+    const added = createChatlist({ id: 4 })
+    const removable = createChatlist({ id: 5, includePeers: [channelPeer], pinnedPeers: [channelPeer] })
+    const resolvedPeer = peerShape(-1_000_000_000_042, 'Team', 'chat', 'supergroup', channelPeer)
     const client = mockClient({
       getFolders: vi.fn()
-        .mockResolvedValueOnce(folderResponse([createFolder({ id: 2 })]))
-        .mockResolvedValueOnce(folderResponse([createChatlist({ id: 4 })])),
+        .mockResolvedValueOnce(folderResponse([added]))
+        .mockResolvedValueOnce(folderResponse([removable])),
+      getPeer: vi.fn().mockResolvedValue(resolvedPeer),
+      resolvePeer: vi.fn().mockResolvedValue(channelPeer),
+      iterDialogs: vi.fn()
+        .mockImplementationOnce(() => asyncItems([]))
+        .mockImplementationOnce(() => asyncItems([{ peer: resolvedPeer }])),
+      editFolder: vi.fn().mockResolvedValue(added),
+    })
+    const adapter = new MtcuteTelegramFolderAdapter(client, vi.fn())
+
+    await expect(adapter.addChat({ folder: 4, chat: '@team' })).resolves.toEqual({
+      folder_id: 4,
+      chat_id: -1_000_000_000_042,
+      changed: true,
+    })
+    await expect(adapter.removeChat({ folder: 5, chat: '@team' })).resolves.toMatchObject({ changed: true })
+    expect(client.editFolder).toHaveBeenNthCalledWith(1, {
+      folder: added,
+      modification: { includePeers: [channelPeer] },
+    })
+    expect(client.editFolder).toHaveBeenNthCalledWith(2, {
+      folder: removable,
+      modification: { includePeers: [], pinnedPeers: [] },
+    })
+  })
+
+  it('rejects chatlist removal only when a defensive dynamic rule requires exclusion', async () => {
+    const defensive: tl.RawDialogFilterChatlist & Pick<tl.RawDialogFilter, 'groups'> = {
+      ...createChatlist({ id: 4 }),
+      groups: true,
+    }
+    const resolvedPeer = peerShape(-1_000_000_000_042, 'Team', 'chat', 'supergroup', channelPeer)
+    const client = mockClient({
+      getFolders: vi.fn().mockResolvedValue(folderResponse([defensive])),
+      getPeer: vi.fn().mockResolvedValue(resolvedPeer),
+      resolvePeer: vi.fn().mockResolvedValue(channelPeer),
+      iterDialogs: vi.fn(() => asyncItems([{ peer: resolvedPeer }])),
+      editFolder: vi.fn(),
+    })
+
+    await expect(new MtcuteTelegramFolderAdapter(client, vi.fn()).removeChat({ folder: 4, chat: '@team' }))
+      .rejects.toMatchObject({ code: 'folder_operation_unsupported' })
+    expect(client.editFolder).not.toHaveBeenCalled()
+  })
+
+  it('treats effective dynamic inclusion and Telegram exclusions as idempotent', async () => {
+    const resolvedPeer = peerShape(-1_000_000_000_042, 'Team', 'chat', 'supergroup', channelPeer)
+    const folders = [
+      createFolder({ id: 2, groups: true }),
+      createFolder({ id: 3, groups: true, excludeMuted: true }),
+      createFolder({ id: 4, groups: true, excludeRead: true }),
+      createFolder({ id: 5, groups: true, excludeArchived: true }),
+    ]
+    const client = mockClient({
+      getFolders: vi.fn()
+        .mockResolvedValueOnce(folderResponse([folders[0]!]))
+        .mockResolvedValueOnce(folderResponse([folders[1]!]))
+        .mockResolvedValueOnce(folderResponse([folders[2]!]))
+        .mockResolvedValueOnce(folderResponse([folders[3]!])),
+      getPeer: vi.fn().mockResolvedValue(resolvedPeer),
+      resolvePeer: vi.fn().mockResolvedValue(channelPeer),
+      iterDialogs: vi.fn()
+        .mockImplementationOnce(() => asyncItems([{ peer: resolvedPeer }]))
+        .mockImplementation(() => asyncItems([])),
+      editFolder: vi.fn(),
+    })
+    const adapter = new MtcuteTelegramFolderAdapter(client, vi.fn())
+
+    await expect(adapter.addChat({ folder: 2, chat: '@team' })).resolves.toMatchObject({ changed: false })
+    await expect(adapter.removeChat({ folder: 3, chat: '@team' })).resolves.toMatchObject({ changed: false })
+    await expect(adapter.removeChat({ folder: 4, chat: '@team' })).resolves.toMatchObject({ changed: false })
+    await expect(adapter.removeChat({ folder: 5, chat: '@team' })).resolves.toMatchObject({ changed: false })
+    expect(client.editFolder).not.toHaveBeenCalled()
+  })
+
+  it('returns canonical marked channel IDs from effective info and mutations', async () => {
+    const markedId = -1_000_000_000_042
+    const folder = createFolder({ id: 2 })
+    const resolvedPeer = peerShape(markedId, 'Team', 'chat', 'supergroup', channelPeer)
+    const client = mockClient({
+      getFolders: vi.fn().mockResolvedValue(folderResponse([folder])),
+      getPeer: vi.fn().mockResolvedValue(resolvedPeer),
+      resolvePeer: vi.fn().mockResolvedValue(channelPeer),
+      iterDialogs: vi.fn()
+        .mockImplementationOnce(() => asyncItems([{ peer: resolvedPeer }]))
+        .mockImplementationOnce(() => asyncItems([])),
+      editFolder: vi.fn().mockResolvedValue(folder),
+    })
+    const adapter = new MtcuteTelegramFolderAdapter(client, vi.fn())
+
+    await expect(adapter.info(2)).resolves.toMatchObject({
+      chats: [{ chat_id: markedId, chat_name: 'Team' }],
+    })
+    await expect(adapter.addChat({ folder: 2, chat: '@team' })).resolves.toMatchObject({
+      chat_id: markedId,
+      changed: true,
+    })
+  })
+
+  it('normalizes unresolved chats and effective-membership iteration failures', async () => {
+    const client = mockClient({
+      getFolders: vi.fn().mockResolvedValue(folderResponse([createFolder({ id: 2 })])),
       getPeer: vi.fn().mockRejectedValue(new Error('PEER_ID_INVALID accessHash=SECRET')),
     })
     const adapter = new MtcuteTelegramFolderAdapter(client, vi.fn())
@@ -416,8 +527,17 @@ describe('MtcuteTelegramFolderAdapter', () => {
     const missing = await adapter.addChat({ folder: 2, chat: '@missing' }).catch((error: unknown) => error)
     expect(missing).toMatchObject({ code: 'chat_not_found' })
     expect((missing as Error).message).not.toContain('SECRET')
-    await expect(adapter.addChat({ folder: 4, chat: '@team' }))
-      .rejects.toMatchObject({ code: 'folder_operation_unsupported' })
+
+    const ready = vi.fn()
+    const iterationClient = mockClient({
+      getFolders: vi.fn().mockResolvedValue(folderResponse([createFolder({ id: 3 })])),
+      getPeer: vi.fn().mockResolvedValue(peerShape(42, 'Team', 'user')),
+      resolvePeer: vi.fn().mockResolvedValue(peer),
+      iterDialogs: vi.fn(() => asyncItemsThrowing(new tl.RpcError(420, 'FLOOD_WAIT_6'))),
+    })
+    await expect(new MtcuteTelegramFolderAdapter(iterationClient, ready).removeChat({ folder: 3, chat: '@team' }))
+      .rejects.toMatchObject({ code: 'flood_wait', seconds: 6 })
+    expect(ready).toHaveBeenCalledOnce()
   })
 
   it('normalizes flood waits, RPC failures, and readiness failures without raw leakage', async () => {
@@ -509,6 +629,10 @@ function peerShape(
 
 async function* asyncItems<T>(items: T[]): AsyncGenerator<T> {
   yield* items
+}
+
+async function* asyncItemsThrowing(error: unknown): AsyncGenerator<never> {
+  throw error
 }
 
 function mockClient(overrides: Record<string, unknown> = {}) {

@@ -111,14 +111,25 @@ export class MtcuteTelegramFolderAdapter implements TelegramFolderAdapter {
     try {
       await this.ensureReady()
       const folder = await this.resolveFolder(request.folder)
-      if (folder._ === 'dialogFilterChatlist') throw new FolderOperationUnsupportedError()
       const peer = await this.client.getPeer(normalizePeerId(request.chat))
       const inputPeer = await this.client.resolvePeer(peer)
+      const effectivelyIncluded = await this.hasEffectivePeer(folder, peer.id)
+      if (operation === 'add' && effectivelyIncluded) {
+        return { folder_id: folder.id, chat_id: peer.id, changed: false }
+      }
+      if (operation === 'remove' && !effectivelyIncluded) {
+        return { folder_id: folder.id, chat_id: peer.id, changed: false }
+      }
       const transformed = operation === 'add'
         ? addPeerToFolder(folder, inputPeer)
         : removePeerFromFolder(folder, inputPeer, classifyPeer(peer))
       if (transformed.changed) {
-        await this.client.editFolder({ folder, modification: transformed.modification })
+        // mtcute 0.30.3's runtime accepts chatlists here, although its public
+        // declaration narrows this parameter to RawDialogFilter.
+        await this.client.editFolder({
+          folder: folder as tl.RawDialogFilter,
+          modification: transformed.modification,
+        })
       }
       return { folder_id: folder.id, chat_id: peer.id, changed: transformed.changed }
     } catch (error) {
@@ -157,6 +168,13 @@ export class MtcuteTelegramFolderAdapter implements TelegramFolderAdapter {
       chats.push({ chat_id: dialog.peer.id, chat_name: dialog.peer.displayName })
     }
     return chats
+  }
+
+  private async hasEffectivePeer(folder: RawFolder, targetId: number): Promise<boolean> {
+    for await (const dialog of this.client.iterDialogs({ folder: folder as tl.RawDialogFilter })) {
+      if (dialog.peer.id === targetId) return true
+    }
+    return false
   }
 
   private async mapPeers(peers: readonly tl.TypeInputPeer[]): Promise<TelegramFolderChat[]> {
