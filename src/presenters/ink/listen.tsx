@@ -278,6 +278,24 @@ export function registerPendingAttachmentKeys(
   })
 }
 
+export function acceptListenMessage(
+  message: StoredMessageInput,
+  seen: Set<string>,
+  seenOrder: string[],
+  emit: (message: StoredMessageInput) => void,
+): boolean {
+  const key = `${message.chat_id}:${message.msg_id}`
+  if (seen.has(key)) return false
+  seen.add(key)
+  seenOrder.push(key)
+  if (seen.size > 5000) {
+    const oldest = seenOrder.shift()
+    if (oldest != null) seen.delete(oldest)
+  }
+  emit(message)
+  return true
+}
+
 type InteractiveCoordinator = Pick<AutoDownloadCoordinator, 'setClient' | 'enqueue' | 'waitForActive' | 'waitForIdle' | 'stop'>
 
 export async function runInteractiveAutoDownloadLifecycle(options: {
@@ -623,15 +641,7 @@ function InteractiveListen({
       },
       acceptMessage: (message) => {
         if (!isActive()) return false
-        const key = `${message.chat_id}:${message.msg_id}`
-        if (seenRef.current.has(key)) return false
-        seenRef.current.add(key)
-        seenOrderRef.current.push(key)
-        if (seenRef.current.size > 5000) {
-          const oldest = seenOrderRef.current.shift()
-          if (oldest != null) seenRef.current.delete(oldest)
-        }
-        return true
+        return acceptListenMessage(message, seenRef.current, seenOrderRef.current, () => undefined)
       },
       onBeforeEnqueue: (message) => {
         if (!isActive()) return
@@ -700,11 +710,18 @@ function InteractiveListen({
     setSending(true)
     setNote('sending...')
     try {
-      await client.sendMessage({
+      const result = await client.sendMessage({
         chat: sendTo,
         message: trimmed,
         linkPreview: true,
       })
+      if (isCurrent() && result.sent_message != null) {
+        acceptListenMessage(result.sent_message, seenRef.current, seenOrderRef.current, (message) => {
+          registerPendingAttachmentKeys(pendingAttachmentKeysRef.current, message, showMedia)
+          autoDownloaderRef.current?.enqueue(message)
+          albumAggregatorRef.current?.add(message)
+        })
+      }
       if (isCurrent()) setNote('sent')
     } catch (error) {
       if (isCurrent()) setNote(`send failed: ${messageFromError(error)}`)

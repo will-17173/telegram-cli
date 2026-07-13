@@ -42,7 +42,10 @@ export interface TelegramClientAdapter {
   getChatInfo(chat: string | number): Promise<Record<string, string> | null>
   fetchHistory(options: FetchHistoryOptions): Promise<StoredMessageInput[]>
   downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void>
-  sendMessage(options: { chat: string | number; message: string; reply?: number; linkPreview: boolean }): Promise<{ msg_id: number }>
+  sendMessage(options: { chat: string | number; message: string; reply?: number; linkPreview: boolean }): Promise<{
+    msg_id: number
+    sent_message?: StoredMessageInput
+  }>
   editMessage(options: { chat: string | number; msgId: number; text: string; linkPreview: boolean }): Promise<void>
   deleteMessages(options: { chat: string | number; msgIds: number[] }): Promise<void>
   listen(options: {

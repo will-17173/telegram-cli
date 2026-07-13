@@ -151,14 +151,17 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     })
   }
 
-  async sendMessage(options: { chat: string | number; message: string; reply?: number; linkPreview: boolean }): Promise<{ msg_id: number }> {
+  async sendMessage(options: { chat: string | number; message: string; reply?: number; linkPreview: boolean }): Promise<{
+    msg_id: number
+    sent_message: StoredMessageInput
+  }> {
     await this.ensureReady()
     const sent = await this.client.sendText(
       normalizeChatId(options.chat),
       options.message,
       { replyTo: options.reply, disableWebPreview: !options.linkPreview },
     )
-    return { msg_id: sent.id }
+    return { msg_id: sent.id, sent_message: toStoredMessage(sent) }
   }
 
   async editMessage(options: { chat: string | number; msgId: number; text: string; linkPreview: boolean }): Promise<void> {

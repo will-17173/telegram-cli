@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   applyAutoDownloadEvent,
+  acceptListenMessage,
   attachmentDownloadKeyAt,
   attachmentDownloadTarget,
   canManuallyDownload,
@@ -136,6 +137,17 @@ describe('ListenAttachmentLine', () => {
 })
 
 describe('interactive auto-download state', () => {
+  it('accepts a sent message immediately and rejects a later duplicate update', () => {
+    const seen = new Set<string>()
+    const order: string[] = []
+    const emitted: StoredMessageInput[] = []
+    const sent = storedPhoto(99, 'sent from composer')
+
+    expect(acceptListenMessage(sent, seen, order, (message) => emitted.push(message))).toBe(true)
+    expect(acceptListenMessage(sent, seen, order, (message) => emitted.push(message))).toBe(false)
+    expect(emitted).toEqual([sent])
+  })
+
   it('maps every coordinator event to display state and removes cancelled entries', () => {
     const key = '100:11:0'
     let state = applyAutoDownloadEvent({}, { status: 'queued', key })
