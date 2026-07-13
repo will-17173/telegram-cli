@@ -1,4 +1,4 @@
-import { MtPeerNotFoundError, tl } from '@mtcute/node'
+import { tl } from '@mtcute/node'
 import type {
   Chat,
   ChatEvent,
@@ -38,6 +38,7 @@ import type {
   TelegramUnbanMemberResult, TelegramUnmuteMemberRequest, TelegramUnmuteMemberResult,
 } from './group-write-types.js'
 import { MtcuteGroupMembers } from './mtcute-group-members.js'
+import { isMemberNotFoundError, isPeerNotFoundError, normalizePeerId, requireGroup } from './mtcute-group-helpers.js'
 
 export class MtcuteGroupManagement implements TelegramGroupReadAdapter {
   private readonly members: MtcuteGroupMembers
@@ -222,16 +223,6 @@ export class MtcuteGroupManagement implements TelegramGroupReadAdapter {
   }
 }
 
-export function normalizePeerId(peer: string | number): string | number {
-  if (typeof peer === 'number') return peer
-  const trimmed = peer.trim()
-  if (trimmed === '') return peer
-  const numeric = Number.parseInt(trimmed, 10)
-  if (Number.isNaN(numeric)) return peer
-  if (!Number.isSafeInteger(numeric) && /^-?\d+$/.test(trimmed)) return trimmed
-  return String(numeric) === trimmed ? numeric : peer
-}
-
 function usesLocalMemberQuery(type: TelegramListGroupMembersRequest['type']): boolean {
   return type === 'recent' || type === 'admins' || type === 'bots'
 }
@@ -244,13 +235,6 @@ function memberMatchesQuery(member: ChatMember, query: string): boolean {
   }
   return member.user.displayName.toLowerCase().includes(normalizedQuery)
     || (username?.includes(normalizedQuery) ?? false)
-}
-
-export function requireGroup(peer: Chat | User, requestedChat: string | number): Chat & { chatType: 'group' | 'supergroup' } {
-  if (peer.type !== 'chat' || (peer.chatType !== 'group' && peer.chatType !== 'supergroup')) {
-    throw new TelegramGroupNotFoundError(requestedChat)
-  }
-  return peer as Chat & { chatType: 'group' | 'supergroup' }
 }
 
 function mapAdminRights(rights: tl.RawChatAdminRights | null): TelegramGroupAdminRights | null {
@@ -492,17 +476,6 @@ function isMemberStatus(status: unknown): status is ChatMember['status'] {
 
 function toIsoDate(date: Date | null): string | null {
   return date?.toISOString() ?? null
-}
-
-export function isPeerNotFoundError(error: unknown): boolean {
-  if (error instanceof MtPeerNotFoundError) return true
-  if (!(error instanceof Error)) return false
-  return /PEER_ID_INVALID|CHANNEL_(?:INVALID|PRIVATE)|CHAT_ID_INVALID|(?:peer|chat|dialog).*(?:not found|invalid)/i.test(error.message)
-}
-
-export function isMemberNotFoundError(error: unknown): boolean {
-  return error instanceof Error
-    && /USER_NOT_PARTICIPANT|PARTICIPANT_ID_INVALID|member.*not found|not.*participant/i.test(error.message)
 }
 
 function throwAuditError(error: unknown, chat: string | number): never {

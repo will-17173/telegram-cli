@@ -158,6 +158,22 @@ export class TelegramGroupMemberNotFoundError extends Error {
   }
 }
 
+export type TelegramGroupMissingInvitee = {
+  readonly user_id: string | number
+  readonly reason: 'privacy' | 'premium_would_allow_invite' | 'premium_required_for_pm' | 'peer_invalid'
+}
+
+export class TelegramGroupMembersNotAddedError extends Error {
+  readonly chat: GroupPeer
+  readonly missing: readonly TelegramGroupMissingInvitee[]
+  constructor(chat: GroupPeer, missing: readonly TelegramGroupMissingInvitee[]) {
+    super(`Telegram group members not added: ${missing.map((item) => String(item.user_id)).join(', ')} in ${String(chat)}`)
+    this.name = 'TelegramGroupMembersNotAddedError'
+    this.chat = chat
+    this.missing = missing.map((item) => ({ ...item }))
+  }
+}
+
 export class TelegramGroupAdminRequiredError extends Error {
   constructor(chat: string | number) {
     super(`Telegram group administrator privileges required: ${String(chat)}`)

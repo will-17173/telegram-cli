@@ -5,6 +5,7 @@ import {
   TelegramGroupAdminRequiredError,
   TelegramGroupFloodWaitError,
   TelegramGroupMemberNotFoundError,
+  TelegramGroupMembersNotAddedError,
   TelegramGroupNotFoundError,
   TelegramGroupPasswordRequiredError,
 } from '../../src/telegram/group-types.js'
@@ -83,6 +84,27 @@ describe('MtcuteGroupMembers', () => {
     expect(forever.effective_until).toBeNull()
   })
 
+  it.each([
+    [[{ _: 'missingInvitee', userId: 7, premiumWouldAllowInvite: true }], [{ user_id: 7, reason: 'premium_would_allow_invite' }]],
+    [[{ _: 'missingInvitee', userId: 7 }, { _: 'missingInvitee', userId: 8, premiumRequiredForPm: true }], [{ user_id: 7, reason: 'privacy' }, { user_id: 8, reason: 'premium_required_for_pm' }]],
+  ] as const)('rejects non-empty missing invitees without exposing raw objects', async (missing, expected) => {
+    const client = mockClient({ addChatMembers: vi.fn().mockResolvedValue(missing) })
+    const error = await new MtcuteGroupMembers(client, vi.fn())
+      .addMembers({ chat: -100123, users: [7, 8] }).catch((failure: unknown) => failure)
+    expect(error).toBeInstanceOf(TelegramGroupMembersNotAddedError)
+    expect((error as TelegramGroupMembersNotAddedError).missing).toEqual(expected)
+  })
+
+  it('reports invalid add targets as members not added after the group was resolved', async () => {
+    const client = mockClient({ addChatMembers: vi.fn().mockRejectedValue(new tl.RpcError(400, 'PEER_ID_INVALID')) })
+    const error = await new MtcuteGroupMembers(client, vi.fn())
+      .addMembers({ chat: -100123, users: ['@missing', 8] }).catch((failure: unknown) => failure)
+    expect(error).toBeInstanceOf(TelegramGroupMembersNotAddedError)
+    expect((error as TelegramGroupMembersNotAddedError).missing).toEqual([
+      { user_id: '@missing', reason: 'peer_invalid' }, { user_id: 8, reason: 'peer_invalid' },
+    ])
+  })
+
   it('maps explicit promotion rights, all-false demotion, and rank', async () => {
     const client = mockClient()
     const adapter = new MtcuteGroupMembers(client, vi.fn())
@@ -114,7 +136,19 @@ describe('MtcuteGroupMembers', () => {
     const client = mockClient({ getChatMember: vi.fn().mockResolvedValue(member(42)) })
     const result = await new MtcuteGroupMembers(client, vi.fn()).kickMember({ chat: '@group', user: '@person' })
     expect(client.getChatMember).toHaveBeenCalledWith({ chatId: '@group', userId: '@person' })
+    expect(client.kickChatMember).toHaveBeenCalledWith({ chatId: '@group', userId: 42 })
     expect(result.target_id).toBe(42)
+  })
+
+  it('uses resolved member IDs for ban, mute, and administrator mutations', async () => {
+    const client = mockClient({ getChatMember: vi.fn().mockResolvedValue(member(42)) })
+    const adapter = new MtcuteGroupMembers(client, vi.fn())
+    await adapter.banMember({ chat: '@group', user: '@person', seconds: null })
+    await adapter.muteMember({ chat: '@group', user: '@person', seconds: null })
+    await adapter.promoteAdmin({ chat: '@group', user: '@person', rights })
+    expect(client.banChatMember).toHaveBeenCalledWith(expect.objectContaining({ participantId: 42 }))
+    expect(client.restrictChatMember).toHaveBeenCalledWith(expect.objectContaining({ userId: 42 }))
+    expect(client.editAdminRights).toHaveBeenCalledWith(expect.objectContaining({ userId: 42 }))
   })
 
   it.each([

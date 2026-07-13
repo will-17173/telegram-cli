@@ -3,9 +3,8 @@ import type { Chat, ChatMember, TelegramClient } from '@mtcute/node'
 
 import type { TelegramGroupRestrictions } from './group-types.js'
 import {
-  TelegramGroupAdminRequiredError,
-  TelegramGroupFloodWaitError,
   TelegramGroupMemberNotFoundError,
+  TelegramGroupMembersNotAddedError,
   TelegramGroupNotFoundError,
   TelegramGroupPasswordRequiredError,
 } from './group-types.js'
@@ -17,7 +16,7 @@ import type {
   TelegramTransferOwnershipRequest, TelegramTransferOwnershipResult, TelegramUnbanMemberRequest,
   TelegramUnbanMemberResult, TelegramUnmuteMemberRequest, TelegramUnmuteMemberResult,
 } from './group-write-types.js'
-import { isMemberNotFoundError, isPeerNotFoundError, normalizePeerId, requireGroup } from './mtcute-group-management.js'
+import { isPeerNotFoundError, normalizePeerId, requireGroup, throwWriteError } from './mtcute-group-helpers.js'
 
 export class MtcuteGroupMembers {
   constructor(private readonly client: TelegramClient, private readonly ensureReady: () => Promise<void>) {}
@@ -25,9 +24,19 @@ export class MtcuteGroupMembers {
   async addMembers(request: TelegramAddMembersRequest): Promise<TelegramAddMembersResult> {
     const { chatId, group } = await this.prepare(request.chat)
     try {
-      await this.client.addChatMembers(chatId, request.users.map(normalizePeerId), {})
+      const users = request.users.map(normalizePeerId)
+      const missing = await this.client.addChatMembers(chatId, users, {})
+      if (missing.length > 0) throw new TelegramGroupMembersNotAddedError(request.chat, missing.map((invitee) => ({
+        user_id: invitee.userId,
+        reason: invitee.premiumWouldAllowInvite ? 'premium_would_allow_invite'
+          : invitee.premiumRequiredForPm ? 'premium_required_for_pm' : 'privacy',
+      })))
       return { operation: 'addMembers', chat_id: group.id }
-    } catch (error) { throwWriteError(error, request.chat) }
+    } catch (error) {
+      if (error instanceof TelegramGroupMembersNotAddedError) throw error
+      if (isPeerNotFoundError(error)) throw new TelegramGroupMembersNotAddedError(request.chat, request.users.map((user) => ({ user_id: normalizePeerId(user), reason: 'peer_invalid' })))
+      throwWriteError(error, request.chat)
+    }
   }
 
   async kickMember(request: TelegramKickMemberRequest): Promise<TelegramKickMemberResult> {
@@ -101,7 +110,7 @@ export class MtcuteGroupMembers {
     const userId = normalizePeerId(request.user)
     try {
       const targetId = await this.resolveTarget(chatId, userId, request)
-      await invoke(chatId, userId)
+      await invoke(chatId, targetId)
       return { operation, chat_id: group.id, target_id: targetId, ...(until === undefined ? {} : { effective_until: until?.toISOString() ?? null }) }
     } catch (error) { throwWriteError(error, request.chat, request.user) }
   }
@@ -126,24 +135,4 @@ function mapRestrictions(value: TelegramGroupRestrictions): Omit<tl.RawChatBanne
     changeInfo: value.change_info, inviteUsers: value.invite_users, pinMessages: value.pin_messages,
     manageTopics: value.manage_topics,
   }
-}
-
-function throwWriteError(error: unknown, chat: string | number, user?: string | number): never {
-  const floodSeconds = tl.RpcError.is(error, 'FLOOD_WAIT_%d') || tl.RpcError.is(error)
-    ? readFloodSeconds(error)
-    : null
-  if (floodSeconds != null) throw new TelegramGroupFloodWaitError(floodSeconds)
-  if (tl.RpcError.is(error, 'CHAT_ADMIN_REQUIRED') || tl.RpcError.is(error, 'RIGHT_FORBIDDEN')) throw new TelegramGroupAdminRequiredError(chat)
-  if (tl.RpcError.is(error, 'SESSION_PASSWORD_NEEDED') || tl.RpcError.is(error, 'PASSWORD_HASH_INVALID')) throw new TelegramGroupPasswordRequiredError()
-  if (user != null && (isPeerNotFoundError(error) || isMemberNotFoundError(error))) throw new TelegramGroupMemberNotFoundError(chat, user)
-  if (isPeerNotFoundError(error)) throw new TelegramGroupNotFoundError(chat)
-  throw error
-}
-
-function readFloodSeconds(error: unknown): number | null {
-  if (!(error instanceof Error)) return null
-  const text = (error as Error & { text?: unknown }).text
-  if (typeof text !== 'string') return null
-  const match = /^FLOOD_WAIT_(\d+)$/.exec(text)
-  return match == null ? null : Number(match[1])
 }
