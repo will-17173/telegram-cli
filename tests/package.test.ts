@@ -4,6 +4,14 @@ import { describe, expect, it } from 'vitest'
 type PackageJson = {
   name?: string
   private?: boolean
+  repository?: {
+    type?: string
+    url?: string
+  }
+  homepage?: string
+  bugs?: {
+    url?: string
+  }
   bin?: Record<string, string>
   files?: string[]
   engines?: Record<string, string>
@@ -17,6 +25,12 @@ describe('npm package metadata', () => {
 
     expect(packageJson.name).toBe('@will-17173/telegram-cli')
     expect(packageJson.private).toBeUndefined()
+    expect(packageJson.repository).toEqual({
+      type: 'git',
+      url: 'git+https://github.com/will-17173/telegram-cli.git',
+    })
+    expect(packageJson.homepage).toBe('https://github.com/will-17173/telegram-cli#readme')
+    expect(packageJson.bugs).toEqual({ url: 'https://github.com/will-17173/telegram-cli/issues' })
     expect(packageJson.publishConfig).toEqual({ access: 'public' })
     expect(packageJson.bin).toEqual({ tg: './dist/index.js' })
     expect(packageJson.files).toEqual(['dist', 'README.md', 'README.zh-CN.md', 'LICENSE'])
