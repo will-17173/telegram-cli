@@ -16,6 +16,12 @@ import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScroll
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
 import { isMouseInput, useMouseScroll, withMouseReporting, type MouseScrollDirection } from './mouse-scroll.js'
+import { GroupCommandMenu, moveGroupCommandSelection } from './group-command-menu.js'
+import { GroupCommandResult } from './group-command-result.js'
+import { useGroupCommand } from './use-group-command.js'
+import { executeGroupCommand } from '../../group-commands/executor.js'
+import { completeGroupCommand, matchGroupCommands } from '../../group-commands/parser.js'
+import { GroupWriteService } from '../../services/group-write-service.js'
 
 export type ListenMessage = ListenMessageRow & {
   key: string
@@ -501,6 +507,22 @@ function InteractiveListen({
   const [downloadStates, setDownloadStates] = useState<Record<string, AttachmentDownloadState>>({})
   const [scrollState, setScrollState] = useState<ListenScrollState>({ offset: 0, unseenCount: 0 })
   const [sendTargetLabel, setSendTargetLabel] = useState(sendTo == null ? '' : buildSendTargetLabel(sendTo))
+  const clientRef = useRef<TelegramClientAdapter | null>(null)
+  const groupCommand = useGroupCommand(useCallback(async (request) => {
+    const client = clientRef.current
+    if (client == null) return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection is not ready.' } }
+    if (sendTo == null) return { ok: false, error: { code: 'ambiguous_chat', message: 'Select exactly one target chat with --send-to.' } }
+    const knownGroup = await client.groups.getGroup(sendTo)
+    return executeGroupCommand(request, {
+      chat: sendTo,
+      groups: new GroupWriteService(client.groups),
+      confirmed: false,
+      knownGroup,
+      connectionReady: true,
+      targetAvailable: true,
+      targetCount: 1,
+    })
+  }, [sendTo]))
   const terminalWidth = terminalMetrics.columns
   const terminalHeight = terminalMetrics.rows
   const previewColorDepth = interactiveListenPreviewColorDepth(terminalMetrics.colorDepth)
@@ -519,7 +541,6 @@ function InteractiveListen({
   )
   const messagePaneHeight = calculateListenMessagePaneHeight(terminalHeight, note.length > 0, autoDownload)
   const visibleMessages = takeListenViewport(messages, messagePaneHeight, scrollState.offset)
-  const clientRef = useRef<TelegramClientAdapter | null>(null)
   const albumAggregatorRef = useRef<ListenAlbumAggregator | null>(null)
   const autoDownloaderRef = useRef<AutoDownloadCoordinator | null>(null)
   const pendingAttachmentKeysRef = useRef<Set<string>>(new Set())
@@ -572,6 +593,28 @@ function InteractiveListen({
       stopListening()
       return
     }
+    if (key.escape && (groupCommand.state.kind === 'result' || groupCommand.state.kind === 'error')) {
+      groupCommand.close()
+      return
+    }
+    const slashMode = input.trimStart().startsWith('/')
+    if (slashMode && key.escape) {
+      groupCommand.close()
+      return
+    }
+    if (slashMode && (key.upArrow || key.downArrow)) {
+      const count = matchGroupCommands(input).length
+      const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+      groupCommand.setState({ kind: 'menu', selectedIndex: moveGroupCommandSelection(selected, key.upArrow ? -1 : 1, count) })
+      return
+    }
+    if (slashMode && key.tab) {
+      const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+      setInput(completeGroupCommand(input, selected))
+      groupCommand.setState({ kind: 'menu', selectedIndex: selected })
+      setFocus('input')
+      return
+    }
     if (key.tab) {
       if (focus === 'attachments') {
         setFocus('input')
@@ -602,8 +645,16 @@ function InteractiveListen({
       }
       return
     }
-    if (sending) return
+    if (sending || groupCommand.state.kind === 'executing') return
     if (key.return) {
+      if (slashMode) {
+        const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+        void groupCommand.submit(input, selected).then((outcome) => {
+          if (outcome.kind === 'complete') setInput(outcome.input)
+          else if (outcome.kind === 'result' && outcome.result.ok) setInput('')
+        })
+        return
+      }
       void sendMessage(input)
       return
     }
@@ -615,7 +666,14 @@ function InteractiveListen({
       return
     }
     if (!key.ctrl && !key.meta && inputText.length > 0) {
-      setInput((current) => current + inputText)
+      setInput((current) => {
+        const next = current + inputText
+        if (next.trimStart().startsWith('/')) {
+          setFocus('input')
+          groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
+        }
+        return next
+      })
     }
   })
 
@@ -813,6 +871,7 @@ function InteractiveListen({
           autoDownload={autoDownload}
         />
         {note ? <Text dimColor>{note}</Text> : null}
+        <GroupCommandResult state={groupCommand.state} width={contentWidth} />
         <Box marginTop={1} flexDirection="column" flexGrow={1} overflow="hidden">
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}
           {visibleMessages.map((message) => (
@@ -836,19 +895,17 @@ function InteractiveListen({
             </Box>
           ))}
         </Box>
-        {sendTo == null ? (
-          <Text dimColor>Set --send-to &lt;chat&gt; (or pass one chat to listen) before sending messages.</Text>
-        ) : (
+        {sendTo == null ? <Text dimColor>Set --send-to &lt;chat&gt; (or pass one chat to listen) before sending messages.</Text> : null}
           <Box marginTop={1} flexDirection="column" flexShrink={0}>
+            {input.trimStart().startsWith('/') && groupCommand.state.kind === 'menu' ? <GroupCommandMenu input={input} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} /> : null}
             <ListenComposer
               input={input}
-              sendTargetLabel={sendTargetLabel}
+              sendTargetLabel={sendTo == null ? '(not selected)' : sendTargetLabel}
               terminalWidth={contentWidth}
               sending={sending}
               hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Enter to send · Tab attachments · Ctrl+C exit'}
             />
           </Box>
-        )}
       </Box>
       <ListenScrollbar height={terminalHeight} visible={scrollbarVisible} geometry={scrollbarGeometry} />
     </Box>
