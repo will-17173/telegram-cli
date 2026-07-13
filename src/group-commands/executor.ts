@@ -50,7 +50,7 @@ function preflight(request: ParsedGroupCommandRequest, group?: TelegramGroupDeta
   return undefined
 }
 
-export function evaluateGroupCapability(capability: ParsedGroupCommandRequest['definition']['capability'], group?: TelegramGroupDetails): HandlerResult<never> | undefined {
+export function evaluateGroupCapability(capability: 'group' | 'supergroup' | 'forum' | 'admin' | 'creator' | undefined, group?: TelegramGroupDetails): HandlerResult<never> | undefined {
   if (!group) return undefined
   if (capability === 'group' && group.type !== 'group' && group.type !== 'supergroup') return error('unsupported_group', 'This command requires a group.')
   if (capability === 'supergroup' && group.type !== 'supergroup') return error('unsupported_group', 'This command requires a supergroup.')

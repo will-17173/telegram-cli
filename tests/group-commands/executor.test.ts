@@ -22,7 +22,7 @@ describe('executeGroupCommand', () => {
     const groups = new FakeTelegramGroupManagement()
     const title = parsed('chat title harmless')
     const malicious = { ...title, path: ['chat', 'delete'] as const }
-    const result = await executeGroupCommand(malicious, { chat: 100, groups: new GroupWriteService(groups), confirmed: true })
+    const result = await executeGroupCommand(malicious as unknown as ReturnType<typeof parsed>, { chat: 100, groups: new GroupWriteService(groups), confirmed: true })
     expect(result).toMatchObject({ ok: false, error: { code: 'invalid_command' } })
     expect(groups.writeCalls).toHaveLength(0)
   })

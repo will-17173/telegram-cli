@@ -24,7 +24,7 @@ describe('GroupWriteService', () => {
   it('rejects a noncanonical request at the service boundary', async () => {
     const groups = new FakeTelegramGroupManagement()
     const valid = request('chat title Safe')
-    const result = await new GroupWriteService(groups).execute({ ...valid, path: ['chat', 'delete'] })
+    const result = await new GroupWriteService(groups).execute({ ...valid, path: ['chat', 'delete'] } as unknown as typeof valid)
     expect(result).toMatchObject({ ok: false, error: { code: 'invalid_command' } })
     expect(groups.writeCalls).toHaveLength(0)
   })

@@ -1,7 +1,6 @@
 import type { HandlerResult } from '../commands/types.js'
-import { GROUP_COMMANDS, type GroupCommandKey } from '../group-commands/catalog.js'
+import { GROUP_COMMAND_CATALOG, type GroupCommandKey } from '../group-commands/catalog.js'
 import type { GroupCommandValuesByKey, ParsedGroupCommandRequest } from '../group-commands/parser.js'
-import type { GroupCommandDefinition, GroupCommandValueKind } from '../group-commands/types.js'
 import {
   TelegramGroupAdminRequiredError, TelegramGroupFloodWaitError, TelegramGroupMemberNotFoundError,
   TelegramGroupMembersNotAddedError, TelegramGroupMissingPermissionError, TelegramGroupNotFoundError,
@@ -68,54 +67,73 @@ const commandHandlers = {
 } satisfies CommandHandlers
 export const COMMAND_HANDLERS: CommandHandlers = commandHandlers
 
-const definitions = new Map(GROUP_COMMANDS.map(definition => [definition.path.join(' '), definition]))
 export function canonicalCommandKey(request: ParsedGroupCommandRequest): GroupCommandKey | undefined {
-  const key = request.definition.path.join(' ')
-  const canonical = definitions.get(key)
-  return canonical === request.definition && request.path[0] === request.definition.path[0] && request.path[1] === request.definition.path[1] && isCommandKey(key) ? key : undefined
+  const canonical = GROUP_COMMAND_CATALOG[request.key]
+  return canonical === request.definition && request.path === canonical.path ? request.key : undefined
 }
-function isCommandKey(key: string): key is GroupCommandKey { return Object.prototype.hasOwnProperty.call(COMMAND_HANDLERS, key) }
 
 export class GroupWriteService {
   static readonly paths = Object.keys(COMMAND_HANDLERS)
   constructor(private readonly groups: TelegramGroupManagementAdapter) {}
   async execute(request: ParsedGroupWriteRequest): Promise<HandlerResult<GroupWriteServiceResult>> {
     const key = canonicalCommandKey(request)
-    if (!key || !validValues(key, request.values)) return failure('invalid_command', 'Invalid or noncanonical group command.')
-    try { return { ok: true, data: await invokeHandler(key, request.chat, request.values, this.groups) } }
+    if (!key) return failure('invalid_command', 'Invalid or noncanonical group command.')
+    try { return { ok: true, data: await dispatch(request, this.groups) } }
     catch (error) { return groupWriteFailure(error) }
   }
 }
 
-function validValues(key: GroupCommandKey, values: unknown): values is Readonly<Record<string, unknown>> {
-  if (typeof values !== 'object' || values === null || Array.isArray(values)) return false
-  const record = values as Readonly<Record<string, unknown>>
-  const definition: GroupCommandDefinition | undefined = definitions.get(key)
-  if (!definition) return false
-  const fields = [...definition.args, ...definition.options].map(field => ({
-    name: field.kind === 'duration' ? `${camelCase(field.name)}Seconds` : camelCase(field.name),
-    kind: field.kind,
-    required: 'required' in field && field.required === true,
-  }))
-  if (Object.keys(record).some(name => !fields.some(field => field.name === name))) return false
-  return fields.every(field => {
-    const value = record[field.name]
-    return value === undefined ? !field.required : validKind(field.kind, value)
-  })
-}
-function camelCase(name: string): string { return name.replace(/-([a-z])/g, (_, character: string) => character.toUpperCase()) }
-function validKind(kind: GroupCommandValueKind, value: unknown): boolean {
-  if (kind === 'user') return typeof value === 'string' || typeof value === 'number'
-  if (kind === 'users') return Array.isArray(value) && value.every(item => typeof item === 'string' || typeof item === 'number')
-  if (kind === 'id') return typeof value === 'number'
-  if (kind === 'ids') return Array.isArray(value) && value.every(item => typeof item === 'number')
-  if (kind === 'duration') return value === null || typeof value === 'number'
-  if (kind === 'toggle') return typeof value === 'boolean'
-  if (kind === 'permissions') return Array.isArray(value) && value.every(item => typeof item === 'string')
-  return typeof value === 'string'
-}
-function invokeHandler<K extends GroupCommandKey>(key: K, chat: string | number, values: Readonly<Record<string, unknown>>, groups: TelegramGroupManagementAdapter): Promise<GroupWriteServiceResult> {
-  return COMMAND_HANDLERS[key]({ chat, values: values as GroupCommandValuesByKey[K] }, groups)
+function dispatch(request: ParsedGroupWriteRequest, groups: TelegramGroupManagementAdapter): Promise<GroupWriteServiceResult> {
+  switch (request.key) {
+    case 'member add': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'member kick': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'member ban': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'member unban': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'member mute': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'member unmute': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'member purge': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'admin promote': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'admin demote': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'admin rank': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'admin transfer-owner': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat title': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat description': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat username': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat photo': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat slowmode': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat ttl': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat protect': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat join-requests': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat join-to-send': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat default-permissions': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat sticker-set': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat leave': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'chat delete': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite list': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite show': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite create': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite edit': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite revoke': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite members': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite approve': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite decline': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite approve-all': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'invite decline-all': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic list': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic create': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic edit': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic close': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic reopen': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic pin': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic unpin': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic reorder': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic delete': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'topic general-hidden': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'message pin': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'message unpin': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'message unpin-all': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'message delete': return COMMAND_HANDLERS[request.key](request, groups)
+  }
 }
 
 function groupWriteFailure(error: unknown): HandlerResult<never> {

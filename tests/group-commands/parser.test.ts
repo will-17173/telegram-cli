@@ -5,7 +5,19 @@ import {
   matchGroupCommands,
   parseGroupCommand
 } from '../../src/group-commands/parser.js'
+import type { ParsedGroupCommandRequest } from '../../src/group-commands/parser.js'
 import { tokenizeGroupCommand } from '../../src/group-commands/tokenize.js'
+
+function compileTimeRequestContract(request: ParsedGroupCommandRequest): void {
+  if (request.key === 'member ban') {
+    const user: string | number = request.values.user
+    const path: readonly ['member', 'ban'] = request.path
+    void user; void path
+  }
+  // @ts-expect-error member ban requires its canonical definition, path, source, and user value
+  const invalid: ParsedGroupCommandRequest = { key: 'member ban', values: {} }
+  void invalid
+}
 
 describe('tokenizeGroupCommand', () => {
   it('decodes quotes and escapes while retaining source offsets', () => {

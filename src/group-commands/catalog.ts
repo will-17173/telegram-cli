@@ -65,7 +65,17 @@ const commands = [
   { path: ['message', 'delete'], summary: 'Delete messages from the chat', usage: 'group message delete <ids...>', options: [], risk: 'confirm', args: [{ name: 'ids', kind: 'ids', required: true, rest: true }], capability: 'admin' }
 ] as const satisfies readonly GroupCommandDefinition[]
 
-export const GROUP_COMMANDS = Object.freeze(commands.map(deepFreezeCommand))
+commands.forEach(deepFreezeCommand)
+export const GROUP_COMMANDS = Object.freeze(commands)
+
+export const GROUP_COMMAND_CATALOG = {
+  'member add': GROUP_COMMANDS[0], 'member kick': GROUP_COMMANDS[1], 'member ban': GROUP_COMMANDS[2], 'member unban': GROUP_COMMANDS[3], 'member mute': GROUP_COMMANDS[4], 'member unmute': GROUP_COMMANDS[5], 'member purge': GROUP_COMMANDS[6],
+  'admin promote': GROUP_COMMANDS[7], 'admin demote': GROUP_COMMANDS[8], 'admin rank': GROUP_COMMANDS[9], 'admin transfer-owner': GROUP_COMMANDS[10],
+  'chat title': GROUP_COMMANDS[11], 'chat description': GROUP_COMMANDS[12], 'chat username': GROUP_COMMANDS[13], 'chat photo': GROUP_COMMANDS[14], 'chat slowmode': GROUP_COMMANDS[15], 'chat ttl': GROUP_COMMANDS[16], 'chat protect': GROUP_COMMANDS[17], 'chat join-requests': GROUP_COMMANDS[18], 'chat join-to-send': GROUP_COMMANDS[19], 'chat default-permissions': GROUP_COMMANDS[20], 'chat sticker-set': GROUP_COMMANDS[21], 'chat leave': GROUP_COMMANDS[22], 'chat delete': GROUP_COMMANDS[23],
+  'invite list': GROUP_COMMANDS[24], 'invite show': GROUP_COMMANDS[25], 'invite create': GROUP_COMMANDS[26], 'invite edit': GROUP_COMMANDS[27], 'invite revoke': GROUP_COMMANDS[28], 'invite members': GROUP_COMMANDS[29], 'invite approve': GROUP_COMMANDS[30], 'invite decline': GROUP_COMMANDS[31], 'invite approve-all': GROUP_COMMANDS[32], 'invite decline-all': GROUP_COMMANDS[33],
+  'topic list': GROUP_COMMANDS[34], 'topic create': GROUP_COMMANDS[35], 'topic edit': GROUP_COMMANDS[36], 'topic close': GROUP_COMMANDS[37], 'topic reopen': GROUP_COMMANDS[38], 'topic pin': GROUP_COMMANDS[39], 'topic unpin': GROUP_COMMANDS[40], 'topic reorder': GROUP_COMMANDS[41], 'topic delete': GROUP_COMMANDS[42], 'topic general-hidden': GROUP_COMMANDS[43],
+  'message pin': GROUP_COMMANDS[44], 'message unpin': GROUP_COMMANDS[45], 'message unpin-all': GROUP_COMMANDS[46], 'message delete': GROUP_COMMANDS[47],
+}
 
 type CatalogCommand = typeof GROUP_COMMANDS[number]
 type CommandKeyOf<T> = T extends { readonly path: readonly [infer A extends string, infer B extends string] } ? `${A} ${B}` : never

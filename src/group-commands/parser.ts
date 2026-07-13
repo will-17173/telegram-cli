@@ -1,4 +1,4 @@
-import { GROUP_COMMANDS, type GroupCommandKey } from './catalog.js'
+import { GROUP_COMMAND_CATALOG, GROUP_COMMANDS, type GroupCommandKey } from './catalog.js'
 import { tokenizeGroupCommand, type GroupCommandToken } from './tokenize.js'
 import type { GroupCommandDefinition, GroupCommandValueKind } from './types.js'
 
@@ -14,12 +14,14 @@ export interface GroupCommandValuesByKey {
 type AssertAllValues<T extends Record<GroupCommandKey, object>> = T
 type AllValuesCovered = AssertAllValues<GroupCommandValuesByKey>
 
-export interface ParsedGroupCommandRequest<K extends GroupCommandKey = GroupCommandKey> {
-  readonly definition: GroupCommandDefinition
-  readonly path: readonly [string, string]
+export type RequestFor<K extends GroupCommandKey> = {
+  readonly key: K
+  readonly definition: typeof GROUP_COMMAND_CATALOG[K]
+  readonly path: typeof GROUP_COMMAND_CATALOG[K]['path']
   readonly values: GroupCommandValuesByKey[K]
   readonly source: string
 }
+export type ParsedGroupCommandRequest = { [K in GroupCommandKey]: RequestFor<K> }[GroupCommandKey]
 
 export type ParseGroupCommandResult =
   | { readonly ok: true; readonly request: ParsedGroupCommandRequest }
@@ -47,7 +49,7 @@ function parseValue(kind: GroupCommandValueKind, value: string): { ok: true; val
     if (value === 'off') return { ok: true, value: null }
     const match = /^(\d+)([smhd])$/.exec(value)
     if (!match) return { ok: false, code: 'invalid_duration', message: `Invalid duration: ${value}` }
-    const multiplier = { s: 1, m: 60, h: 3600, d: 86400 }[match[2] as 's' | 'm' | 'h' | 'd']
+    const multiplier = match[2] === 's' ? 1 : match[2] === 'm' ? 60 : match[2] === 'h' ? 3600 : 86400
     const duration = Number(match[1]) * multiplier
     if (!Number.isSafeInteger(duration)) return { ok: false, code: 'invalid_duration', message: `Duration is too large: ${value}` }
     return { ok: true, value: duration }
@@ -159,7 +161,86 @@ export function parseGroupCommand(source: string): ParseGroupCommandResult {
     values[valueName(option.name, option.kind)] = parsed.value
   }
 
-  return { ok: true, request: { definition, path: definition.path, values, source } as ParsedGroupCommandRequest }
+  const request = createParsedRequest(definition.path.join(' '), values, source)
+  return request ? { ok: true, request } : failure('invalid_command', 'Parsed command values did not match the catalog.', definition)
+}
+
+function makeRequest<K extends GroupCommandKey>(key: K, values: GroupCommandValuesByKey[K], source: string): RequestFor<K> {
+  const definition = GROUP_COMMAND_CATALOG[key]
+  return { key, definition, path: definition.path, values, source }
+}
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
+function has<T, N extends string>(value: unknown, name: N, guard: (item: unknown) => item is T): value is Record<N, T> { return isRecord(value) && guard(value[name]) }
+const isString = (value: unknown): value is string => typeof value === 'string'
+const isNumber = (value: unknown): value is number => typeof value === 'number'
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean'
+const isUser = (value: unknown): value is User => isString(value) || isNumber(value)
+const isUsers = (value: unknown): value is readonly User[] => Array.isArray(value) && value.every(isUser)
+const isNumbers = (value: unknown): value is readonly number[] => Array.isArray(value) && value.every(isNumber)
+const isStrings = (value: unknown): value is readonly string[] => Array.isArray(value) && value.every(isString)
+const isDuration = (value: unknown): value is number | null => value === null || isNumber(value)
+function empty(value: unknown): value is Record<never, never> { return isRecord(value) && Object.keys(value).length === 0 }
+function userValue(value: unknown): value is { readonly user: User } { return has(value, 'user', isUser) }
+function idValue(value: unknown): value is { readonly id: number } { return has(value, 'id', isNumber) }
+function stringValue<N extends string>(value: unknown, name: N): value is Record<N, string> { return has(value, name, isString) }
+function inviteOptions(value: unknown): value is GroupCommandValuesByKey['invite create'] {
+  if (!isRecord(value)) return false
+  return (value.title === undefined || isString(value.title)) && (value.expireSeconds === undefined || isDuration(value.expireSeconds)) && (value.limit === undefined || isNumber(value.limit)) && (value.requestNeeded === undefined || isBoolean(value.requestNeeded))
+}
+function muteValue(value: unknown): value is GroupCommandValuesByKey['member mute'] { return isRecord(value) && isUser(value.user) && (value.durationSeconds === undefined || isDuration(value.durationSeconds)) }
+function promoteValue(value: unknown): value is GroupCommandValuesByKey['admin promote'] { return isRecord(value) && isUser(value.user) && (value.permissions === undefined || isStrings(value.permissions)) }
+
+function createParsedRequest(key: string, values: unknown, source: string): ParsedGroupCommandRequest | undefined {
+  switch (key) {
+    case 'member add': return has(values, 'users', isUsers) ? makeRequest(key, values, source) : undefined
+    case 'member kick': return userValue(values) ? makeRequest(key, values, source) : undefined
+    case 'member ban': return userValue(values) ? makeRequest(key, values, source) : undefined
+    case 'member unban': return userValue(values) ? makeRequest(key, values, source) : undefined
+    case 'member unmute': return userValue(values) ? makeRequest(key, values, source) : undefined
+    case 'member purge': return userValue(values) ? makeRequest(key, values, source) : undefined
+    case 'member mute': return muteValue(values) ? makeRequest(key, values, source) : undefined
+    case 'admin promote': return promoteValue(values) ? makeRequest(key, values, source) : undefined
+    case 'admin demote': return userValue(values) ? makeRequest(key, values, source) : undefined
+    case 'admin transfer-owner': return userValue(values) ? makeRequest(key, values, source) : undefined
+    case 'invite approve': return userValue(values) ? makeRequest(key, values, source) : undefined
+    case 'invite decline': return userValue(values) ? makeRequest(key, values, source) : undefined
+    case 'admin rank': return userValue(values) && has(values, 'text', isString) ? makeRequest(key, values, source) : undefined
+    case 'chat title': return stringValue(values, 'text') ? makeRequest(key, values, source) : undefined
+    case 'chat description': return stringValue(values, 'text') ? makeRequest(key, values, source) : undefined
+    case 'chat username': return stringValue(values, 'username') ? makeRequest(key, values, source) : undefined
+    case 'chat photo': return stringValue(values, 'path') ? makeRequest(key, values, source) : undefined
+    case 'chat slowmode': return has(values, 'durationSeconds', isDuration) ? makeRequest(key, values, source) : undefined
+    case 'chat ttl': return has(values, 'durationSeconds', isDuration) ? makeRequest(key, values, source) : undefined
+    case 'chat protect': return has(values, 'enabled', isBoolean) ? makeRequest(key, values, source) : undefined
+    case 'chat join-requests': return has(values, 'enabled', isBoolean) ? makeRequest(key, values, source) : undefined
+    case 'chat join-to-send': return has(values, 'enabled', isBoolean) ? makeRequest(key, values, source) : undefined
+    case 'chat default-permissions': return has(values, 'permissions', isStrings) ? makeRequest(key, values, source) : undefined
+    case 'chat sticker-set': return has(values, 'id', isNumber) ? makeRequest(key, values, source) : undefined
+    case 'chat leave': return empty(values) ? makeRequest(key, values, source) : undefined
+    case 'chat delete': return empty(values) ? makeRequest(key, values, source) : undefined
+    case 'invite list': return empty(values) ? makeRequest(key, values, source) : undefined
+    case 'invite approve-all': return empty(values) ? makeRequest(key, values, source) : undefined
+    case 'invite decline-all': return empty(values) ? makeRequest(key, values, source) : undefined
+    case 'topic list': return empty(values) ? makeRequest(key, values, source) : undefined
+    case 'message unpin-all': return empty(values) ? makeRequest(key, values, source) : undefined
+    case 'invite show': return stringValue(values, 'invite') ? makeRequest(key, values, source) : undefined
+    case 'invite revoke': return stringValue(values, 'invite') ? makeRequest(key, values, source) : undefined
+    case 'invite members': return stringValue(values, 'invite') ? makeRequest(key, values, source) : undefined
+    case 'invite create': return inviteOptions(values) ? makeRequest(key, values, source) : undefined
+    case 'invite edit': return stringValue(values, 'invite') && inviteOptions(values) ? makeRequest(key, values, source) : undefined
+    case 'topic create': return stringValue(values, 'title') ? makeRequest(key, values, source) : undefined
+    case 'topic edit': return idValue(values) && has(values, 'title', isString) ? makeRequest(key, values, source) : undefined
+    case 'topic close': return idValue(values) ? makeRequest(key, values, source) : undefined
+    case 'topic reopen': return idValue(values) ? makeRequest(key, values, source) : undefined
+    case 'topic pin': return idValue(values) ? makeRequest(key, values, source) : undefined
+    case 'topic unpin': return idValue(values) ? makeRequest(key, values, source) : undefined
+    case 'topic delete': return idValue(values) ? makeRequest(key, values, source) : undefined
+    case 'message pin': return idValue(values) ? makeRequest(key, values, source) : undefined
+    case 'message unpin': return idValue(values) ? makeRequest(key, values, source) : undefined
+    case 'topic reorder': return has(values, 'ids', isNumbers) ? makeRequest(key, values, source) : undefined
+    case 'message delete': return has(values, 'ids', isNumbers) ? makeRequest(key, values, source) : undefined
+    case 'topic general-hidden': return has(values, 'hidden', isBoolean) ? makeRequest(key, values, source) : undefined
+  }
 }
 
 function isSubsequence(query: string, target: string): boolean {
