@@ -78,6 +78,7 @@ export async function readSecret(promptText: string, options: SecureInputOptions
   const output = options.output ?? process.stderr
   if (input.isTTY !== true || typeof input.setRawMode !== 'function') throw new InteractionRequiredError()
   throwIfAborted(options.signal)
+  if (input.readableEnded) throw new CliInterruptedError()
 
   const originalRawMode = input.isRaw === true
   const wasFlowing = input.readableFlowing === true
@@ -110,11 +111,13 @@ export async function readSecret(promptText: string, options: SecureInputOptions
     }
   }
   const onError = (error: Error): void => rejectInput?.(error)
+  const onOutputError = (error: Error): void => rejectInput?.(error)
   const onEnd = (): void => rejectInput?.(new CliInterruptedError())
   const onAbort = (): void => rejectInput?.(abortReason(options.signal!))
 
   options.signal?.addEventListener('abort', onAbort, { once: true })
   try {
+    output.once('error', onOutputError)
     input.setRawMode(true)
     if (options.signal?.aborted) return await result
     input.on('data', onData)
@@ -131,8 +134,12 @@ export async function readSecret(promptText: string, options: SecureInputOptions
     try {
       input.setRawMode(originalRawMode)
     } finally {
-      if (!wasFlowing) input.pause()
-      output.write('\n')
+      try {
+        if (!wasFlowing) input.pause()
+        output.write('\n')
+      } finally {
+        output.removeListener('error', onOutputError)
+      }
     }
   }
 }

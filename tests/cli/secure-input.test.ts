@@ -124,4 +124,59 @@ describe('readSecret', () => {
     expect(input.listenerCount('error')).toBe(0)
     expect(input.listenerCount('end')).toBe(0)
   })
+
+  it('rejects promptly when the input stream has already ended', async () => {
+    const input = new FakeTtyInput()
+    input.resume()
+    input.end()
+    await new Promise<void>(resolve => input.once('end', resolve))
+
+    const reading = readSecret('Password: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    })
+    const outcome = await Promise.race([
+      reading.then(
+        value => ({ status: 'resolved' as const, value }),
+        error => ({ status: 'rejected' as const, error }),
+      ),
+      new Promise<{ status: 'pending' }>(resolve => setTimeout(() => resolve({ status: 'pending' }), 25)),
+    ])
+
+    expect(outcome).toMatchObject({ status: 'rejected', error: { code: 'interrupted' } })
+    expect(input.rawModes).toEqual([])
+    expect(input.listenerCount('data')).toBe(0)
+    expect(input.listenerCount('error')).toBe(0)
+    expect(input.listenerCount('end')).toBe(0)
+  })
+
+  it('restores terminal state when writing the prompt fails asynchronously', async () => {
+    const input = new FakeTtyInput()
+    const output = new PassThrough()
+    const failure = new Error('output failed')
+    const preserveProcess = () => undefined
+    output.on('error', preserveProcess)
+
+    const reading = readSecret('Password: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    })
+    output.emit('error', failure)
+
+    const outcome = await Promise.race([
+      reading.then(
+        value => ({ status: 'resolved' as const, value }),
+        error => ({ status: 'rejected' as const, error }),
+      ),
+      new Promise<{ status: 'pending' }>(resolve => setTimeout(() => resolve({ status: 'pending' }), 25)),
+    ])
+
+    expect(outcome).toEqual({ status: 'rejected', error: failure })
+    expect(input.rawModes).toEqual([true, false])
+    expect(input.readableFlowing).toBe(false)
+    expect(input.listenerCount('data')).toBe(0)
+    expect(input.listenerCount('error')).toBe(0)
+    expect(input.listenerCount('end')).toBe(0)
+    expect(output.listeners('error')).toEqual([preserveProcess])
+  })
 })
