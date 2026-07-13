@@ -95,8 +95,8 @@ describe('QueryService human views', () => {
       human: {
         kind: 'table',
         title: 'Recent Messages',
-        columns: ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
-        rows: expected.map(messageRow),
+        columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'MESSAGE'],
+        rows: expected.map((row) => [String(row.msg_id), ...messageRow(row)]),
         emptyText: 'No recent messages found.',
       },
     })
@@ -119,8 +119,9 @@ describe('QueryService human views', () => {
     const human = result.human
     if (human?.kind !== 'table') throw new Error('expected table')
     expect(human.rows).toHaveLength(2)
-    expect(human.rows[1]?.[3]).toContain('Bob (#7): original')
-    expect(human.rows[1]?.[3]).toContain('album caption\n📎 2 Photos')
+    expect(human.rows[1]?.[0]).toBe('11, 12')
+    expect(human.rows[1]?.[4]).toContain('Bob (#7): original')
+    expect(human.rows[1]?.[4]).toContain('album caption\n📎 2 Photos')
     expect(result.data).toEqual(expected)
     expect((result.data as unknown as Array<Record<string, unknown>>)
       .every((row) => !('replyContext' in row) && !('messages' in row) && !('mediaSummary' in row))).toBe(true)
@@ -144,7 +145,7 @@ describe('QueryService human views', () => {
     if (!result.ok) throw new Error('expected success')
     const human = result.human
     if (human?.kind !== 'table') throw new Error('expected table')
-    expect(human.rows.map((row) => row[3])).toEqual([
+    expect(human.rows.map((row) => row[4])).toEqual([
       expect.stringContaining('Ten (#7): chat ten'),
       expect.stringContaining('Ten (#7): chat ten'),
       expect.stringContaining('Twenty (#7): chat twenty'),
@@ -165,7 +166,7 @@ describe('QueryService human views', () => {
     const result = service.recent({ limit: 1 })
 
     if (!result.ok || result.human?.kind !== 'table') throw new Error('expected table')
-    expect(result.human.rows[0]?.[3]).toBe('↳ Reply to message #7 (not found locally)\nslack reply')
+    expect(result.human.rows[0]?.[4]).toBe('↳ Reply to message #7 (not found locally)\nslack reply')
     expect(lookup).toHaveBeenCalledWith([])
     service.close()
   })
@@ -214,7 +215,7 @@ describe('QueryService human views', () => {
     const human = result.human
     if (human?.kind !== 'table') throw new Error('expected table')
     expect(human.rows).toHaveLength(50)
-    expect(human.rows[0]?.[3]).toBe('large album\n📎 52 Photos')
+    expect(human.rows[0]?.[4]).toBe('large album\n📎 52 Photos')
     service.close()
   })
 
@@ -238,7 +239,7 @@ describe('QueryService human views', () => {
 
     if (!result.ok || result.human?.kind !== 'table') throw new Error('expected table')
     expect((result.data as StoredMessage[]).map((row) => row.content)).toEqual(['second inserted', 'third inserted'])
-    expect(result.human.rows.map((row) => row[3])).toEqual(['second inserted', 'third inserted'])
+    expect(result.human.rows.map((row) => row[4])).toEqual(['second inserted', 'third inserted'])
     service.close()
   })
 
@@ -297,14 +298,14 @@ describe('QueryService human views', () => {
     const row = scopedMessageRow(db.getToday({ chatId: 10 })[0]!)
 
     const views = [
-      [service.search({ keyword: 'release', chat: '10' }), '[General] Search Results', 'No messages found.'],
-      [service.recent({ chat: '10' }), '[General] Recent Messages', 'No recent messages found.'],
-      [service.today({ chat: '10' }), '[General] Today', 'No messages found today.'],
-      [service.filter({ keywords: 'release', chat: '10' }), '[General] Filtered Messages', 'No filtered messages found.'],
+      [service.search({ keyword: 'release', chat: '10' }), '[General] Search Results', 'No messages found.', ['TIME', 'SENDER', 'MESSAGE'], row],
+      [service.recent({ chat: '10' }), '[General] Recent Messages', 'No recent messages found.', ['ID', 'TIME', 'SENDER', 'MESSAGE'], ['1', ...row]],
+      [service.today({ chat: '10' }), '[General] Today', 'No messages found today.', ['TIME', 'SENDER', 'MESSAGE'], row],
+      [service.filter({ keywords: 'release', chat: '10' }), '[General] Filtered Messages', 'No filtered messages found.', ['TIME', 'SENDER', 'MESSAGE'], row],
     ] as const
 
-    for (const [result, title, emptyText] of views) {
-      expect(result).toMatchObject({ ok: true, human: { kind: 'table', title, columns: ['TIME', 'SENDER', 'MESSAGE'], rows: [row], emptyText } })
+    for (const [result, title, emptyText, columns, expectedRow] of views) {
+      expect(result).toMatchObject({ ok: true, human: { kind: 'table', title, columns, rows: [expectedRow], emptyText } })
     }
     service.close()
   })
@@ -323,7 +324,7 @@ describe('QueryService human views', () => {
     const { service } = setup([message({ chat_name: null })])
     expect(service.recent({ chat: '10' })).toMatchObject({
       ok: true,
-      human: { title: '[10] Recent Messages', columns: ['TIME', 'SENDER', 'MESSAGE'] },
+      human: { title: '[10] Recent Messages', columns: ['ID', 'TIME', 'SENDER', 'MESSAGE'] },
     })
     service.close()
   })

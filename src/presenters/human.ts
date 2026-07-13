@@ -105,16 +105,17 @@ export function logicalMessageTable(messages: LogicalMessage[], title = 'Message
   return {
     kind: 'table',
     title: scoped ? `[${options.chatLabel}] ${title}` : title,
-    columns: scoped ? ['TIME', 'SENDER', 'MESSAGE'] : ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
+    columns: scoped ? ['ID', 'TIME', 'SENDER', 'MESSAGE'] : ['ID', 'TIME', 'CHAT', 'SENDER', 'MESSAGE'],
     rows: messages.map((message) => {
       const cell = [
         message.replyContext == null ? null : formatReplyContext(message.replyContext),
         message.content?.trim() || null,
         summarizeLogicalMedia(message),
       ].filter((value): value is string => value != null).join('\n') || '—'
+      const messageIds = message.messages.map((row) => row.msg_id).join(', ')
       return scoped
-        ? [display(message.first.timestamp), display(message.first.sender_name), cell]
-        : [display(message.first.timestamp), display(message.first.chat_name), display(message.first.sender_name), cell]
+        ? [messageIds, display(message.first.timestamp), display(message.first.sender_name), cell]
+        : [messageIds, display(message.first.timestamp), display(message.first.chat_name), display(message.first.sender_name), cell]
     }),
     emptyText,
   }

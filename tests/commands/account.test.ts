@@ -67,6 +67,7 @@ async function run(
   args: string[],
   dataDir: string,
   stdinIsTty = false,
+  stdinInput?: string,
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   const originalStdoutWrite = process.stdout.write
   const originalStderrWrite = process.stderr.write
@@ -88,7 +89,11 @@ async function run(
   process.exitCode = 0
 
   try {
-    await createApp().exitOverride().parseAsync(['node', 'tg', ...args])
+    const parsing = createApp().exitOverride().parseAsync(['node', 'tg', ...args])
+    if (stdinInput != null) {
+      setImmediate(() => process.stdin.emit('data', `${stdinInput}\n`))
+    }
+    await parsing
   } finally {
     process.stdout.write = originalStdoutWrite
     process.stderr.write = originalStderrWrite
@@ -221,6 +226,26 @@ describe('account commands', () => {
       current_account: string | null
       accounts: Array<{ name: string }>
     }
+    expect(registry.current_account).toBe('bob')
+  })
+
+  it('lists accounts and switches to the selected account when no name is provided', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 1,
+      current_account: 'alice',
+      accounts: [
+        { name: 'alice', user_id: 1001, username: 'alice', phone: '13800138000', display_name: 'Alice' },
+        { name: 'bob', user_id: 2002, username: 'bob', phone: '13900139000', display_name: 'Bob' },
+      ],
+    })
+
+    const result = await run(['account', 'switch'], dataDir, true, '2')
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('1. alice')
+    expect(result.stdout).toContain('2. bob')
+    const registry = JSON.parse(readFileSync(getAccountRegistryPath(dataDir), 'utf8')) as { current_account: string | null }
     expect(registry.current_account).toBe('bob')
   })
 

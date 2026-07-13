@@ -39,8 +39,8 @@ describe('human output builders', () => {
     logical[0]!.replyContext = buildReplyContext(7, { ...rows[0]!, msg_id: 7, sender_name: 'Bob', content: 'original' })
 
     expect(logicalMessageTable(logical, 'Recent Messages', 'None')).toEqual({
-      kind: 'table', title: 'Recent Messages', columns: ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
-      rows: [[localTimestamp(rows[0]!.timestamp), 'General', 'Ada',
+      kind: 'table', title: 'Recent Messages', columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'MESSAGE'],
+      rows: [['11, 12', localTimestamp(rows[0]!.timestamp), 'General', 'Ada',
         `↳ Reply to [${localClock(rows[0]!.timestamp)}] Bob (#7): original\nalbum caption\n📎 2 Photos`]],
       emptyText: 'None',
     })
@@ -52,7 +52,7 @@ describe('human output builders', () => {
       sender_id: 1, sender_name: 'Ada', content: null, timestamp: '2026-07-10T01:02:03Z',
       raw_json: JSON.stringify({ media: { _: 'messageMediaPhoto', photo: {} } }),
     }
-    expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[3]).toBe('📎 1 Photo')
+    expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[4]).toBe('📎 1 Photo')
   })
   it('maps Telegram chats to the canonical Chats table', () => {
     expect(chatTable([

@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, renameSync, rmSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { createInterface } from 'node:readline/promises'
 import { TelegramClient } from '@mtcute/node'
 import type { Command } from 'commander'
 
@@ -140,23 +141,26 @@ export function registerAccountCommands(app: Command): void {
       })
     })
 
-  account.command('switch <name>')
+  account.command('switch [name]')
     .description('Set the default account')
     .option('--json')
     .option('--yaml')
-    .action(async (name: string, options: SwitchAccountOptions) => {
+    .action(async (name: string | undefined, options: SwitchAccountOptions) => {
       await runAccountCommand(options, async () => {
         const store = new AccountStore(getAccountRegistryPath())
+        const selectedName = name ?? await promptForAccount(store, options)
+        if (typeof selectedName !== 'string') return selectedName
+
         const current = await store.withLock(() => {
           const registry = store.read()
-          if (!registry.accounts.some((account) => account.name === name)) {
+          if (!registry.accounts.some((account) => account.name === selectedName)) {
             return {
               code: 'account_not_found' as const,
-              message: `Account "${name}" is not registered.`,
+              message: `Account "${selectedName}" is not registered.`,
             }
           }
 
-          const next = { ...registry, current_account: name }
+          const next = { ...registry, current_account: selectedName }
           store.write(next)
           return {
             code: null as null,
@@ -305,6 +309,48 @@ export function registerAccountCommands(app: Command): void {
         }
       })
     })
+}
+
+async function promptForAccount(store: AccountStore, options: SwitchAccountOptions): Promise<string | HandlerResult<never>> {
+  if (options.json || options.yaml || process.stdin.isTTY !== true) {
+    return {
+      ok: false,
+      error: {
+        code: 'account_required',
+        message: 'Provide an account name, or run tg account switch in an interactive terminal.',
+      },
+    }
+  }
+
+  const registry = store.read()
+  if (registry.accounts.length === 0) {
+    return {
+      ok: false,
+      error: {
+        code: 'account_not_found',
+        message: 'No registered accounts found. Add one with tg account add.',
+      },
+    }
+  }
+
+  process.stdout.write('Select an account:\n')
+  for (const [index, account] of registry.accounts.entries()) {
+    const current = account.name === registry.current_account ? ' (current)' : ''
+    process.stdout.write(`${index + 1}. ${account.name} — ${normalizeDisplayName(account.display_name)}${current}\n`)
+  }
+
+  const prompt = createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    while (true) {
+      const answer = (await prompt.question('Account number: ')).trim()
+      const selectedIndex = Number(answer) - 1
+      const selected = Number.isInteger(selectedIndex) ? registry.accounts[selectedIndex] : undefined
+      if (selected) return selected.name
+      process.stdout.write(`Enter a number from 1 to ${registry.accounts.length}.\n`)
+    }
+  } finally {
+    prompt.close()
+  }
 }
 
 type SyncableResult = HandlerResult | Promise<HandlerResult>
