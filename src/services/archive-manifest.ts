@@ -19,6 +19,8 @@ type ArchiveAccount = {
 }
 
 const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu
+const ARCHIVE_CHAT_SLUG = /^[\p{L}\p{N}\p{M}]+(?:-[\p{L}\p{N}\p{M}]+)*$/u
+const MAX_CHAT_SLUG_BYTES = 80
 const ISO_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u
 const UNSUPPORTED_DIRECTORY_SYNC_CODES = new Set([
   'EACCES',
@@ -86,18 +88,35 @@ function isChatId(value: string): boolean {
   return Number.isSafeInteger(Number(value))
 }
 
-function isArchiveChatState(value: unknown): value is ArchiveChatState {
+function isArchiveChatState(value: unknown, chatId: string): value is ArchiveChatState {
   if (!isRecord(value)) return false
 
   return isString(value.title)
     && value.title.trim().length > 0
-    && isSafeRelativeFile(value.file)
+    && isArchiveChatFile(value.file, chatId)
     && isNullableTimestamp(value.initial_since)
     && isNullableTimestamp(value.initial_until)
     && typeof value.full_history === 'boolean'
     && isNullableMessageId(value.last_message_id)
     && isNullableTimestamp(value.last_message_date)
     && isIsoTimestamp(value.last_run)
+}
+
+function isArchiveChatFile(value: unknown, chatId: string): value is string {
+  if (!isSafeRelativeFile(value)) return false
+  const prefix = `${chatId}-`
+  if (!value.startsWith(prefix) || !value.endsWith('.md')) return false
+
+  const slug = value.slice(prefix.length, -3)
+  return slug.length > 0
+    && Buffer.byteLength(slug) <= MAX_CHAT_SLUG_BYTES
+    && slug === slug.normalize('NFKC')
+    && slug === slug.toLocaleLowerCase('und')
+    && ARCHIVE_CHAT_SLUG.test(slug)
+}
+
+function portableFileIdentity(value: string): string {
+  return value.normalize('NFKC').toLocaleLowerCase('und')
 }
 
 function parseArchiveManifest(value: unknown): ArchiveManifest {
@@ -116,9 +135,13 @@ function parseArchiveManifest(value: unknown): ArchiveManifest {
     throw new Error('archive_manifest_invalid')
   }
 
+  const files = new Set<string>()
   for (const [chatId, chat] of Object.entries(value.chats)) {
     if (!isChatId(chatId)) throw new Error('archive_manifest_invalid')
-    if (!isArchiveChatState(chat)) throw new Error('archive_manifest_invalid')
+    if (!isArchiveChatState(chat, chatId)) throw new Error('archive_manifest_invalid')
+    const fileIdentity = portableFileIdentity(chat.file)
+    if (files.has(fileIdentity)) throw new Error('archive_manifest_invalid')
+    files.add(fileIdentity)
   }
 
   return value as ArchiveManifest

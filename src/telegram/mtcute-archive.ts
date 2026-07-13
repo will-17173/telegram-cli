@@ -1,6 +1,6 @@
 import { FileLocation } from '@mtcute/node'
 import type { Message, TelegramClient } from '@mtcute/node'
-import { createWriteStream } from 'node:fs'
+import { closeSync, constants, createWriteStream, lstatSync, openSync } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from './archive-types.js'
@@ -93,11 +93,34 @@ export class MtcuteArchive implements TelegramArchiveAdapter {
     const source = this.client.downloadAsNodeStream(location, {
       progressCallback: input.onProgress,
     })
-    await pipeline(source, createWriteStream(input.destination, {
-      flags: 'w',
-      autoClose: true,
-    }))
+    let fileDescriptor: number | null = null
+    try {
+      fileDescriptor = openExistingNoFollow(input.destination)
+      const destination = createWriteStream(input.destination, {
+        fd: fileDescriptor,
+        autoClose: true,
+      })
+      fileDescriptor = null
+      await pipeline(source, destination)
+    } catch (error) {
+      source.destroy()
+      throw error
+    } finally {
+      if (fileDescriptor !== null) closeSync(fileDescriptor)
+    }
   }
+}
+
+function openExistingNoFollow(path: string): number {
+  const noFollow = constants.O_NOFOLLOW
+  if (typeof noFollow === 'number' && noFollow !== 0) {
+    return openSync(path, constants.O_WRONLY | constants.O_TRUNC | noFollow)
+  }
+
+  if (lstatSync(path).isSymbolicLink()) {
+    throw Object.assign(new Error('Refusing to follow a symbolic link'), { code: 'ELOOP' })
+  }
+  return openSync(path, constants.O_WRONLY | constants.O_TRUNC)
 }
 
 function newestFirst(messages: ArchiveMessage[]): ArchiveMessage[] {

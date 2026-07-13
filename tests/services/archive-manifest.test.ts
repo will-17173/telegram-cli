@@ -126,6 +126,34 @@ describe('archive manifest', () => {
       ...manifestFor(42),
       chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: `${'文'.repeat(100)}.md` } },
     }],
+    ['manifest reserved chat file', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: 'archive-manifest.json' } },
+    }],
+    ['non-Markdown chat file', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: '-100123-team.txt' } },
+    }],
+    ['wrong-chat file prefix', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: '-100124-team.md' } },
+    }],
+    ['ambiguous chat file prefix', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: '-1001234-team.md' } },
+    }],
+    ['bare chat ID file', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: '-100123-.md' } },
+    }],
+    ['non-canonical chat file case', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: '-100123-Team.md' } },
+    }],
+    ['non-normalized chat file', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: '-100123-te\u0301am.md' } },
+    }],
     ['range value', {
       ...manifestFor(42),
       chats: { '-100123': { ...manifestFor(42).chats['-100123'], initial_since: 12 } },
@@ -165,6 +193,28 @@ describe('archive manifest', () => {
   ])('rejects an invalid %s', (_description, value) => {
     const path = join(temporaryDirectory(), 'archive-manifest.json')
     writeFileSync(path, JSON.stringify(value))
+
+    expect(() => readArchiveManifest(path)).toThrow('archive_manifest_invalid')
+  })
+
+  it.each([
+    ['exact duplicate', '-100123-team-ops.md'],
+    ['portable case alias', '-100123-TEAM-OPS.md'],
+    ['portable normalization alias', '-100123-te\u0301am.md'],
+  ])('rejects a duplicate destination via %s', (_description, alias) => {
+    const path = join(temporaryDirectory(), 'archive-manifest.json')
+    const manifest = manifestFor(42)
+    manifest.chats['-100124'] = {
+      ...manifest.chats['-100124']!,
+      file: alias,
+    }
+    if (_description === 'portable normalization alias') {
+      manifest.chats['-100123'] = {
+        ...manifest.chats['-100123']!,
+        file: '-100123-t\u00e9am.md',
+      }
+    }
+    writeFileSync(path, JSON.stringify(manifest))
 
     expect(() => readArchiveManifest(path)).toThrow('archive_manifest_invalid')
   })

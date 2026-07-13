@@ -112,6 +112,37 @@ function existingManifest(output: string, overrides: Partial<ArchiveManifest['ch
 }
 
 describe('ArchiveService', () => {
+  it('rejects a malformed manifest before calling Telegram or mutating archive files', async () => {
+    const output = outputDirectory()
+    const source = sourceFor()
+    const manifest = {
+      schema_version: 1,
+      account_name: 'main',
+      account_user_id: 42,
+      created_at: '2026-07-01T00:00:00.000Z',
+      updated_at: '2026-07-02T00:00:00.000Z',
+      chats: {
+        '-100': {
+          title: 'Team', file: '-200-team.md', initial_since: null, initial_until: null,
+          full_history: true, last_message_id: null, last_message_date: null,
+          last_run: '2026-07-02T00:00:00.000Z',
+        },
+      },
+    }
+    const manifestPath = join(output, 'archive-manifest.json')
+    const original = `${JSON.stringify(manifest)}\n`
+    writeFileSync(manifestPath, original)
+
+    await expect(new ArchiveService(source).archive(input(output)))
+      .rejects.toThrow('archive_manifest_invalid')
+
+    expect(source.resolveChats).not.toHaveBeenCalled()
+    expect(source.iterHistoryPages).not.toHaveBeenCalled()
+    expect(source.downloadMedia).not.toHaveBeenCalled()
+    expect(readFileSync(manifestPath, 'utf8')).toBe(original)
+    expect(readdirSync(output)).toEqual(['archive-manifest.json'])
+  })
+
   it('rethrows an auth-session error from history without committing a partial archive', async () => {
     const output = outputDirectory()
     const source = sourceFor()

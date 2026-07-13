@@ -146,6 +146,25 @@ tg send <chat> "Group caption" --file ./photo.jpg --file ./clip.mp4
 
 Telegram 决定可接受的文件组合和媒体组数量限制。如果 Telegram 拒绝所请求的组合或数量，命令会返回错误，不会静默拆分为多条消息或多个媒体组。
 
+## 将聊天归档为 Markdown
+
+`archive` 必须指定范围：传入一个或多个聊天 ID/用户名，或使用 `--all`，两者不能同时使用。命令默认使用当前账号，并写入该账号数据目录下的 `archive`；可用 `--account <name>` 临时选择账号，用 `--output <路径>` 修改输出目录。
+
+```sh
+# 首次归档：此前七天
+tg archive @team
+
+# 自定义范围（相对时长或带时区的 ISO 时间）
+tg archive @team --since 30d --until 2026-07-13T00:00:00Z
+
+# 归档所有聊天的完整可用历史并下载附件
+tg archive --all --full --download-media
+```
+
+首次运行默认归档此前恰好七天。`--since` 和 `--until` 用于自定义范围；`--full` 取消起始时间限制，不能与 `--since` 同时使用。后续运行采用增量模式：清单和 Markdown 中的消息标记会共同恢复已归档的最大消息 ID，即使两者游标不一致也可继续。`--rebuild` 会替换 Markdown 文件；未指定新范围或 `--full` 时，会复用清单记录的初始范围。`--download-media` 将可下载附件保存到归档目录的 `media/` 下，并在增量恢复时重试标记中引用但缺失的附件。
+
+任一聊天或附件失败时，命令返回 `archive_partial_failure`，保留其他聊天的成功结果，并以状态码 1 退出。自动化场景建议使用 `--json` 或 `--yaml`，检查 `completed`、`failed` 和 `warnings`。
+
 ## 多账号
 
 每个 Telegram 账号都有独立持久化的身份验证会话和本地消息数据库。通过以下命令交互式登录并添加账号：
@@ -294,6 +313,7 @@ tg --help
 | `tg recent`, `tg today`, `tg stats`, `tg top`, `tg timeline` | 浏览本地消息数据。 |
 | `tg filter <keywords>` | 按关键词筛选本地消息（支持按聊天和时间范围过滤）。 |
 | `tg export <chat>` | 导出本地存储的消息。 |
+| `tg archive <chat ...>` / `tg archive --all` | 将指定聊天或全部聊天增量归档为 Markdown 文件。 |
 | `tg send <chat> [message] [--file <path> ...]` | 发送文本、文件或带说明文字的媒体组。 |
 | `tg edit <chat> <msgId> <text>` | 编辑消息。 |
 | `tg delete <chat> <msgIds...>` | 删除一条或多条消息。 |

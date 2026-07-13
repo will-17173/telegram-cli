@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, readlink, rm, stat, writeFile } from 'node:fs/promises'
+import { symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -87,6 +88,34 @@ describe('MtcuteArchive', () => {
       expect(downloadAsNodeStream).toHaveBeenCalledWith(location, { progressCallback: onProgress })
       expect(await readFile(destination, 'utf8')).toBe('photo bytes')
       expect((await stat(destination)).ino).toBe(before.ino)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a staging path swapped to a symlink without truncating or retaining the target', async () => {
+    const location = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+    const directory = await mkdtemp(join(tmpdir(), 'tg-mtcute-archive-symlink-'))
+    const destination = join(directory, 'photo.stage')
+    const outside = join(directory, 'outside.txt')
+    await writeFile(destination, '')
+    await writeFile(outside, 'sentinel')
+    const client = mockClient({
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      downloadAsNodeStream: vi.fn(() => {
+        unlinkSync(destination)
+        symlinkSync(outside, destination)
+        return Readable.from([Buffer.from('hostile bytes')])
+      }),
+    })
+
+    try {
+      await expect(new MtcuteArchive(client, async () => undefined).downloadMedia({
+        chat: '@team', messageId: 3, destination,
+      })).rejects.toMatchObject({ code: expect.stringMatching(/^(?:ELOOP|EFTYPE)$/u) })
+
+      expect(await readFile(outside, 'utf8')).toBe('sentinel')
+      expect(await openDescriptorTargets()).not.toContain(outside)
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
@@ -205,6 +234,19 @@ describe('MtcuteArchive', () => {
     expect(iterDialogs).toHaveBeenCalledWith({ archived: 'keep' })
   })
 })
+
+async function openDescriptorTargets(): Promise<string[]> {
+  const directory = process.platform === 'linux' ? '/proc/self/fd' : '/dev/fd'
+  const descriptors = await readdir(directory)
+  const targets = await Promise.all(descriptors.map(async (descriptor) => {
+    try {
+      return await readlink(join(directory, descriptor))
+    } catch {
+      return null
+    }
+  }))
+  return targets.filter((target): target is string => target != null)
+}
 
 describe('FakeTelegramClient archive adapter', () => {
   it('yields injected pages and clones attachment values', async () => {
