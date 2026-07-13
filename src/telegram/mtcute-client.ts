@@ -133,8 +133,8 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       if (rows.length >= options.limit || page.next == null) break
       offset = page.next
       if (options.pageDelay) {
-        const jitter = 0.8 + Math.random() * 0.4
-        await setTimeout(options.pageDelay * jitter)
+        const jitter = options.pageDelay * (Math.random() * 0.4 - 0.2)
+        await setTimeout((options.pageDelay + jitter) * 1000)
       }
     }
     return rows

@@ -36,7 +36,7 @@ describe('MtcuteTelegramClient history', () => {
       chat: -100123,
       limit: 250,
       minId: 7,
-      pageDelay: 1_000,
+      pageDelay: 1,
       onProgress: progress,
     })
     await vi.runAllTimersAsync()

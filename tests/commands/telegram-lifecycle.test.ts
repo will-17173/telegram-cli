@@ -322,6 +322,20 @@ describe('Telegram command lifecycle', () => {
     expect(client.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({ pageDelay: 2.5 }))
   })
 
+  it.each([
+    ['history', '1oops'],
+    ['history', 'Infinity'],
+    ['sync', '-1'],
+  ])('rejects malformed %s page delay %s before fetching', async (command, delay) => {
+    await createApp().exitOverride().parseAsync(['node', 'tg', command, 'General', '--delay', delay])
+
+    expect(client.fetchHistory).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: false,
+      error: { code: 'invalid_option', message: 'pageDelay must be a non-negative number.' },
+    }), expect.any(Object))
+  })
+
   it('preserves refresh human output from the service', async () => {
     await createApp().exitOverride().parseAsync(['node', 'tg', 'refresh', '--limit', '10', '--delay', '0'])
 

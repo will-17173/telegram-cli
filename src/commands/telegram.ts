@@ -107,7 +107,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--yaml')
     .action(async (chat: string, options: SyncFlags) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
-      const pageDelay = Number.parseFloat(options.delay ?? '0')
+      const pageDelay = Number(options.delay ?? '0')
       await renderSyncResult(options, async (service) => service.history({ chat, limit, pageDelay }))
     })
 
@@ -120,7 +120,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--yaml')
     .action(async (chat: string, options: SyncFlags) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
-      const pageDelay = Number.parseFloat(options.delay ?? '0')
+      const pageDelay = Number(options.delay ?? '0')
       await renderSyncResult(options, async (service) => service.sync({ chat, limit, pageDelay }))
     })
 
