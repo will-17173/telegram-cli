@@ -14,6 +14,8 @@ export type GridLine = FormattedLine & {
 const COLUMN_GAP = '  '
 const PRACTICAL_MINIMUM_WIDTH = 3
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const SGR_PATTERN = /\u001b\[([0-9;]*)m/g
+const SGR_RESET = '\u001b[0m'
 
 export function truncateCell(value: unknown, maxWidth: number): string {
   const text = String(value)
@@ -24,13 +26,39 @@ export function truncateCell(value: unknown, maxWidth: number): string {
 
   const contentWidth = width - stringWidth('…')
   let result = ''
+  let visible = ''
+  let sourceIndex = 0
+  let activeSgr = false
 
-  for (const { segment } of graphemeSegmenter.segment(text)) {
-    if (stringWidth(result + segment) > contentWidth) break
-    result += segment
+  for (const match of text.matchAll(SGR_PATTERN)) {
+    const matchIndex = match.index
+    const truncated = appendVisibleText(text.slice(sourceIndex, matchIndex))
+    if (truncated) return finish()
+    result += match[0]
+    activeSgr = sgrIsActive(match[1] ?? '', activeSgr)
+    sourceIndex = matchIndex + match[0].length
+  }
+  appendVisibleText(text.slice(sourceIndex))
+  return finish()
+
+  function appendVisibleText(value: string): boolean {
+    for (const { segment } of graphemeSegmenter.segment(value)) {
+      if (stringWidth(visible + segment) > contentWidth) return true
+      visible += segment
+      result += segment
+    }
+    return false
   }
 
-  return `${result}…`
+  function finish(): string {
+    return `${result}…${activeSgr ? SGR_RESET : ''}`
+  }
+}
+
+function sgrIsActive(parameters: string, currentlyActive: boolean): boolean {
+  const codes = parameters === '' ? [0] : parameters.split(';').map(Number)
+  if (codes.includes(0)) return codes.some((code) => code !== 0)
+  return codes.length > 0 ? true : currentlyActive
 }
 
 export function formatTable(

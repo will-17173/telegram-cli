@@ -16,6 +16,17 @@ function renderResult(result: HandlerResult, columns = 80): string {
 }
 
 describe('InkRenderer', () => {
+  it('does not leak a truncated cell ANSI style into the grid border', () => {
+    const output = renderResult({
+      ok: true,
+      data: {},
+      human: { kind: 'table', title: '', columns: ['VALUE'], rows: [['\u001b[31mABCDEFGHIJ\u001b[0m']] },
+    }, 12)
+    const row = output.split('\n').find((line) => line.includes('ABCDEFG…'))
+    expect(row).toMatch(/^│ \u001b\[31mABCDEFG…\u001b\[39m │$/)
+    expect(row?.indexOf('\u001b[39m')).toBeLessThan(row?.lastIndexOf('│') ?? 0)
+  })
+
   it('keeps every physical line of a multiline cell inside aligned grid borders', () => {
     const output = renderResult({
       ok: true,

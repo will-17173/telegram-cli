@@ -7,6 +7,21 @@ import {
 } from '../../src/presenters/ink/display-width.js'
 
 describe('truncateCell', () => {
+  it('closes active ANSI SGR styles after a truncation ellipsis', () => {
+    expect(truncateCell('\u001b[31mABCDEFGHIJ\u001b[0m', 4))
+      .toBe('\u001b[31mABC…\u001b[0m')
+  })
+
+  it('leaves fitting ANSI SGR text and its existing reset unchanged', () => {
+    const value = '\u001b[1;31mABC\u001b[0m'
+    expect(truncateCell(value, 3)).toBe(value)
+  })
+
+  it('does not append a duplicate reset when styles close before truncation', () => {
+    expect(truncateCell('\u001b[1;31mA\u001b[0mBCDEFG', 4))
+      .toBe('\u001b[1;31mA\u001b[0mBC…')
+  })
+
   it('truncates wide Unicode text within the display width', () => {
     expect(truncateCell('技术交流群', 7)).toBe('技术交…')
   })
@@ -58,6 +73,13 @@ describe('formatTable', () => {
 })
 
 describe('formatGridTable', () => {
+  it('resets truncated ANSI cell styles before padding and the next border', () => {
+    const lines = formatGridTable(['VALUE'], [['\u001b[31mABCDEFGHIJ\u001b[0m']], 8)
+    const row = lines.find((line) => line.kind === 'row')?.text
+    expect(row).toMatch(/…\u001b\[0m\s+│$/)
+    expect(row?.indexOf('\u001b[0m')).toBeLessThan(row?.lastIndexOf('│') ?? 0)
+  })
+
   it('expands multiline cells into aligned physical grid rows without semantic separators', () => {
     const lines = formatGridTable(['ID', 'MESSAGE'], [['1', 'reply\ncontent\nmedia']], 30)
     expect(lines.map((line) => line.kind)).toEqual([
