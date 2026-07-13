@@ -7,12 +7,12 @@
 ## 功能
 
 - 登录 Telegram，并查看当前账户或可用聊天列表。
-- 管理多个 Telegram 账号，每个账号使用独立的会话和消息数据库。
+- 管理多个 Telegram 账号，每个账号使用独立的会话和消息数据库，并支持交互式切换。
 - 将聊天记录提取到本地 SQLite 数据库，以便快速离线搜索。
 - 通过增量同步和批量同步命令更新本地数据。
 - 监听实时消息，并可选显示附件摘要。
 - 从限制下载的频道中下载附件。
-- 搜索、筛选、汇总和导出本地存储的消息。
+- 搜索、筛选、汇总和导出本地消息，并在最近消息中显示回复上下文和媒体组摘要。
 - 通过命令行发送、编辑和删除消息。
 - 查看并管理群组、成员、管理员、邀请链接、论坛话题和消息。
 - 在支持的场景下使用人类可读输出，或结构化的 JSON/YAML 输出。
@@ -166,12 +166,17 @@ tg account list
 # 查看 current 账号
 tg account current
 
-# 设置命令默认使用的账号
+# 从交互式列表中选择默认账号
+tg account switch
+
+# 按名称设置默认账号
 tg account switch <name>
 
 # 删除账号及其本地会话和数据
 tg account remove <name> --force
 ```
+
+在交互式终端中，`tg account switch` 会列出已添加账号、标记 current 账号，并接受账号序号。编写脚本或使用 `--json`、`--yaml`、非交互式输入时，请传入 `<name>`。
 
 各命令默认使用 current 账号。支持 `--account` 的命令可以临时指定另一个已添加的账号，且不会改变 current 账号：
 
@@ -239,6 +244,18 @@ tg group topic --help
 
 本地命令只读取或修改所选账号的消息数据库，不会连接 Telegram。这类命令包括 `search`、`recent`、`stats`、`top`、`timeline`、`today`、`filter`、`export` 和 `purge`。
 
+## 查看最近消息
+
+`tg recent` 默认显示最近 24 小时内存储的 50 条消息。你可以按聊天或发送者筛选，也可以调整时间范围和数量：
+
+```sh
+tg recent --chat <chat> --sender <sender> --hours 6 --limit 100
+```
+
+人类可读输出会将每个 Telegram 媒体组合并为一行，并汇总其中的附件。`ID` 列列出该行包含的所有原始消息 ID。如果回复目标已存储在本地同一聊天中，输出会显示原消息的时间、发送者、ID 和文本。否则会标出本地缺失的消息 ID。
+
+JSON 和 YAML 输出保留已存储消息的结构，便于脚本处理。`recent` 只读取本地 SQLite 数据，不会连接 Telegram。
+
 ## 命令参考
 
 运行内置帮助以查看完整且最新的命令列表：
@@ -254,7 +271,7 @@ tg --help
 | `tg account add` | 登录并添加另一个 Telegram 账号。 |
 | `tg account list` | 列出已添加的账号及 current 状态。 |
 | `tg account current` | 查看 current 账号。 |
-| `tg account switch <name>` | 设置各命令默认使用的账号。 |
+| `tg account switch [name]` | 交互式选择默认账号，或按名称设置账号。 |
 | `tg account remove <name> --force` | 删除账号及其本地会话和数据。 |
 | `tg whoami` | 显示当前登录账号的基本信息。 |
 | `tg config set --api-id <id> --api-hash <hash>` | 持久化保存 Telegram API 凭据。 |
@@ -302,6 +319,8 @@ tg --help
 
 - `sync-all` 和 `refresh` 是写入本地数据库的批量同步流程，不是只读命令。
 - `listen` 会实时打印每条到达消息；可用 `--no-media` 关闭附件摘要显示。
+- Telegram 媒体组会显示为一条收到的消息，并合并附件摘要。
+- 回复输出会在本地原消息可用时显示其上下文，否则标出缺失的消息 ID。
 - 在交互式 `listen` 中，可用 `/reply <消息ID> <内容>` 回复消息；通过可重复的 `--file <路径>` 添加附件，包含空格的路径需要使用引号。
 - 联系人卡片会在附件摘要中显示可用的姓名和手机号。联系人卡片不属于可下载附件，使用 `--no-media` 时不会显示。
 - `listen --auto-download` 同时支持交互式和纯文本模式，附件保存在 `~/Downloads/telegram-cli`，最多同时下载 3 个附件。

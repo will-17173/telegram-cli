@@ -7,12 +7,12 @@ A TypeScript command-line client for syncing Telegram chats, listening to live m
 ## Features
 
 - Sign in to Telegram and inspect the current account or available chats.
-- Manage multiple Telegram accounts with isolated sessions and message databases.
+- Manage multiple Telegram accounts with isolated sessions, message databases, and interactive account switching.
 - Fetch chat history into a local SQLite database for fast, offline search.
 - Sync one chat incrementally or sync many chats with a single command.
 - Listen for new messages in real time, with optional attachment summaries.
 - Download attachments from channels that restrict content saving.
-- Search, filter, summarize, and export locally stored messages.
+- Search, filter, summarize, and export locally stored messages, with reply context and media-group summaries in recent results.
 - Send, edit, and delete messages from the command line.
 - Inspect and manage groups, members, administrators, invites, forum topics, and messages.
 - Use human-readable output or structured JSON/YAML where supported.
@@ -166,12 +166,17 @@ tg account list
 # Show the current account
 tg account current
 
-# Set the default account used by commands
+# Choose the default account from an interactive list
+tg account switch
+
+# Set the default account by name
 tg account switch <name>
 
 # Remove an account and its local session/data
 tg account remove <name> --force
 ```
+
+In an interactive terminal, `tg account switch` lists registered accounts, marks the current one, and accepts its number. Pass `<name>` when scripting or using `--json`, `--yaml`, or non-interactive input.
 
 Commands use the current account by default. Commands that support `--account` can target another registered account for one invocation without changing the current account:
 
@@ -239,6 +244,18 @@ Online commands connect to Telegram and require a valid session. These include `
 
 Local commands read or modify the selected account's message database without connecting to Telegram. These include `search`, `recent`, `stats`, `top`, `timeline`, `today`, `filter`, `export`, and `purge`.
 
+## Review recent messages
+
+`tg recent` shows messages stored during the last 24 hours, with a default limit of 50. Filter the results by chat or sender, or change the time window and limit:
+
+```sh
+tg recent --chat <chat> --sender <sender> --hours 6 --limit 100
+```
+
+Human-readable output groups each Telegram media group into one row and summarizes its attachments. The `ID` column lists every source message ID in that row. Replies include the original message's time, sender, ID, and text when the target exists locally in the same chat. Otherwise, the output identifies the missing local message ID.
+
+JSON and YAML output keep the stored-message structure for scripts. `recent` reads local SQLite data and does not connect to Telegram.
+
 ## Command reference
 
 Run the built-in help for the complete, current command list:
@@ -254,7 +271,7 @@ Common commands:
 | `tg account add` | Authenticate and register another Telegram account. |
 | `tg account list` | List registered accounts and show which one is current. |
 | `tg account current` | Show the current account. |
-| `tg account switch <name>` | Set the default account used by commands. |
+| `tg account switch [name]` | Select the default account interactively or set it by name. |
 | `tg account remove <name> --force` | Remove an account and its local session/data. |
 | `tg status` | Check whether the Telegram account is authenticated. |
 | `tg whoami` | Show basic authenticated account information. |
@@ -303,6 +320,8 @@ Use `tg <command> --help` to inspect command-specific options. For example, `lis
 
 - `sync-all` and `refresh` are batch operations for local persistence; they are not read-only.
 - `listen` prints a concise separator for each incoming message and can optionally suppress attachment summaries.
+- Telegram media groups appear as one incoming message with a combined attachment summary.
+- Reply output includes the original message's local context when available, or identifies the missing message ID.
 - In interactive `listen`, reply with `/reply <message-id> <content>`. Add attachments with repeatable `--file <path>` options; quote paths that contain spaces.
 - Contact cards show the available name and phone number in attachment summaries. They aren't downloadable attachments and are hidden by `--no-media`.
 - `listen --auto-download` works in both interactive and plain-text modes, saves attachments to `~/Downloads/telegram-cli`, and runs at most three downloads concurrently.
