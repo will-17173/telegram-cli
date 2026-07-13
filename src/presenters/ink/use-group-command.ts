@@ -48,6 +48,7 @@ function freezeRequest(request: ParsedGroupCommandRequest): ParsedGroupCommandRe
 export function useGroupCommand(execute: Parameters<typeof createGroupCommandController>[0]['execute']) {
   const [state, setState] = useState<GroupCommandState>({ kind: 'closed' })
   const generation = useRef(0)
+  const executionLock = useRef(0)
   const controller = createGroupCommandController({ execute })
   const submit = useCallback(async (input: string, selectedIndex: number) => {
     const owned = ++generation.current
@@ -70,7 +71,9 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
   }, [execute])
   const close = useCallback(() => { generation.current++; setState({ kind: 'closed' }) }, [])
   const runConfirmed = useCallback(async (request: ParsedGroupCommandRequest, confirmationTitle?: string) => {
+    if (executionLock.current !== 0) return
     const owned = ++generation.current
+    executionLock.current = owned
     setState({ kind: 'executing' })
     try {
       const result = await execute(request, { confirmed: true, confirmationTitle })
@@ -80,6 +83,8 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
         : { kind: 'error', message: 'Telegram did not accept the confirmation.' })
     } catch (error) {
       if (owned === generation.current) setState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+    } finally {
+      if (executionLock.current === owned) executionLock.current = 0
     }
   }, [execute])
   return { state, setState, submit, close, runConfirmed }

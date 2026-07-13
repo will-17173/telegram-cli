@@ -2,6 +2,7 @@ import type { HandlerResult } from '../commands/types.js'
 import type { ParsedGroupCommandRequest } from './parser.js'
 import type { TelegramGroupDetails } from '../telegram/group-types.js'
 import { ADMIN_RIGHT_KEYS, canonicalCommandKey, GroupWriteService, type GroupWriteServiceResult } from '../services/group-write-service.js'
+import type { GroupCommandDefinition } from './types.js'
 
 export interface GroupCommandExecutorContext {
   readonly chat: string | number
@@ -41,7 +42,9 @@ export async function executeGroupCommand(request: ParsedGroupCommandRequest, co
     return { ok: false, confirmation: { risk: request.definition.risk, chat: context.chat, summary: request.definition.summary, ...confirmation, ...(request.definition.risk === 'confirm-title' && context.knownGroup ? { title: context.knownGroup.title } : {}) } }
   }
   const result = await context.groups.execute({ ...request, chat: context.chat })
-  if (result.ok && !queries.has(key)) await context.invalidateGroup?.(context.chat)
+  if (result.ok && !queries.has(key) && context.invalidateGroup) {
+    await Promise.resolve(context.invalidateGroup(context.chat)).catch(() => undefined)
+  }
   return result
 }
 
@@ -67,11 +70,14 @@ function confirmationContext(request: ConfirmationRequest, context: GroupCommand
 }
 
 function preflight(request: ParsedGroupCommandRequest, group?: TelegramGroupDetails): HandlerResult<never> | undefined {
+  return evaluateGroupCommandAvailability(request.definition, group)
+}
+
+export function evaluateGroupCommandAvailability(definition: GroupCommandDefinition, group?: TelegramGroupDetails): HandlerResult<never> | undefined {
   if (!group) return undefined
-  const capability = request.definition.capability
-  const capabilityError = evaluateGroupCapability(capability, group)
+  const capabilityError = evaluateGroupCapability(definition.capability, group)
   if (capabilityError) return capabilityError
-  const permission = requiredPermission[request.definition.path.join(' ')]
+  const permission = requiredPermission[definition.path.join(' ')]
   if (group.current_user_role !== 'creator' && permission && group.permissions != null && !group.permissions[permission]) {
     return { ok: false, error: { code: 'permission_missing', message: `Missing Telegram group permission: ${permission}`, details: { permission } } }
   }

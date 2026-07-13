@@ -3,7 +3,7 @@ import { renderToString } from 'ink'
 import stringWidth from 'string-width'
 import { describe, expect, it } from 'vitest'
 
-import { GroupCommandMenu, MAX_GROUP_COMMAND_MATCHES, moveGroupCommandSelection, visibleGroupCommandMatches } from '../../src/presenters/ink/group-command-menu.js'
+import { GroupCommandMenu, MAX_GROUP_COMMAND_MATCHES, moveGroupCommandSelection, moveGroupCommandSelectionEnabled, visibleGroupCommandMatches } from '../../src/presenters/ink/group-command-menu.js'
 
 describe('GroupCommandMenu', () => {
   it('renders selected path, summary, usage and disabled alternatives', () => {
@@ -28,5 +28,11 @@ describe('GroupCommandMenu', () => {
     const matches = visibleGroupCommandMatches('/')
     expect(matches).toHaveLength(MAX_GROUP_COMMAND_MATCHES)
     expect(moveGroupCommandSelection(0, -1, matches.length)).toBe(MAX_GROUP_COMMAND_MATCHES - 1)
+  })
+
+  it('skips disabled choices and safely handles an all-disabled menu', () => {
+    expect(moveGroupCommandSelectionEnabled(0, 1, [false, true, false, true])).toBe(2)
+    expect(moveGroupCommandSelectionEnabled(2, 1, [false, true, false, true])).toBe(0)
+    expect(moveGroupCommandSelectionEnabled(0, 1, [true, true])).toBe(0)
   })
 })

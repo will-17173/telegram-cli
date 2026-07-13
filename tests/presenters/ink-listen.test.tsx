@@ -159,6 +159,34 @@ describe('InteractiveListen slash commands', () => {
     app.unmount()
   })
 
+  it('defaults confirmation to Cancel and locks rapid confirmed execution to one write', async () => {
+    let release!: () => void
+    const deferred = new Promise<void>(resolve => { release = resolve })
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    client.groups.banMember.mockImplementation(() => deferred)
+    const stdout = new MockStdout(50, 24, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen
+      chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false}
+      createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined}
+    />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/member ban 7')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/member ban 7'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Cancel'))
+    stdin.write('\u001b[A')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Confirm'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Running group command'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(client.groups.banMember).toHaveBeenCalledTimes(1))
+    release()
+    controller.abort()
+    app.unmount()
+  })
+
   it('owns the content and input until Esc after a successful command', async () => {
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })

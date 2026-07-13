@@ -16,7 +16,7 @@ import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScroll
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
 import { isMouseInput, useMouseScroll, withMouseReporting, type MouseScrollDirection } from './mouse-scroll.js'
-import { GroupCommandMenu, moveGroupCommandSelection, visibleGroupCommandMatches } from './group-command-menu.js'
+import { GroupCommandMenu, groupCommandMenuAvailability, moveGroupCommandSelectionEnabled, visibleGroupCommandMatches } from './group-command-menu.js'
 import { GroupCommandResult } from './group-command-result.js'
 import { useGroupCommand } from './use-group-command.js'
 import { executeGroupCommand } from '../../group-commands/executor.js'
@@ -24,6 +24,7 @@ import { completeGroupCommand } from '../../group-commands/parser.js'
 import { GroupWriteService } from '../../services/group-write-service.js'
 import { ADMIN_RIGHT_KEYS } from '../../services/group-write-service.js'
 import { GroupCommandConfirm } from './group-command-confirm.js'
+import { truncateCell } from './display-width.js'
 
 export type ListenMessage = ListenMessageRow & {
   key: string
@@ -512,12 +513,20 @@ export function InteractiveListen({
   const [knownGroup, setKnownGroup] = useState<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const knownGroupRef = useRef<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
+  const groupLookupGenerationRef = useRef(0)
   const groupCommand = useGroupCommand(useCallback(async (request, options) => {
     const client = clientRef.current
     if (client == null) return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection is not ready.' } }
     if (sendTo == null) return { ok: false, error: { code: 'ambiguous_chat', message: 'Select exactly one target chat with --send-to.' } }
-    const knownGroup = knownGroupRef.current ?? await client.groups.getGroup(sendTo)
-    knownGroupRef.current = knownGroup
+    let knownGroup = knownGroupRef.current
+    if (knownGroup == null) {
+      const lookup = ++groupLookupGenerationRef.current
+      knownGroup = await client.groups.getGroup(sendTo)
+      if (lookup === groupLookupGenerationRef.current && clientRef.current === client) {
+        knownGroupRef.current = knownGroup
+        setKnownGroup(knownGroup)
+      }
+    }
     return executeGroupCommand(request, {
       chat: sendTo,
       groups: new GroupWriteService(client.groups),
@@ -529,9 +538,18 @@ export function InteractiveListen({
       targetCount: 1,
       invalidateGroup: async () => {
         knownGroupRef.current = undefined
-        const refreshed = await client.groups.getGroup(sendTo)
-        knownGroupRef.current = refreshed
-        setKnownGroup(refreshed)
+        setKnownGroup(undefined)
+        if (request.key === 'chat delete' || request.key === 'chat leave') return
+        const lookup = ++groupLookupGenerationRef.current
+        try {
+          const refreshed = await client.groups.getGroup(sendTo)
+          if (lookup === groupLookupGenerationRef.current && clientRef.current === client) {
+            knownGroupRef.current = refreshed
+            setKnownGroup(refreshed)
+          }
+        } catch (error) {
+          if (lookup === groupLookupGenerationRef.current && clientRef.current === client) setNote(`Group updated; refresh failed: ${messageFromError(error)}`)
+        }
       },
     })
   }, [sendTo]))
@@ -670,11 +688,14 @@ export function InteractiveListen({
     if (slashMode && (key.upArrow || key.downArrow)) {
       const count = visibleGroupCommandMatches(input).length
       const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
-      groupCommand.setState({ kind: 'menu', selectedIndex: moveGroupCommandSelection(selected, key.upArrow ? -1 : 1, count) })
+      const disabled = groupCommandMenuAvailability(input, knownGroup).map(Boolean)
+      groupCommand.setState({ kind: 'menu', selectedIndex: moveGroupCommandSelectionEnabled(selected, key.upArrow ? -1 : 1, disabled.slice(0, count)) })
       return
     }
     if (slashMode && key.tab) {
       const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+      const failure = groupCommandMenuAvailability(input, knownGroup)[selected]
+      if (failure && 'error' in failure) { setNote(failure.error.message); return }
       setInput(completeGroupCommand(input, selected))
       groupCommand.setState({ kind: 'menu', selectedIndex: selected })
       setFocus('input')
@@ -714,6 +735,8 @@ export function InteractiveListen({
     if (key.return) {
       if (slashMode) {
         const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+        const failure = groupCommandMenuAvailability(input, knownGroup)[selected]
+        if (failure && 'error' in failure) { setNote(failure.error.message); return }
         void groupCommand.submit(input, selected).then((outcome) => {
           if (!outcome.applied) return
           if (outcome.kind === 'complete') setInput(outcome.input)
@@ -792,8 +815,9 @@ export function InteractiveListen({
         if (!isActive()) return
         clientRef.current = client
         if (client != null && sendTo != null) {
+          const lookup = ++groupLookupGenerationRef.current
           void client.groups.getGroup(sendTo).then((group) => {
-            if (isActive()) { knownGroupRef.current = group; setKnownGroup(group) }
+            if (isActive() && lookup === groupLookupGenerationRef.current && clientRef.current === client) { knownGroupRef.current = group; setKnownGroup(group) }
           }).catch(() => undefined)
           void resolveSendTargetLabel(client, sendTo).then((label) => {
             if (isActive() && label != null) setSendTargetLabel(label)
@@ -840,6 +864,7 @@ export function InteractiveListen({
     })
 
     return () => {
+      groupLookupGenerationRef.current += 1
       generation.dispose()
       stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.dispose()
@@ -947,8 +972,8 @@ export function InteractiveListen({
         {groupCommand.state.kind === 'confirm' && 'confirmation' in groupCommand.state.pending ? <GroupCommandConfirm confirmation={groupCommand.state.pending.confirmation} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} /> : null}
         {groupCommand.state.kind === 'confirm-title' && 'confirmation' in groupCommand.state.pending ? groupCommand.state.stage === 'confirm'
           ? <GroupCommandConfirm confirmation={groupCommand.state.pending.confirmation} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} />
-          : <Box flexDirection="column"><Text color="yellow">Type the exact title to permanently delete this chat:</Text><Text>{groupCommand.state.pending.confirmation.title}</Text><Text color="#8ecbff">› {groupCommand.state.confirmText}</Text>{groupCommand.state.mismatch ? <Text color="red">Title does not match exactly.</Text> : null}<Text dimColor>Enter verify · Esc back</Text></Box> : null}
-        {permissionState ? <Box flexDirection="column"><Text color="#8ecbff">Administrator permissions</Text>{ADMIN_RIGHT_KEYS.map((right, index) => <Text key={right} color={index === permissionState.selectedIndex ? '#8ecbff' : undefined}>{index === permissionState.selectedIndex ? '› ' : '  '}[{permissionState.selected.includes(right) ? 'x' : ' '}] {right}</Text>)}{permissionState.warning ? <Text color="yellow">{permissionState.warning}</Text> : null}<Text dimColor>↑/↓ select · Space toggle · Enter continue · Esc cancel</Text></Box> : null}
+          : <Box flexDirection="column" width={contentWidth}><Text color="yellow">{truncateCell('Type the exact title to permanently delete this chat:', contentWidth)}</Text><Text>{truncateCell(groupCommand.state.pending.confirmation.title ?? '', contentWidth)}</Text><Text color="#8ecbff">{truncateCell(`› ${groupCommand.state.confirmText}`, contentWidth)}</Text>{groupCommand.state.mismatch ? <Text color="red">{truncateCell('Title does not match exactly.', contentWidth)}</Text> : null}<Text dimColor>{truncateCell('Enter verify · Esc back', contentWidth)}</Text></Box> : null}
+        {permissionState ? <Box flexDirection="column" width={contentWidth}><Text color="#8ecbff">{truncateCell('Administrator permissions', contentWidth)}</Text>{ADMIN_RIGHT_KEYS.map((right, index) => <Text key={right} color={index === permissionState.selectedIndex ? '#8ecbff' : undefined}>{truncateCell(`${index === permissionState.selectedIndex ? '› ' : '  '}[${permissionState.selected.includes(right) ? 'x' : ' '}] ${right}`, contentWidth)}</Text>)}{permissionState.warning ? <Text color="yellow">{truncateCell(permissionState.warning, contentWidth)}</Text> : null}<Text dimColor>{truncateCell('↑/↓ select · Space toggle · Enter continue · Esc cancel', contentWidth)}</Text></Box> : null}
         <Box marginTop={1} flexDirection="column" flexGrow={1} overflow="hidden">
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}
           {visibleMessages.map((message) => (
