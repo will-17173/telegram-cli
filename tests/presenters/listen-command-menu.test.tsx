@@ -11,6 +11,26 @@ import {
 } from '../../src/presenters/ink/listen-command-menu.js'
 import { visibleListenCommandMatches } from '../../src/listen-commands/match.js'
 
+const knownMemberGroup = {
+  id: 1,
+  title: 'Known group',
+  username: null,
+  type: 'group' as const,
+  member_count: 2,
+  current_user_role: 'member' as const,
+  current_user_rank: null,
+  permissions: null,
+  default_restrictions: null,
+  slow_mode_seconds: null,
+  message_ttl_seconds: null,
+  content_protected: false,
+  forum: false,
+}
+
+function menuRows(element: React.JSX.Element) {
+  return React.Children.toArray(element.props.children) as React.ReactElement<Record<string, unknown>>[]
+}
+
 describe('ListenCommandMenu', () => {
   it('uses the unified bounded matches for reply and group commands', () => {
     expect(visibleListenCommandMatches('/')).toHaveLength(6)
@@ -29,25 +49,28 @@ describe('ListenCommandMenu', () => {
   })
 
   it('disables unavailable group commands and renders their reason', () => {
-    const knownGroup = {
-      id: 1,
-      title: 'Known group',
-      username: null,
-      type: 'group' as const,
-      member_count: 2,
-      current_user_role: 'member' as const,
-      current_user_rank: null,
-      permissions: null,
-      default_restrictions: null,
-      slow_mode_seconds: null,
-      message_ttl_seconds: null,
-      content_protected: false,
-      forum: false,
-    }
-    const availability = listenCommandMenuAvailability('/ban', knownGroup)
+    const availability = listenCommandMenuAvailability('/ban', knownMemberGroup)
     expect(availability[0]).toMatchObject({ ok: false })
-    expect(renderToString(<ListenCommandMenu input="/ban" selectedIndex={0} width={80} knownGroup={knownGroup} />))
+    expect(renderToString(<ListenCommandMenu input="/ban" selectedIndex={0} width={80} knownGroup={knownMemberGroup} />))
       .toContain('disabled:')
+  })
+
+  it('styles selected, non-selected, and selected-disabled rows', () => {
+    const enabled = ListenCommandMenu({ input: '/', selectedIndex: 0, width: 80 })!
+    const enabledRows = menuRows(enabled)
+    expect(enabledRows[0]!.props).toMatchObject({ color: '#8ecbff', dimColor: false })
+    expect(enabledRows[1]!.props).toMatchObject({ color: undefined, dimColor: true })
+
+    const disabled = ListenCommandMenu({ input: '/ban', selectedIndex: 0, width: 80, knownGroup: knownMemberGroup })!
+    expect(menuRows(disabled)[0]!.props).toMatchObject({ color: undefined, dimColor: true })
+  })
+
+  it('clamps an out-of-range selection for row style and usage', () => {
+    const matches = visibleListenCommandMatches('/')
+    const menu = ListenCommandMenu({ input: '/', selectedIndex: 99, width: 120 })!
+    const rows = menuRows(menu)
+    expect(rows[matches.length - 1]!.props).toMatchObject({ color: '#8ecbff', dimColor: false })
+    expect(rows.at(-1)!.props.children).toBe(`Usage: ${matches.at(-1)!.definition.usage}`)
   })
 
   it('renders selected usage and keeps wide-character lines within display width', () => {
