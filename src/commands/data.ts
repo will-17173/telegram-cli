@@ -53,18 +53,26 @@ async function renderDataResult(
   handler: (service: DataService) => HandlerResult,
   command?: Command,
 ): Promise<void> {
-  const conflict = outputFormatConflict(options)
+  const effectiveOptions = command == null ? options : mergeOptionsWithGlobals(command, options)
+  const conflict = outputFormatConflict(effectiveOptions)
   if (conflict) {
     await renderResult(conflict, { yaml: true })
     return
   }
 
-  await runWithAccountContext(options, (context) => {
+  await runWithAccountContext(effectiveOptions, (context) => {
     const service = new DataService(new MessageDB(context.dbPath))
     try {
       return handler(service)
     } finally {
       service.close()
     }
-  }, command)
+  })
+}
+
+function mergeOptionsWithGlobals<T extends DataFlags>(command: Command, options: T): T {
+  return {
+    ...command.optsWithGlobals(),
+    ...options,
+  }
 }

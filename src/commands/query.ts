@@ -124,18 +124,26 @@ async function renderQueryResult(
   handler: (service: QueryService) => HandlerResult,
   command?: Command,
 ): Promise<void> {
-  const conflict = outputFormatConflict(options)
+  const effectiveOptions = command == null ? options : mergeOptionsWithGlobals(command, options)
+  const conflict = outputFormatConflict(effectiveOptions)
   if (conflict) {
     await renderResult(conflict, { yaml: true })
     return
   }
 
-  await runWithAccountContext(options, (context) => {
+  await runWithAccountContext(effectiveOptions, (context) => {
     const service = new QueryService(new MessageDB(context.dbPath))
     try {
       return handler(service)
     } finally {
       service.close()
     }
-  }, command)
+  })
+}
+
+function mergeOptionsWithGlobals<T extends QueryFlags>(command: Command, options: T): T {
+  return {
+    ...command.optsWithGlobals(),
+    ...options,
+  }
 }
