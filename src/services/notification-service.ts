@@ -1,14 +1,15 @@
 import type { HandlerResult, HumanOutput } from '../commands/types.js'
-import { TelegramNotificationError } from '../telegram/mtcute-notifications.js'
-import type {
-  TelegramNotificationAdapter,
-  TelegramNotificationState,
+import {
+  TelegramNotificationError,
+  type TelegramNotificationAdapter,
+  type TelegramNotificationState,
 } from '../telegram/notification-types.js'
 import { WriteAccessPolicy } from './write-access-policy.js'
 
 const PERMANENT_MUTE_UNTIL_SECONDS = 2_147_483_647
 const INVALID_DURATION_MESSAGE = 'Notification duration must be a positive integer followed by s, m, h, d, or w, or forever.'
-const MAX_DATE_MILLISECONDS = 8_640_000_000_000_000
+const MAX_MUTE_UNTIL_MILLISECONDS = PERMANENT_MUTE_UNTIL_SECONDS * 1_000
+const MIN_DATE_MILLISECONDS = -8_640_000_000_000_000
 const UNIT_MILLISECONDS = {
   s: 1_000,
   m: 60_000,
@@ -40,8 +41,8 @@ export function parseNotificationDuration(duration: string, now = new Date()): D
     || !Number.isFinite(baseMilliseconds)
     || !Number.isFinite(durationMilliseconds)
     || !Number.isFinite(targetMilliseconds)
-    || targetMilliseconds > MAX_DATE_MILLISECONDS
-    || targetMilliseconds < -MAX_DATE_MILLISECONDS
+    || targetMilliseconds > MAX_MUTE_UNTIL_MILLISECONDS
+    || targetMilliseconds < MIN_DATE_MILLISECONDS
   ) {
     throw new InvalidNotificationDurationError()
   }

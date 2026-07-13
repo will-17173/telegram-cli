@@ -5,10 +5,10 @@ import {
   parseNotificationDuration,
 } from '../../src/services/notification-service.js'
 import { WriteAccessPolicy } from '../../src/services/write-access-policy.js'
-import { TelegramNotificationError } from '../../src/telegram/mtcute-notifications.js'
-import type {
-  TelegramNotificationAdapter,
-  TelegramNotificationState,
+import {
+  TelegramNotificationError,
+  type TelegramNotificationAdapter,
+  type TelegramNotificationState,
 } from '../../src/telegram/notification-types.js'
 
 const state: TelegramNotificationState = {
@@ -36,6 +36,18 @@ describe('parseNotificationDuration', () => {
 
   it('maps forever to the Telegram permanent mute timestamp', () => {
     expect(parseNotificationDuration('forever', now)).toEqual(new Date(2147483647 * 1000))
+  })
+
+  it('accepts a relative duration ending exactly at the Telegram maximum timestamp', () => {
+    const oneSecondBeforeMaximum = new Date((2147483647 - 1) * 1000)
+
+    expect(parseNotificationDuration('1s', oneSecondBeforeMaximum)).toEqual(new Date(2147483647 * 1000))
+  })
+
+  it('rejects a relative duration ending after the Telegram maximum timestamp', () => {
+    const oneSecondBeforeMaximum = new Date((2147483647 - 1) * 1000)
+
+    expect(() => parseNotificationDuration('2s', oneSecondBeforeMaximum)).toThrow('invalid_notification_duration')
   })
 
   it.each(['0h', '-1h', '1.5h', '1x', '1 h', '', '999999999999999999999w'])('rejects invalid duration %j', (duration) => {

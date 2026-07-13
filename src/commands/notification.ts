@@ -37,7 +37,7 @@ export function registerNotificationCommands(app: Command): void {
   notification.command('mute')
     .description('Mute notifications for a Telegram chat')
     .argument('<chat>')
-    .argument('[duration]')
+    .argument('[duration]', 'Duration such as 30m, 8h, 2d, or forever (default: forever)')
     .option('--json')
     .option('--yaml')
     .action(async (chat: string, duration: string | undefined, _options: NotificationOptions, command: Command) => {

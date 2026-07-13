@@ -1,23 +1,13 @@
 import { tl, type Dialog, type TelegramClient } from '@mtcute/node'
 
 import { isPeerNotFoundError, normalizePeerId } from './mtcute-group-helpers.js'
-import type { TelegramNotificationAdapter, TelegramNotificationState } from './notification-types.js'
+import {
+  TelegramNotificationError,
+  type TelegramNotificationAdapter,
+  type TelegramNotificationState,
+} from './notification-types.js'
 
 const PERMANENT_MUTE_UNTIL = 2_147_483_647
-
-type NotificationErrorCode = 'chat_not_found' | 'flood_wait' | 'telegram_error'
-
-export class TelegramNotificationError extends Error {
-  readonly code: NotificationErrorCode
-  readonly seconds?: number
-
-  constructor(code: NotificationErrorCode, message: string, seconds?: number) {
-    super(message)
-    this.name = 'TelegramNotificationError'
-    this.code = code
-    this.seconds = seconds
-  }
-}
 
 export class MtcuteNotifications {
   constructor(

@@ -56,6 +56,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.clearAllMocks()
   vi.unstubAllEnvs()
   process.exitCode = 0
@@ -75,15 +76,13 @@ describe('notification commands', () => {
   })
 
   it('mutes for a parsed relative duration', async () => {
-    const before = Date.now()
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-13T12:00:00Z'))
+
     await run('notification', 'mute', '@team', '8h', '--json')
-    const after = Date.now()
 
     expect(notifications.setMuteUntil).toHaveBeenCalledOnce()
-    const until = notifications.setMuteUntil.mock.calls[0][1] as Date
-    expect(until).toBeInstanceOf(Date)
-    expect(until.getTime()).toBeGreaterThanOrEqual(before + 8 * 60 * 60 * 1000)
-    expect(until.getTime()).toBeLessThanOrEqual(after + 8 * 60 * 60 * 1000)
+    expect(notifications.setMuteUntil).toHaveBeenCalledWith('@team', new Date('2026-07-13T20:00:00Z'))
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: true }), { json: true })
   })
 
@@ -104,6 +103,22 @@ describe('notification commands', () => {
     vi.unstubAllEnvs()
 
     await run('notification', 'mute', '@team', '0h')
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: {
+        code: 'invalid_notification_duration',
+        message: 'Notification duration must be a positive integer followed by s, m, h, d, or w, or forever.',
+      },
+    }, {})
+  })
+
+  it('rejects a relative duration beyond Telegram maximum before client construction', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-13T12:00:00Z'))
+
+    await run('notification', 'mute', '@team', '999w')
 
     expect(createTelegramClient).not.toHaveBeenCalled()
     expect(renderResult).toHaveBeenCalledWith({

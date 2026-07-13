@@ -95,6 +95,10 @@ describe('cli help', () => {
       [{ name: 'chat', required: true }],
     ])
     expect(notification?.commands.every(command => command.options.map(option => option.long).join(',') === '--json,--yaml')).toBe(true)
+
+    const muteHelp = notification?.commands.find(command => command.name() === 'mute')?.helpInformation() ?? ''
+    expect(muteHelp).toContain('Duration such as 30m, 8h, 2d, or forever')
+    expect(muteHelp).toContain('default: forever')
   })
 
   it('lists page delay for history and sync', () => {
