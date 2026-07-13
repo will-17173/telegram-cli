@@ -78,7 +78,7 @@ export function evaluateGroupCommandAvailability(definition: GroupCommandDefinit
   const capabilityError = evaluateGroupCapability(definition.capability, group)
   if (capabilityError) return capabilityError
   const permission = requiredPermission[definition.path.join(' ')]
-  if (group.current_user_role !== 'creator' && permission && group.permissions != null && !group.permissions[permission]) {
+  if (group.current_user_role !== 'creator' && permission && (group.permissions == null || !group.permissions[permission])) {
     return { ok: false, error: { code: 'permission_missing', message: `Missing Telegram group permission: ${permission}`, details: { permission } } }
   }
   return undefined

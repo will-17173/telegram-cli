@@ -86,6 +86,23 @@ describe('executeGroupCommand', () => {
     expect(evaluateGroupCommandAvailability(request.definition, undefined)).toBeUndefined()
   })
 
+  it.each(['topic create Name', 'topic delete 9'])('denies %s when a known non-creator has no permissions payload', async source => {
+    const groups = new FakeTelegramGroupManagement()
+    const request = parsed(source)
+    const known = { ...await groups.getGroup(100), forum: true, current_user_role: 'member' as const, permissions: null }
+    expect(evaluateGroupCommandAvailability(request.definition, known)).toMatchObject({
+      ok: false, error: { code: 'permission_missing', details: { permission: 'manage_topics' } },
+    })
+  })
+
+  it('denies a known admin with a missing permissions payload but keeps wholly unknown details authoritative', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const request = parsed('member ban 7')
+    const known = { ...await groups.getGroup(100), current_user_role: 'admin' as const, permissions: null }
+    expect(evaluateGroupCommandAvailability(request.definition, known)).toMatchObject({ ok: false, error: { details: { permission: 'ban_users' } } })
+    expect(evaluateGroupCommandAvailability(request.definition, undefined)).toBeUndefined()
+  })
+
   it('keeps a successful mutation successful when cache invalidation fails', async () => {
     const groups = new FakeTelegramGroupManagement()
     await expect(executeGroupCommand(parsed('chat title New'), {
