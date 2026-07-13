@@ -220,15 +220,18 @@ Potentially destructive CLI actions refuse to connect to Telegram unless `--yes`
 
 Use `tg group member info <chat> <user>` as the canonical member-details route. The legacy `tg group member <chat> <user>` form remains available, but a chat name matching a reserved member action such as `ban`, `mute`, or `info` is ambiguous and requires the canonical route.
 
-## Group commands while listening
+## Slash commands while listening
 
-Interactive `tg listen` accepts the same management grammar as slash commands without repeating the selected chat:
+Interactive `tg listen` presents every supported slash command in one menu. This includes `/reply` and the complete group-management catalog; group commands use the same management grammar without repeating the selected chat:
 
 ```text
+/reply <message-id> <content>
 /member mute @alice 2h
 ```
 
-Typing `/` opens fuzzy command matches. Use Up/Down to move, Tab to complete, Enter to run, and Esc to close a menu, result, or confirmation. Risky actions open a confirmation modal; chat deletion also asks for the exact title. When listening to more than one chat, set an unambiguous outgoing target with `--send-to <chat>` before using group commands, for example `tg listen @team @ops --send-to @team`.
+Typing `/` opens the unified command menu, with reply first. Matching ranks exact paths, prefixes, then ordered fuzzy matches, so `/rep` and `/rpy` find `/reply`, while `/ban` finds `/member ban`. Use Up/Down to move through matches. Tab completes the selected command; Enter also completes an incomplete selection, or runs a complete command. Esc closes the menu, result, or confirmation.
+
+Group-command availability and permission checks are unchanged: unavailable actions remain disabled, risky actions open a confirmation modal, and chat deletion also asks for the exact title. When listening to more than one chat, set an unambiguous outgoing target with `--send-to <chat>` before using group commands, for example `tg listen @team @ops --send-to @team`.
 
 ## Online and local commands
 

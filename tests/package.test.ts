@@ -43,13 +43,17 @@ describe('npm package metadata', () => {
     expect(readFileSync('src/index.ts', 'utf8').split('\n')[0]).toBe('#!/usr/bin/env node')
   })
 
-  it('documents CLI and interactive group management contracts', () => {
+  it('documents CLI and unified interactive slash-command contracts', () => {
     const readme = readFileSync('README.md', 'utf8')
 
     for (const example of [
       'tg group member ban @team @alice --yes',
       'tg group chat slowmode @team 30s',
+      '/reply <message-id> <content>',
       '/member mute @alice 2h',
+      '`/rep`',
+      '`/rpy`',
+      '`/ban`',
       '--send-to',
       '--confirm-title',
       'password_required',

@@ -220,15 +220,18 @@ tg group topic --help
 
 查询成员详情请优先使用规范路由 `tg group member info <chat> <user>`。旧形式 `tg group member <chat> <user>` 仍保留，但当群名等于 `ban`、`mute`、`info` 等保留操作名时会产生歧义，必须使用规范路由。
 
-## Listen 中的群管理命令
+## Listen 中的斜杠命令
 
-交互式 `tg listen` 可使用相同语法的 slash 命令，无需重复当前群组：
+交互式 `tg listen` 会在同一个菜单中展示所有支持的斜杠命令，包括 `/reply` 和完整的群管理命令目录。群管理命令沿用原有语法，无需重复当前群组：
 
 ```text
+/reply <消息ID> <内容>
 /member mute @alice 2h
 ```
 
-输入 `/` 会打开模糊匹配菜单。使用 Up/Down 移动、Tab 补全、Enter 执行、Esc 关闭菜单、结果或确认框。有风险的操作会打开确认弹窗；删除群组还会要求输入完全一致的群名。监听多个群组时，必须先用 `--send-to <chat>` 明确发送目标，例如 `tg listen @team @ops --send-to @team`，之后才能使用群管理命令。
+输入 `/` 会打开统一命令菜单，并优先显示 reply。匹配顺序依次为完整匹配、前缀匹配和有序模糊匹配，因此 `/rep`、`/rpy` 都能找到 `/reply`，`/ban` 能找到 `/member ban`。使用 Up/Down 移动；Tab 补全选中的命令；对于尚未补全的命令，Enter 也会先补全，否则执行完整命令；Esc 关闭菜单、结果或确认框。
+
+群管理命令原有的可用性和权限检查保持不变：不可用操作仍会禁用，有风险的操作会打开确认弹窗，删除群组还会要求输入完全一致的群名。监听多个群组时，必须先用 `--send-to <chat>` 明确发送目标，例如 `tg listen @team @ops --send-to @team`，之后才能使用群管理命令。
 
 ## 在线命令与本地命令
 
