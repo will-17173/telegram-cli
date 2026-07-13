@@ -311,6 +311,16 @@ describe('GroupWriteService', () => {
     expect(JSON.stringify(result)).not.toContain('bad-secret')
   })
 
+  it('preserves ordinary non-transfer failures when the secret type boundary is bypassed', async () => {
+    const groups = new FakeTelegramGroupManagement({ writeFailures: { setTitle: new Error('safe failure') } })
+    const result = await (new GroupWriteService(groups).execute as (
+      command: ReturnType<typeof request>, secrets: { ownershipPassword: string },
+    ) => Promise<Awaited<ReturnType<GroupWriteService['execute']>>>)(request('chat title Safe'), { ownershipPassword: 'bad-secret' })
+
+    expect(result).toEqual({ ok: false, error: { code: 'telegram_error', message: 'safe failure' } })
+    expect(JSON.stringify(result)).not.toContain('bad-secret')
+  })
+
   it('rejects unknown administrator permission names at the service boundary', async () => {
     const groups = new FakeTelegramGroupManagement()
     const result = await new GroupWriteService(groups).execute(request('admin promote 7 ban_users,bogus'))

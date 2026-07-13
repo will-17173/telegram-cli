@@ -107,6 +107,8 @@ export class GroupWriteService {
     request: ParsedGroupWriteRequest,
     secrets: GroupWriteExecutionSecrets = {},
   ): Promise<HandlerResult<GroupWriteServiceResult>> {
+    const ownershipPassword = request.key === 'admin transfer-owner' ? secrets.ownershipPassword : undefined
+    secrets = {}
     const key = canonicalCommandKey(request)
     if (!key) return failure('invalid_command', 'Invalid or noncanonical group command.')
 
@@ -122,15 +124,16 @@ export class GroupWriteService {
     if ((request.key === 'invite create' || request.key === 'invite edit') && request.values.requestNeeded === true && request.values.limit != null) {
       return failure('invalid_option', 'Approval-required invite links cannot have a usage limit.')
     }
-    if (request.key === 'admin transfer-owner' && (secrets.ownershipPassword == null || secrets.ownershipPassword === '')) {
+    if (request.key === 'admin transfer-owner' && (ownershipPassword == null || ownershipPassword === '')) {
       return failure('password_required', 'Telegram account password required')
     }
     if (!isReadOnlyGroupCommand(key)) {
       const access = this.writePolicy.check()
       if (!access.ok) return access
     }
-    try { return { ok: true, data: await dispatch(request, this.groups, secrets) } }
-    catch (error) { return groupWriteFailure(error, secrets.ownershipPassword) }
+    const executionSecrets = ownershipPassword == null ? {} : { ownershipPassword }
+    try { return { ok: true, data: await dispatch(request, this.groups, executionSecrets) } }
+    catch (error) { return groupWriteFailure(error, ownershipPassword) }
   }
 }
 
