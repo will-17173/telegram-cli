@@ -1,0 +1,212 @@
+import { FileLocation, tl } from '@mtcute/node'
+import type { Message, TelegramClient } from '@mtcute/node'
+import { describe, expect, it, vi } from 'vitest'
+
+import { MtcuteArchive } from '../../src/telegram/mtcute-archive.js'
+import { FakeTelegramClient } from '../../src/telegram/fake-client.js'
+import type { ArchiveMessage } from '../../src/telegram/archive-types.js'
+
+describe('MtcuteArchive', () => {
+  it('streams bounded history pages in newest-first order', async () => {
+    const since = new Date('2026-07-13T00:00:01.000Z')
+    const until = new Date('2026-07-13T00:00:04.000Z')
+    const iterHistory = vi.fn(() => messages(
+      message(2, '2026-07-13T00:00:02.000Z'),
+      message(3, '2026-07-13T00:00:03.000Z'),
+      message(4, '2026-07-13T00:00:04.000Z'),
+      message(1, '2026-07-13T00:00:01.000Z'),
+      message(0, '2026-07-13T00:00:00.000Z'),
+    ))
+    const client = mockClient({ iterHistory })
+    const adapter = new MtcuteArchive(client, async () => undefined, 2)
+
+    const pages = await collect(adapter.iterHistoryPages({ chat: '@team', since, until }))
+
+    expect(pages.flat().map(item => item.msg_id)).toEqual([3, 2, 1])
+    expect(pages.map(page => page.map(item => item.msg_id))).toEqual([[3, 2], [1]])
+    expect(iterHistory).toHaveBeenCalledWith('@team', expect.objectContaining({ chunkSize: 2 }))
+  })
+
+  it('applies an exclusive minimum message ID', async () => {
+    const client = mockClient({
+      iterHistory: vi.fn(() => messages(
+        message(5, '2026-07-13T00:00:05.000Z'),
+        message(4, '2026-07-13T00:00:04.000Z'),
+        message(3, '2026-07-13T00:00:03.000Z'),
+      )),
+    })
+    const adapter = new MtcuteArchive(client, async () => undefined)
+
+    const pages = await collect(adapter.iterHistoryPages({ chat: 100, minId: 3 }))
+
+    expect(pages.flat().map(item => item.msg_id)).toEqual([5, 4])
+    expect(client.iterHistory).toHaveBeenCalledWith(100, expect.objectContaining({ minId: 3 }))
+  })
+
+  it('normalizes messages and marks unsupported media as non-downloadable', async () => {
+    const downloadable = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+    const client = mockClient({
+      iterHistory: vi.fn(() => messages(
+        message(2, '2026-07-13T00:00:02.000Z', {
+          type: 'document', fileName: 'report.pdf', fileSize: 12, location: downloadable,
+        }),
+        message(1, '2026-07-13T00:00:01.000Z', {
+          type: 'poll', question: 'Ready?',
+        }),
+      )),
+    })
+    const adapter = new MtcuteArchive(client, async () => undefined)
+
+    const pages = await collect(adapter.iterHistoryPages({ chat: 100 }))
+
+    expect(pages.flat().map(item => item.attachment)).toEqual([
+      { type: 'document', file_name: 'report.pdf', file_size: 12, downloadable: true },
+      { type: 'poll', file_name: null, file_size: null, downloadable: false },
+    ])
+  })
+
+  it('downloads message media to the requested file', async () => {
+    const location = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+    const destination = '/tmp/archive/photo.jpg'
+    const downloadToFile = vi.fn().mockResolvedValue(undefined)
+    const client = mockClient({
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      downloadToFile,
+    })
+    const adapter = new MtcuteArchive(client, async () => undefined)
+
+    await adapter.downloadMedia({ chat: '@team', messageId: 3, destination })
+
+    expect(downloadToFile).toHaveBeenCalledWith(destination, expect.anything(), expect.any(Object))
+  })
+
+  it('rejects downloads for messages without downloadable media', async () => {
+    const client = mockClient({
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', { type: 'poll' })]),
+    })
+    const adapter = new MtcuteArchive(client, async () => undefined)
+
+    await expect(adapter.downloadMedia({ chat: '@team', messageId: 3, destination: '/tmp/poll' }))
+      .rejects.toThrow('This attachment cannot be downloaded')
+  })
+
+  it('propagates flood waits from history iteration', async () => {
+    const floodWait = new tl.RpcError(420, 'FLOOD_WAIT_12')
+    const client = mockClient({
+      iterHistory: vi.fn(() => failingMessages(floodWait)),
+    })
+    const adapter = new MtcuteArchive(client, async () => undefined)
+
+    await expect(collect(adapter.iterHistoryPages({ chat: '@team' }))).rejects.toBe(floodWait)
+  })
+
+  it('resolves explicit chats directly and all chats from dialogs', async () => {
+    const getPeer = vi.fn(async (chat: string | number) => ({
+      id: chat === '@team' ? 100 : 200,
+      type: 'chat',
+      chatType: 'supergroup',
+      displayName: chat === '@team' ? 'Team' : 'Other',
+    }))
+    const client = mockClient({
+      getPeer,
+      iterDialogs: async function* () {
+        yield { peer: { id: 300, type: 'chat', chatType: 'channel', title: 'News' } }
+      },
+    })
+    const adapter = new MtcuteArchive(client, async () => undefined)
+
+    await expect(adapter.resolveChats({ chats: ['@team'], all: false })).resolves.toEqual([
+      { id: 100, title: 'Team', type: 'supergroup' },
+    ])
+    await expect(adapter.resolveChats({ all: true })).resolves.toEqual([
+      { id: 300, title: 'News', type: 'channel' },
+    ])
+    expect(getPeer).toHaveBeenCalledWith('@team')
+  })
+})
+
+describe('FakeTelegramClient archive adapter', () => {
+  it('yields injected pages and clones attachment values', async () => {
+    const archived = archiveMessage(3)
+    const configured = new FakeTelegramClient({
+      chats: [{ id: 100, name: 'Team', type: 'supergroup', unread: 0 }],
+      archivePagesByChat: { Team: [[archived]] },
+    })
+    const configuredPages = await collect(configured.archive.iterHistoryPages({ chat: 100 }))
+    expect(configuredPages).toEqual([[archived]])
+    expect(configuredPages[0]![0]).not.toBe(archived)
+    expect(configuredPages[0]![0]!.attachment).not.toBe(archived.attachment)
+  })
+
+  it('supports configured history and media failures', async () => {
+    const historyFailure = new Error('history unavailable')
+    const mediaFailure = new Error('media unavailable')
+    const client = new FakeTelegramClient({
+      chats: [{ id: 100, name: 'Team', type: 'supergroup', unread: 0 }],
+      archiveHistoryFailures: { Team: historyFailure },
+      archiveMediaFailures: { 'Team:3': mediaFailure },
+    })
+
+    await expect(collect(client.archive.iterHistoryPages({ chat: 100 }))).rejects.toBe(historyFailure)
+    await expect(client.archive.downloadMedia({ chat: 100, messageId: 3, destination: '/tmp/3' }))
+      .rejects.toBe(mediaFailure)
+  })
+})
+
+async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
+  const values: T[] = []
+  for await (const value of source) values.push(value)
+  return values
+}
+
+async function* messages(...items: Message[]): AsyncIterableIterator<Message> {
+  yield* items
+}
+
+async function* failingMessages(error: Error): AsyncIterableIterator<Message> {
+  throw error
+}
+
+function message(id: number, timestamp: string, media: unknown = null): Message {
+  return {
+    id,
+    chat: { id: 100, type: 'chat', title: 'Team' },
+    sender: { id: 7, displayName: 'Alice' },
+    text: id === 1 ? '' : `Message ${id}`,
+    date: new Date(timestamp),
+    raw: { _: 'message', id },
+    media,
+    replyToMessage: id === 2 ? { id: 1 } : null,
+    groupedIdUnique: id === 2 ? '100:20' : null,
+  } as unknown as Message
+}
+
+function mockClient(overrides: Record<string, unknown>): TelegramClient {
+  return {
+    iterHistory: vi.fn(() => messages()),
+    getMessages: vi.fn().mockResolvedValue([]),
+    downloadToFile: vi.fn().mockResolvedValue(undefined),
+    iterDialogs: async function* () {},
+    getPeer: vi.fn(),
+    ...overrides,
+  } as unknown as TelegramClient
+}
+
+function archiveMessage(id: number): ArchiveMessage {
+  return {
+    chat_id: 100,
+    msg_id: id,
+    timestamp: `2026-07-13T00:00:0${id}.000Z`,
+    sender_id: 7,
+    sender_name: 'Alice',
+    text: `Message ${id}`,
+    reply_to_msg_id: null,
+    media_group_id: null,
+    attachment: {
+      type: 'document',
+      file_name: 'report.pdf',
+      file_size: 12,
+      downloadable: true,
+    },
+  }
+}

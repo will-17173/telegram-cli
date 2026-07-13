@@ -15,6 +15,8 @@ import { createContactsAdapter } from './mtcute-contacts.js'
 import type { TelegramContactAdapter } from './contact-types.js'
 import { createDialogsAdapter } from './mtcute-dialogs.js'
 import type { TelegramDialogAdapter } from './dialog-types.js'
+import { MtcuteArchive } from './mtcute-archive.js'
+import type { TelegramArchiveAdapter } from './archive-types.js'
 
 type PeerShape = {
   type: string
@@ -26,6 +28,7 @@ type PeerShape = {
 }
 
 export class MtcuteTelegramClient implements TelegramClientAdapter {
+  readonly archive: TelegramArchiveAdapter
   readonly groups: TelegramGroupManagementAdapter
   readonly dialogs: TelegramDialogAdapter
   readonly contacts: TelegramContactAdapter
@@ -33,6 +36,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   private readonly listenedMedia = new Map<string, FileLocation>()
 
   constructor(private readonly client: TelegramClient) {
+    this.archive = new MtcuteArchive(client, () => this.ensureReady())
     this.groups = new MtcuteGroupManagement(client, () => this.ensureReady())
     this.dialogs = createDialogsAdapter(client, () => this.ensureReady())
     this.contacts = createContactsAdapter(client, () => this.ensureReady())

@@ -1,22 +1,8 @@
 import { StringDecoder } from 'node:string_decoder'
 import { posix } from 'node:path'
+import type { ArchiveMessage } from '../telegram/archive-types.js'
 
-export type ArchiveMessage = {
-  chat_id: number
-  msg_id: number
-  timestamp: string
-  sender_id: number | null
-  sender_name: string | null
-  text: string | null
-  reply_to_msg_id: number | null
-  media_group_id: string | null
-  attachment: {
-    type: string
-    file_name: string | null
-    file_size: number | null
-    downloadable: boolean
-  } | null
-}
+export type { ArchiveMessage } from '../telegram/archive-types.js'
 
 const MESSAGE_MARKER = /^<!-- tg:message chat=(-?(?:0|[1-9]\d*)) id=([1-9]\d*) -->$/u
 const MESSAGE_MARKER_PREFIX = '<!-- tg:message chat='
