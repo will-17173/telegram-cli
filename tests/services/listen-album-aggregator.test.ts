@@ -77,6 +77,34 @@ describe('ListenAlbumAggregator', () => {
     expect(emit).toHaveBeenCalledWith([first, second])
     vi.useRealTimers()
   })
+
+  it('reports timer emit failures through onError without throwing uncaught', () => {
+    vi.useFakeTimers()
+    const error = new Error('timer output failed')
+    const onError = vi.fn()
+    const aggregator = new ListenAlbumAggregator({ emit: () => { throw error }, onError })
+    aggregator.add(message({ msgId: 1, groupedId: 'album' }))
+
+    expect(() => vi.advanceTimersByTime(300)).not.toThrow()
+    expect(onError).toHaveBeenCalledWith(error)
+    vi.useRealTimers()
+  })
+
+  it('reports immediate emit failures through onError', () => {
+    const error = new Error('immediate output failed')
+    const onError = vi.fn()
+    const aggregator = new ListenAlbumAggregator({ emit: () => { throw error }, onError })
+    expect(() => aggregator.add(message({ msgId: 1 }))).not.toThrow()
+    expect(onError).toHaveBeenCalledWith(error)
+  })
+
+  it('keeps the old throwing behavior when no onError handler is provided', () => {
+    const error = new Error('flush failed')
+    const aggregator = new ListenAlbumAggregator({ emit: () => { throw error } })
+    aggregator.add(message({ msgId: 1, groupedId: 'album' }))
+    expect(() => aggregator.flush()).toThrow(error)
+    aggregator.dispose()
+  })
 })
 
 function message(options: {

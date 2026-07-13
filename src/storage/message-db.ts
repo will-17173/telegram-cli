@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3'
-import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { getDbPath } from '../config/env.js'
@@ -369,10 +368,11 @@ export class MessageDB {
 }
 
 type FileFingerprint = {
+  dev: string
+  ino: string
   size: string
   mtimeNs: string
   ctimeNs: string
-  hash: string
 }
 
 type SourceFingerprint = {
@@ -389,9 +389,9 @@ function createConsistentSnapshot(sourcePath: string, maxAttempts = 5): { snapsh
     const snapshotPath = join(snapshotDir, 'messages.db')
     try {
       const before = sourceFingerprint(sourcePath)
-      copyFileSync(sourcePath, snapshotPath)
+      cloneOrCopyFile(sourcePath, snapshotPath)
       snapshotCopyHook?.({ attempt, sourcePath, snapshotPath })
-      if (before.wal != null) copyFileSync(`${sourcePath}-wal`, `${snapshotPath}-wal`)
+      if (before.wal != null) cloneOrCopyFile(`${sourcePath}-wal`, `${snapshotPath}-wal`)
       const after = sourceFingerprint(sourcePath)
       if (!sameFingerprint(before, after) || !copyMatches(snapshotPath, before)) {
         throw new Error('SQLite source generation changed while copying')
@@ -415,17 +415,13 @@ function sourceFingerprint(sourcePath: string): SourceFingerprint {
 }
 
 function fileFingerprint(path: string): FileFingerprint {
-  const before = statSync(path, { bigint: true })
-  const hash = createHash('sha256').update(readFileSync(path)).digest('hex')
-  const after = statSync(path, { bigint: true })
-  if (before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
-    throw new Error('SQLite source file changed while fingerprinting')
-  }
+  const stat = statSync(path, { bigint: true })
   return {
-    size: after.size.toString(),
-    mtimeNs: after.mtimeNs.toString(),
-    ctimeNs: after.ctimeNs.toString(),
-    hash,
+    dev: stat.dev.toString(),
+    ino: stat.ino.toString(),
+    size: stat.size.toString(),
+    mtimeNs: stat.mtimeNs.toString(),
+    ctimeNs: stat.ctimeNs.toString(),
   }
 }
 
@@ -435,8 +431,16 @@ function sameFingerprint(left: SourceFingerprint, right: SourceFingerprint): boo
 
 function copyMatches(snapshotPath: string, source: SourceFingerprint): boolean {
   const main = fileFingerprint(snapshotPath)
-  if (main.size !== source.main.size || main.hash !== source.main.hash) return false
+  if (main.size !== source.main.size) return false
   if (source.wal == null) return !existsSync(`${snapshotPath}-wal`)
   const wal = fileFingerprint(`${snapshotPath}-wal`)
-  return wal.size === source.wal.size && wal.hash === source.wal.hash
+  return wal.size === source.wal.size
+}
+
+function cloneOrCopyFile(source: string, destination: string): void {
+  try {
+    copyFileSync(source, destination, constants.COPYFILE_FICLONE)
+  } catch {
+    copyFileSync(source, destination)
+  }
 }

@@ -280,6 +280,7 @@ export function registerTelegramCommands(app: Command): void {
           }
 
           const replyResolver = createListenReplyResolver(context.dbPath)
+          let listenOutputError: unknown
           const albumAggregator = new ListenAlbumAggregator({
             emit: (messages) => {
               const replyContext = replyResolver.resolve(messages)
@@ -289,6 +290,10 @@ export function registerTelegramCommands(app: Command): void {
                 replyContext,
               }))
               replyResolver.remember(messages)
+            },
+            onError: (error) => {
+              listenOutputError ??= error
+              controller.abort()
             },
           })
 
@@ -354,6 +359,7 @@ export function registerTelegramCommands(app: Command): void {
               }
               break
             }
+            if (listenOutputError != null) throw listenOutputError
           } finally {
             albumAggregator.dispose()
             replyResolver.close()

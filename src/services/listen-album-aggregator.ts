@@ -8,8 +8,9 @@ type PendingAlbum = {
   timer: TimerHandle
 }
 
-type ListenAlbumAggregatorOptions = {
+export type ListenAlbumAggregatorOptions = {
   emit: (messages: StoredMessageInput[]) => void
+  onError?: (error: unknown) => void
   delayMs?: number
 }
 
@@ -24,7 +25,7 @@ export class ListenAlbumAggregator {
   add(message: StoredMessageInput): void {
     const groupedId = extractGroupedId(message.raw_json)
     if (groupedId == null) {
-      this.options.emit([message])
+      this.emit([message])
       return
     }
 
@@ -50,6 +51,15 @@ export class ListenAlbumAggregator {
     if (album == null) return
     clearTimeout(album.timer)
     this.pending.delete(key)
-    this.options.emit([...album.messages].sort((left, right) => left.msg_id - right.msg_id))
+    this.emit([...album.messages].sort((left, right) => left.msg_id - right.msg_id))
+  }
+
+  private emit(messages: StoredMessageInput[]): void {
+    try {
+      this.options.emit(messages)
+    } catch (error) {
+      if (this.options.onError == null) throw error
+      this.options.onError(error)
+    }
   }
 }

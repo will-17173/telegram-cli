@@ -430,6 +430,30 @@ describe('listen command', () => {
     }
   })
 
+  it('finishes client and downloader cleanup when pending album output fails during flush', async () => {
+    const outputError = new Error('stdout unavailable')
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      if (String(chunk).includes('album caption')) throw outputError
+      return true
+    })
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage(albumMessage(31, ''))
+      onMessage(albumMessage(32, 'album caption'))
+      return 'stopped'
+    })
+
+    try {
+      await expect(createApp().exitOverride().parseAsync([
+        'node', 'tg', 'listen', '--no-interactive', '--auto-download',
+      ])).rejects.toBe(outputError)
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(client.close).toHaveBeenCalledOnce()
+    expect(client.downloadMessageMedia).toHaveBeenCalledTimes(2)
+  })
+
   it('hides benign mtcute update synchronization warnings', async () => {
     const writes: string[] = []
     const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
