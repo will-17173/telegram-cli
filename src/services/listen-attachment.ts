@@ -106,9 +106,14 @@ function describeMediaNode(node: RawRecord): MediaDescription[] {
 
 function detectMediaKind(node: RawRecord): string | null {
   const typeTag = firstString(node._)
-  if (typeTag != null && MEDIA_TYPE_LABELS[typeTag] != null) return MEDIA_TYPE_LABELS[typeTag]
+  if (typeTag != null && MEDIA_TYPE_LABELS[typeTag] != null) {
+    const taggedKind = MEDIA_TYPE_LABELS[typeTag]
+    return taggedKind === 'Document' ? inferDocumentKind(node) : taggedKind
+  }
   if (node.photo != null) return 'Photo'
-  if (node.document != null || node.file != null || node.mime_type != null || node.mimeType != null) return 'Document'
+  if (node.document != null || node.file != null || node.mime_type != null || node.mimeType != null || node.mime != null) {
+    return inferDocumentKind(node)
+  }
   if (node.video != null || node.video_duration != null || node.videoStartTs != null) return 'Video'
   if (node.audio != null || node.duration != null || node.voice != null || node.voice_note != null) return 'Audio'
   if (node.sticker != null) return 'Sticker'
@@ -120,6 +125,15 @@ function detectMediaKind(node: RawRecord): string | null {
   if (node.webpage != null) return 'Webpage'
   if (node.invoice != null) return 'Invoice'
   return null
+}
+
+function inferDocumentKind(node: RawRecord): string {
+  const source = mediaDetailSource(node, 'Document')
+  const mimeType = firstString(source.mime_type, source.mimeType, source.mime)?.toLowerCase()
+  if (mimeType?.startsWith('video/')) return 'Video'
+  if (mimeType?.startsWith('audio/')) return 'Audio'
+  if (mimeType?.startsWith('image/')) return 'Photo'
+  return 'Document'
 }
 
 function buildMediaDetails(node: RawRecord, kind: string): string {

@@ -113,6 +113,33 @@ describe('listen attachment metadata', () => {
     expect(attachmentFileName(value)).toBe('100-12.mp4')
   })
 
+  it.each([
+    ['video/mp4', 'Video'],
+    ['audio/mpeg', 'Audio'],
+    ['image/jpeg', 'Photo'],
+    ['application/pdf', 'Document'],
+  ])('infers %s document wrappers as %s attachments', (mimeType, kind) => {
+    const [value] = discoverListenAttachments(message({
+      raw_json: {
+        _: 'message',
+        media: {
+          _: 'messageMediaDocument',
+          document: { mime_type: mimeType, file_name: 'wrapped.bin' },
+        },
+      },
+    }))
+
+    expect(value).toMatchObject({ kind, mimeType, fileName: 'wrapped.bin' })
+  })
+
+  it('infers a top-level document from its camel-case MIME field', () => {
+    const [value] = discoverListenAttachments(message({
+      raw_json: { document: { mimeType: 'image/png', fileName: 'image.png' } },
+    }))
+
+    expect(value).toMatchObject({ kind: 'Photo', mimeType: 'image/png', fileName: 'image.png' })
+  })
+
   it('builds a stable key and Telegram download target', () => {
     const value = attachment()
 
