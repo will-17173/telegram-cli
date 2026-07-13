@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
-import { mkdirSync, readFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { getDbPath } from '../config/env.js'
 import { canonicalChatId } from './chat-resolver.js'
 
@@ -45,20 +46,26 @@ export type TodayOptions = {
 
 export class MessageDB {
   private readonly db: Database.Database
+  private readonly snapshotDir?: string
 
   constructor(path = getDbPath(), options: { readonly?: boolean } = {}) {
     if (options.readonly) {
-      const probe = new Database(path, { readonly: true, fileMustExist: true })
-      probe.close()
-      const snapshot = readFileSync(path)
-      // A WAL-mode header makes an in-memory deserialize look for disk sidecars.
-      // Closed writers have checkpointed the main file, so read it as a rollback-mode snapshot.
-      if (snapshot[18] === 2 && snapshot[19] === 2) {
-        snapshot[18] = 1
-        snapshot[19] = 1
+      const snapshotDir = mkdtempSync(join(tmpdir(), 'tg-cli-message-db-'))
+      this.snapshotDir = snapshotDir
+      const snapshotPath = join(snapshotDir, 'messages.db')
+      let snapshotDb: Database.Database | undefined
+      try {
+        copyFileSync(path, snapshotPath)
+        if (existsSync(`${path}-wal`)) copyFileSync(`${path}-wal`, `${snapshotPath}-wal`)
+        snapshotDb = new Database(snapshotPath, { fileMustExist: true })
+        snapshotDb.pragma('query_only = ON')
+        snapshotDb.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()
+        this.db = snapshotDb
+      } catch (error) {
+        snapshotDb?.close()
+        rmSync(snapshotDir, { recursive: true, force: true })
+        throw error
       }
-      this.db = new Database(snapshot)
-      this.db.pragma('query_only = ON')
       return
     }
 
@@ -288,7 +295,11 @@ export class MessageDB {
   }
 
   close(): void {
-    this.db.close()
+    try {
+      this.db.close()
+    } finally {
+      if (this.snapshotDir != null) rmSync(this.snapshotDir, { recursive: true, force: true })
+    }
   }
 
   private filteredQuery(firstCondition: string, firstParams: unknown[], options: SearchOptions): { sql: string; params: unknown[] } {

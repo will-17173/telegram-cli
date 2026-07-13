@@ -38,6 +38,24 @@ describe('listen reply resolver', () => {
     resolver.close()
   })
 
+  it('resolves a reply committed in an uncheckpointed WAL', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'listen-reply-wal-'))
+    dirs.push(dir)
+    const dbPath = join(dir, 'messages.db')
+    const seed = new MessageDB(dbPath)
+    seed.close()
+    const writer = new Database(dbPath)
+    writer.pragma('wal_autocheckpoint = 0')
+    writer.prepare(`INSERT INTO messages
+      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json)
+      VALUES ('telegram', 100, 'Chat', 7, 1, 'Alice', 'wal reply target', '2026-07-10T07:22:00.000Z', NULL)`).run()
+    const resolver = createListenReplyResolver(dbPath)
+
+    expect(resolver.resolve([reply(8, 7)])).toMatchObject({ resolved: true, content: 'wal reply target' })
+    resolver.close()
+    writer.close()
+  })
+
   it('returns missing context when a Telegram reply is unavailable locally', () => {
     const { dbPath, db } = setup()
     db.close()
@@ -134,3 +152,4 @@ function message(msgId: number, overrides: Partial<StoredMessageInput> = {}): St
 function reply(msgId: number, replyTo: number): StoredMessageInput {
   return message(msgId, { raw_json: { _: 'message', replyTo: { replyToMsgId: replyTo } } })
 }
+import Database from 'better-sqlite3'
