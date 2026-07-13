@@ -1,6 +1,9 @@
 import type { HandlerResult } from '../commands/types.js'
-import { messageTable, statsSummary, timelineView, topTable } from '../presenters/human.js'
+import { logicalMessageTable, messageTable, statsSummary, timelineView, topTable } from '../presenters/human.js'
+import { groupLogicalMessages, type LogicalMessage } from '../presenters/logical-message.js'
 import { MessageDB } from '../storage/message-db.js'
+import type { StoredMessage } from '../storage/message-db.js'
+import { buildReplyContext } from './reply-context.js'
 
 type QueryOptions = {
   chat?: string
@@ -49,7 +52,14 @@ export class QueryService {
     if (!chatScope.ok) return chatScope
 
     const data = this.db.getRecent({ chatId: chatScope.data.chatId, sender: options.sender, hours: normalized.hours, limit: normalized.limit })
-    return { ok: true, data, human: messageTable(data, 'Recent Messages', 'No recent messages found.', { chatLabel: chatScope.data.chatLabel }) }
+    const logicalMessages = this.recentLogicalMessages({
+      chatId: chatScope.data.chatId,
+      sender: options.sender,
+      hours: normalized.hours,
+      limit: normalized.limit,
+    })
+    this.attachReplyContexts(logicalMessages)
+    return { ok: true, data, human: logicalMessageTable(logicalMessages, 'Recent Messages', 'No recent messages found.', { chatLabel: chatScope.data.chatLabel }) }
   }
 
   stats(): HandlerResult {
@@ -115,6 +125,46 @@ export class QueryService {
     if (matches.length === 0) return { ok: false, error: { code: 'chat_not_found', message: `Chat '${chat}' not found in database.` } }
     return { ok: false, error: { code: 'ambiguous_chat', message: `Chat '${chat}' is ambiguous. Matches: ${matches.map((m) => m.chat_name ?? m.chat_id).join(', ')}` } }
   }
+
+  private recentLogicalMessages(options: { chatId?: number; sender?: string; hours: number; limit: number }): LogicalMessage[] {
+    const pageSize = Math.max(options.limit * 2, 100)
+    const rows: StoredMessage[] = []
+    let before: { timestamp: string; id: number } | undefined
+
+    while (true) {
+      const page = this.db.getRecentPage({ ...options, limit: pageSize, before })
+      rows.push(...page)
+      const grouped = groupLogicalMessages(rows)
+      if (page.length < pageSize || grouped.length >= options.limit + 1) {
+        return grouped.slice(-options.limit)
+      }
+      const oldest = page[page.length - 1]
+      if (oldest == null) return []
+      before = { timestamp: oldest.timestamp, id: oldest.id }
+    }
+  }
+
+  private attachReplyContexts(messages: LogicalMessage[]): void {
+    const keys = new Map<string, { chatId: number; msgId: number }>()
+    for (const message of messages) {
+      if (message.replyToMessageId == null) continue
+      const key = { chatId: message.first.chat_id, msgId: message.replyToMessageId }
+      keys.set(messageKey(key.chatId, key.msgId), key)
+    }
+    const targets = new Map(this.db.getMessagesByKeys([...keys.values()])
+      .map((target) => [messageKey(target.chat_id, target.msg_id), target]))
+    for (const message of messages) {
+      if (message.replyToMessageId == null) continue
+      message.replyContext = buildReplyContext(
+        message.replyToMessageId,
+        targets.get(messageKey(message.first.chat_id, message.replyToMessageId)),
+      )
+    }
+  }
+}
+
+function messageKey(chatId: number, messageId: number): string {
+  return `${chatId}:${messageId}`
 }
 
 function validateQueryOptions(options: { hours?: number; limit?: number }): HandlerResult<undefined> {

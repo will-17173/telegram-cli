@@ -1,6 +1,9 @@
 import type { HumanOutput, DetailField } from '../commands/types.js'
 import type { StoredMessage } from '../storage/message-db.js'
 import type { TelegramChat } from '../telegram/types.js'
+import type { LogicalMessage } from './logical-message.js'
+import { summarizeLogicalMedia } from './logical-message.js'
+import { formatReplyContext } from '../services/reply-context.js'
 
 type DisplayUser = {
   id: number | string
@@ -93,6 +96,26 @@ export function messageTable(messages: StoredMessage[], title = 'Messages', empt
     rows: messages.map((message) => scoped
       ? [display(message.timestamp), display(message.sender_name), display(message.content)]
       : [display(message.timestamp), display(message.chat_name), display(message.sender_name), display(message.content)]),
+    emptyText,
+  }
+}
+
+export function logicalMessageTable(messages: LogicalMessage[], title = 'Messages', emptyText = 'No messages found.', options: MessageTableOptions = {}): HumanOutput & { kind: 'table' } {
+  const scoped = options.chatLabel != null
+  return {
+    kind: 'table',
+    title: scoped ? `[${options.chatLabel}] ${title}` : title,
+    columns: scoped ? ['TIME', 'SENDER', 'MESSAGE'] : ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
+    rows: messages.map((message) => {
+      const cell = [
+        message.replyContext == null ? null : formatReplyContext(message.replyContext),
+        message.content?.trim() || null,
+        summarizeLogicalMedia(message),
+      ].filter((value): value is string => value != null).join('\n') || '—'
+      return scoped
+        ? [display(message.first.timestamp), display(message.first.sender_name), cell]
+        : [display(message.first.timestamp), display(message.first.chat_name), display(message.first.sender_name), cell]
+    }),
     emptyText,
   }
 }

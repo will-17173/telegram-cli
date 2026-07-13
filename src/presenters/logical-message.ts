@@ -1,6 +1,7 @@
 import { discoverListenAttachments } from '../services/listen-attachment.js'
 import type { StoredMessage, StoredMessageInput } from '../storage/message-db.js'
 import { extractGroupedId, extractReplyToMessageId } from '../telegram/raw-message.js'
+import type { ReplyContext } from '../services/reply-context.js'
 
 export type LogicalMessage<T extends StoredMessageInput = StoredMessage> = {
   key: string
@@ -8,6 +9,7 @@ export type LogicalMessage<T extends StoredMessageInput = StoredMessage> = {
   first: T
   content: string | null
   replyToMessageId: number | null
+  replyContext?: ReplyContext
 }
 
 export function groupLogicalMessages<T extends StoredMessageInput>(rows: T[]): LogicalMessage<T>[] {

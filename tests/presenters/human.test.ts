@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   actionDetail,
   chatTable,
+  logicalMessageTable,
   messageTable,
   recordDetail,
   statsSummary,
@@ -10,13 +11,49 @@ import {
   topTable,
   userDetail,
 } from '../../src/presenters/human.js'
+import { groupLogicalMessages } from '../../src/presenters/logical-message.js'
+import { buildReplyContext } from '../../src/services/reply-context.js'
 
 function localTimestamp(timestamp: string): string {
   const date = new Date(timestamp)
   return `${String(date.getFullYear()).padStart(4, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
+function localClock(timestamp: string): string {
+  const date = new Date(timestamp)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
 describe('human output builders', () => {
+  it('renders logical content, reply context, and media in one message cell', () => {
+    const rows = [{
+      id: 1, platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 11,
+      sender_id: 1, sender_name: 'Ada', content: 'album caption', timestamp: '2026-07-10T01:02:03Z',
+      raw_json: JSON.stringify({ grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } }),
+    }, {
+      id: 2, platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 12,
+      sender_id: 1, sender_name: 'Ada', content: null, timestamp: '2026-07-10T01:02:04Z',
+      raw_json: JSON.stringify({ grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } }),
+    }]
+    const logical = groupLogicalMessages(rows)
+    logical[0]!.replyContext = buildReplyContext(7, { ...rows[0]!, msg_id: 7, sender_name: 'Bob', content: 'original' })
+
+    expect(logicalMessageTable(logical, 'Recent Messages', 'None')).toEqual({
+      kind: 'table', title: 'Recent Messages', columns: ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
+      rows: [[localTimestamp(rows[0]!.timestamp), 'General', 'Ada',
+        `↳ Reply to [${localClock(rows[0]!.timestamp)}] Bob (#7): original\nalbum caption\n📎 2 Photos`]],
+      emptyText: 'None',
+    })
+  })
+
+  it('renders media-only logical messages without a standalone dash', () => {
+    const row = {
+      id: 1, platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 11,
+      sender_id: 1, sender_name: 'Ada', content: null, timestamp: '2026-07-10T01:02:03Z',
+      raw_json: JSON.stringify({ media: { _: 'messageMediaPhoto', photo: {} } }),
+    }
+    expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[3]).toBe('📎 1 Photo')
+  })
   it('maps Telegram chats to the canonical Chats table', () => {
     expect(chatTable([
       { id: 42, name: 'General', type: 'group', unread: 3 },

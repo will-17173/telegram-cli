@@ -222,6 +222,29 @@ describe('local command contracts', () => {
     ]))
   })
 
+  it('keeps recent json and yaml limited to raw rows without human-only fields', async () => {
+    const now = Date.now()
+    seed(Array.from({ length: 4 }, (_, index) => message({
+      msg_id: index + 1,
+      content: index === 0 ? 'album caption' : null,
+      timestamp: new Date(now - (4 - index) * 1_000).toISOString(),
+      raw_json: { grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } },
+    })))
+
+    const json = await run(['recent', '--json', '--limit', '2'])
+    const yaml = await run(['recent', '--yaml', '--limit', '2'])
+    const payloads = [JSON.parse(json.stdout), YAML.parse(yaml.stdout)] as Array<{ data: Array<Record<string, unknown>> }>
+
+    for (const payload of payloads) {
+      expect(payload.data).toHaveLength(2)
+      for (const row of payload.data) {
+        expect(row).not.toHaveProperty('replyContext')
+        expect(row).not.toHaveProperty('messages')
+        expect(row).not.toHaveProperty('mediaSummary')
+      }
+    }
+  })
+
   it('prints top senders as yaml', async () => {
     seed()
     const result = await run(['top', '--yaml'])
