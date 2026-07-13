@@ -21,6 +21,7 @@ import {
   type ListenMessage,
   ListenMessageViewCache,
   ListenStatus,
+  ListenStatusArea,
   pruneAttachmentDownloadStates,
   pruneListenMessageGroups,
   registerPendingAttachmentKeys,
@@ -499,6 +500,20 @@ describe('ListenStatus', () => {
       .toBe('connected')
   })
 
+})
+
+describe('ListenStatusArea', () => {
+  it('shows the auto-download reminder when enabled', () => {
+    expect(renderToString(
+      <ListenStatusArea status="connected" unseenCount={0} autoDownload />,
+    )).toContain('Auto-download enabled')
+  })
+
+  it('hides the auto-download reminder when disabled', () => {
+    expect(renderToString(
+      <ListenStatusArea status="connected" unseenCount={0} autoDownload={false} />,
+    )).not.toContain('Auto-download enabled')
+  })
 })
 
 describe('interactive album messages', () => {
