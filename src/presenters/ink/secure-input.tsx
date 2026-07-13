@@ -3,6 +3,7 @@ import { Box, Text, useInput } from 'ink'
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 export const MAX_SECURE_INPUT_LENGTH = 4096
+// JavaScript strings are immutable: clearing retained buffer entries minimizes lifetime but cannot guarantee memory zeroization.
 
 export function SecureInput({ label, onSubmit, onCancel }: {
   label: string
