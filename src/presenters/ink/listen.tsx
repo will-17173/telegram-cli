@@ -426,6 +426,15 @@ export function ListenStatusArea({
   )
 }
 
+export function calculateListenMessagePaneHeight(
+  terminalHeight: number,
+  hasNote: boolean,
+  autoDownload: boolean,
+): number {
+  const reservedLines = 7 + (hasNote ? 1 : 0) + (autoDownload ? 1 : 0)
+  return Math.max(2, terminalHeight - reservedLines)
+}
+
 export async function runInteractiveListen<T>(
   write: (value: string) => unknown,
   run: () => Promise<T>,
@@ -481,8 +490,7 @@ function InteractiveListen({
     }),
     [messageGroups, showMedia, previewWidth, previewColorDepth, showChatName],
   )
-  const reservedLines = 7 + (note ? 1 : 0)
-  const messagePaneHeight = Math.max(2, terminalHeight - reservedLines)
+  const messagePaneHeight = calculateListenMessagePaneHeight(terminalHeight, note.length > 0, autoDownload)
   const visibleMessages = takeListenViewport(messages, messagePaneHeight, scrollState.offset)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const albumAggregatorRef = useRef<ListenAlbumAggregator | null>(null)
