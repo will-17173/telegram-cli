@@ -8,6 +8,7 @@ import { accountSessionPath } from '../account/account-presets.js'
 import type { HandlerResult } from '../commands/types.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import { TelegramSessionTerminatedError, type TelegramClientAdapter } from '../telegram/types.js'
+import { isCliInterruptedError } from '../cli/secure-input.js'
 
 export type AccountSessionInput = {
   name: string
@@ -112,6 +113,7 @@ export class AccountSessionService {
         try {
           authenticated = await this.authenticate(stagedSessionPath)
         } catch (error) {
+          if (isCliInterruptedError(error)) throw error
           return failure(errorCode(error, 'account_login_failed'), 'Unable to authenticate the Telegram account.')
         }
 

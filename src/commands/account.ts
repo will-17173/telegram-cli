@@ -11,6 +11,7 @@ import { accountDbPath, accountSessionPath } from '../account/account-presets.js
 import { outputFormatConflict, type HandlerResult, type OutputFlags } from './types.js'
 import { renderResult } from '../cli/output.js'
 import { AccountSessionService } from '../services/account-session-service.js'
+import { createInterruptScope, isCliInterruptedError, readVisibleInput } from '../cli/secure-input.js'
 
 type AccountOperationOptions = OutputFlags
 type AddAccountOptions = OutputFlags
@@ -415,12 +416,15 @@ export function registerAccountCommands(app: Command): void {
 }
 
 async function confirmLogout(name: string): Promise<boolean> {
-  const prompt = createInterface({ input: process.stdin, output: process.stderr })
+  const interrupt = createInterruptScope()
   try {
-    const answer = await prompt.question(`Log out ${name} while keeping local messages? [y/N]`)
+    const answer = await readVisibleInput(`Log out ${name} while keeping local messages? [y/N]`, {
+      output: process.stderr,
+      signal: interrupt.signal,
+    })
     return /^y(?:es)?$/i.test(answer.trim())
   } finally {
-    prompt.close()
+    interrupt.dispose()
   }
 }
 
@@ -510,6 +514,11 @@ async function runAccountCommand(
     const result = await handler()
     await renderResult(result, effectiveOptions)
   } catch (error) {
+    if (isCliInterruptedError(error)) {
+      await renderResult({ ok: false, error: { code: error.code, message: error.message } }, effectiveOptions)
+      process.exitCode = error.exitCode
+      return
+    }
     await renderResult(unwrapFailure(error, 'account_store_error'), effectiveOptions)
   }
 }

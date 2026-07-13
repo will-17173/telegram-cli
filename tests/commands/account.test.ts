@@ -24,6 +24,7 @@ type AuthStartOptions = {
 }
 
 let simulateInteractiveAuth = false
+let interruptInteractiveAuthAt: 'phone' | 'code' | 'password' | undefined
 
 const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient(this: { storage: string }, options: { storage: string }) {
   const client = {
@@ -32,10 +33,16 @@ const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient
         if (!startOptions?.phone || !startOptions.code || !startOptions.password || !startOptions.codeSentCallback) {
           throw new Error('missing interactive authentication callbacks')
         }
-        await startOptions.phone()
+        const phone = startOptions.phone()
+        if (interruptInteractiveAuthAt === 'phone') process.emit('SIGINT')
+        await phone
         await startOptions.codeSentCallback()
-        await startOptions.code()
-        await startOptions.password()
+        const code = startOptions.code()
+        if (interruptInteractiveAuthAt === 'code') process.emit('SIGINT')
+        await code
+        const password = startOptions.password()
+        if (interruptInteractiveAuthAt === 'password') process.emit('SIGINT')
+        await password
       }
       mkdirSync(dirname(options.storage), { recursive: true })
       writeFileSync(options.storage, 'uncommitted-session')
@@ -66,6 +73,7 @@ afterEach(() => {
   vi.clearAllMocks()
   proxyTransportFromUrl.mockReset()
   simulateInteractiveAuth = false
+  interruptInteractiveAuthAt = undefined
   process.exitCode = 0
 })
 
@@ -99,6 +107,8 @@ async function run(
   const originalStdoutWrite = process.stdout.write
   const originalStderrWrite = process.stderr.write
   const originalStdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY')
+  const originalStdinIsRaw = Object.getOwnPropertyDescriptor(process.stdin, 'isRaw')
+  const originalSetRawMode = Object.getOwnPropertyDescriptor(process.stdin, 'setRawMode')
   const stdout: string[] = []
   const stderr: string[] = []
 
@@ -112,6 +122,15 @@ async function run(
   }) as typeof process.stderr.write
 
   Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: stdinIsTty })
+  let stdinIsRaw = false
+  Object.defineProperty(process.stdin, 'isRaw', { configurable: true, get: () => stdinIsRaw })
+  Object.defineProperty(process.stdin, 'setRawMode', {
+    configurable: true,
+    value: (mode: boolean) => {
+      stdinIsRaw = mode
+      return process.stdin
+    },
+  })
   vi.stubEnv('DATA_DIR', dataDir)
   process.exitCode = 0
 
@@ -137,6 +156,8 @@ async function run(
     } else {
       Object.defineProperty(process.stdin, 'isTTY', originalStdinIsTty)
     }
+    restoreProperty(process.stdin, 'isRaw', originalStdinIsRaw)
+    restoreProperty(process.stdin, 'setRawMode', originalSetRawMode)
   }
 
   return {
@@ -144,6 +165,11 @@ async function run(
     stderr: stderr.join(''),
     code: Number(process.exitCode ?? 0),
   }
+}
+
+function restoreProperty(target: NodeJS.ReadStream, key: 'isRaw' | 'setRawMode', descriptor: PropertyDescriptor | undefined): void {
+  if (descriptor == null) delete (target as unknown as Record<string, unknown>)[key]
+  else Object.defineProperty(target, key, descriptor)
 }
 
 describe('account commands', () => {
@@ -590,6 +616,34 @@ describe('account commands', () => {
     expect(result.stderr).toContain('Phone number: ')
     expect(result.stderr).toContain('Login code: ')
     expect(result.stderr).toContain('2FA password: ')
+  })
+
+  it.each([
+    ['phone', []],
+    ['code', ['+8613800138000']],
+    ['password', ['+8613800138000', '12345']],
+  ] as const)('exits 130 on Ctrl-C during the %s login prompt', async (prompt, inputs) => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+    simulateInteractiveAuth = true
+    interruptInteractiveAuthAt = prompt
+
+    const result = await run(['account', 'login', 'alice', '--json'], dataDir, true, [...inputs])
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(130)
+    expect(payload).toMatchObject({ ok: false, error: { code: 'interrupted' } })
   })
 
   it('requires an interactive terminal before starting account login', async () => {

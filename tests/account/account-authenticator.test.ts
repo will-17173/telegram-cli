@@ -62,7 +62,23 @@ describe('authenticateAccountAt', () => {
     expect(client.destroy).toHaveBeenCalledOnce()
   })
 
-  it('aborts a pending authentication prompt on Ctrl-C and removes its signal listener', async () => {
+  it('preserves interaction_required when a password is requested outside a TTY', async () => {
+    const client = {
+      start: vi.fn(async (options: NonNullable<Parameters<TelegramClient['start']>[0]>) => {
+        if (typeof options.password !== 'function') throw new Error('missing password callback')
+        await options.password()
+      }),
+      getMe: vi.fn(async () => ({ id: 42, username: 'alice' })),
+      destroy: vi.fn(async () => undefined),
+    }
+
+    await expect(authenticateAccountAt(sessionPath, vi.fn(() => client))).rejects.toMatchObject({
+      code: 'interaction_required',
+    })
+    expect(client.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('aborts pending authentication on Ctrl-C and removes its signal listener', async () => {
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
     type StartOptions = NonNullable<Parameters<TelegramClient['start']>[0]>
     let startOptions: StartOptions | undefined
@@ -70,15 +86,16 @@ describe('authenticateAccountAt', () => {
     const client = {
       start: vi.fn(async (options: StartOptions) => {
         startOptions = options
-        if (typeof options.phone !== 'function') throw new Error('missing phone callback')
-        await options.phone()
+        await new Promise<void>((_resolve, reject) => {
+          options.abortSignal?.addEventListener('abort', () => reject(options.abortSignal?.reason), { once: true })
+        })
       }),
       getMe: vi.fn(async () => ({ id: 42, username: 'alice' })),
       destroy: vi.fn(async () => undefined),
     }
 
     const authenticating = authenticateAccountAt(sessionPath, vi.fn(() => client))
-    const rejected = expect(authenticating).rejects.toMatchObject({ code: 'account_login_failed' })
+    const rejected = expect(authenticating).rejects.toMatchObject({ code: 'interrupted', exitCode: 130 })
     await vi.waitFor(() => expect(startOptions).toBeDefined())
     const addedSigintListeners = process.listeners('SIGINT').filter((listener) => (
       !originalSigintListeners.includes(listener)

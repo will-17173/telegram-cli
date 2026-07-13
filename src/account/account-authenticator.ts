@@ -1,8 +1,13 @@
-import { createInterface } from 'node:readline/promises'
 import { TelegramClient } from '@mtcute/node'
 
 import { getTelegramCredentials, getTelegramProxy } from '../config/env.js'
 import { telegramTransportOptions } from '../telegram/proxy.js'
+import {
+  createInterruptScope,
+  isCliInputError,
+  readSecret,
+  readVisibleInput,
+} from '../cli/secure-input.js'
 
 export type AuthUser = {
   id: number
@@ -51,24 +56,13 @@ export async function authenticateAccountAt(
 }
 
 function createAuthenticationInput(): { options: AuthStartOptions; close: () => void } {
-  const abortController = new AbortController()
-  const prompt = createInterface({
-    input: process.stdin,
-    output: process.stderr,
-    terminal: false,
-  })
-  const onSigint = (): void => abortController.abort()
-  process.once('SIGINT', onSigint)
-
-  const question = (text: string): Promise<string> => prompt.question(text, {
-    signal: abortController.signal,
-  })
+  const interrupt = createInterruptScope()
 
   return {
     options: {
-      phone: () => question('Phone number: '),
-      code: () => question('Login code: '),
-      password: () => question('2FA password: '),
+      phone: () => readVisibleInput('Phone number: ', { signal: interrupt.signal }),
+      code: () => readVisibleInput('Login code: ', { signal: interrupt.signal }),
+      password: () => readSecret('2FA password: ', { signal: interrupt.signal }),
       codeSentCallback: () => {
         process.stderr.write('Login code sent.\n')
       },
@@ -77,13 +71,9 @@ function createAuthenticationInput(): { options: AuthStartOptions; close: () => 
           ? 'Invalid login code. Please try again.\n'
           : 'Invalid 2FA password. Please try again.\n')
       },
-      abortSignal: abortController.signal,
+      abortSignal: interrupt.signal,
     },
-    close: () => {
-      process.removeListener('SIGINT', onSigint)
-      abortController.abort()
-      prompt.close()
-    },
+    close: interrupt.dispose,
   }
 }
 
@@ -142,6 +132,7 @@ function normalizeDisplayName(displayName: string): string {
 }
 
 function throwAccountLoginError(cause: unknown): never {
+  if (isCliInputError(cause)) throw cause
   const message = cause instanceof Error ? cause.message : String(cause)
   const error = new Error(message, { cause }) as Error & { code?: string }
   error.code = 'account_login_failed'
