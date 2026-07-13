@@ -23,17 +23,23 @@ export type AccountSessionServiceOptions = {
   store: AccountStore
   createClient?: (sessionPath: string) => TelegramClientAdapter
   authenticate?: (sessionPath: string) => Promise<AuthenticatedSession>
+  createTemporaryDirectory?: (prefix: string) => string
+  removePath?: (path: string) => void
   renamePath?: (source: string, destination: string) => void
 }
 
 export class AccountSessionService {
   private readonly createClient: (sessionPath: string) => TelegramClientAdapter
   private readonly authenticate: (sessionPath: string) => Promise<AuthenticatedSession>
+  private readonly createTemporaryDirectory: (prefix: string) => string
+  private readonly removePath: (path: string) => void
   private readonly renamePath: (source: string, destination: string) => void
 
   constructor(private readonly options: AccountSessionServiceOptions) {
     this.createClient = options.createClient ?? createTelegramClient
     this.authenticate = options.authenticate ?? authenticateAccountAt
+    this.createTemporaryDirectory = options.createTemporaryDirectory ?? mkdtempSync
+    this.removePath = options.removePath ?? ((path) => rmSync(path, { recursive: true, force: true }))
     this.renamePath = options.renamePath ?? renameSync
   }
 
@@ -86,12 +92,18 @@ export class AccountSessionService {
       if (account.auth_state === 'authenticated') return success(account, false)
 
       const sessionPath = accountSessionPath(this.options.dataDir, account.name)
-      mkdirSync(dirname(sessionPath), { recursive: true })
-      const temporaryDir = mkdtempSync(join(dirname(sessionPath), '.login-'))
+      let temporaryDir: string
+      try {
+        mkdirSync(dirname(sessionPath), { recursive: true })
+        temporaryDir = this.createTemporaryDirectory(join(dirname(sessionPath), '.login-'))
+      } catch (error) {
+        return failure('account_session_replace_failed', errorMessage(error))
+      }
       const stagedSessionPath = join(temporaryDir, 'session')
       const discardedSessionPath = join(temporaryDir, 'discarded-session')
       const tombstonePath = join(dirname(sessionPath), `.session-${randomUUID()}.bak`)
       let preserveTombstone = false
+      let preserveTemporaryDir = false
 
       try {
         let authenticated: AuthenticatedSession
@@ -104,7 +116,8 @@ export class AccountSessionService {
         try {
           await authenticated.close()
         } catch (error) {
-          return failure('account_login_failed', errorMessage(error))
+          preserveTemporaryDir = true
+          return failure('account_login_failed', errorMessage(error), { recovery_path: temporaryDir })
         }
 
         if (authenticated.user.id !== account.user_id) {
@@ -155,10 +168,18 @@ export class AccountSessionService {
 
         return success(updated, true)
       } finally {
-        rmSync(temporaryDir, { recursive: true, force: true })
-        if (!preserveTombstone) rmSync(tombstonePath, { recursive: true, force: true })
+        if (!preserveTemporaryDir) safelyRemove(this.removePath, temporaryDir)
+        if (!preserveTombstone) safelyRemove(this.removePath, tombstonePath)
       }
     })
+  }
+}
+
+function safelyRemove(removePath: (path: string) => void, path: string): void {
+  try {
+    removePath(path)
+  } catch {
+    // Cleanup failure must not replace the operation's primary result.
   }
 }
 

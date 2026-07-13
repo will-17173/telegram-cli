@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   rmSync,
@@ -10,7 +11,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AccountStore, type AccountMeta } from '../../src/account/account-store.js'
 
 const REGISTRY_PATH = 'accounts.json'
@@ -18,6 +19,7 @@ const REGISTRY_PATH = 'accounts.json'
 let tempDirs: string[] = []
 
 afterEach(() => {
+  vi.useRealTimers()
   for (const dir of tempDirs) {
     rmSync(dir, { force: true, recursive: true })
   }
@@ -128,6 +130,22 @@ describe('account store', () => {
     expect(statSync(join(root, 'nested', 'dir')).isDirectory()).toBe(true)
   })
 
+  it('has no fallible permission operation after the registry commit point', () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    let permissionCalls = 0
+    const chmodPath = vi.fn((target: string, mode: number) => {
+      permissionCalls += 1
+      if (permissionCalls > 1) throw new Error('post-commit chmod failed')
+      chmodSync(target, mode)
+    })
+    const store = new AccountStore(path, { chmodPath })
+
+    store.write({ version: 2, current_account: null, accounts: [] })
+
+    expect(chmodPath).toHaveBeenCalledOnce()
+    expect(store.read()).toEqual({ version: 2, current_account: null, accounts: [] })
+  })
+
   it('serializes concurrent lock usage', async () => {
     const path = join(tempDir(), REGISTRY_PATH)
     const storeA = new AccountStore(path)
@@ -171,6 +189,52 @@ describe('account store', () => {
     const store = new AccountStore(path)
     await expect(store.withLock(() => Promise.resolve())).resolves.toBeUndefined()
     expect(existsSync(lockPath)).toBe(false)
+  })
+
+  it('keeps a long operation lease active beyond the stale threshold', async () => {
+    vi.useFakeTimers()
+    const path = join(tempDir(), REGISTRY_PATH)
+    const storeA = new AccountStore(path)
+    const storeB = new AccountStore(path)
+    let releaseFirst: (() => void) | undefined
+    const holdFirst = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let secondEntered = false
+
+    const first = storeA.withLock(() => holdFirst)
+    await vi.advanceTimersByTimeAsync(1_200)
+    const second = storeB.withLock(() => {
+      secondEntered = true
+    })
+    await Promise.resolve()
+    const enteredWhileFirstHeld = secondEntered
+
+    releaseFirst?.()
+    await first
+    await vi.advanceTimersByTimeAsync(20)
+    await second
+
+    expect(enteredWhileFirstHeld).toBe(false)
+  })
+
+  it('does not remove a lock whose ownership token changed', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    const ownerPath = join(lockPath, 'owner')
+    const store = new AccountStore(path)
+    let release: (() => void) | undefined
+    const hold = new Promise<void>((resolve) => {
+      release = resolve
+    })
+
+    const operation = store.withLock(() => hold)
+    await sleep(10)
+    writeFileSync(ownerPath, 'replacement-owner', 'utf8')
+    release?.()
+    await operation
+
+    expect(existsSync(lockPath)).toBe(true)
   })
 
   it('raises lock timeout when another lock is active', async () => {

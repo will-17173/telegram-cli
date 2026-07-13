@@ -19,9 +19,16 @@ describe('MtcuteTelegramClient chat info', () => {
     expect(client.destroy).toHaveBeenCalledOnce()
   })
 
-  it('maps an exact terminal logout RPC error to an application session error', async () => {
+  it.each([
+    'AUTH_KEY_INVALID',
+    'AUTH_KEY_UNREGISTERED',
+    'SESSION_EXPIRED',
+    'SESSION_REVOKED',
+    'USER_DEACTIVATED',
+    'USER_DEACTIVATED_BAN',
+  ] as const)('maps exact terminal logout RPC error %s to an application session error', async (text) => {
     const client = {
-      logOut: vi.fn().mockRejectedValue(new tl.RpcError(401, 'AUTH_KEY_UNREGISTERED')),
+      logOut: vi.fn().mockRejectedValue(new tl.RpcError(401, text)),
     } as unknown as TelegramClient
 
     await expect(new MtcuteTelegramClient(client).logOut()).rejects.toBeInstanceOf(TelegramSessionTerminatedError)

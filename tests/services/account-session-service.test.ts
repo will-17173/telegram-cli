@@ -58,6 +58,7 @@ describe('AccountSessionService', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     rmSync(dataDir, { recursive: true, force: true })
   })
 
@@ -129,6 +130,98 @@ describe('AccountSessionService', () => {
     expect(authenticate).not.toHaveBeenCalled()
   })
 
+  it('keeps a pending interactive login locked beyond the stale threshold', async () => {
+    vi.useFakeTimers()
+    await setAuthState(store, 'logged_out')
+    let finishAuthentication: (() => void) | undefined
+    const authenticationPending = new Promise<void>((resolve) => {
+      finishAuthentication = resolve
+    })
+    authenticate.mockImplementationOnce(async (path) => {
+      stagedSessionPath = path
+      writeFileSync(path, 'first-session')
+      await authenticationPending
+      return sessionFor({ id: 42 })
+    })
+    const secondAuthenticate = vi.fn(async (path: string) => {
+      writeFileSync(path, 'second-session')
+      return sessionFor({ id: 42 })
+    })
+    const secondStore = new AccountStore(join(dataDir, 'accounts.json'))
+    const secondService = new AccountSessionService({ dataDir, store: secondStore, authenticate: secondAuthenticate })
+
+    const first = service.login({ name: 'alice' })
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(1_200)
+    const second = secondService.login({ name: 'alice' })
+    await Promise.resolve()
+    const enteredWhileAuthenticationPending = secondAuthenticate.mock.calls.length > 0
+
+    finishAuthentication?.()
+    await first
+    await vi.advanceTimersByTimeAsync(20)
+    await second
+
+    expect(enteredWhileAuthenticationPending).toBe(false)
+  })
+
+  it('preserves staged storage when authenticated session close fails', async () => {
+    await setAuthState(store, 'logged_out')
+    authenticate.mockImplementationOnce(async (path) => {
+      stagedSessionPath = path
+      writeFileSync(path, 'possibly-live-session')
+      return {
+        user: { id: 42 },
+        close: vi.fn().mockRejectedValue(new Error('destroy failed')),
+      }
+    })
+
+    const result = await service.login({ name: 'alice' })
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'account_login_failed', details: { recovery_path: expect.any(String) } },
+    })
+    expect(store.get('alice')?.auth_state).toBe('logged_out')
+    expect(stagedSessionPath).toBeDefined()
+    expect(existsSync(stagedSessionPath!)).toBe(true)
+  })
+
+  it('maps temporary-directory setup failure to a stable result', async () => {
+    await setAuthState(store, 'logged_out')
+    service = new AccountSessionService({
+      dataDir,
+      store,
+      authenticate,
+      createTemporaryDirectory: () => {
+        throw new Error('temporary storage unavailable')
+      },
+    })
+
+    const result = await service.login({ name: 'alice' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'account_session_replace_failed' } })
+    expect(store.get('alice')?.auth_state).toBe('logged_out')
+    expect(authenticate).not.toHaveBeenCalled()
+  })
+
+  it('does not let cleanup failure replace an identity mismatch result', async () => {
+    await setAuthState(store, 'logged_out')
+    authenticate.mockImplementationOnce(async (path) => {
+      writeFileSync(path, 'wrong-user-session')
+      return sessionFor({ id: 99 })
+    })
+    const removePath = vi.fn(() => {
+      throw new Error('cleanup denied')
+    })
+    service = new AccountSessionService({ dataDir, store, authenticate, removePath })
+
+    const result = await service.login({ name: 'alice' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'account_identity_mismatch' } })
+    expect(removePath).toHaveBeenCalled()
+  })
+
   it('rejects a different identity and keeps the staged session out', async () => {
     await setAuthState(store, 'logged_out')
     authenticate.mockImplementationOnce(async (path) => {
@@ -171,6 +264,21 @@ describe('AccountSessionService', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'account_store_error' } })
     expect(store.get('alice')?.auth_state).toBe('logged_out')
     expect(readFileSync(sessionPath, 'utf8')).toBe('original-session')
+  })
+
+  it('removes a newly installed session when registry writing fails without an original', async () => {
+    await setAuthState(store, 'logged_out')
+    rmSync(sessionPath)
+    vi.spyOn(store, 'write').mockImplementationOnce(() => {
+      throw new Error('registry is read-only')
+    })
+
+    const result = await service.login({ name: 'alice' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'account_store_error' } })
+    expect(store.get('alice')?.auth_state).toBe('logged_out')
+    expect(existsSync(sessionPath)).toBe(false)
+    expect(workflowArtifacts(dataDir)).toEqual([])
   })
 
   it('restores the original session after replacement fails following its movement', async () => {

@@ -5,6 +5,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -13,6 +14,15 @@ import { randomUUID } from 'node:crypto'
 const DEFAULT_LOCK_TIMEOUT_MS = 200
 const DEFAULT_LOCK_RETRY_MS = 10
 const DEFAULT_LOCK_STALE_MS = 1_000
+const LOCK_OWNER_FILE = 'owner'
+
+export type AccountStoreOptions = {
+  chmodPath?: (path: string, mode: number) => void
+  lockHeartbeatMs?: number
+  lockRetryMs?: number
+  lockStaleMs?: number
+  lockTimeoutMs?: number
+}
 
 export type AccountMeta = {
   name: string
@@ -62,9 +72,21 @@ const EMPTY_REGISTRY: AccountRegistry = {
 
 export class AccountStore {
   private readonly lockPath: string
+  private readonly lockOwnerPath: string
+  private readonly chmodPath: (path: string, mode: number) => void
+  private readonly lockHeartbeatMs: number
+  private readonly lockRetryMs: number
+  private readonly lockStaleMs: number
+  private readonly lockTimeoutMs: number
 
-  constructor(private readonly path: string) {
+  constructor(private readonly path: string, options: AccountStoreOptions = {}) {
     this.lockPath = `${this.path}.lock`
+    this.lockOwnerPath = join(this.lockPath, LOCK_OWNER_FILE)
+    this.chmodPath = options.chmodPath ?? chmodSync
+    this.lockStaleMs = options.lockStaleMs ?? DEFAULT_LOCK_STALE_MS
+    this.lockHeartbeatMs = options.lockHeartbeatMs ?? Math.max(10, Math.floor(this.lockStaleMs / 3))
+    this.lockRetryMs = options.lockRetryMs ?? DEFAULT_LOCK_RETRY_MS
+    this.lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS
   }
 
   read(): AccountRegistry {
@@ -130,9 +152,8 @@ export class AccountStore {
     let written = false
     try {
       writeFileSync(temporaryPath, serialized, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
-      chmodSync(temporaryPath, 0o600)
+      this.chmodPath(temporaryPath, 0o600)
       renameSync(temporaryPath, this.path)
-      chmodSync(this.path, 0o600)
       written = true
     } finally {
       if (!written) {
@@ -160,11 +181,13 @@ export class AccountStore {
   }
 
   async withLock<T>(fn: () => Promise<T> | T): Promise<T> {
-    await this.acquireLock()
+    const owner = await this.acquireLock()
+    const heartbeat = this.startHeartbeat(owner)
     try {
       return await fn()
     } finally {
-      this.releaseLock()
+      clearInterval(heartbeat)
+      this.releaseLock(owner)
     }
   }
 
@@ -220,45 +243,101 @@ export class AccountStore {
     })
   }
 
-  private async acquireLock(): Promise<void> {
+  private async acquireLock(): Promise<string> {
     const start = Date.now()
     const parent = dirname(this.path)
+    const owner = randomUUID()
     mkdirSync(parent, { recursive: true })
 
     while (true) {
       try {
         mkdirSync(this.lockPath)
-        return
       } catch (error) {
         if (!isNodeError(error) || error.code !== 'EEXIST') {
           throw new AccountStoreError(`account_store_error: unable to create lock: ${errorMessage(error)}`)
         }
 
         if (this.isLockExpired()) {
-          rmSync(this.lockPath, { recursive: true, force: true })
+          this.reapExpiredLock()
           continue
         }
 
-        if (Date.now() - start > DEFAULT_LOCK_TIMEOUT_MS) {
+        if (Date.now() - start > this.lockTimeoutMs) {
           throw new AccountStoreError('account_store_error: unable to acquire lock in time')
         }
-        await sleep(DEFAULT_LOCK_RETRY_MS)
+        await sleep(this.lockRetryMs)
+        continue
+      }
+
+      try {
+        writeFileSync(this.lockOwnerPath, owner, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+        return owner
+      } catch (error) {
+        rmSync(this.lockPath, { recursive: true, force: true })
+        throw new AccountStoreError(`account_store_error: unable to record lock ownership: ${errorMessage(error)}`)
       }
     }
   }
 
-  private releaseLock(): void {
+  private startHeartbeat(owner: string): ReturnType<typeof setInterval> {
+    const heartbeat = setInterval(() => {
+      if (this.readLockOwner() !== owner) return
+      try {
+        const now = new Date()
+        utimesSync(this.lockOwnerPath, now, now)
+      } catch {
+        // The lease may have been externally removed or replaced.
+      }
+    }, this.lockHeartbeatMs)
+    heartbeat.unref()
+    return heartbeat
+  }
+
+  private releaseLock(owner: string): void {
+    if (this.readLockOwner() !== owner) return
     rmSync(this.lockPath, { recursive: true, force: true })
   }
 
   private isLockExpired(): boolean {
     try {
-      const lockStats = statSync(this.lockPath)
-      return Date.now() - lockStats.mtimeMs > DEFAULT_LOCK_STALE_MS
+      const leasePath = exists(this.lockOwnerPath) ? this.lockOwnerPath : this.lockPath
+      const lockStats = statSync(leasePath)
+      return Date.now() - lockStats.mtimeMs > this.lockStaleMs
     } catch (error) {
       if (isNodeError(error) && error.code === 'ENOENT') return false
       throw new AccountStoreError(`account_store_error: failed to check lock: ${errorMessage(error)}`)
     }
+  }
+
+  private reapExpiredLock(): void {
+    if (!this.isLockExpired()) return
+    const stalePath = `${this.lockPath}.stale-${randomUUID()}`
+    try {
+      renameSync(this.lockPath, stalePath)
+    } catch (error) {
+      if (isNodeError(error) && error.code === 'ENOENT') return
+      throw new AccountStoreError(`account_store_error: unable to recover stale lock: ${errorMessage(error)}`)
+    }
+    rmSync(stalePath, { recursive: true, force: true })
+  }
+
+  private readLockOwner(): string | undefined {
+    try {
+      return readFileSync(this.lockOwnerPath, 'utf8')
+    } catch (error) {
+      if (isNodeError(error) && error.code === 'ENOENT') return undefined
+      return undefined
+    }
+  }
+}
+
+function exists(path: string): boolean {
+  try {
+    statSync(path)
+    return true
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return false
+    throw error
   }
 }
 
