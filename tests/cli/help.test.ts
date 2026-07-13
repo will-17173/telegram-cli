@@ -17,6 +17,7 @@ describe('cli help', () => {
       'edit',
       'export',
       'filter',
+      'folder',
       'group',
       'history',
       'info',
@@ -77,7 +78,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(27)
+    expect(commands).toHaveLength(28)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 
@@ -99,6 +100,26 @@ describe('cli help', () => {
     const muteHelp = notification?.commands.find(command => command.name() === 'mute')?.helpInformation() ?? ''
     expect(muteHelp).toContain('Duration such as 30m, 8h, 2d, or forever')
     expect(muteHelp).toContain('default: forever')
+  })
+
+  it('registers the exact nested folder command surface', () => {
+    const folder = createApp().commands.find((command) => command.name() === 'folder')
+    const chat = folder?.commands.find((command) => command.name() === 'chat')
+
+    expect(folder).toBeDefined()
+    expect(folder?.commands.map((command) => command.name())).toEqual(['list', 'info', 'chat'])
+    expect(chat?.commands.map((command) => command.name())).toEqual(['add', 'remove'])
+    expect(folder?.commands.some((command) => ['create', 'delete'].includes(command.name()))).toBe(false)
+    expect(chat?.commands.some((command) => ['create', 'delete'].includes(command.name()))).toBe(false)
+    expect(folder?.commands.find((command) => command.name() === 'list')?.registeredArguments).toHaveLength(0)
+    expect(folder?.commands.find((command) => command.name() === 'info')?.registeredArguments.map(argument => argument.name())).toEqual(['folder'])
+    expect(chat?.commands.map(command => command.registeredArguments.map(argument => argument.name()))).toEqual([
+      ['folder', 'chat'],
+      ['folder', 'chat'],
+    ])
+    expect(folder?.commands.find((command) => command.name() === 'list')?.options.map(option => option.long)).toEqual(['--json', '--yaml'])
+    expect(folder?.commands.find((command) => command.name() === 'info')?.options.map(option => option.long)).toEqual(['--json', '--yaml'])
+    expect(chat?.commands.every(command => command.options.map(option => option.long).join(',') === '--json,--yaml')).toBe(true)
   })
 
   it('lists page delay for history and sync', () => {
