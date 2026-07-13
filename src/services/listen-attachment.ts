@@ -92,7 +92,9 @@ function describeMediaNode(node: RawRecord): MediaDescription[] {
   const source = mediaDetailSource(node, kind)
   return [{
     kind,
-    label: `📎 ${kind}${details.length > 0 ? ` (${details})` : ''}`,
+    label: kind === 'Contact'
+      ? `👤 Contact${details.length > 0 ? ` · ${details}` : ''}`
+      : `📎 ${kind}${details.length > 0 ? ` (${details})` : ''}`,
     fileName: firstString(source.fileName, source.file_name, source.filename, source.name),
     downloadable: DOWNLOADABLE_MEDIA_KINDS.has(kind),
   }]
@@ -118,6 +120,7 @@ function detectMediaKind(node: RawRecord): string | null {
 
 function buildMediaDetails(node: RawRecord, kind: string): string {
   const source = mediaDetailSource(node, kind)
+  if (kind === 'Contact') return buildContactDetails(source)
   const fileName = firstString(source.fileName, source.file_name, source.filename, source.name)
   const mimeType = firstString(source.mime_type, source.mimeType, source.mime)
   const size = firstNumber(source.size, source.size_bytes, source.file_size)
@@ -131,7 +134,20 @@ function buildMediaDetails(node: RawRecord, kind: string): string {
   return parts.join(' • ')
 }
 
+function buildContactDetails(source: RawRecord): string {
+  const firstName = firstString(source.firstName, source.first_name)
+  const lastName = firstString(source.lastName, source.last_name)
+  const phoneNumber = firstString(source.phoneNumber, source.phone_number)
+  const displayName = [firstName, lastName]
+    .filter((part): part is string => part != null)
+    .join(' ')
+  return [displayName, phoneNumber]
+    .filter((part): part is string => part != null && part.length > 0)
+    .join(' · ')
+}
+
 function mediaDetailSource(node: RawRecord, kind: string): RawRecord {
+  if (kind === 'Contact' && isRecord(node.contact)) return node.contact
   if (kind === 'Photo' && node.photo != null && typeof node.photo === 'object') return node.photo as RawRecord
   if (kind === 'Video' && node.video != null && typeof node.video === 'object') return node.video as RawRecord
   if ((kind === 'Audio' || kind === 'Voice') && node.audio != null && typeof node.audio === 'object') return node.audio as RawRecord

@@ -3,7 +3,33 @@ import { render, renderToString, Text } from 'ink'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 
-import { applyAutoDownloadEvent, attachmentDownloadKeyAt, attachmentDownloadTarget, canManuallyDownload, createInteractiveOperationController, flushListenBeforeExit, interactiveListenPreviewColorDepth, LISTEN_COMPOSER_THEME, ListenAttachmentLine, ListenAttachmentWithPreview, ListenComposer, ListenImagePreview, LISTEN_HISTORY_LIMIT, ListenMessageViewCache, ListenStatus, pruneAttachmentDownloadStates, pruneListenMessageGroups, registerPendingAttachmentKeys, runInteractiveAutoDownloadLifecycle, runInteractiveListen, runOwnedAttachmentOperation, toListenMessage, useTerminalMetrics } from '../../src/presenters/ink/listen.js'
+import {
+  applyAutoDownloadEvent,
+  attachmentDownloadKeyAt,
+  attachmentDownloadTarget,
+  canManuallyDownload,
+  collectDownloadableAttachments,
+  createInteractiveOperationController,
+  flushListenBeforeExit,
+  interactiveListenPreviewColorDepth,
+  LISTEN_COMPOSER_THEME,
+  ListenAttachmentLine,
+  ListenAttachmentWithPreview,
+  ListenComposer,
+  ListenImagePreview,
+  LISTEN_HISTORY_LIMIT,
+  type ListenMessage,
+  ListenMessageViewCache,
+  ListenStatus,
+  pruneAttachmentDownloadStates,
+  pruneListenMessageGroups,
+  registerPendingAttachmentKeys,
+  runInteractiveAutoDownloadLifecycle,
+  runInteractiveListen,
+  runOwnedAttachmentOperation,
+  toListenMessage,
+  useTerminalMetrics,
+} from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
@@ -409,6 +435,58 @@ describe('ListenAttachmentWithPreview', () => {
     expect(output).toContain('▀')
   })
 
+  it('renders informational media without download state or action', () => {
+    const output = renderToString(
+      <ListenAttachmentWithPreview
+        label="👤 Contact · Zhang San · +86 13800138000"
+        downloadable={false}
+        selected={false}
+        state={{ status: 'failed', error: 'should not be visible' }}
+      />,
+    )
+
+    expect(output).toContain('👤 Contact · Zhang San · +86 13800138000')
+    expect(output).not.toContain('Download')
+    expect(output).not.toContain('Failed')
+    expect(output).not.toContain('should not be visible')
+  })
+
+})
+
+describe('collectDownloadableAttachments', () => {
+  it('excludes informational media while preserving downloadable media indexes', () => {
+    const message: ListenMessage = {
+      key: '100:1',
+      chatId: 100,
+      msgId: 1,
+      time: '16:44',
+      sender: 'Alice',
+      content: null,
+      media: [
+        {
+          chatId: 100,
+          messageId: 1,
+          kind: 'Contact',
+          label: '👤 Contact · Zhang San · +86 13800138000',
+          fileName: null,
+          downloadable: false,
+        },
+        {
+          chatId: 100,
+          messageId: 2,
+          kind: 'Photo',
+          label: '📎 Photo',
+          fileName: null,
+          downloadable: true,
+        },
+      ],
+    }
+
+    expect(collectDownloadableAttachments([message]).map(({ key, attachment }) => ({
+      key,
+      kind: attachment.kind,
+    }))).toEqual([{ key: '100:2:0', kind: 'Photo' }])
+  })
 })
 
 describe('ListenStatus', () => {

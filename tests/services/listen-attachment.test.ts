@@ -43,6 +43,42 @@ describe('listen attachment metadata', () => {
     ])
   })
 
+  it.each([
+    {
+      raw: { firstName: 'Zhang', lastName: 'San', phoneNumber: '+86 13800138000' },
+      expectedLabel: '👤 Contact · Zhang San · +86 13800138000',
+    },
+    {
+      raw: { first_name: 'Li', last_name: 'Lei', phone_number: '+86 13900139000' },
+      expectedLabel: '👤 Contact · Li Lei · +86 13900139000',
+    },
+    {
+      raw: { firstName: 'Madonna', lastName: '', phoneNumber: '' },
+      expectedLabel: '👤 Contact · Madonna',
+    },
+    {
+      raw: { firstName: '', lastName: '', phoneNumber: '+1 555 0100' },
+      expectedLabel: '👤 Contact · +1 555 0100',
+    },
+    {
+      raw: { firstName: '', lastName: '', phoneNumber: '' },
+      expectedLabel: '👤 Contact',
+    },
+  ])('formats Telegram contact metadata as $expectedLabel', ({ raw, expectedLabel }) => {
+    const attachments = discoverListenAttachments(message({
+      raw_json: { _: 'message', media: { _: 'messageMediaContact', ...raw } },
+    }))
+
+    expect(attachments).toEqual([{
+      chatId: 100,
+      messageId: 12,
+      kind: 'Contact',
+      label: expectedLabel,
+      fileName: null,
+      downloadable: false,
+    }])
+  })
+
   it('prefers Telegram filenames and otherwise uses kind-specific fallbacks', () => {
     expect(attachmentFileName(attachment({ fileName: 'telegram-name.dat' }))).toBe('telegram-name.dat')
     expect([

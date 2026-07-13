@@ -76,6 +76,19 @@ describe('listen message formatting', () => {
     expect(row.media).toEqual([])
   })
 
+  it('shows contact details only when media is visible', () => {
+    const message = contactMessage({
+      firstName: 'Zhang',
+      lastName: 'San',
+      phoneNumber: '+86 13800138000',
+    })
+
+    expect(formatListenLine(message, { showMedia: true }))
+      .toContain('👤 Contact · Zhang San · +86 13800138000')
+    expect(buildListenMessage(message, { showMedia: false }).media).toEqual([])
+    expect(formatListenLine(message, { showMedia: false })).not.toContain('Contact')
+  })
+
   it('keeps each album photo associated with its own preview', () => {
     const first = mediaMessage({ msgId: 11, previewJpegBase64: 'first-preview' })
     const second = mediaMessage({ msgId: 12, previewJpegBase64: 'second-preview' })
@@ -101,5 +114,19 @@ function mediaMessage(options: { msgId?: number; content?: string; previewJpegBa
     timestamp: '2026-07-10T07:22:00.000Z',
     raw_json: { _: 'message', media: { _: 'messageMediaPhoto', photo: {} } },
     preview_jpeg_base64: options.previewJpegBase64,
+  }
+}
+
+function contactMessage(contact: Record<string, unknown>): StoredMessageInput {
+  return {
+    platform: 'telegram',
+    chat_id: 100,
+    chat_name: 'TestGroup',
+    msg_id: 2,
+    sender_id: 1,
+    sender_name: 'Alice',
+    content: '',
+    timestamp: '2026-07-10T07:22:00.000Z',
+    raw_json: { _: 'message', media: { _: 'messageMediaContact', ...contact } },
   }
 }
