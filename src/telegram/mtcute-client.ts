@@ -294,13 +294,14 @@ function normalizeChatId(chat: string | number): string | number {
 function inputMediaForFile(file: string, caption?: string) {
   const extension = /(?:^|\/)[^/]*?(\.[^.\/]+)$/.exec(file)?.[1]?.toLowerCase()
   const params = caption == null ? undefined : { caption }
+  const localFile = `file:${file}`
   if (extension && ['.jpg', '.jpeg', '.png', '.webp'].includes(extension)) {
-    return InputMedia.photo(file, params)
+    return InputMedia.photo(localFile, params)
   }
   if (extension && ['.mp4', '.mov', '.m4v', '.webm'].includes(extension)) {
-    return InputMedia.video(file, params)
+    return InputMedia.video(localFile, params)
   }
-  return InputMedia.document(file, params)
+  return InputMedia.document(localFile, params)
 }
 
 function toSendMediaMessage(message: Message): SendMediaResult['messages'][number] {

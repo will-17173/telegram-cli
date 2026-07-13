@@ -22,9 +22,9 @@ describe('MtcuteTelegramClient sendMedia', () => {
   })
 
   it.each([
-    ['photo', '/tmp/HOLIDAY.JPEG', InputMedia.photo('/tmp/HOLIDAY.JPEG')],
-    ['video', '/tmp/clip.M4V', InputMedia.video('/tmp/clip.M4V')],
-    ['document', '/tmp/archive.zip', InputMedia.document('/tmp/archive.zip')],
+    ['photo', '/tmp/透明图片.JPEG', InputMedia.photo('file:/tmp/透明图片.JPEG')],
+    ['video', '/tmp/clip.M4V', InputMedia.video('file:/tmp/clip.M4V')],
+    ['document', '/tmp/archive.zip', InputMedia.document('file:/tmp/archive.zip')],
   ])('sends one %s with its caption and reply', async (_kind, file, expectedMedia) => {
     const sent = message(21, 'single')
     const sendMedia = vi.fn().mockResolvedValue(sent)
@@ -65,9 +65,9 @@ describe('MtcuteTelegramClient sendMedia', () => {
     })
 
     expect(sendMediaGroup).toHaveBeenCalledWith(-100456, [
-      InputMedia.photo('/tmp/one.PNG', { caption: 'Album caption' }),
-      InputMedia.video('/tmp/two.webm'),
-      InputMedia.document('/tmp/three.PDF'),
+      InputMedia.photo('file:/tmp/one.PNG', { caption: 'Album caption' }),
+      InputMedia.video('file:/tmp/two.webm'),
+      InputMedia.document('file:/tmp/three.PDF'),
     ], { replyTo: 29 })
     expect(result.messages).toEqual([
       { msg_id: 31, sent_message: storedMessage(31, 'first') },
