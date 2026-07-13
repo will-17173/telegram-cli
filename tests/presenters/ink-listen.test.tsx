@@ -170,6 +170,36 @@ describe('InteractiveListen slash commands', () => {
     controller.abort(); app.unmount()
   })
 
+  it('restores the first command after Down, Escape, then Tab', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› reply'))
+    stdin.write('\u001b[B'); stdin.write('\u001b')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).not.toContain('Reply to a message'))
+    stdin.write('\t')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /reply'))
+    expect(lastTerminalFrame(stdout.output)).not.toContain('› /member add')
+    controller.abort(); app.unmount()
+  })
+
+  it('restores the first command after Down, Escape, then Enter', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› reply'))
+    stdin.write('\u001b[B'); stdin.write('\u001b')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).not.toContain('Reply to a message'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /reply'))
+    expect(lastTerminalFrame(stdout.output)).not.toContain('› /member add')
+    controller.abort(); app.unmount()
+  })
+
   it('executes a selected reply without submitting it as a group command', async () => {
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })

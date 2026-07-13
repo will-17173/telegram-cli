@@ -697,6 +697,10 @@ export function InteractiveListen({
   )
   const messagePaneHeight = calculateListenMessagePaneHeight(terminalHeight, note.length > 0, autoDownload)
   const visibleMessages = takeListenViewport(messages, messagePaneHeight, scrollState.offset)
+  const closeGroupCommand = () => {
+    commandSelectionRef.current = 0
+    groupCommand.close()
+  }
   const albumAggregatorRef = useRef<ListenAlbumAggregator | null>(null)
   const autoDownloaderRef = useRef<AutoDownloadCoordinator | null>(null)
   const pendingAttachmentKeysRef = useRef<Set<string>>(new Set())
@@ -744,23 +748,23 @@ export function InteractiveListen({
     }
     const modal = groupCommand.state
     if (modal.kind === 'confirm') {
-      if (key.escape) { groupCommand.close(); return }
+      if (key.escape) { closeGroupCommand(); return }
       if (key.upArrow || key.downArrow) { groupCommand.setState({ ...modal, selectedIndex: modal.selectedIndex === 0 ? 1 : 0 }); return }
       if (key.return) {
         if (modal.selectedIndex === 0) void groupCommand.runConfirmed(modal.request)
-        else groupCommand.close()
+        else closeGroupCommand()
       }
       return
     }
     if (modal.kind === 'confirm-title') {
       if (key.escape) {
         if (modal.stage === 'title') groupCommand.setState({ ...modal, stage: 'confirm', confirmText: '', mismatch: false })
-        else groupCommand.close()
+        else closeGroupCommand()
         return
       }
       if (modal.stage === 'confirm') {
         if (key.upArrow || key.downArrow) groupCommand.setState({ ...modal, selectedIndex: modal.selectedIndex === 0 ? 1 : 0 })
-        else if (key.return) modal.selectedIndex === 0 ? groupCommand.setState({ ...modal, stage: 'title' }) : groupCommand.close()
+        else if (key.return) modal.selectedIndex === 0 ? groupCommand.setState({ ...modal, stage: 'title' }) : closeGroupCommand()
         return
       }
       if (key.return) {
@@ -789,7 +793,7 @@ export function InteractiveListen({
       return
     }
     if (modal.kind === 'select-permissions') {
-      if (key.escape) { groupCommand.close(); return }
+      if (key.escape) { closeGroupCommand(); return }
       if (key.upArrow || key.downArrow) {
         const delta = key.upArrow ? -1 : 1
         groupCommand.setState({ ...modal, selectedIndex: (modal.selectedIndex + delta + ADMIN_RIGHT_KEYS.length) % ADMIN_RIGHT_KEYS.length })
@@ -809,11 +813,11 @@ export function InteractiveListen({
       return
     }
     if (groupCommand.state.kind === 'result') {
-      if (key.escape) groupCommand.close()
+      if (key.escape) closeGroupCommand()
       return
     }
     if (key.escape && groupCommand.state.kind === 'error') {
-      groupCommand.close()
+      closeGroupCommand()
       return
     }
     const slashMode = input.trimStart().startsWith('/')
@@ -822,7 +826,7 @@ export function InteractiveListen({
         inputGenerationRef.current++
         setSending(false)
       }
-      groupCommand.close()
+      closeGroupCommand()
       return
     }
     if (slashMode && (key.upArrow || key.downArrow)) {
