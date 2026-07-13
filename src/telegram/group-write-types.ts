@@ -43,7 +43,7 @@ export interface TelegramPurgeMemberRequest extends UserRequest {}
 export interface TelegramPromoteAdminRequest extends UserRequest { readonly rights: TelegramGroupAdminRights; readonly rank?: string }
 export interface TelegramDemoteAdminRequest extends UserRequest {}
 export interface TelegramSetAdminRankRequest extends UserRequest { readonly rank: string }
-export interface TelegramTransferOwnershipRequest extends UserRequest { readonly password?: string }
+export interface TelegramTransferOwnershipRequest extends UserRequest {}
 export interface TelegramSetTitleRequest extends ChatRequest { readonly title: string }
 export interface TelegramSetDescriptionRequest extends ChatRequest { readonly text: string }
 export interface TelegramSetUsernameRequest extends ChatRequest { readonly username: string | null }

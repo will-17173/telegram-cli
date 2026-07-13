@@ -78,8 +78,8 @@ export class MtcuteGroupMembers {
   }
 
   async transferOwnership(request: TelegramTransferOwnershipRequest): Promise<TelegramTransferOwnershipResult> {
-    if (request.password == null) throw new TelegramGroupPasswordRequiredError()
-    return this.withTarget('transferOwnership', request, async (chatId, userId) => this.client.transferChatOwnership({ chatId, userId, password: request.password! }))
+    await this.ensureReady()
+    throw new TelegramGroupPasswordRequiredError()
   }
 
   private async prepare(chat: string | number): Promise<{ chatId: string | number, group: Chat & { chatType: 'group' | 'supergroup' } }> {

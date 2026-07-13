@@ -1,10 +1,11 @@
-import { tl, type TelegramClient } from '@mtcute/node'
+import { MtPeerNotFoundError, tl, type TelegramClient } from '@mtcute/node'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   TelegramGroupAdminRequiredError,
   TelegramGroupFloodWaitError,
   TelegramGroupMemberNotFoundError,
+  TelegramGroupNotFoundError,
   TelegramGroupPasswordRequiredError,
 } from '../../src/telegram/group-types.js'
 import { MtcuteGroupMembers } from '../../src/telegram/mtcute-group-members.js'
@@ -82,19 +83,31 @@ describe('MtcuteGroupMembers', () => {
     expect(forever.effective_until).toBeNull()
   })
 
-  it('maps explicit promotion rights, all-false demotion, rank, and ownership', async () => {
+  it('maps explicit promotion rights, all-false demotion, and rank', async () => {
     const client = mockClient()
     const adapter = new MtcuteGroupMembers(client, vi.fn())
 
     await adapter.promoteAdmin({ chat: -100123, user: 7, rights, rank: 'Mod' })
     await adapter.demoteAdmin({ chat: -100123, user: 7 })
     await adapter.setAdminRank({ chat: -100123, user: 7, rank: 'Lead' })
-    await adapter.transferOwnership({ chat: -100123, user: 7, password: 'secret' })
 
     expect(client.editAdminRights).toHaveBeenNthCalledWith(1, { chatId: -100123, userId: 7, rights: { changeInfo: true, deleteMessages: false, banUsers: true, inviteUsers: false, pinMessages: true, addAdmins: false, manageCall: true, anonymous: false, manageTopics: true }, rank: 'Mod' })
     expect(client.editAdminRights).toHaveBeenNthCalledWith(2, { chatId: -100123, userId: 7, rights: { changeInfo: false, deleteMessages: false, banUsers: false, inviteUsers: false, pinMessages: false, addAdmins: false, manageCall: false, anonymous: false, manageTopics: false } })
     expect(client.editChatMemberRank).toHaveBeenCalledWith({ chatId: -100123, participantId: 7, rank: 'Lead' })
-    expect(client.transferChatOwnership).toHaveBeenCalledWith({ chatId: -100123, userId: 7, password: 'secret' })
+  })
+
+  it('ensures readiness first then rejects ownership transfer without invoking Telegram RPC', async () => {
+    const order: string[] = []
+    const client = mockClient({
+      getChat: vi.fn(async () => { order.push('chat'); return group() }),
+      transferChatOwnership: vi.fn(async () => { order.push('rpc') }),
+    })
+    const adapter = new MtcuteGroupMembers(client, async () => { order.push('ready') })
+
+    await expect(adapter.transferOwnership({ chat: -100123, user: 7 })).rejects.toBeInstanceOf(TelegramGroupPasswordRequiredError)
+    expect(order).toEqual(['ready'])
+    expect(client.getChat).not.toHaveBeenCalled()
+    expect(client.transferChatOwnership).not.toHaveBeenCalled()
   })
 
   it('resolves username targets to real member IDs instead of fabricating them', async () => {
@@ -112,6 +125,25 @@ describe('MtcuteGroupMembers', () => {
   ])('maps write RPC error %s', async (failure, expected) => {
     const client = mockClient({ kickChatMember: vi.fn().mockRejectedValue(failure) })
     await expect(new MtcuteGroupMembers(client, vi.fn()).kickMember({ chat: -100123, user: 7 })).rejects.toBeInstanceOf(expected)
+  })
+
+  it('maps group lookup failures before writes', async () => {
+    const client = mockClient({ getChat: vi.fn().mockRejectedValue(new MtPeerNotFoundError('missing')) })
+    await expect(new MtcuteGroupMembers(client, vi.fn()).kickMember({ chat: 'missing', user: 7 }))
+      .rejects.toBeInstanceOf(TelegramGroupNotFoundError)
+    expect(client.kickChatMember).not.toHaveBeenCalled()
+  })
+
+  it('maps RIGHT_FORBIDDEN to the typed administrator error', async () => {
+    const client = mockClient({ kickChatMember: vi.fn().mockRejectedValue(new tl.RpcError(400, 'RIGHT_FORBIDDEN')) })
+    await expect(new MtcuteGroupMembers(client, vi.fn()).kickMember({ chat: -100123, user: 7 }))
+      .rejects.toBeInstanceOf(TelegramGroupAdminRequiredError)
+  })
+
+  it('rethrows unknown failures by identity', async () => {
+    const failure = new Error('unexpected')
+    const client = mockClient({ kickChatMember: vi.fn().mockRejectedValue(failure) })
+    await expect(new MtcuteGroupMembers(client, vi.fn()).kickMember({ chat: -100123, user: 7 })).rejects.toBe(failure)
   })
 })
 
