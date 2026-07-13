@@ -108,6 +108,9 @@ describe('archive markdown', () => {
         '---',
         '    indented code',
         '\ttab code',
+        '>quoted',
+        '>',
+        '   >quoted',
         'ordinary text',
       ].join('\n'),
       attachment: null,
@@ -119,6 +122,9 @@ describe('archive markdown', () => {
       '\\---',
       '&#32;   indented code',
       '&#9;tab code',
+      '\\>quoted',
+      '\\>',
+      '   \\>quoted',
       'ordinary text',
     ].join('\n'))
   })

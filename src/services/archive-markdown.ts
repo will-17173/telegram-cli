@@ -54,7 +54,8 @@ function normalizeNewlines(value: string): string {
 function escapeMarkdownSyntax(value: string): string {
   return escapeHtml(value)
     .replace(/([\\`*_[\]{}()|~])/gu, '\\$1')
-    .replace(/^(\s*)([#>+-])(?=\s)/gmu, '$1\\$2')
+    .replace(/^( {0,3})&gt;/gmu, '$1\\>')
+    .replace(/^(\s*)([#+-])(?=\s)/gmu, '$1\\$2')
     .replace(/^(\s*\d+)\.(?=\s)/gmu, '$1\\.')
 }
 
