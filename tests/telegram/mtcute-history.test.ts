@@ -9,6 +9,7 @@ import { MtcuteTelegramClient } from '../../src/telegram/mtcute-client.js'
 describe('MtcuteTelegramClient history', () => {
   afterEach(() => {
     vi.useRealTimers()
+    vi.clearAllMocks()
   })
 
   it('paces explicit history pages and stops delaying after the final page', async () => {
@@ -49,10 +50,34 @@ describe('MtcuteTelegramClient history', () => {
       expect(delay).toBeGreaterThanOrEqual(800)
       expect(delay).toBeLessThanOrEqual(1_200)
     }
-    expect(sleep.mock.invocationCallOrder[0]).toBeLessThan(getHistory.mock.invocationCallOrder[1]!)
-    expect(sleep.mock.invocationCallOrder[1]).toBeLessThan(getHistory.mock.invocationCallOrder[2]!)
+    const [get1, get2, get3] = getHistory.mock.invocationCallOrder
+    const [sleep1, sleep2] = sleep.mock.invocationCallOrder
+    expect(get1).toBeLessThan(sleep1!)
+    expect(sleep1).toBeLessThan(get2!)
+    expect(get2).toBeLessThan(sleep2!)
+    expect(sleep2).toBeLessThan(get3!)
     expect(vi.getTimerCount()).toBe(0)
     expect(progress).toHaveBeenLastCalledWith(250)
+  })
+
+  it('skips the page timer when pageDelay is zero', async () => {
+    const pages = [page(8, 100, 101), page(108, 1)]
+    const getHistory = vi.fn(async () => pages.shift()!)
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getHistory,
+    } as unknown as TelegramClient
+
+    const rows = await new MtcuteTelegramClient(client).fetchHistory({
+      chat: -100123,
+      limit: 101,
+      pageDelay: 0,
+    })
+
+    expect(rows).toHaveLength(101)
+    expect(getHistory).toHaveBeenCalledTimes(2)
+    expect(sleep).not.toHaveBeenCalled()
   })
 })
 
