@@ -113,5 +113,57 @@ describe('GROUP_COMMANDS', () => {
 
   it('is frozen against runtime mutation', () => {
     expect(Object.isFrozen(GROUP_COMMANDS)).toBe(true)
+
+    const command = GROUP_COMMANDS.find(({ path }) => path.join(' ') === 'member add')
+    const originalPath = command?.path[0]
+    const originalArgName = command?.args[0]?.name
+
+    expect(command).toBeDefined()
+    expect(Object.isFrozen(command)).toBe(true)
+    expect(Object.isFrozen(command?.path)).toBe(true)
+    expect(Object.isFrozen(command?.args)).toBe(true)
+    expect(Object.isFrozen(command?.args[0])).toBe(true)
+    expect(() => {
+      ;(command as { summary: string }).summary = 'changed'
+    }).toThrow()
+    expect(() => {
+      ;(command!.path as [string, string])[0] = 'changed'
+    }).toThrow()
+    expect(() => {
+      ;(command!.args as unknown[]).push({})
+    }).toThrow()
+    expect(() => {
+      ;(command!.args[0] as { name: string }).name = 'changed'
+    }).toThrow()
+    expect(command?.path[0]).toBe(originalPath)
+    expect(command?.args[0]?.name).toBe(originalArgName)
+  })
+
+  it('describes invite create and edit options as typed metadata', () => {
+    for (const path of ['invite create', 'invite edit']) {
+      const command = GROUP_COMMANDS.find((item) => commandPath(item) === path)
+
+      expect(command?.options.map(({ name, kind }) => [name, kind])).toEqual([
+        ['title', 'text'],
+        ['expire', 'duration'],
+        ['limit', 'id'],
+        ['request-needed', 'toggle']
+      ])
+      expect(Object.isFrozen(command?.options)).toBe(true)
+      expect(Object.isFrozen(command?.options[0])).toBe(true)
+    }
+  })
+
+  it('declares an options array for every command', () => {
+    expect(GROUP_COMMANDS.every(({ options }) => Array.isArray(options))).toBe(true)
+  })
+
+  it('keeps positional usage placeholders aligned with argument names and order', () => {
+    for (const command of GROUP_COMMANDS) {
+      const placeholders = [...command.usage.matchAll(/(?:<|\[)([a-z-]+)(?:\.\.\.)?(?:>|\])/g)]
+        .map((match) => match[1])
+
+      expect(placeholders, commandPath(command)).toEqual(command.args.map(({ name }) => name))
+    }
   })
 })

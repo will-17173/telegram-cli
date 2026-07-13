@@ -1,57 +1,68 @@
 import type { GroupCommandDefinition } from './types.js'
 
-export const GROUP_COMMANDS = Object.freeze([
-  { path: ['member', 'add'], summary: 'Add members to the chat', usage: 'group member add <users...>', risk: 'none', args: [{ name: 'users', kind: 'users', required: true, rest: true }], capability: 'admin' },
-  { path: ['member', 'kick'], summary: 'Remove a member from the chat', usage: 'group member kick <user>', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
-  { path: ['member', 'ban'], summary: 'Ban a member from the chat', usage: 'group member ban <user>', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
-  { path: ['member', 'unban'], summary: 'Lift a member ban', usage: 'group member unban <user>', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
-  { path: ['member', 'mute'], summary: 'Mute a member for an optional duration', usage: 'group member mute <user> [duration]', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }, { name: 'duration', kind: 'duration', required: false }], capability: 'admin' },
-  { path: ['member', 'unmute'], summary: 'Restore a muted member permissions', usage: 'group member unmute <user>', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
-  { path: ['member', 'purge'], summary: 'Delete all messages from a member', usage: 'group member purge <user>', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
+function deepFreezeCommand(command: GroupCommandDefinition): GroupCommandDefinition {
+  command.args.forEach(Object.freeze)
+  command.options.forEach(Object.freeze)
+  Object.freeze(command.path)
+  Object.freeze(command.args)
+  Object.freeze(command.options)
+  return Object.freeze(command)
+}
 
-  { path: ['admin', 'promote'], summary: 'Promote a member to administrator', usage: 'group admin promote <user> [permissions]', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }, { name: 'permissions', kind: 'permissions', required: false }], capability: 'admin' },
-  { path: ['admin', 'demote'], summary: 'Remove administrator privileges', usage: 'group admin demote <user>', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
-  { path: ['admin', 'rank'], summary: 'Set an administrator custom title', usage: 'group admin rank <user> <text...>', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }, { name: 'text', kind: 'text', required: true, rest: true }], capability: 'admin' },
-  { path: ['admin', 'transfer-owner'], summary: 'Transfer ownership to another member', usage: 'group admin transfer-owner <user>', risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'creator' },
+const commands = [
+  { path: ['member', 'add'], summary: 'Add members to the chat', usage: 'group member add <users...>', options: [], risk: 'none', args: [{ name: 'users', kind: 'users', required: true, rest: true }], capability: 'admin' },
+  { path: ['member', 'kick'], summary: 'Remove a member from the chat', usage: 'group member kick <user>', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
+  { path: ['member', 'ban'], summary: 'Ban a member from the chat', usage: 'group member ban <user>', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
+  { path: ['member', 'unban'], summary: 'Lift a member ban', usage: 'group member unban <user>', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
+  { path: ['member', 'mute'], summary: 'Mute a member for an optional duration', usage: 'group member mute <user> [duration]', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }, { name: 'duration', kind: 'duration', required: false }], capability: 'admin' },
+  { path: ['member', 'unmute'], summary: 'Restore a muted member permissions', usage: 'group member unmute <user>', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
+  { path: ['member', 'purge'], summary: 'Delete all messages from a member', usage: 'group member purge <user>', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
 
-  { path: ['chat', 'title'], summary: 'Change the chat title', usage: 'group chat title <text...>', risk: 'none', args: [{ name: 'text', kind: 'text', required: true, rest: true }], capability: 'admin' },
-  { path: ['chat', 'description'], summary: 'Change the chat description', usage: 'group chat description <text...>', risk: 'none', args: [{ name: 'text', kind: 'text', required: true, rest: true }], capability: 'admin' },
-  { path: ['chat', 'username'], summary: 'Change the public chat username', usage: 'group chat username <text>', risk: 'none', args: [{ name: 'username', kind: 'text', required: true }], capability: 'admin' },
-  { path: ['chat', 'photo'], summary: 'Set the chat photo from a file', usage: 'group chat photo <path>', risk: 'none', args: [{ name: 'path', kind: 'path', required: true }], capability: 'admin' },
-  { path: ['chat', 'slowmode'], summary: 'Set the slow mode interval', usage: 'group chat slowmode <duration>', risk: 'none', args: [{ name: 'duration', kind: 'duration', required: true }], capability: 'admin' },
-  { path: ['chat', 'ttl'], summary: 'Set the message auto-delete interval', usage: 'group chat ttl <duration>', risk: 'confirm', args: [{ name: 'duration', kind: 'duration', required: true }], capability: 'admin' },
-  { path: ['chat', 'protect'], summary: 'Toggle content protection', usage: 'group chat protect <toggle>', risk: 'none', args: [{ name: 'enabled', kind: 'toggle', required: true }], capability: 'admin' },
-  { path: ['chat', 'join-requests'], summary: 'Toggle approval for new members', usage: 'group chat join-requests <toggle>', risk: 'none', args: [{ name: 'enabled', kind: 'toggle', required: true }], capability: 'admin' },
-  { path: ['chat', 'join-to-send'], summary: 'Toggle membership requirement for posting', usage: 'group chat join-to-send <toggle>', risk: 'none', args: [{ name: 'enabled', kind: 'toggle', required: true }], capability: 'admin' },
-  { path: ['chat', 'default-permissions'], summary: 'Set default member permissions', usage: 'group chat default-permissions <permissions>', risk: 'confirm', args: [{ name: 'permissions', kind: 'permissions', required: true }], capability: 'admin' },
-  { path: ['chat', 'sticker-set'], summary: 'Set the chat sticker set', usage: 'group chat sticker-set <id>', risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'admin' },
-  { path: ['chat', 'leave'], summary: 'Leave the current chat', usage: 'group chat leave', risk: 'confirm', args: [], capability: 'group' },
-  { path: ['chat', 'delete'], summary: 'Permanently delete the chat', usage: 'group chat delete', risk: 'confirm-title', args: [], capability: 'creator' },
+  { path: ['admin', 'promote'], summary: 'Promote a member to administrator', usage: 'group admin promote <user> [permissions]', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }, { name: 'permissions', kind: 'permissions', required: false }], capability: 'admin' },
+  { path: ['admin', 'demote'], summary: 'Remove administrator privileges', usage: 'group admin demote <user>', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
+  { path: ['admin', 'rank'], summary: 'Set an administrator custom title', usage: 'group admin rank <user> <text...>', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }, { name: 'text', kind: 'text', required: true, rest: true }], capability: 'admin' },
+  { path: ['admin', 'transfer-owner'], summary: 'Transfer ownership to another member', usage: 'group admin transfer-owner <user>', options: [], risk: 'confirm', args: [{ name: 'user', kind: 'user', required: true }], capability: 'creator' },
 
-  { path: ['invite', 'list'], summary: 'List chat invite links', usage: 'group invite list', risk: 'none', args: [], capability: 'admin' },
-  { path: ['invite', 'show'], summary: 'Show details for an invite link', usage: 'group invite show <invite>', risk: 'none', args: [{ name: 'invite', kind: 'invite', required: true }], capability: 'admin' },
-  { path: ['invite', 'create'], summary: 'Create a new invite link', usage: 'group invite create', risk: 'none', args: [], capability: 'admin' },
-  { path: ['invite', 'edit'], summary: 'Edit an existing invite link', usage: 'group invite edit <invite>', risk: 'none', args: [{ name: 'invite', kind: 'invite', required: true }], capability: 'admin' },
-  { path: ['invite', 'revoke'], summary: 'Revoke an invite link', usage: 'group invite revoke <invite>', risk: 'confirm', args: [{ name: 'invite', kind: 'invite', required: true }], capability: 'admin' },
-  { path: ['invite', 'members'], summary: 'List members who used an invite link', usage: 'group invite members <invite>', risk: 'none', args: [{ name: 'invite', kind: 'invite', required: true }], capability: 'admin' },
-  { path: ['invite', 'approve'], summary: 'Approve a pending join request', usage: 'group invite approve <user>', risk: 'none', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
-  { path: ['invite', 'decline'], summary: 'Decline a pending join request', usage: 'group invite decline <user>', risk: 'none', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
-  { path: ['invite', 'approve-all'], summary: 'Approve all pending join requests', usage: 'group invite approve-all', risk: 'confirm', args: [], capability: 'admin' },
-  { path: ['invite', 'decline-all'], summary: 'Decline all pending join requests', usage: 'group invite decline-all', risk: 'confirm', args: [], capability: 'admin' },
+  { path: ['chat', 'title'], summary: 'Change the chat title', usage: 'group chat title <text...>', options: [], risk: 'none', args: [{ name: 'text', kind: 'text', required: true, rest: true }], capability: 'admin' },
+  { path: ['chat', 'description'], summary: 'Change the chat description', usage: 'group chat description <text...>', options: [], risk: 'none', args: [{ name: 'text', kind: 'text', required: true, rest: true }], capability: 'admin' },
+  { path: ['chat', 'username'], summary: 'Change the public chat username', usage: 'group chat username <username>', options: [], risk: 'none', args: [{ name: 'username', kind: 'text', required: true }], capability: 'admin' },
+  { path: ['chat', 'photo'], summary: 'Set the chat photo from a file', usage: 'group chat photo <path>', options: [], risk: 'none', args: [{ name: 'path', kind: 'path', required: true }], capability: 'admin' },
+  { path: ['chat', 'slowmode'], summary: 'Set the slow mode interval', usage: 'group chat slowmode <duration>', options: [], risk: 'none', args: [{ name: 'duration', kind: 'duration', required: true }], capability: 'admin' },
+  { path: ['chat', 'ttl'], summary: 'Set the message auto-delete interval', usage: 'group chat ttl <duration>', options: [], risk: 'confirm', args: [{ name: 'duration', kind: 'duration', required: true }], capability: 'admin' },
+  { path: ['chat', 'protect'], summary: 'Toggle content protection', usage: 'group chat protect <enabled>', options: [], risk: 'none', args: [{ name: 'enabled', kind: 'toggle', required: true }], capability: 'admin' },
+  { path: ['chat', 'join-requests'], summary: 'Toggle approval for new members', usage: 'group chat join-requests <enabled>', options: [], risk: 'none', args: [{ name: 'enabled', kind: 'toggle', required: true }], capability: 'admin' },
+  { path: ['chat', 'join-to-send'], summary: 'Toggle membership requirement for posting', usage: 'group chat join-to-send <enabled>', options: [], risk: 'none', args: [{ name: 'enabled', kind: 'toggle', required: true }], capability: 'admin' },
+  { path: ['chat', 'default-permissions'], summary: 'Set default member permissions', usage: 'group chat default-permissions <permissions>', options: [], risk: 'confirm', args: [{ name: 'permissions', kind: 'permissions', required: true }], capability: 'admin' },
+  { path: ['chat', 'sticker-set'], summary: 'Set the chat sticker set', usage: 'group chat sticker-set <id>', options: [], risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'admin' },
+  { path: ['chat', 'leave'], summary: 'Leave the current chat', usage: 'group chat leave', options: [], risk: 'confirm', args: [], capability: 'group' },
+  { path: ['chat', 'delete'], summary: 'Permanently delete the chat', usage: 'group chat delete', options: [], risk: 'confirm-title', args: [], capability: 'creator' },
 
-  { path: ['topic', 'list'], summary: 'List forum topics', usage: 'group topic list', risk: 'none', args: [], capability: 'forum' },
-  { path: ['topic', 'create'], summary: 'Create a forum topic', usage: 'group topic create <text...>', risk: 'none', args: [{ name: 'title', kind: 'text', required: true, rest: true }], capability: 'forum' },
-  { path: ['topic', 'edit'], summary: 'Edit a forum topic title', usage: 'group topic edit <id> <text...>', risk: 'none', args: [{ name: 'id', kind: 'id', required: true }, { name: 'title', kind: 'text', required: true, rest: true }], capability: 'forum' },
-  { path: ['topic', 'close'], summary: 'Close a forum topic', usage: 'group topic close <id>', risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
-  { path: ['topic', 'reopen'], summary: 'Reopen a closed forum topic', usage: 'group topic reopen <id>', risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
-  { path: ['topic', 'pin'], summary: 'Pin a forum topic', usage: 'group topic pin <id>', risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
-  { path: ['topic', 'unpin'], summary: 'Unpin a forum topic', usage: 'group topic unpin <id>', risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
-  { path: ['topic', 'reorder'], summary: 'Set the order of pinned forum topics', usage: 'group topic reorder <ids...>', risk: 'none', args: [{ name: 'ids', kind: 'ids', required: true, rest: true }], capability: 'forum' },
-  { path: ['topic', 'delete'], summary: 'Delete a forum topic and its messages', usage: 'group topic delete <id>', risk: 'confirm', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
-  { path: ['topic', 'general-hidden'], summary: 'Toggle visibility of the general topic', usage: 'group topic general-hidden <toggle>', risk: 'none', args: [{ name: 'hidden', kind: 'toggle', required: true }], capability: 'forum' },
+  { path: ['invite', 'list'], summary: 'List chat invite links', usage: 'group invite list', options: [], risk: 'none', args: [], capability: 'admin' },
+  { path: ['invite', 'show'], summary: 'Show details for an invite link', usage: 'group invite show <invite>', options: [], risk: 'none', args: [{ name: 'invite', kind: 'invite', required: true }], capability: 'admin' },
+  { path: ['invite', 'create'], summary: 'Create a new invite link', usage: 'group invite create', options: [{ name: 'title', long: '--title', kind: 'text', summary: 'Set a descriptive title' }, { name: 'expire', long: '--expire', kind: 'duration', summary: 'Set the link expiration duration' }, { name: 'limit', long: '--limit', kind: 'id', summary: 'Set the maximum number of uses' }, { name: 'request-needed', long: '--request-needed', kind: 'toggle', summary: 'Require administrator approval' }], risk: 'none', args: [], capability: 'admin' },
+  { path: ['invite', 'edit'], summary: 'Edit an existing invite link', usage: 'group invite edit <invite>', options: [{ name: 'title', long: '--title', kind: 'text', summary: 'Set a descriptive title' }, { name: 'expire', long: '--expire', kind: 'duration', summary: 'Set the link expiration duration' }, { name: 'limit', long: '--limit', kind: 'id', summary: 'Set the maximum number of uses' }, { name: 'request-needed', long: '--request-needed', kind: 'toggle', summary: 'Require administrator approval' }], risk: 'none', args: [{ name: 'invite', kind: 'invite', required: true }], capability: 'admin' },
+  { path: ['invite', 'revoke'], summary: 'Revoke an invite link', usage: 'group invite revoke <invite>', options: [], risk: 'confirm', args: [{ name: 'invite', kind: 'invite', required: true }], capability: 'admin' },
+  { path: ['invite', 'members'], summary: 'List members who used an invite link', usage: 'group invite members <invite>', options: [], risk: 'none', args: [{ name: 'invite', kind: 'invite', required: true }], capability: 'admin' },
+  { path: ['invite', 'approve'], summary: 'Approve a pending join request', usage: 'group invite approve <user>', options: [], risk: 'none', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
+  { path: ['invite', 'decline'], summary: 'Decline a pending join request', usage: 'group invite decline <user>', options: [], risk: 'none', args: [{ name: 'user', kind: 'user', required: true }], capability: 'admin' },
+  { path: ['invite', 'approve-all'], summary: 'Approve all pending join requests', usage: 'group invite approve-all', options: [], risk: 'confirm', args: [], capability: 'admin' },
+  { path: ['invite', 'decline-all'], summary: 'Decline all pending join requests', usage: 'group invite decline-all', options: [], risk: 'confirm', args: [], capability: 'admin' },
 
-  { path: ['message', 'pin'], summary: 'Pin a message in the chat', usage: 'group message pin <id>', risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'admin' },
-  { path: ['message', 'unpin'], summary: 'Unpin a message in the chat', usage: 'group message unpin <id>', risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'admin' },
-  { path: ['message', 'unpin-all'], summary: 'Unpin every message in the chat', usage: 'group message unpin-all', risk: 'confirm', args: [], capability: 'admin' },
-  { path: ['message', 'delete'], summary: 'Delete messages from the chat', usage: 'group message delete <ids...>', risk: 'confirm', args: [{ name: 'ids', kind: 'ids', required: true, rest: true }], capability: 'admin' }
-] satisfies readonly GroupCommandDefinition[])
+  { path: ['topic', 'list'], summary: 'List forum topics', usage: 'group topic list', options: [], risk: 'none', args: [], capability: 'forum' },
+  { path: ['topic', 'create'], summary: 'Create a forum topic', usage: 'group topic create <title...>', options: [], risk: 'none', args: [{ name: 'title', kind: 'text', required: true, rest: true }], capability: 'forum' },
+  { path: ['topic', 'edit'], summary: 'Edit a forum topic title', usage: 'group topic edit <id> <title...>', options: [], risk: 'none', args: [{ name: 'id', kind: 'id', required: true }, { name: 'title', kind: 'text', required: true, rest: true }], capability: 'forum' },
+  { path: ['topic', 'close'], summary: 'Close a forum topic', usage: 'group topic close <id>', options: [], risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
+  { path: ['topic', 'reopen'], summary: 'Reopen a closed forum topic', usage: 'group topic reopen <id>', options: [], risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
+  { path: ['topic', 'pin'], summary: 'Pin a forum topic', usage: 'group topic pin <id>', options: [], risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
+  { path: ['topic', 'unpin'], summary: 'Unpin a forum topic', usage: 'group topic unpin <id>', options: [], risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
+  { path: ['topic', 'reorder'], summary: 'Set the order of pinned forum topics', usage: 'group topic reorder <ids...>', options: [], risk: 'none', args: [{ name: 'ids', kind: 'ids', required: true, rest: true }], capability: 'forum' },
+  { path: ['topic', 'delete'], summary: 'Delete a forum topic and its messages', usage: 'group topic delete <id>', options: [], risk: 'confirm', args: [{ name: 'id', kind: 'id', required: true }], capability: 'forum' },
+  { path: ['topic', 'general-hidden'], summary: 'Toggle visibility of the general topic', usage: 'group topic general-hidden <hidden>', options: [], risk: 'none', args: [{ name: 'hidden', kind: 'toggle', required: true }], capability: 'forum' },
+
+  { path: ['message', 'pin'], summary: 'Pin a message in the chat', usage: 'group message pin <id>', options: [], risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'admin' },
+  { path: ['message', 'unpin'], summary: 'Unpin a message in the chat', usage: 'group message unpin <id>', options: [], risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'admin' },
+  { path: ['message', 'unpin-all'], summary: 'Unpin every message in the chat', usage: 'group message unpin-all', options: [], risk: 'confirm', args: [], capability: 'admin' },
+  { path: ['message', 'delete'], summary: 'Delete messages from the chat', usage: 'group message delete <ids...>', options: [], risk: 'confirm', args: [{ name: 'ids', kind: 'ids', required: true, rest: true }], capability: 'admin' }
+] satisfies readonly GroupCommandDefinition[]
+
+export const GROUP_COMMANDS = Object.freeze(commands.map(deepFreezeCommand))

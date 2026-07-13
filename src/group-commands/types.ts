@@ -13,17 +13,26 @@ export type GroupCommandValueKind =
   | 'invite'
 
 export interface GroupCommandArgument {
-  name: string
-  kind: GroupCommandValueKind
-  required: boolean
-  rest?: boolean
+  readonly name: string
+  readonly kind: GroupCommandValueKind
+  readonly required: boolean
+  readonly rest?: boolean
+}
+
+export interface GroupCommandOption {
+  readonly name: string
+  readonly long: `--${string}`
+  readonly kind: GroupCommandValueKind
+  readonly summary: string
+  readonly required?: boolean
 }
 
 export interface GroupCommandDefinition {
-  path: readonly [string, string]
-  summary: string
-  usage: string
-  risk: GroupCommandRisk
-  args: readonly GroupCommandArgument[]
-  capability?: 'group' | 'supergroup' | 'forum' | 'admin' | 'creator'
+  readonly path: readonly [string, string]
+  readonly summary: string
+  readonly usage: string
+  readonly risk: GroupCommandRisk
+  readonly args: readonly GroupCommandArgument[]
+  readonly options: readonly GroupCommandOption[]
+  readonly capability?: 'group' | 'supergroup' | 'forum' | 'admin' | 'creator'
 }
