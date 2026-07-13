@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { tl } from '@mtcute/node'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AuthenticatedSession, AuthUser } from '../../src/account/account-authenticator.js'
@@ -81,16 +82,22 @@ describe('AccountSessionService', () => {
   })
 
   it('marks an expired remote session logged out', async () => {
-    const expired = Object.assign(new Error('Telegram API error 401: AUTH_KEY_UNREGISTERED'), {
-      code: 401,
-      text: 'AUTH_KEY_UNREGISTERED',
-    })
+    const expired = new tl.RpcError(401, 'AUTH_KEY_UNREGISTERED')
     vi.mocked(client.logOut).mockRejectedValue(expired)
 
     const result = await service.logout({ name: 'alice' })
 
     expect(result).toMatchObject({ ok: true, data: { changed: true } })
     expect(store.get('alice')?.auth_state).toBe('logged_out')
+  })
+
+  it('does not treat a network error mentioning a terminal token as a revoked session', async () => {
+    vi.mocked(client.logOut).mockRejectedValue(new Error('ECONNRESET while proxy mentioned SESSION_REVOKED'))
+
+    const result = await service.logout({ name: 'alice' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'account_logout_failed' } })
+    expect(store.get('alice')?.auth_state).toBe('authenticated')
   })
 
   it('does not mutate logout state after a network failure', async () => {
@@ -167,6 +174,71 @@ describe('AccountSessionService', () => {
     expect(readFileSync(sessionPath, 'utf8')).toBe('original-session')
   })
 
+  it('restores the original session after replacement fails following its movement', async () => {
+    await setAuthState(store, 'logged_out')
+    const renamePath = vi.fn((source: string, destination: string) => {
+      if (source === stagedSessionPath && destination === sessionPath) {
+        throw new Error('staged rename failed')
+      }
+      renameSync(source, destination)
+    })
+    service = createService({ dataDir, store, client, authenticate, renamePath })
+
+    const result = await service.login({ name: 'alice' })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'account_session_replace_failed' } })
+    expect(store.get('alice')?.auth_state).toBe('logged_out')
+    expect(readFileSync(sessionPath, 'utf8')).toBe('original-session')
+    expect(workflowArtifacts(dataDir)).toEqual([])
+  })
+
+  it('preserves the original tombstone when replacement and restoration both fail', async () => {
+    await setAuthState(store, 'logged_out')
+    const renamePath = vi.fn((source: string, destination: string) => {
+      if ((source === stagedSessionPath && destination === sessionPath) || isSessionTombstone(source)) {
+        throw new Error('injected rename failure')
+      }
+      renameSync(source, destination)
+    })
+    service = createService({ dataDir, store, client, authenticate, renamePath })
+
+    const result = await service.login({ name: 'alice' })
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'account_session_replace_failed', details: { recovery_path: expect.any(String) } },
+    })
+    expect(store.get('alice')?.auth_state).toBe('logged_out')
+    expect(existsSync(sessionPath)).toBe(false)
+    expect(recoverableSessionContents(dataDir)).toEqual(['original-session'])
+    expect(workflowArtifacts(dataDir).filter((name) => name.startsWith('.login-'))).toEqual([])
+  })
+
+  it('preserves the original tombstone when registry rollback restoration fails', async () => {
+    await setAuthState(store, 'logged_out')
+    vi.spyOn(store, 'write').mockImplementationOnce(() => {
+      throw new Error('registry is read-only')
+    })
+    const renamePath = vi.fn((source: string, destination: string) => {
+      if (isSessionTombstone(source) && destination === sessionPath) {
+        throw new Error('restore failed')
+      }
+      renameSync(source, destination)
+    })
+    service = createService({ dataDir, store, client, authenticate, renamePath })
+
+    const result = await service.login({ name: 'alice' })
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'account_store_error', details: { recovery_path: expect.any(String) } },
+    })
+    expect(store.get('alice')?.auth_state).toBe('logged_out')
+    expect(existsSync(sessionPath)).toBe(false)
+    expect(recoverableSessionContents(dataDir)).toEqual(['original-session'])
+    expect(workflowArtifacts(dataDir).filter((name) => name.startsWith('.login-'))).toEqual([])
+  })
+
   it('returns account_not_found without side effects', async () => {
     const logout = await service.logout({ name: 'missing' })
     const login = await service.login({ name: 'missing' })
@@ -183,6 +255,39 @@ function sessionFor(user: AuthUser): AuthenticatedSession {
     user,
     close: vi.fn().mockResolvedValue(undefined),
   }
+}
+
+function createService(options: {
+  dataDir: string
+  store: AccountStore
+  client: Pick<TelegramClientAdapter, 'logOut' | 'close'>
+  authenticate: (path: string) => Promise<AuthenticatedSession>
+  renamePath: (source: string, destination: string) => void
+}): AccountSessionService {
+  return new AccountSessionService({
+    dataDir: options.dataDir,
+    store: options.store,
+    createClient: () => options.client as TelegramClientAdapter,
+    authenticate: options.authenticate,
+    renamePath: options.renamePath,
+  })
+}
+
+function workflowArtifacts(dataDir: string): string[] {
+  return readdirSync(join(dataDir, 'accounts', 'alice'))
+    .filter((name) => name.startsWith('.login-') || isSessionTombstone(name))
+    .sort()
+}
+
+function recoverableSessionContents(dataDir: string): string[] {
+  const accountDir = join(dataDir, 'accounts', 'alice')
+  return workflowArtifacts(dataDir)
+    .filter(isSessionTombstone)
+    .map((name) => readFileSync(join(accountDir, name), 'utf8'))
+}
+
+function isSessionTombstone(path: string): boolean {
+  return /(?:^|\/)\.session-.+\.bak$/.test(path)
 }
 
 async function setAuthState(store: AccountStore, authState: 'authenticated' | 'logged_out'): Promise<void> {

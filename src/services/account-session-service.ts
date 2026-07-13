@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
+import { tl } from '@mtcute/node'
 
 import { authenticateAccountAt, type AuthenticatedSession } from '../account/account-authenticator.js'
 import { AccountStore, type AccountMeta, type AccountRegistry } from '../account/account-store.js'
@@ -23,15 +24,18 @@ export type AccountSessionServiceOptions = {
   store: AccountStore
   createClient?: (sessionPath: string) => TelegramClientAdapter
   authenticate?: (sessionPath: string) => Promise<AuthenticatedSession>
+  renamePath?: (source: string, destination: string) => void
 }
 
 export class AccountSessionService {
   private readonly createClient: (sessionPath: string) => TelegramClientAdapter
   private readonly authenticate: (sessionPath: string) => Promise<AuthenticatedSession>
+  private readonly renamePath: (source: string, destination: string) => void
 
   constructor(private readonly options: AccountSessionServiceOptions) {
     this.createClient = options.createClient ?? createTelegramClient
     this.authenticate = options.authenticate ?? authenticateAccountAt
+    this.renamePath = options.renamePath ?? renameSync
   }
 
   async logout(input: AccountSessionInput): Promise<HandlerResult<AccountSessionResult>> {
@@ -88,6 +92,7 @@ export class AccountSessionService {
       const stagedSessionPath = join(temporaryDir, 'session')
       const discardedSessionPath = join(temporaryDir, 'discarded-session')
       const tombstonePath = join(dirname(sessionPath), `.session-${randomUUID()}.bak`)
+      let preserveTombstone = false
 
       try {
         let authenticated: AuthenticatedSession
@@ -116,11 +121,15 @@ export class AccountSessionService {
 
         const hadOriginalSession = existsSync(sessionPath)
         try {
-          if (hadOriginalSession) renameSync(sessionPath, tombstonePath)
-          renameSync(stagedSessionPath, sessionPath)
+          if (hadOriginalSession) this.renamePath(sessionPath, tombstonePath)
+          this.renamePath(stagedSessionPath, sessionPath)
         } catch (error) {
           if (hadOriginalSession && existsSync(tombstonePath)) {
-            restoreSession(tombstonePath, sessionPath)
+            const restoreError = restoreSession(tombstonePath, sessionPath, this.renamePath)
+            if (restoreError) {
+              preserveTombstone = true
+              return recoveryFailure('account_session_replace_failed', error, restoreError, tombstonePath)
+            }
           }
           return failure('account_session_replace_failed', errorMessage(error))
         }
@@ -129,9 +138,18 @@ export class AccountSessionService {
         try {
           this.options.store.write(updateAccount(registry, updated))
         } catch (error) {
-          if (existsSync(sessionPath)) renameSync(sessionPath, discardedSessionPath)
-          if (hadOriginalSession && existsSync(tombstonePath)) {
-            restoreSession(tombstonePath, sessionPath)
+          const rollbackError = rollbackInstalledSession({
+            discardedSessionPath,
+            hadOriginalSession,
+            renamePath: this.renamePath,
+            sessionPath,
+            tombstonePath,
+          })
+          if (rollbackError) {
+            preserveTombstone = hadOriginalSession && existsSync(tombstonePath)
+            return preserveTombstone
+              ? recoveryFailure('account_store_error', error, rollbackError, tombstonePath)
+              : failure('account_store_error', `${errorMessage(error)} Rollback failed: ${errorMessage(rollbackError)}`)
           }
           return failure('account_store_error', errorMessage(error))
         }
@@ -139,7 +157,7 @@ export class AccountSessionService {
         return success(updated, true)
       } finally {
         rmSync(temporaryDir, { recursive: true, force: true })
-        rmSync(tombstonePath, { recursive: true, force: true })
+        if (!preserveTombstone) rmSync(tombstonePath, { recursive: true, force: true })
       }
     })
   }
@@ -164,23 +182,58 @@ function accountNotFound(name: string): HandlerResult<never> {
   return failure('account_not_found', `Account "${name}" is not registered.`)
 }
 
-function failure(code: string, message: string): HandlerResult<never> {
-  return { ok: false, error: { code, message } }
+function failure(code: string, message: string, details?: unknown): HandlerResult<never> {
+  return { ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } }
 }
 
-function restoreSession(tombstonePath: string, sessionPath: string): void {
-  rmSync(sessionPath, { recursive: true, force: true })
-  renameSync(tombstonePath, sessionPath)
+function recoveryFailure(code: string, cause: unknown, rollbackError: unknown, recoveryPath: string): HandlerResult<never> {
+  return failure(
+    code,
+    `${errorMessage(cause)} Failed to restore the original session: ${errorMessage(rollbackError)}`,
+    { recovery_path: recoveryPath },
+  )
+}
+
+function restoreSession(
+  tombstonePath: string,
+  sessionPath: string,
+  renamePath: (source: string, destination: string) => void,
+): unknown | undefined {
+  if (existsSync(sessionPath)) {
+    return new Error(`Cannot restore original session because destination exists: ${sessionPath}`)
+  }
+  try {
+    renamePath(tombstonePath, sessionPath)
+    return undefined
+  } catch (error) {
+    return error
+  }
+}
+
+function rollbackInstalledSession(options: {
+  discardedSessionPath: string
+  hadOriginalSession: boolean
+  renamePath: (source: string, destination: string) => void
+  sessionPath: string
+  tombstonePath: string
+}): unknown | undefined {
+  if (existsSync(options.sessionPath)) {
+    try {
+      options.renamePath(options.sessionPath, options.discardedSessionPath)
+    } catch (moveError) {
+      try {
+        rmSync(options.sessionPath, { recursive: true, force: true })
+      } catch (removeError) {
+        return new Error(`Unable to discard staged session: ${errorMessage(moveError)}; ${errorMessage(removeError)}`)
+      }
+    }
+  }
+
+  if (!options.hadOriginalSession || !existsSync(options.tombstonePath)) return undefined
+  return restoreSession(options.tombstonePath, options.sessionPath, options.renamePath)
 }
 
 function isTerminalSessionError(error: unknown): boolean {
-  if (error === null || typeof error !== 'object') return false
-  const candidate = error as { code?: unknown; message?: unknown; text?: unknown }
-  const text = typeof candidate.text === 'string'
-    ? candidate.text
-    : typeof candidate.message === 'string'
-      ? candidate.message
-      : ''
   const terminal = [
     'AUTH_KEY_INVALID',
     'AUTH_KEY_UNREGISTERED',
@@ -188,8 +241,8 @@ function isTerminalSessionError(error: unknown): boolean {
     'SESSION_REVOKED',
     'USER_DEACTIVATED',
     'USER_DEACTIVATED_BAN',
-  ]
-  return terminal.some((value) => text === value || text.includes(value))
+  ] as const
+  return terminal.some((text) => tl.RpcError.is(error, text))
 }
 
 function errorCode(error: unknown, fallback: string): string {
