@@ -19,6 +19,15 @@ import { isMouseInput, useMouseScroll, withMouseReporting, type MouseScrollDirec
 import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
 import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
 import { executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
+import { GroupCommandMenu, groupCommandMenuAvailability, moveGroupCommandSelectionEnabled, visibleGroupCommandMatches } from './group-command-menu.js'
+import { GroupCommandResult } from './group-command-result.js'
+import { useGroupCommand } from './use-group-command.js'
+import { executeGroupCommand } from '../../group-commands/executor.js'
+import { completeGroupCommand } from '../../group-commands/parser.js'
+import { GroupWriteService } from '../../services/group-write-service.js'
+import { ADMIN_RIGHT_KEYS } from '../../services/group-write-service.js'
+import { GroupCommandConfirm } from './group-command-confirm.js'
+import { truncateCell } from './display-width.js'
 
 export type ListenMessage = ListenMessageRow & {
   key: string
@@ -39,7 +48,7 @@ export type DownloadableAttachment = {
   attachment: ListenAttachment
 }
 
-type ListenRuntimeOptions = {
+export type ListenRuntimeOptions = {
   dbPath: string
   chats: Array<string | number> | undefined
   persist: boolean
@@ -587,7 +596,7 @@ export async function renderInteractiveListen(options: ListenRuntimeOptions): Pr
   })
 }
 
-function InteractiveListen({
+export function InteractiveListen({
   dbPath,
   chats,
   persist,
@@ -614,6 +623,54 @@ function InteractiveListen({
   const [downloadStates, setDownloadStates] = useState<Record<string, AttachmentDownloadState>>({})
   const [scrollState, setScrollState] = useState<ListenScrollState>({ offset: 0, unseenCount: 0 })
   const [sendTargetLabel, setSendTargetLabel] = useState(sendTo == null ? '' : buildSendTargetLabel(sendTo))
+  const [knownGroup, setKnownGroup] = useState<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
+  const clientRef = useRef<TelegramClientAdapter | null>(null)
+  const knownGroupRef = useRef<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
+  const groupLookupGenerationRef = useRef(0)
+  useEffect(() => {
+    groupLookupGenerationRef.current++
+    knownGroupRef.current = undefined
+    setKnownGroup(undefined)
+  }, [sendTo])
+  const groupCommand = useGroupCommand(useCallback(async (request, options) => {
+    const client = clientRef.current
+    if (client == null) return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection is not ready.' } }
+    if (sendTo == null) return { ok: false, error: { code: 'ambiguous_chat', message: 'Select exactly one target chat with --send-to.' } }
+    let knownGroup = knownGroupRef.current
+    if (knownGroup == null) {
+      const lookup = ++groupLookupGenerationRef.current
+      knownGroup = await client.groups.getGroup(sendTo)
+      if (lookup === groupLookupGenerationRef.current && clientRef.current === client) {
+        knownGroupRef.current = knownGroup
+        setKnownGroup(knownGroup)
+      }
+    }
+    return executeGroupCommand(request, {
+      chat: sendTo,
+      groups: new GroupWriteService(client.groups),
+      confirmed: options?.confirmed ?? false,
+      confirmationTitle: options?.confirmationTitle,
+      knownGroup,
+      connectionReady: true,
+      targetAvailable: true,
+      targetCount: 1,
+      invalidateGroup: async () => {
+        knownGroupRef.current = undefined
+        setKnownGroup(undefined)
+        if (request.key === 'chat delete' || request.key === 'chat leave') return
+        const lookup = ++groupLookupGenerationRef.current
+        try {
+          const refreshed = await client.groups.getGroup(sendTo)
+          if (lookup === groupLookupGenerationRef.current && clientRef.current === client) {
+            knownGroupRef.current = refreshed
+            setKnownGroup(refreshed)
+          }
+        } catch (error) {
+          if (lookup === groupLookupGenerationRef.current && clientRef.current === client) setNote(`Group updated; refresh failed: ${messageFromError(error)}`)
+        }
+      },
+    })
+  }, [sendTo]))
   const terminalWidth = terminalMetrics.columns
   const terminalHeight = terminalMetrics.rows
   const previewColorDepth = interactiveListenPreviewColorDepth(terminalMetrics.colorDepth)
@@ -629,7 +686,6 @@ function InteractiveListen({
   )
   const messagePaneHeight = calculateListenMessagePaneHeight(terminalHeight, note.length > 0, autoDownload)
   const visibleMessages = takeListenViewport(messages, messagePaneHeight, scrollState.offset)
-  const clientRef = useRef<TelegramClientAdapter | null>(null)
   const albumAggregatorRef = useRef<ListenAlbumAggregator | null>(null)
   const autoDownloaderRef = useRef<AutoDownloadCoordinator | null>(null)
   const pendingAttachmentKeysRef = useRef<Set<string>>(new Set())
@@ -682,6 +738,101 @@ function InteractiveListen({
       stopListening()
       return
     }
+    const modal = groupCommand.state
+    if (modal.kind === 'confirm') {
+      if (key.escape) { groupCommand.close(); return }
+      if (key.upArrow || key.downArrow) { groupCommand.setState({ ...modal, selectedIndex: modal.selectedIndex === 0 ? 1 : 0 }); return }
+      if (key.return) {
+        if (modal.selectedIndex === 0) void groupCommand.runConfirmed(modal.request)
+        else groupCommand.close()
+      }
+      return
+    }
+    if (modal.kind === 'confirm-title') {
+      if (key.escape) {
+        if (modal.stage === 'title') groupCommand.setState({ ...modal, stage: 'confirm', confirmText: '', mismatch: false })
+        else groupCommand.close()
+        return
+      }
+      if (modal.stage === 'confirm') {
+        if (key.upArrow || key.downArrow) groupCommand.setState({ ...modal, selectedIndex: modal.selectedIndex === 0 ? 1 : 0 })
+        else if (key.return) modal.selectedIndex === 0 ? groupCommand.setState({ ...modal, stage: 'title' }) : groupCommand.close()
+        return
+      }
+      if (key.return) {
+        const client = clientRef.current
+        if (client == null || sendTo == null) {
+          groupCommand.setState({ kind: 'error', message: 'Telegram connection is not ready.' })
+        } else {
+          const submittedTitle = modal.confirmText
+          const lookup = ++groupLookupGenerationRef.current
+          void client.groups.getGroup(sendTo).then((fresh) => {
+            if (lookup !== groupLookupGenerationRef.current || clientRef.current !== client) return
+            knownGroupRef.current = fresh
+            setKnownGroup(fresh)
+            if (fresh.title === submittedTitle) void groupCommand.runConfirmed(modal.request, submittedTitle)
+            else if ('confirmation' in modal.pending) groupCommand.setState({
+              ...modal,
+              pending: { ...modal.pending, confirmation: { ...modal.pending.confirmation, title: fresh.title, target: fresh.title } },
+              mismatch: true,
+            })
+          }).catch((error) => {
+            if (lookup === groupLookupGenerationRef.current && clientRef.current === client) groupCommand.setState({ kind: 'error', message: messageFromError(error) })
+          })
+        }
+      } else if (key.backspace || key.delete) groupCommand.setState({ ...modal, confirmText: modal.confirmText.slice(0, -1), mismatch: false })
+      else if (!key.ctrl && !key.meta && inputText) groupCommand.setState({ ...modal, confirmText: modal.confirmText + inputText, mismatch: false })
+      return
+    }
+    if (modal.kind === 'select-permissions') {
+      if (key.escape) { groupCommand.close(); return }
+      if (key.upArrow || key.downArrow) {
+        const delta = key.upArrow ? -1 : 1
+        groupCommand.setState({ ...modal, selectedIndex: (modal.selectedIndex + delta + ADMIN_RIGHT_KEYS.length) % ADMIN_RIGHT_KEYS.length })
+      } else if (inputText === ' ') {
+        const right = ADMIN_RIGHT_KEYS[modal.selectedIndex]!
+        groupCommand.setState({ ...modal, selected: modal.selected.includes(right) ? modal.selected.filter(item => item !== right) : [...modal.selected, right], warning: undefined })
+      } else if (key.return) {
+        if (modal.selected.length === 0) groupCommand.setState({ ...modal, warning: 'Select at least one permission.' })
+        else {
+          const request = Object.freeze({ ...modal.request, values: Object.freeze({ ...modal.request.values, permissions: Object.freeze([...modal.selected]) }) }) as typeof modal.request
+          void (async () => {
+            const result = await groupCommand.submit(`${modal.originalInput} ${modal.selected.join(',')}`, 0)
+            if (result.kind === 'pending' && 'confirmation' in result.pending) groupCommand.setState({ kind: 'confirm', pending: result.pending, request, originalInput: modal.originalInput, selectedIndex: 1 })
+          })()
+        }
+      }
+      return
+    }
+    if (groupCommand.state.kind === 'result') {
+      if (key.escape) groupCommand.close()
+      return
+    }
+    if (key.escape && groupCommand.state.kind === 'error') {
+      groupCommand.close()
+      return
+    }
+    const slashMode = input.trimStart().startsWith('/')
+    if (slashMode && key.escape) {
+      groupCommand.close()
+      return
+    }
+    if (slashMode && (key.upArrow || key.downArrow)) {
+      const count = visibleGroupCommandMatches(input).length
+      const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+      const disabled = groupCommandMenuAvailability(input, knownGroup).map(Boolean)
+      groupCommand.setState({ kind: 'menu', selectedIndex: moveGroupCommandSelectionEnabled(selected, key.upArrow ? -1 : 1, disabled.slice(0, count)) })
+      return
+    }
+    if (slashMode && key.tab) {
+      const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+      const failure = groupCommandMenuAvailability(input, knownGroup)[selected]
+      if (failure && 'error' in failure) { setNote(failure.error.message); return }
+      setInput(completeGroupCommand(input, selected))
+      groupCommand.setState({ kind: 'menu', selectedIndex: selected })
+      setFocus('input')
+      return
+    }
     if (key.tab) {
       if (focus === 'attachments') {
         setFocus('input')
@@ -712,8 +863,19 @@ function InteractiveListen({
       }
       return
     }
-    if (sending) return
+    if (sending || groupCommand.state.kind === 'executing') return
     if (key.return) {
+      if (slashMode) {
+        const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+        const failure = groupCommandMenuAvailability(input, knownGroup)[selected]
+        if (failure && 'error' in failure) { setNote(failure.error.message); return }
+        void groupCommand.submit(input, selected).then((outcome) => {
+          if (!outcome.applied) return
+          if (outcome.kind === 'complete') setInput(outcome.input)
+          else if (outcome.kind === 'result' && outcome.result.ok) setInput('')
+        })
+        return
+      }
       void sendMessage(input)
       return
     }
@@ -725,7 +887,14 @@ function InteractiveListen({
       return
     }
     if (!key.ctrl && !key.meta && inputText.length > 0) {
-      setInput((current) => current + inputText)
+      setInput((current) => {
+        const next = current + inputText
+        if (next.trimStart().startsWith('/')) {
+          setFocus('input')
+          groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
+        }
+        return next
+      })
     }
   })
 
@@ -788,8 +957,15 @@ function InteractiveListen({
       },
       onClient: (client) => {
         if (!isActive()) return
+        groupLookupGenerationRef.current++
+        knownGroupRef.current = undefined
+        setKnownGroup(undefined)
         clientRef.current = client
         if (client != null && sendTo != null) {
+          const lookup = ++groupLookupGenerationRef.current
+          void client.groups.getGroup(sendTo).then((group) => {
+            if (isActive() && lookup === groupLookupGenerationRef.current && clientRef.current === client) { knownGroupRef.current = group; setKnownGroup(group) }
+          }).catch(() => undefined)
           void resolveSendTargetLabel(client, sendTo).then((label) => {
             if (isActive() && label != null) setSendTargetLabel(label)
           })
@@ -835,6 +1011,8 @@ function InteractiveListen({
     })
 
     return () => {
+      groupLookupGenerationRef.current += 1
+      knownGroupRef.current = undefined
       stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.flush()
       generation.dispose()
@@ -935,6 +1113,8 @@ function InteractiveListen({
     clientRef.current?.close().catch(() => undefined)
   }
 
+  const permissionState = groupCommand.state.kind === 'select-permissions' ? groupCommand.state : null
+
   return (
     <Box flexDirection="row" width={terminalWidth} height={terminalHeight} overflow="hidden">
       <Box flexDirection="column" width={contentWidth} height={terminalHeight} overflow="hidden">
@@ -944,6 +1124,13 @@ function InteractiveListen({
           autoDownload={autoDownload}
         />
         {note ? <Text dimColor>{note}</Text> : null}
+        {groupCommand.state.kind === 'result' ? <Box flexGrow={1} flexDirection="column"><GroupCommandResult state={groupCommand.state} width={contentWidth} /></Box> : <Box flexGrow={1} flexDirection="column">
+        <GroupCommandResult state={groupCommand.state} width={contentWidth} />
+        {groupCommand.state.kind === 'confirm' && 'confirmation' in groupCommand.state.pending ? <GroupCommandConfirm confirmation={groupCommand.state.pending.confirmation} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} /> : null}
+        {groupCommand.state.kind === 'confirm-title' && 'confirmation' in groupCommand.state.pending ? groupCommand.state.stage === 'confirm'
+          ? <GroupCommandConfirm confirmation={groupCommand.state.pending.confirmation} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} />
+          : <Box flexDirection="column" width={contentWidth}><Text color="yellow">{truncateCell('Type the exact title to permanently delete this chat:', contentWidth)}</Text><Text>{truncateCell(groupCommand.state.pending.confirmation.title ?? '', contentWidth)}</Text><Text color="#8ecbff">{truncateCell(`› ${groupCommand.state.confirmText}`, contentWidth)}</Text>{groupCommand.state.mismatch ? <Text color="red">{truncateCell('Title does not match exactly.', contentWidth)}</Text> : null}<Text dimColor>{truncateCell('Enter verify · Esc back', contentWidth)}</Text></Box> : null}
+        {permissionState ? <Box flexDirection="column" width={contentWidth}><Text color="#8ecbff">{truncateCell('Administrator permissions', contentWidth)}</Text>{ADMIN_RIGHT_KEYS.map((right, index) => <Text key={right} color={index === permissionState.selectedIndex ? '#8ecbff' : undefined}>{truncateCell(`${index === permissionState.selectedIndex ? '› ' : '  '}[${permissionState.selected.includes(right) ? 'x' : ' '}] ${right}`, contentWidth)}</Text>)}{permissionState.warning ? <Text color="yellow">{truncateCell(permissionState.warning, contentWidth)}</Text> : null}<Text dimColor>{truncateCell('↑/↓ select · Space toggle · Enter continue · Esc cancel', contentWidth)}</Text></Box> : null}
         <Box marginTop={1} flexDirection="column" flexGrow={1} overflow="hidden">
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}
           {visibleMessages.map((message) => (
@@ -969,19 +1156,20 @@ function InteractiveListen({
             </Box>
           ))}
         </Box>
-        {sendTo == null ? (
-          <Text dimColor>Set --send-to &lt;chat&gt; (or pass one chat to listen) before sending messages.</Text>
-        ) : (
+        </Box>}
+        {groupCommand.state.kind !== 'result' ? <Box flexDirection="column">
+          {sendTo == null ? <Text dimColor>Set --send-to &lt;chat&gt; (or pass one chat to listen) before sending messages.</Text> : null}
           <Box marginTop={1} flexDirection="column" flexShrink={0}>
+            {input.trimStart().startsWith('/') && groupCommand.state.kind === 'menu' ? <GroupCommandMenu input={input} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} knownGroup={knownGroup} /> : null}
             <ListenComposer
               input={input}
-              sendTargetLabel={sendTargetLabel}
+              sendTargetLabel={sendTo == null ? '(not selected)' : sendTargetLabel}
               terminalWidth={contentWidth}
               sending={sending}
               hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Enter send · /reply <id> ... · Tab attachments · Ctrl+C exit'}
             />
           </Box>
-        )}
+        </Box> : null}
       </Box>
       <ListenScrollbar height={terminalHeight} visible={scrollbarVisible} geometry={scrollbarGeometry} />
     </Box>

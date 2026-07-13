@@ -8,8 +8,38 @@ import {
 } from '../../src/telegram/group-types.js'
 import { MtcuteTelegramClient } from '../../src/telegram/mtcute-client.js'
 import { MtcuteGroupManagement } from '../../src/telegram/mtcute-group-management.js'
+import { MtcuteGroupMembers } from '../../src/telegram/mtcute-group-members.js'
 
 describe('MtcuteGroupManagement', () => {
+  it('delegates all member and administrator writes to MtcuteGroupMembers', async () => {
+    const add = vi.spyOn(MtcuteGroupMembers.prototype, 'addMembers').mockResolvedValue({ operation: 'addMembers', chat_id: 1 })
+    const kick = vi.spyOn(MtcuteGroupMembers.prototype, 'kickMember').mockResolvedValue({ operation: 'kickMember', chat_id: 1 })
+    const ban = vi.spyOn(MtcuteGroupMembers.prototype, 'banMember').mockResolvedValue({ operation: 'banMember', chat_id: 1 })
+    const unban = vi.spyOn(MtcuteGroupMembers.prototype, 'unbanMember').mockResolvedValue({ operation: 'unbanMember', chat_id: 1 })
+    const mute = vi.spyOn(MtcuteGroupMembers.prototype, 'muteMember').mockResolvedValue({ operation: 'muteMember', chat_id: 1 })
+    const unmute = vi.spyOn(MtcuteGroupMembers.prototype, 'unmuteMember').mockResolvedValue({ operation: 'unmuteMember', chat_id: 1 })
+    const purge = vi.spyOn(MtcuteGroupMembers.prototype, 'purgeMember').mockResolvedValue({ operation: 'purgeMember', chat_id: 1 })
+    const promote = vi.spyOn(MtcuteGroupMembers.prototype, 'promoteAdmin').mockResolvedValue({ operation: 'promoteAdmin', chat_id: 1 })
+    const demote = vi.spyOn(MtcuteGroupMembers.prototype, 'demoteAdmin').mockResolvedValue({ operation: 'demoteAdmin', chat_id: 1 })
+    const rank = vi.spyOn(MtcuteGroupMembers.prototype, 'setAdminRank').mockResolvedValue({ operation: 'setAdminRank', chat_id: 1 })
+    const transfer = vi.spyOn(MtcuteGroupMembers.prototype, 'transferOwnership').mockResolvedValue({ operation: 'transferOwnership', chat_id: 1 })
+    const adapter = new MtcuteGroupManagement(mockClient({}), vi.fn())
+    const adminRights = { change_info: false, delete_messages: false, ban_users: false, invite_users: false, pin_messages: false, add_admins: false, manage_call: false, anonymous: false, manage_topics: false }
+
+    await adapter.addMembers({ chat: 1, users: [2] })
+    await adapter.kickMember({ chat: 1, user: 2 })
+    await adapter.banMember({ chat: 1, user: 2, seconds: null })
+    await adapter.unbanMember({ chat: 1, user: 2 })
+    await adapter.muteMember({ chat: 1, user: 2, seconds: null })
+    await adapter.unmuteMember({ chat: 1, user: 2 })
+    await adapter.purgeMember({ chat: 1, user: 2 })
+    await adapter.promoteAdmin({ chat: 1, user: 2, rights: adminRights })
+    await adapter.demoteAdmin({ chat: 1, user: 2 })
+    await adapter.setAdminRank({ chat: 1, user: 2, rank: 'Mod' })
+    await adapter.transferOwnership({ chat: 1, user: 2 })
+
+    expect([add, kick, ban, unban, mute, unmute, purge, promote, demote, rank, transfer].every((spy) => spy.mock.calls.length === 1)).toBe(true)
+  })
   it('uses the same raw client for wrapper readiness and group operations', async () => {
     const rows = Object.assign([] as Array<Record<string, unknown>>, { total: 0 })
     const client = mockClient({

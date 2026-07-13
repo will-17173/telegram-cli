@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createApp } from '../../src/cli/app.js'
+import { GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
 
 describe('cli help', () => {
   it('registers the tg command surface', () => {
@@ -108,34 +109,37 @@ describe('cli help', () => {
     expect(help).toContain('Manage Telegram CLI configuration')
   })
 
-  it('registers the read-only group command surface', () => {
+  it('keeps the read group surface and registers each management family once', () => {
     const group = createApp().commands.find((command) => command.name() === 'group')
 
     expect(group).toBeDefined()
     expect(group?.description()).toBe('Inspect Telegram groups, members, and audit events')
-    expect(group?.commands.map((command) => command.name())).toEqual(['info', 'members', 'member', 'audit'])
-    expect(group?.commands.map((command) => command.description())).toEqual([
+    expect(group?.commands.map((command) => command.name())).toEqual(['info', 'members', 'member', 'audit', 'admin', 'chat', 'invite', 'topic', 'message'])
+    expect(group?.commands.slice(0, 4).map((command) => command.description())).toEqual([
       'Show Telegram group information',
       'List Telegram group members',
-      'Show a Telegram group member',
+      'Legacy member lookup; use member info for an unambiguous route (required for reserved action names)',
       'List Telegram group audit events',
     ])
   })
 
-  it('registers exact group subcommand options without a conflicting account option', () => {
+  it('registers all catalog arguments and options without a conflicting account option', () => {
     const group = createApp().commands.find((command) => command.name() === 'group')
-    const options = Object.fromEntries(group?.commands.map((command) => [
-      command.name(),
-      command.options.map((option) => option.long),
-    ]) ?? [])
-
-    expect(options).toEqual({
-      info: ['--json', '--yaml'],
-      members: ['--type', '--query', '--limit', '--json', '--yaml'],
-      member: ['--json', '--yaml'],
-      audit: ['--query', '--user', '--type', '--limit', '--json', '--yaml'],
-    })
-    expect(group?.commands.flatMap((command) => command.options.map((option) => option.long))).not.toContain('--account')
+    for (const definition of GROUP_COMMANDS) {
+      const family = group?.commands.find(command => command.name() === definition.path[0])
+      const action = family?.commands.find(command => command.name() === definition.path[1])
+      expect(action?.registeredArguments.map(argument => ({ name: argument.name(), required: argument.required, variadic: argument.variadic })), definition.path.join(' ')).toEqual([
+        { name: 'chat', required: true, variadic: false },
+        ...definition.args.map(argument => ({ name: argument.name, required: argument.required, variadic: 'rest' in argument && argument.rest === true })),
+      ])
+      expect(action?.options.map(option => option.long)).toEqual([
+        ...definition.options.map(option => option.long), '--json', '--yaml',
+        ...(definition.risk === 'none' ? [] : ['--yes']),
+        ...(definition.risk === 'confirm-title' ? ['--confirm-title'] : []),
+      ])
+    }
+    const all = group?.commands.flatMap(command => [command, ...command.commands]) ?? []
+    expect(all.flatMap(command => command.options.map(option => option.long))).not.toContain('--account')
   })
 
   it('describes audit user filtering as action-author filtering only', () => {
@@ -146,5 +150,15 @@ describe('cli help', () => {
     expect(help).toContain('--user <user>')
     expect(help).toContain('Filter by action author')
     expect(help).not.toContain('actor or target')
+  })
+
+  it('documents the unambiguous member info route and legacy compatibility', () => {
+    const group = createApp().commands.find(command => command.name() === 'group')
+    const member = group?.commands.find(command => command.name() === 'member')
+    const info = member?.commands.find(command => command.name() === 'info')
+
+    expect(info?.helpInformation()).toContain('member info [options] <chat> <user>')
+    expect(member?.description().toLowerCase()).toContain('legacy')
+    expect(member?.description()).toContain('member info')
   })
 })

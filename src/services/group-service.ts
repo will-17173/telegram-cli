@@ -6,7 +6,7 @@ import {
   type TelegramGroupAuditEventType,
   type TelegramGroupAuditPage,
   type TelegramGroupDetails,
-  type TelegramGroupManagementAdapter,
+  type TelegramGroupReadAdapter,
   type TelegramGroupMemberFilter,
   type TelegramGroupMemberPage,
   type TelegramGroupMemberResult,
@@ -109,7 +109,7 @@ export function validateGroupAuditOptions(
 }
 
 export class GroupService {
-  constructor(private readonly groups: TelegramGroupManagementAdapter) {}
+  constructor(private readonly groups: TelegramGroupReadAdapter) {}
 
   async info(chat: string | number): Promise<HandlerResult<TelegramGroupDetails>> {
     try {

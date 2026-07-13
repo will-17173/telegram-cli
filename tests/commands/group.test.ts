@@ -246,6 +246,13 @@ describe('group commands', () => {
     expect(memberResult).toEqual(sourceSnapshot)
   })
 
+  it('queries a member through the unambiguous nested info route even for a reserved chat name', async () => {
+    await run('group', 'member', 'info', 'ban', '@alice', '--json')
+
+    expect(groups.getMember).toHaveBeenCalledWith('ban', '@alice')
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: true, data: memberResult }), { json: true })
+  })
+
   it('renders a filtered audit log with repeatable filters', async () => {
     const expectedData = structuredClone(auditPage)
     const sourceSnapshot = structuredClone(auditPage)

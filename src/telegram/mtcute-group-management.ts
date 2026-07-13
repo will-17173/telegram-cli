@@ -1,4 +1,4 @@
-import { MtPeerNotFoundError, tl } from '@mtcute/node'
+import { tl } from '@mtcute/node'
 import type {
   Chat,
   ChatEvent,
@@ -16,6 +16,7 @@ import type {
   TelegramGroupAuditPage,
   TelegramGroupDetails,
   TelegramGroupManagementAdapter,
+  TelegramGroupReadAdapter,
   TelegramGroupMemberDetails,
   TelegramGroupMemberPage,
   TelegramGroupMemberResult,
@@ -29,12 +30,78 @@ import {
   TelegramGroupMemberNotFoundError,
   TelegramGroupNotFoundError,
 } from './group-types.js'
+import type {
+  TelegramAddMembersRequest, TelegramAddMembersResult, TelegramBanMemberRequest, TelegramBanMemberResult,
+  TelegramDemoteAdminRequest, TelegramDemoteAdminResult, TelegramKickMemberRequest, TelegramKickMemberResult,
+  TelegramMuteMemberRequest, TelegramMuteMemberResult, TelegramPromoteAdminRequest, TelegramPromoteAdminResult,
+  TelegramPurgeMemberRequest, TelegramPurgeMemberResult, TelegramSetAdminRankRequest, TelegramSetAdminRankResult,
+  TelegramTransferOwnershipRequest, TelegramTransferOwnershipResult, TelegramUnbanMemberRequest,
+  TelegramUnbanMemberResult, TelegramUnmuteMemberRequest, TelegramUnmuteMemberResult,
+} from './group-write-types.js'
+import { MtcuteGroupMembers } from './mtcute-group-members.js'
+import type * as W from './group-write-types.js'
+import { MtcuteGroupSettings } from './mtcute-group-settings.js'
+import { MtcuteGroupInvites } from './mtcute-group-invites.js'
+import { MtcuteGroupTopics } from './mtcute-group-topics.js'
+import { isMemberNotFoundError, isPeerNotFoundError, normalizePeerId, requireGroup } from './mtcute-group-helpers.js'
 
 export class MtcuteGroupManagement implements TelegramGroupManagementAdapter {
+  private readonly members: MtcuteGroupMembers
+  private readonly settings: MtcuteGroupSettings
+  private readonly invites: MtcuteGroupInvites
+  private readonly topics: MtcuteGroupTopics
+
   constructor(
     private readonly client: TelegramClient,
     private readonly ensureReady: () => Promise<void>,
-  ) {}
+  ) { this.members = new MtcuteGroupMembers(client, ensureReady); this.settings = new MtcuteGroupSettings(client, ensureReady); this.invites = new MtcuteGroupInvites(client, ensureReady); this.topics = new MtcuteGroupTopics(client, ensureReady) }
+
+  addMembers(r: TelegramAddMembersRequest): Promise<TelegramAddMembersResult> { return this.members.addMembers(r) }
+  kickMember(r: TelegramKickMemberRequest): Promise<TelegramKickMemberResult> { return this.members.kickMember(r) }
+  banMember(r: TelegramBanMemberRequest): Promise<TelegramBanMemberResult> { return this.members.banMember(r) }
+  unbanMember(r: TelegramUnbanMemberRequest): Promise<TelegramUnbanMemberResult> { return this.members.unbanMember(r) }
+  muteMember(r: TelegramMuteMemberRequest): Promise<TelegramMuteMemberResult> { return this.members.muteMember(r) }
+  unmuteMember(r: TelegramUnmuteMemberRequest): Promise<TelegramUnmuteMemberResult> { return this.members.unmuteMember(r) }
+  purgeMember(r: TelegramPurgeMemberRequest): Promise<TelegramPurgeMemberResult> { return this.members.purgeMember(r) }
+  promoteAdmin(r: TelegramPromoteAdminRequest): Promise<TelegramPromoteAdminResult> { return this.members.promoteAdmin(r) }
+  demoteAdmin(r: TelegramDemoteAdminRequest): Promise<TelegramDemoteAdminResult> { return this.members.demoteAdmin(r) }
+  setAdminRank(r: TelegramSetAdminRankRequest): Promise<TelegramSetAdminRankResult> { return this.members.setAdminRank(r) }
+  transferOwnership(r: TelegramTransferOwnershipRequest): Promise<TelegramTransferOwnershipResult> { return this.members.transferOwnership(r) }
+  setTitle(r: W.TelegramSetTitleRequest) { return this.settings.setTitle(r) }
+  setDescription(r: W.TelegramSetDescriptionRequest) { return this.settings.setDescription(r) }
+  setUsername(r: W.TelegramSetUsernameRequest) { return this.settings.setUsername(r) }
+  setPhoto(r: W.TelegramSetPhotoRequest) { return this.settings.setPhoto(r) }
+  setSlowMode(r: W.TelegramSetSlowModeRequest) { return this.settings.setSlowMode(r) }
+  setTtl(r: W.TelegramSetTtlRequest) { return this.settings.setTtl(r) }
+  setContentProtection(r: W.TelegramSetContentProtectionRequest) { return this.settings.setContentProtection(r) }
+  setJoinRequests(r: W.TelegramSetJoinRequestsRequest) { return this.settings.setJoinRequests(r) }
+  setJoinToSend(r: W.TelegramSetJoinToSendRequest) { return this.settings.setJoinToSend(r) }
+  setDefaultPermissions(r: W.TelegramSetDefaultPermissionsRequest) { return this.settings.setDefaultPermissions(r) }
+  setStickerSet(r: W.TelegramSetStickerSetRequest) { return this.settings.setStickerSet(r) }
+  leaveGroup(r: W.TelegramLeaveGroupRequest) { return this.settings.leaveGroup(r) }
+  deleteGroup(r: W.TelegramDeleteGroupRequest) { return this.settings.deleteGroup(r) }
+  pinMessage(r: W.TelegramPinMessageRequest) { return this.settings.pinMessage(r) }
+  unpinMessage(r: W.TelegramUnpinMessageRequest) { return this.settings.unpinMessage(r) }
+  unpinAllMessages(r: W.TelegramUnpinAllMessagesRequest) { return this.settings.unpinAllMessages(r) }
+  deleteGroupMessages(r: W.TelegramDeleteGroupMessagesRequest) { return this.settings.deleteGroupMessages(r) }
+  listInvites(r: W.TelegramListInvitesRequest) { return this.invites.listInvites(r) }
+  getInvite(r: W.TelegramGetInviteRequest) { return this.invites.getInvite(r) }
+  createInvite(r: W.TelegramCreateInviteRequest) { return this.invites.createInvite(r) }
+  editInvite(r: W.TelegramEditInviteRequest) { return this.invites.editInvite(r) }
+  revokeInvite(r: W.TelegramRevokeInviteRequest) { return this.invites.revokeInvite(r) }
+  listInviteMembers(r: W.TelegramListInviteMembersRequest) { return this.invites.listInviteMembers(r) }
+  approveJoinRequest(r: W.TelegramApproveJoinRequestRequest) { return this.invites.approveJoinRequest(r) }
+  declineJoinRequest(r: W.TelegramDeclineJoinRequestRequest) { return this.invites.declineJoinRequest(r) }
+  approveAllJoinRequests(r: W.TelegramApproveAllJoinRequestsRequest) { return this.invites.approveAllJoinRequests(r) }
+  declineAllJoinRequests(r: W.TelegramDeclineAllJoinRequestsRequest) { return this.invites.declineAllJoinRequests(r) }
+  listTopics(r: W.TelegramListTopicsRequest) { return this.topics.listTopics(r) }
+  createTopic(r: W.TelegramCreateTopicRequest) { return this.topics.createTopic(r) }
+  editTopic(r: W.TelegramEditTopicRequest) { return this.topics.editTopic(r) }
+  setTopicClosed(r: W.TelegramSetTopicClosedRequest) { return this.topics.setTopicClosed(r) }
+  setTopicPinned(r: W.TelegramSetTopicPinnedRequest) { return this.topics.setTopicPinned(r) }
+  reorderPinnedTopics(r: W.TelegramReorderPinnedTopicsRequest) { return this.topics.reorderPinnedTopics(r) }
+  deleteTopic(r: W.TelegramDeleteTopicRequest) { return this.topics.deleteTopic(r) }
+  setGeneralTopicHidden(r: W.TelegramSetGeneralTopicHiddenRequest) { return this.topics.setGeneralTopicHidden(r) }
 
   async getGroup(chat: string | number): Promise<TelegramGroupDetails> {
     await this.ensureReady()
@@ -199,16 +266,6 @@ export class MtcuteGroupManagement implements TelegramGroupManagementAdapter {
   }
 }
 
-function normalizePeerId(peer: string | number): string | number {
-  if (typeof peer === 'number') return peer
-  const trimmed = peer.trim()
-  if (trimmed === '') return peer
-  const numeric = Number.parseInt(trimmed, 10)
-  if (Number.isNaN(numeric)) return peer
-  if (!Number.isSafeInteger(numeric) && /^-?\d+$/.test(trimmed)) return trimmed
-  return String(numeric) === trimmed ? numeric : peer
-}
-
 function usesLocalMemberQuery(type: TelegramListGroupMembersRequest['type']): boolean {
   return type === 'recent' || type === 'admins' || type === 'bots'
 }
@@ -221,13 +278,6 @@ function memberMatchesQuery(member: ChatMember, query: string): boolean {
   }
   return member.user.displayName.toLowerCase().includes(normalizedQuery)
     || (username?.includes(normalizedQuery) ?? false)
-}
-
-function requireGroup(peer: Chat | User, requestedChat: string | number): Chat & { chatType: 'group' | 'supergroup' } {
-  if (peer.type !== 'chat' || (peer.chatType !== 'group' && peer.chatType !== 'supergroup')) {
-    throw new TelegramGroupNotFoundError(requestedChat)
-  }
-  return peer as Chat & { chatType: 'group' | 'supergroup' }
 }
 
 function mapAdminRights(rights: tl.RawChatAdminRights | null): TelegramGroupAdminRights | null {
@@ -469,17 +519,6 @@ function isMemberStatus(status: unknown): status is ChatMember['status'] {
 
 function toIsoDate(date: Date | null): string | null {
   return date?.toISOString() ?? null
-}
-
-function isPeerNotFoundError(error: unknown): boolean {
-  if (error instanceof MtPeerNotFoundError) return true
-  if (!(error instanceof Error)) return false
-  return /PEER_ID_INVALID|CHANNEL_(?:INVALID|PRIVATE)|CHAT_ID_INVALID|(?:peer|chat|dialog).*(?:not found|invalid)/i.test(error.message)
-}
-
-function isMemberNotFoundError(error: unknown): boolean {
-  return error instanceof Error
-    && /USER_NOT_PARTICIPANT|PARTICIPANT_ID_INVALID|member.*not found|not.*participant/i.test(error.message)
 }
 
 function throwAuditError(error: unknown, chat: string | number): never {

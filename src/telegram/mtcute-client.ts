@@ -10,6 +10,7 @@ import { FileLocation, MtPeerNotFoundError } from '@mtcute/node'
 import type { DownloadMessageMediaOptions, TelegramChat, TelegramClientAdapter, TelegramUser, FetchHistoryOptions, SendMediaOptions, SendMediaResult } from './types.js'
 import type { StoredMessageInput } from '../storage/message-db.js'
 import { MtcuteGroupManagement } from './mtcute-group-management.js'
+import type { TelegramGroupManagementAdapter } from './group-types.js'
 
 type PeerShape = {
   type: string
@@ -21,7 +22,7 @@ type PeerShape = {
 }
 
 export class MtcuteTelegramClient implements TelegramClientAdapter {
-  readonly groups: MtcuteGroupManagement
+  readonly groups: TelegramGroupManagementAdapter
   private isReady = false
 
   constructor(private readonly client: TelegramClient) {

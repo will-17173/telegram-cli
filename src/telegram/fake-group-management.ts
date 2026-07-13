@@ -14,6 +14,7 @@ import type {
   TelegramListGroupAuditEventsRequest,
   TelegramListGroupMembersRequest,
 } from './group-types.js'
+import type * as W from './group-write-types.js'
 
 export {
   TelegramGroupAdminRequiredError,
@@ -34,13 +35,19 @@ export type FakeTelegramGroupManagementOptions = {
   listMembersFailure?: Error
   getMemberFailure?: Error
   listAuditEventsFailure?: Error
+  writeResults?: W.GroupWriteConfiguration
+  writeFailures?: Partial<Record<W.TelegramGroupWriteOperation, Error>>
 }
+
+export type FakeGroupWriteResult = W.GroupWriteOperationResultMap[W.TelegramGroupWriteOperation]
+export type FakeGroupWriteCall = { [K in W.TelegramGroupWriteOperation]: { readonly operation: K; readonly request: W.GroupWriteOperationRequestMap[K] } }[W.TelegramGroupWriteOperation]
 
 export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapter {
   readonly getGroupCalls: Array<string | number> = []
   readonly listMembersCalls: TelegramListGroupMembersRequest[] = []
   readonly getMemberCalls: Array<{ chat: string | number; user: string | number }> = []
   readonly listAuditEventsCalls: TelegramListGroupAuditEventsRequest[] = []
+  readonly writeCalls: FakeGroupWriteCall[] = []
 
   private readonly group: TelegramGroupDetails
   private readonly members: TelegramGroupMemberDetails[]
@@ -50,6 +57,8 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
   private readonly listMembersFailure?: Error
   private readonly getMemberFailure?: Error
   private readonly listAuditEventsFailure?: Error
+  private readonly writeResults: W.GroupWriteConfiguration
+  private readonly writeFailures: Partial<Record<W.TelegramGroupWriteOperation, Error>>
 
   constructor(options: FakeTelegramGroupManagementOptions = {}) {
     this.membersByFilter = cloneMembersByFilter(options.membersByFilter ?? {})
@@ -66,6 +75,8 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
     this.listMembersFailure = options.listMembersFailure
     this.getMemberFailure = options.getMemberFailure
     this.listAuditEventsFailure = options.listAuditEventsFailure
+    this.writeResults = cloneSerializable(options.writeResults ?? {})
+    this.writeFailures = { ...options.writeFailures }
   }
 
   async getGroup(chat: string | number): Promise<TelegramGroupDetails> {
@@ -133,6 +144,98 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
       return matchesQuery && matchesType && matchesUser
     }).slice(0, request.limit).map(cloneAuditEvent)
     return { chat_id: this.group.id, chat_title: this.group.title, events }
+  }
+
+  addMembers = (r: W.TelegramAddMembersRequest) => this.write('addMembers', r)
+  kickMember = (r: W.TelegramKickMemberRequest) => this.write('kickMember', r)
+  banMember = (r: W.TelegramBanMemberRequest) => this.write('banMember', r)
+  unbanMember = (r: W.TelegramUnbanMemberRequest) => this.write('unbanMember', r)
+  muteMember = (r: W.TelegramMuteMemberRequest) => this.write('muteMember', r)
+  unmuteMember = (r: W.TelegramUnmuteMemberRequest) => this.write('unmuteMember', r)
+  purgeMember = (r: W.TelegramPurgeMemberRequest) => this.write('purgeMember', r)
+  promoteAdmin = (r: W.TelegramPromoteAdminRequest) => this.write('promoteAdmin', r)
+  demoteAdmin = (r: W.TelegramDemoteAdminRequest) => this.write('demoteAdmin', r)
+  setAdminRank = (r: W.TelegramSetAdminRankRequest) => this.write('setAdminRank', r)
+  transferOwnership = (r: W.TelegramTransferOwnershipRequest) => this.write('transferOwnership', r)
+  setTitle = (r: W.TelegramSetTitleRequest) => this.write('setTitle', r)
+  setDescription = (r: W.TelegramSetDescriptionRequest) => this.write('setDescription', r)
+  setUsername = (r: W.TelegramSetUsernameRequest) => this.write('setUsername', r)
+  setPhoto = (r: W.TelegramSetPhotoRequest) => this.write('setPhoto', r)
+  setSlowMode = (r: W.TelegramSetSlowModeRequest) => this.write('setSlowMode', r)
+  setTtl = (r: W.TelegramSetTtlRequest) => this.write('setTtl', r)
+  setContentProtection = (r: W.TelegramSetContentProtectionRequest) => this.write('setContentProtection', r)
+  setJoinRequests = (r: W.TelegramSetJoinRequestsRequest) => this.write('setJoinRequests', r)
+  setJoinToSend = (r: W.TelegramSetJoinToSendRequest) => this.write('setJoinToSend', r)
+  setDefaultPermissions = (r: W.TelegramSetDefaultPermissionsRequest) => this.write('setDefaultPermissions', r)
+  setStickerSet = (r: W.TelegramSetStickerSetRequest) => this.write('setStickerSet', r)
+  leaveGroup = (r: W.TelegramLeaveGroupRequest) => this.write('leaveGroup', r)
+  deleteGroup = (r: W.TelegramDeleteGroupRequest) => this.write('deleteGroup', r)
+  listInvites = (r: W.TelegramListInvitesRequest) => this.invitePage('listInvites', r)
+  getInvite = (r: W.TelegramGetInviteRequest) => this.inviteResult('getInvite', r)
+  createInvite = (r: W.TelegramCreateInviteRequest) => this.inviteResult('createInvite', r)
+  editInvite = (r: W.TelegramEditInviteRequest) => this.inviteResult('editInvite', r)
+  revokeInvite = (r: W.TelegramRevokeInviteRequest) => this.inviteResult('revokeInvite', r)
+  listInviteMembers = (r: W.TelegramListInviteMembersRequest) => this.inviteMemberPage('listInviteMembers', r)
+  approveJoinRequest = (r: W.TelegramApproveJoinRequestRequest) => this.write('approveJoinRequest', r)
+  declineJoinRequest = (r: W.TelegramDeclineJoinRequestRequest) => this.write('declineJoinRequest', r)
+  approveAllJoinRequests = (r: W.TelegramApproveAllJoinRequestsRequest) => this.write('approveAllJoinRequests', r)
+  declineAllJoinRequests = (r: W.TelegramDeclineAllJoinRequestsRequest) => this.write('declineAllJoinRequests', r)
+  listTopics = (r: W.TelegramListTopicsRequest) => this.topicPage('listTopics', r)
+  createTopic = (r: W.TelegramCreateTopicRequest) => this.topicResult('createTopic', r)
+  editTopic = (r: W.TelegramEditTopicRequest) => this.topicResult('editTopic', r)
+  setTopicClosed = (r: W.TelegramSetTopicClosedRequest) => this.write('setTopicClosed', r)
+  setTopicPinned = (r: W.TelegramSetTopicPinnedRequest) => this.write('setTopicPinned', r)
+  reorderPinnedTopics = (r: W.TelegramReorderPinnedTopicsRequest) => this.write('reorderPinnedTopics', r)
+  deleteTopic = (r: W.TelegramDeleteTopicRequest) => this.write('deleteTopic', r)
+  setGeneralTopicHidden = (r: W.TelegramSetGeneralTopicHiddenRequest) => this.write('setGeneralTopicHidden', r)
+  pinMessage = (r: W.TelegramPinMessageRequest) => this.write('pinMessage', r)
+  unpinMessage = (r: W.TelegramUnpinMessageRequest) => this.write('unpinMessage', r)
+  unpinAllMessages = (r: W.TelegramUnpinAllMessagesRequest) => this.write('unpinAllMessages', r)
+  deleteGroupMessages = (r: W.TelegramDeleteGroupMessagesRequest) => this.write('deleteGroupMessages', r)
+
+  private async write<K extends W.TelegramGroupMutationOperation>(operation: K, request: W.GroupWriteOperationRequestMap[K]): Promise<W.TelegramGroupWriteResult<K>> {
+    this.recordWrite(operation, request)
+    this.throwWriteFailure(operation)
+    const configured = this.writeResults[operation]
+    if (isMutationResultFor(configured, operation)) return cloneSerializable(configured)
+    const source = request as { chat: W.GroupPeer; user?: W.GroupUser; topicId?: number; messageId?: number }
+    return { operation, chat_id: numericPeer(source.chat), target_id: source.user ?? source.topicId ?? source.messageId }
+  }
+
+  private async invitePage(operation: W.TelegramGroupWriteOperation, request: W.TelegramListInvitesRequest): Promise<W.TelegramGroupInvitePage> {
+    this.recordWrite(operation, request); this.throwWriteFailure(operation)
+    return cloneSerializable(this.writeResults[operation] ?? { chat_id: numericPeer(request.chat), invites: [], total: 0 }) as W.TelegramGroupInvitePage
+  }
+
+  private async inviteResult(operation: 'getInvite' | 'createInvite' | 'editInvite' | 'revokeInvite', request: W.TelegramGetInviteRequest | W.TelegramCreateInviteRequest | W.TelegramEditInviteRequest | W.TelegramRevokeInviteRequest): Promise<W.TelegramGroupInviteResult> {
+    this.recordWrite(operation, request); this.throwWriteFailure(operation)
+    const r = request as { chat: W.GroupPeer; link?: string; options?: W.TelegramInviteOptions }
+    return cloneSerializable(this.writeResults[operation] ?? { chat_id: numericPeer(r.chat), invite: defaultInvite(r.link, r.options) }) as W.TelegramGroupInviteResult
+  }
+
+  private async inviteMemberPage(operation: W.TelegramGroupWriteOperation, request: W.TelegramListInviteMembersRequest): Promise<W.TelegramGroupInviteMemberPage> {
+    this.recordWrite(operation, request); this.throwWriteFailure(operation)
+    return cloneSerializable(this.writeResults[operation] ?? { chat_id: numericPeer(request.chat), link: request.link, members: [], total: 0 }) as W.TelegramGroupInviteMemberPage
+  }
+
+  private async topicPage(operation: W.TelegramGroupWriteOperation, request: W.TelegramListTopicsRequest): Promise<W.TelegramGroupTopicPage> {
+    this.recordWrite(operation, request); this.throwWriteFailure(operation)
+    return cloneSerializable(this.writeResults[operation] ?? { chat_id: numericPeer(request.chat), topics: [], total: 0 }) as W.TelegramGroupTopicPage
+  }
+
+  private async topicResult(operation: 'createTopic' | 'editTopic', request: W.TelegramCreateTopicRequest | W.TelegramEditTopicRequest): Promise<W.TelegramGroupTopicResult> {
+    this.recordWrite(operation, request); this.throwWriteFailure(operation)
+    const r = request as { chat: W.GroupPeer; topicId?: number; title?: string }
+    return cloneSerializable(this.writeResults[operation] ?? { chat_id: numericPeer(r.chat), topic: { id: r.topicId ?? 1, title: r.title ?? 'Topic', icon_color: null, icon_emoji_id: null, closed: false, pinned: false, hidden: false } }) as W.TelegramGroupTopicResult
+  }
+
+  private recordWrite<K extends W.TelegramGroupWriteOperation>(operation: K, request: W.GroupWriteOperationRequestMap[K]): void {
+    this.writeCalls.push({ operation, request: cloneSerializable(request) } as FakeGroupWriteCall)
+  }
+
+  private throwWriteFailure(operation: W.TelegramGroupWriteOperation): void {
+    const failure = this.writeFailures[operation]
+    if (failure) throw failure
   }
 
   private assertGroup(chat: string | number): void {
@@ -308,6 +411,35 @@ function canonicalPeerReference(reference: string | number): { numeric_id: numbe
     numeric_id: Number.isSafeInteger(numeric) ? numeric : null,
     text,
   }
+}
+
+function numericPeer(peer: W.GroupPeer): number {
+  return typeof peer === 'number' ? peer : 100
+}
+
+function defaultInvite(link?: string, options?: W.TelegramInviteOptions): W.TelegramGroupInviteRecord {
+  return {
+    link: link ?? 'https://t.me/+fake-invite',
+    title: options?.title ?? null,
+    creator_id: 1,
+    created_at: '2026-01-01T00:00:00.000Z',
+    expires_at: null,
+    usage_limit: options?.usageLimit ?? null,
+    usage_count: 0,
+    request_needed: options?.requestNeeded ?? false,
+    revoked: false,
+  }
+}
+
+function cloneSerializable<T>(value: T): T {
+  return structuredClone(value)
+}
+
+function isMutationResultFor<K extends W.TelegramGroupMutationOperation>(
+  result: W.TelegramGroupWriteResult | FakeGroupWriteResult | undefined,
+  operation: K,
+): result is W.TelegramGroupWriteResult<K> {
+  return result != null && 'operation' in result && result.operation === operation
 }
 
 function cloneGroup(group: TelegramGroupDetails): TelegramGroupDetails {
