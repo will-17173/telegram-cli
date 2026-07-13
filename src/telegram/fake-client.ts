@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises'
 import type { StoredMessageInput } from '../storage/message-db.js'
 import { FakeTelegramGroupManagement } from './fake-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
@@ -60,6 +61,8 @@ export type FakeTelegramClientOptions = {
   archivePagesByChat?: Record<string, ArchiveMessage[][]>
   archiveHistoryFailures?: Record<string, Error>
   archiveMediaFailures?: Record<string, Error>
+  archiveMediaByMessage?: Record<string, Uint8Array | string>
+  archiveResolveFailures?: Record<string, Error>
 }
 
 export class FakeTelegramClient implements TelegramClientAdapter {
@@ -102,6 +105,8 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   private readonly archivePagesByChat: Record<string, ArchiveMessage[][]>
   private readonly archiveHistoryFailures: Record<string, Error>
   private readonly archiveMediaFailures: Record<string, Error>
+  private readonly archiveMediaByMessage: Record<string, Uint8Array | string>
+  private readonly archiveResolveFailures: Record<string, Error>
 
   constructor(options: FakeTelegramClientOptions = {}) {
     this.groups = options.groupManagement ?? new FakeTelegramGroupManagement()
@@ -142,6 +147,8 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     this.archivePagesByChat = options.archivePagesByChat ?? {}
     this.archiveHistoryFailures = options.archiveHistoryFailures ?? {}
     this.archiveMediaFailures = options.archiveMediaFailures ?? {}
+    this.archiveMediaByMessage = options.archiveMediaByMessage ?? {}
+    this.archiveResolveFailures = options.archiveResolveFailures ?? {}
 
     this.dialogs = this.createDialogsAdapter()
     this.contacts = this.createContactsAdapter()
@@ -302,9 +309,18 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   private createArchiveAdapter(): TelegramArchiveAdapter {
     return {
       resolveChats: async (input) => {
-        const source = input.all
-          ? this.chats
-          : (input.chats ?? []).map((chat) => this.findChat(chat)).filter((chat): chat is TelegramChat => chat != null)
+        const source: TelegramChat[] = []
+        if (input.all) {
+          source.push(...this.chats)
+        } else {
+          for (const requested of input.chats ?? []) {
+            const failure = this.archiveResolveFailures[String(requested)]
+            if (failure) throw failure
+            const resolved = this.findChat(requested)
+            if (resolved == null) throw new Error(`Chat ${String(requested)} was not found`)
+            source.push(resolved)
+          }
+        }
         const seen = new Set<number>()
         return source.flatMap((chat) => {
           if (seen.has(chat.id)) return []
@@ -323,7 +339,12 @@ export class FakeTelegramClient implements TelegramClientAdapter {
           ?? this.archiveMediaFailures[String(input.chat)]
           ?? (chat == null ? undefined : this.archiveMediaFailures[chat.name])
         if (failure) throw failure
-        input.onProgress?.(1, 1)
+        const bytes = this.archiveMediaByMessage[specific]
+          ?? this.archiveMediaByMessage[namedSpecific]
+          ?? new Uint8Array([0x74, 0x67])
+        await writeFile(input.destination, bytes)
+        const size = typeof bytes === 'string' ? Buffer.byteLength(bytes) : bytes.byteLength
+        input.onProgress?.(size, size)
       },
     }
   }

@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { FileLocation, tl } from '@mtcute/node'
 import type { Message, TelegramClient } from '@mtcute/node'
 import { describe, expect, it, vi } from 'vitest'
@@ -44,12 +47,10 @@ describe('MtcuteArchive', () => {
   })
 
   it('normalizes messages and marks unsupported media as non-downloadable', async () => {
-    const downloadable = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+    const downloadable = new TestDocument(new Uint8Array([1, 2, 3]), 12, 'report.pdf')
     const client = mockClient({
       iterHistory: vi.fn(() => messages(
-        message(2, '2026-07-13T00:00:02.000Z', {
-          type: 'document', fileName: 'report.pdf', fileSize: 12, location: downloadable,
-        }),
+        message(2, '2026-07-13T00:00:02.000Z', downloadable),
         message(1, '2026-07-13T00:00:01.000Z', {
           type: 'poll', question: 'Ready?',
         }),
@@ -74,10 +75,20 @@ describe('MtcuteArchive', () => {
       downloadToFile,
     })
     const adapter = new MtcuteArchive(client, async () => undefined)
+    const onProgress = vi.fn()
 
-    await adapter.downloadMedia({ chat: '@team', messageId: 3, destination })
+    await adapter.downloadMedia({ chat: '@team', messageId: 3, destination, onProgress })
 
-    expect(downloadToFile).toHaveBeenCalledWith(destination, expect.anything(), expect.any(Object))
+    expect(downloadToFile).toHaveBeenCalledWith(destination, location, { progressCallback: onProgress })
+  })
+
+  it('reports a missing message before attempting a download', async () => {
+    const client = mockClient({ getMessages: vi.fn().mockResolvedValue([]) })
+    const adapter = new MtcuteArchive(client, async () => undefined)
+
+    await expect(adapter.downloadMedia({ chat: '@team', messageId: 404, destination: '/tmp/missing' }))
+      .rejects.toThrow('Message 404 was not found')
+    expect(client.downloadToFile).not.toHaveBeenCalled()
   })
 
   it('rejects downloads for messages without downloadable media', async () => {
@@ -107,11 +118,12 @@ describe('MtcuteArchive', () => {
       chatType: 'supergroup',
       displayName: chat === '@team' ? 'Team' : 'Other',
     }))
+    const iterDialogs = vi.fn(() => dialogs(
+      { peer: { id: 300, type: 'chat', chatType: 'channel', title: 'News' } },
+    ))
     const client = mockClient({
       getPeer,
-      iterDialogs: async function* () {
-        yield { peer: { id: 300, type: 'chat', chatType: 'channel', title: 'News' } }
-      },
+      iterDialogs,
     })
     const adapter = new MtcuteArchive(client, async () => undefined)
 
@@ -122,6 +134,7 @@ describe('MtcuteArchive', () => {
       { id: 300, title: 'News', type: 'channel' },
     ])
     expect(getPeer).toHaveBeenCalledWith('@team')
+    expect(iterDialogs).toHaveBeenCalledWith({ archived: 'keep' })
   })
 })
 
@@ -151,6 +164,39 @@ describe('FakeTelegramClient archive adapter', () => {
     await expect(client.archive.downloadMedia({ chat: 100, messageId: 3, destination: '/tmp/3' }))
       .rejects.toBe(mediaFailure)
   })
+
+  it('writes injected media bytes to the requested destination', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'tg-fake-archive-'))
+    const destination = join(directory, 'message-3.bin')
+    const bytes = new Uint8Array([7, 13, 42])
+    const onProgress = vi.fn()
+    const client = new FakeTelegramClient({
+      chats: [{ id: 100, name: 'Team', type: 'supergroup', unread: 0 }],
+      archiveMediaByMessage: { 'Team:3': bytes },
+    })
+
+    try {
+      await client.archive.downloadMedia({ chat: 100, messageId: 3, destination, onProgress })
+
+      expect(await readFile(destination)).toEqual(Buffer.from(bytes))
+      expect(onProgress).toHaveBeenCalledWith(bytes.byteLength, bytes.byteLength)
+      expect(client.archiveDownloadCalls).toHaveLength(1)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects unresolved explicit chats instead of silently omitting them', async () => {
+    const configuredFailure = new Error('resolution unavailable')
+    const client = new FakeTelegramClient({
+      archiveResolveFailures: { '@broken': configuredFailure },
+    })
+
+    await expect(client.archive.resolveChats({ chats: ['missing'], all: false }))
+      .rejects.toThrow('Chat missing was not found')
+    await expect(client.archive.resolveChats({ chats: ['@broken'], all: false }))
+      .rejects.toBe(configuredFailure)
+  })
 })
 
 async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
@@ -165,6 +211,10 @@ async function* messages(...items: Message[]): AsyncIterableIterator<Message> {
 
 async function* failingMessages(error: Error): AsyncIterableIterator<Message> {
   throw error
+}
+
+async function* dialogs(...items: unknown[]): AsyncIterableIterator<unknown> {
+  yield* items
 }
 
 function message(id: number, timestamp: string, media: unknown = null): Message {
@@ -208,5 +258,13 @@ function archiveMessage(id: number): ArchiveMessage {
       file_size: 12,
       downloadable: true,
     },
+  }
+}
+
+class TestDocument extends FileLocation {
+  readonly type = 'document'
+
+  constructor(location: Uint8Array, fileSize: number, readonly fileName: string) {
+    super(location, fileSize)
   }
 }

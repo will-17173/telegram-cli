@@ -23,7 +23,7 @@ export class MtcuteArchive implements TelegramArchiveAdapter {
     if (input.all) {
       const chats: ArchiveChat[] = []
       const seen = new Set<number>()
-      for await (const dialog of this.client.iterDialogs()) {
+      for await (const dialog of this.client.iterDialogs({ archived: 'keep' })) {
         const peer = (dialog as unknown as { peer: PeerShape }).peer
         if (seen.has(peer.id)) continue
         seen.add(peer.id)
