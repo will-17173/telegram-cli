@@ -16,6 +16,10 @@ import type { InboxDialog, OnlineMessage, TelegramDialogAdapter, TelegramManaged
 
 type FakeTelegramCall =
   | {
+    operation: 'logOut'
+    request: Record<string, never>
+  }
+  | {
     operation: 'readOnline'
     request: { chat: string | number; limit: number; since?: Date; until?: Date }
   }
@@ -56,6 +60,7 @@ export type FakeTelegramClientOptions = {
   getChatInfoFailures?: Record<string, Error>
   listenFailure?: Error
   listChatsFailure?: Error
+  logOutFailure?: Error
 }
 
 export class FakeTelegramClient implements TelegramClientAdapter {
@@ -88,6 +93,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   private readonly getChatInfoFailures: Record<string, Error>
   private readonly listenFailure?: Error
   private readonly listChatsFailure?: Error
+  private readonly logOutFailure?: Error
 
   constructor(options: FakeTelegramClientOptions = {}) {
     this.groups = options.groupManagement ?? new FakeTelegramGroupManagement()
@@ -125,6 +131,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     this.getChatInfoFailures = options.getChatInfoFailures ?? {}
     this.listenFailure = options.listenFailure
     this.listChatsFailure = options.listChatsFailure
+    this.logOutFailure = options.logOutFailure
 
     this.dialogs = this.createDialogsAdapter()
     this.contacts = this.createContactsAdapter()
@@ -132,6 +139,11 @@ export class FakeTelegramClient implements TelegramClientAdapter {
 
   async close(): Promise<void> {
     this.closeCalls += 1
+  }
+
+  async logOut(): Promise<void> {
+    this.calls.push({ operation: 'logOut', request: {} })
+    if (this.logOutFailure) throw this.logOutFailure
   }
 
   async getCurrentUser(): Promise<TelegramUser> {

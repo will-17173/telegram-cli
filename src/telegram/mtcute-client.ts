@@ -50,6 +50,10 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     }
   }
 
+  async logOut(): Promise<void> {
+    await this.client.logOut()
+  }
+
   async getCurrentUser(): Promise<TelegramUser> {
     await this.ensureReady()
     const user = await this.client.getMe()

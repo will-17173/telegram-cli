@@ -55,6 +55,7 @@ export interface TelegramClientAdapter {
   readonly contacts: TelegramContactAdapter
   readonly groups: TelegramGroupManagementAdapter
   close(): Promise<void>
+  logOut(): Promise<void>
   getCurrentUser(): Promise<TelegramUser>
   listChats(type?: TelegramChatType): Promise<TelegramChat[]>
   getChatInfo(chat: string | number): Promise<Record<string, string> | null>

@@ -4,6 +4,20 @@ import { describe, expect, it, vi } from 'vitest'
 import { MtcuteTelegramClient } from '../../src/telegram/mtcute-client.js'
 
 describe('MtcuteTelegramClient chat info', () => {
+  it('logs out through mtcute and closes cleanly', async () => {
+    const client = {
+      logOut: vi.fn().mockResolvedValue({ futureAuthToken: new Uint8Array([1, 2, 3]) }),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    } as unknown as TelegramClient
+
+    const adapter = new MtcuteTelegramClient(client)
+    await adapter.logOut()
+    await adapter.close()
+
+    expect(client.logOut).toHaveBeenCalledOnce()
+    expect(client.destroy).toHaveBeenCalledOnce()
+  })
+
   it('resolves a private user target through the generic peer lookup', async () => {
     const client = {
       connect: vi.fn(),
