@@ -15,7 +15,7 @@ import type {
   TelegramGroupAuditEventType,
   TelegramGroupAuditPage,
   TelegramGroupDetails,
-  TelegramGroupManagementAdapter,
+  TelegramGroupReadAdapter,
   TelegramGroupMemberDetails,
   TelegramGroupMemberPage,
   TelegramGroupMemberResult,
@@ -30,7 +30,7 @@ import {
   TelegramGroupNotFoundError,
 } from './group-types.js'
 
-export class MtcuteGroupManagement implements TelegramGroupManagementAdapter {
+export class MtcuteGroupManagement implements TelegramGroupReadAdapter {
   constructor(
     private readonly client: TelegramClient,
     private readonly ensureReady: () => Promise<void>,

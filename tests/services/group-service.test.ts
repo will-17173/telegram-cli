@@ -12,7 +12,7 @@ import {
   TelegramGroupNotFoundError,
 } from '../../src/telegram/fake-group-management.js'
 import type {
-  TelegramGroupManagementAdapter,
+  TelegramGroupReadAdapter,
   TelegramListGroupAuditEventsRequest,
   TelegramListGroupMembersRequest,
 } from '../../src/telegram/group-types.js'
@@ -748,7 +748,7 @@ describe('GroupService', () => {
   })
 })
 
-class CapturingGroupManagementAdapter implements TelegramGroupManagementAdapter {
+class CapturingGroupManagementAdapter implements TelegramGroupReadAdapter {
   readonly listAuditEventsCalls: TelegramListGroupAuditEventsRequest[] = []
   private readonly delegate = new FakeTelegramGroupManagement()
 

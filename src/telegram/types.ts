@@ -1,5 +1,5 @@
 import type { StoredMessageInput } from '../storage/message-db.js'
-import type { TelegramGroupManagementAdapter } from './group-types.js'
+import type { TelegramGroupReadAdapter } from './group-types.js'
 
 export type TelegramChatType = 'user' | 'group' | 'supergroup' | 'channel' | 'unknown'
 
@@ -49,7 +49,7 @@ export type SendMediaResult = {
 }
 
 export interface TelegramClientAdapter {
-  readonly groups: TelegramGroupManagementAdapter
+  readonly groups: TelegramGroupReadAdapter
   close(): Promise<void>
   getCurrentUser(): Promise<TelegramUser>
   listChats(type?: TelegramChatType): Promise<TelegramChat[]>

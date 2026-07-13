@@ -35,12 +35,12 @@ export type FakeTelegramGroupManagementOptions = {
   listMembersFailure?: Error
   getMemberFailure?: Error
   listAuditEventsFailure?: Error
-  writeResults?: Partial<Record<W.TelegramGroupWriteOperation, FakeGroupWriteResult>>
+  writeResults?: { [K in W.TelegramGroupWriteOperation]?: W.GroupWriteOperationResultMap[K] }
   writeFailures?: Partial<Record<W.TelegramGroupWriteOperation, Error>>
 }
 
-export type FakeGroupWriteResult = W.TelegramGroupWriteResult | W.TelegramGroupInvitePage | W.TelegramGroupInviteResult | W.TelegramGroupInviteMemberPage | W.TelegramGroupTopicPage | W.TelegramGroupTopicResult
-export type FakeGroupWriteCall = { readonly operation: W.TelegramGroupWriteOperation; readonly request: Readonly<Record<string, W.TelegramSerializable>> }
+export type FakeGroupWriteResult = W.GroupWriteOperationResultMap[W.TelegramGroupWriteOperation]
+export type FakeGroupWriteCall = { [K in W.TelegramGroupWriteOperation]: { readonly operation: K; readonly request: W.GroupWriteOperationRequestMap[K] } }[W.TelegramGroupWriteOperation]
 
 export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapter {
   readonly getGroupCalls: Array<string | number> = []
@@ -57,7 +57,7 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
   private readonly listMembersFailure?: Error
   private readonly getMemberFailure?: Error
   private readonly listAuditEventsFailure?: Error
-  private readonly writeResults: Partial<Record<W.TelegramGroupWriteOperation, FakeGroupWriteResult>>
+  private readonly writeResults: { [K in W.TelegramGroupWriteOperation]?: W.GroupWriteOperationResultMap[K] }
   private readonly writeFailures: Partial<Record<W.TelegramGroupWriteOperation, Error>>
 
   constructor(options: FakeTelegramGroupManagementOptions = {}) {
@@ -75,7 +75,7 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
     this.listMembersFailure = options.listMembersFailure
     this.getMemberFailure = options.getMemberFailure
     this.listAuditEventsFailure = options.listAuditEventsFailure
-    this.writeResults = { ...options.writeResults }
+    this.writeResults = cloneSerializable(options.writeResults ?? {})
     this.writeFailures = { ...options.writeFailures }
   }
 
@@ -193,7 +193,7 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
   unpinAllMessages = (r: W.TelegramUnpinAllMessagesRequest) => this.write('unpinAllMessages', r)
   deleteGroupMessages = (r: W.TelegramDeleteGroupMessagesRequest) => this.write('deleteGroupMessages', r)
 
-  private async write(operation: W.TelegramGroupWriteOperation, request: object): Promise<W.TelegramGroupWriteResult> {
+  private async write(operation: W.TelegramGroupWriteOperation, request: W.GroupWriteOperationRequestMap[W.TelegramGroupWriteOperation]): Promise<W.TelegramGroupWriteResult> {
     this.recordWrite(operation, request)
     this.throwWriteFailure(operation)
     const configured = this.writeResults[operation]
@@ -207,7 +207,7 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
     return cloneSerializable(this.writeResults[operation] ?? { chat_id: numericPeer(request.chat), invites: [], total: 0 }) as W.TelegramGroupInvitePage
   }
 
-  private async inviteResult(operation: W.TelegramGroupWriteOperation, request: object): Promise<W.TelegramGroupInviteResult> {
+  private async inviteResult(operation: 'getInvite' | 'createInvite' | 'editInvite' | 'revokeInvite', request: W.TelegramGetInviteRequest | W.TelegramCreateInviteRequest | W.TelegramEditInviteRequest | W.TelegramRevokeInviteRequest): Promise<W.TelegramGroupInviteResult> {
     this.recordWrite(operation, request); this.throwWriteFailure(operation)
     const r = request as { chat: W.GroupPeer; link?: string; options?: W.TelegramInviteOptions }
     return cloneSerializable(this.writeResults[operation] ?? { chat_id: numericPeer(r.chat), invite: defaultInvite(r.link, r.options) }) as W.TelegramGroupInviteResult
@@ -223,14 +223,14 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
     return cloneSerializable(this.writeResults[operation] ?? { chat_id: numericPeer(request.chat), topics: [], total: 0 }) as W.TelegramGroupTopicPage
   }
 
-  private async topicResult(operation: W.TelegramGroupWriteOperation, request: object): Promise<W.TelegramGroupTopicResult> {
+  private async topicResult(operation: 'createTopic' | 'editTopic', request: W.TelegramCreateTopicRequest | W.TelegramEditTopicRequest): Promise<W.TelegramGroupTopicResult> {
     this.recordWrite(operation, request); this.throwWriteFailure(operation)
     const r = request as { chat: W.GroupPeer; topicId?: number; title?: string }
     return cloneSerializable(this.writeResults[operation] ?? { chat_id: numericPeer(r.chat), topic: { id: r.topicId ?? 1, title: r.title ?? 'Topic', icon_color: null, icon_emoji_id: null, closed: false, pinned: false, hidden: false } }) as W.TelegramGroupTopicResult
   }
 
-  private recordWrite(operation: W.TelegramGroupWriteOperation, request: object): void {
-    this.writeCalls.push({ operation, request: cloneSerializable(request) as Readonly<Record<string, W.TelegramSerializable>> })
+  private recordWrite<K extends W.TelegramGroupWriteOperation>(operation: K, request: W.GroupWriteOperationRequestMap[K]): void {
+    this.writeCalls.push({ operation, request: cloneSerializable(request) } as FakeGroupWriteCall)
   }
 
   private throwWriteFailure(operation: W.TelegramGroupWriteOperation): void {
