@@ -22,4 +22,9 @@ describe('group command controller', () => {
     const controller = createGroupCommandController({ execute: vi.fn().mockResolvedValue(pending) })
     expect(await controller.submit('/member kick 7', 0)).toEqual({ kind: 'pending', pending })
   })
+
+  it('turns rejected execution into an editable error outcome', async () => {
+    const controller = createGroupCommandController({ execute: vi.fn().mockRejectedValue(new Error('lookup failed')) })
+    await expect(controller.submit('/topic list', 0)).resolves.toEqual({ kind: 'error', message: 'lookup failed' })
+  })
 })

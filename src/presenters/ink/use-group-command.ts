@@ -27,7 +27,9 @@ export function createGroupCommandController({ execute }: {
     if (completed !== input) return { kind: 'complete', input: completed }
     const parsed = parseGroupCommand(input)
     if (!parsed.ok) return { kind: 'error', message: parsed.error.message, usage: parsed.error.usage }
-    const result = await execute(parsed.request)
+    let result: GroupCommandExecutionResult
+    try { result = await execute(parsed.request) }
+    catch (error) { return { kind: 'error', message: error instanceof Error ? error.message : String(error) } }
     if (!result.ok && ('confirmation' in result || 'selectionRequired' in result)) return { kind: 'pending', pending: result }
     return { kind: 'result', result }
   } }
@@ -41,7 +43,7 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
     const owned = ++generation.current
     setState({ kind: 'executing' })
     const outcome = await controller.submit(input, selectedIndex)
-    if (owned !== generation.current) return outcome
+    if (owned !== generation.current) return { ...outcome, applied: false }
     if (outcome.kind === 'error') setState(outcome)
     else if (outcome.kind === 'result') setState({ kind: 'result', result: outcome.result })
     else if (outcome.kind === 'pending') {
@@ -52,7 +54,7 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
           ? { kind: pending.confirmation.risk, pending }
           : { kind: 'result', result: pending })
     } else setState({ kind: 'menu', selectedIndex })
-    return outcome
+    return { ...outcome, applied: true }
   }, [execute])
   const close = useCallback(() => { generation.current++; setState({ kind: 'closed' }) }, [])
   return { state, setState, submit, close }

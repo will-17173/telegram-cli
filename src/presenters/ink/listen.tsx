@@ -16,11 +16,11 @@ import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScroll
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
 import { isMouseInput, useMouseScroll, withMouseReporting, type MouseScrollDirection } from './mouse-scroll.js'
-import { GroupCommandMenu, moveGroupCommandSelection } from './group-command-menu.js'
+import { GroupCommandMenu, moveGroupCommandSelection, visibleGroupCommandMatches } from './group-command-menu.js'
 import { GroupCommandResult } from './group-command-result.js'
 import { useGroupCommand } from './use-group-command.js'
 import { executeGroupCommand } from '../../group-commands/executor.js'
-import { completeGroupCommand, matchGroupCommands } from '../../group-commands/parser.js'
+import { completeGroupCommand } from '../../group-commands/parser.js'
 import { GroupWriteService } from '../../services/group-write-service.js'
 
 export type ListenMessage = ListenMessageRow & {
@@ -42,7 +42,7 @@ export type DownloadableAttachment = {
   attachment: ListenAttachment
 }
 
-type ListenRuntimeOptions = {
+export type ListenRuntimeOptions = {
   chats: Array<string | number> | undefined
   persist: boolean
   retrySeconds: number
@@ -482,7 +482,7 @@ export async function renderInteractiveListen(options: ListenRuntimeOptions): Pr
   })
 }
 
-function InteractiveListen({
+export function InteractiveListen({
   chats,
   persist,
   retrySeconds,
@@ -603,7 +603,7 @@ function InteractiveListen({
       return
     }
     if (slashMode && (key.upArrow || key.downArrow)) {
-      const count = matchGroupCommands(input).length
+      const count = visibleGroupCommandMatches(input).length
       const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
       groupCommand.setState({ kind: 'menu', selectedIndex: moveGroupCommandSelection(selected, key.upArrow ? -1 : 1, count) })
       return
@@ -650,6 +650,7 @@ function InteractiveListen({
       if (slashMode) {
         const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
         void groupCommand.submit(input, selected).then((outcome) => {
+          if (!outcome.applied) return
           if (outcome.kind === 'complete') setInput(outcome.input)
           else if (outcome.kind === 'result' && outcome.result.ok) setInput('')
         })
@@ -871,6 +872,7 @@ function InteractiveListen({
           autoDownload={autoDownload}
         />
         {note ? <Text dimColor>{note}</Text> : null}
+        {groupCommand.state.kind === 'result' ? <Box flexGrow={1} flexDirection="column"><GroupCommandResult state={groupCommand.state} width={contentWidth} /></Box> : <Box flexGrow={1} flexDirection="column">
         <GroupCommandResult state={groupCommand.state} width={contentWidth} />
         <Box marginTop={1} flexDirection="column" flexGrow={1} overflow="hidden">
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}
@@ -895,6 +897,7 @@ function InteractiveListen({
             </Box>
           ))}
         </Box>
+        </Box>}
         {sendTo == null ? <Text dimColor>Set --send-to &lt;chat&gt; (or pass one chat to listen) before sending messages.</Text> : null}
           <Box marginTop={1} flexDirection="column" flexShrink={0}>
             {input.trimStart().startsWith('/') && groupCommand.state.kind === 'menu' ? <GroupCommandMenu input={input} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} /> : null}

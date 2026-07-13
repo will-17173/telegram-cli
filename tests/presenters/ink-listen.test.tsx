@@ -1,6 +1,7 @@
 import React from 'react'
 import { render, renderToString, Text } from 'ink'
 import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -15,6 +16,7 @@ import {
   flushListenBeforeExit,
   formatInteractiveListenSender,
   interactiveListenPreviewColorDepth,
+  InteractiveListen,
   LISTEN_COMPOSER_THEME,
   ListenAttachmentLine,
   ListenAttachmentWithPreview,
@@ -112,6 +114,60 @@ describe('ListenComposer', () => {
       target: '#f0d38a',
       hint: '#9bdca8',
     })
+  })
+})
+
+describe('InteractiveListen slash commands', () => {
+  it('ignores a stale command result after Esc and preserves newly typed input', async () => {
+    let resolveLookup!: (value: unknown) => void
+    const lookup = new Promise((resolve) => { resolveLookup = resolve })
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn(() => lookup) })
+    const stdout = new MockStdout(80, 24, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen
+      chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false}
+      createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined}
+    />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/topic list')
+    await vi.waitFor(() => expect(stdout.output).toContain('› /topic list'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('Running group command'))
+    stdin.write('\u001b')
+    await new Promise(resolve => setTimeout(resolve, 30))
+    stdin.write('n')
+    stdin.write('e')
+    stdin.write('w')
+    const outputBeforeResolve = stdout.output.length
+    resolveLookup(groupDetails())
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await vi.waitFor(() => expect(stdout.output).toContain('/topic listnew'))
+    expect(stdout.output.slice(outputBeforeResolve)).not.toContain('Done')
+    controller.abort()
+    app.unmount()
+  })
+
+  it('keeps command input and unlocks editing when group lookup rejects', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockRejectedValue(new Error('lookup failed')) })
+    const stdout = new MockStdout(80, 24, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen
+      chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false}
+      createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined}
+    />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/topic list')
+    await vi.waitFor(() => expect(stdout.output).toContain('› /topic list'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(stdout.output).toContain('lookup failed'))
+    stdin.write('x')
+    await vi.waitFor(() => expect(stdout.output).toContain('/topic listx'))
+    expect(client.sendMessage).not.toHaveBeenCalled()
+    controller.abort()
+    app.unmount()
   })
 })
 
@@ -774,6 +830,27 @@ function lifecycleClient(result: 'disconnected' | 'stopped', calls: string[], na
   } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter
 }
 
+function groupDetails() {
+  return { id: 100, title: 'Test Group', type: 'supergroup', forum: true, current_user_role: 'creator' }
+}
+
+function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
+  return {
+    groups: {
+      ...groups,
+      listTopics: vi.fn().mockResolvedValue([]),
+    },
+    listen: vi.fn(async ({ onConnected, signal }: { onConnected?: () => void; signal: AbortSignal }) => {
+      onConnected?.()
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped' as const
+    }),
+    close: vi.fn(async () => undefined),
+    getChatInfo: vi.fn(async () => null),
+    sendMessage: vi.fn(),
+  } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter & { groups: { getGroup: ReturnType<typeof vi.fn>; listTopics: ReturnType<typeof vi.fn> }; sendMessage: ReturnType<typeof vi.fn> }
+}
+
 const twoByTwoJpeg =
   '/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19i' +
   'Z2hnPk1xeXBkeFxlZ2MBERISGBUYLxoaL2NCOEJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2Nj' +
@@ -787,6 +864,7 @@ const twoByTwoJpeg =
 
 class MockStdout extends EventEmitter {
   isTTY = true
+  output = ''
 
   constructor(
     public columns: number,
@@ -800,9 +878,17 @@ class MockStdout extends EventEmitter {
     return this.colorDepth
   }
 
-  write(): boolean {
+  write(value: unknown): boolean {
+    this.output += String(value)
     return true
   }
+}
+
+class MockStdin extends PassThrough {
+  isTTY = true
+  setRawMode(): this { return this }
+  ref(): this { return this }
+  unref(): this { return this }
 }
 
 function TerminalMetricsHarness({
