@@ -207,6 +207,21 @@ describe('local command contracts', () => {
     expect(result.stdout).toContain('today Rust role')
   })
 
+  it('keeps scoped recent data identical in json and yaml', async () => {
+    seed(todayMessages())
+    const json = await run(['recent', '--chat', 'TestGroup', '--json'])
+    const yaml = await run(['recent', '--chat', 'TestGroup', '--yaml'])
+    const jsonPayload = JSON.parse(json.stdout) as { data: Array<Record<string, unknown>> }
+    const yamlPayload = YAML.parse(yaml.stdout) as { data: Array<Record<string, unknown>> }
+
+    expect(json.code).toBe(0)
+    expect(yaml.code).toBe(0)
+    expect(jsonPayload.data).toEqual(yamlPayload.data)
+    expect(jsonPayload.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ chat_id: 100, chat_name: 'TestGroup' }),
+    ]))
+  })
+
   it('prints top senders as yaml', async () => {
     seed()
     const result = await run(['top', '--yaml'])
