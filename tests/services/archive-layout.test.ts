@@ -28,6 +28,21 @@ describe('archive layout', () => {
     expect(file.length).toBeLessThanOrEqual(100)
   })
 
+  it('caps multibyte chat filenames by UTF-8 bytes', () => {
+    const file = archiveChatFile(-100123, '研发团队'.repeat(100))
+
+    expect(Buffer.byteLength(file)).toBeLessThanOrEqual(255)
+    expect(file).not.toContain('\uFFFD')
+  })
+
+  it('does not split grapheme clusters while truncating', () => {
+    const grapheme = 'x\u0301'
+    const file = archiveChatFile(-100123, grapheme.repeat(100))
+    const slug = file.slice('-100123-'.length, -'.md'.length)
+
+    expect(slug.endsWith(grapheme)).toBe(true)
+  })
+
   it('builds a basename-only relative POSIX media path', () => {
     expect(archiveMediaFile(-100123, 42, '../../report.pdf'))
       .toBe('media/-100123/42-report.pdf')
@@ -39,5 +54,17 @@ describe('archive layout', () => {
     expect(archiveMediaFile(-100123, 43, '.')).toBe('media/-100123/43-file')
     expect(archiveMediaFile(-100123, 44, 'bad\u0000name?.txt'))
       .toBe('media/-100123/44-bad-name.txt')
+  })
+
+  it('caps multibyte media filename components by UTF-8 bytes', () => {
+    const path = archiveMediaFile(
+      -100123,
+      Number.MAX_SAFE_INTEGER,
+      `${'文件'.repeat(100)}.${'扩展'.repeat(100)}`,
+    )
+    const components = path.split('/')
+
+    expect(components.every((component) => Buffer.byteLength(component) <= 255)).toBe(true)
+    expect(components.at(-1)).not.toContain('\uFFFD')
   })
 })

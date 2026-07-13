@@ -18,6 +18,17 @@ type ArchiveAccount = {
   name: string
 }
 
+const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu
+const ISO_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u
+const UNSUPPORTED_DIRECTORY_SYNC_CODES = new Set([
+  'EACCES',
+  'EINVAL',
+  'EISDIR',
+  'ENOSYS',
+  'ENOTSUP',
+  'EPERM',
+])
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -26,12 +37,34 @@ function isString(value: unknown): value is string {
   return typeof value === 'string'
 }
 
-function isNullableString(value: unknown): value is string | null {
-  return value === null || isString(value)
+function isIsoTimestamp(value: unknown): value is string {
+  if (!isString(value)) return false
+  const match = ISO_TIMESTAMP.exec(value)
+  if (!match || !Number.isFinite(Date.parse(value))) return false
+
+  const [, year, month, day, hour, minute, second] = match
+  const numericYear = Number(year)
+  const numericMonth = Number(month)
+  const daysInMonth = new Date(Date.UTC(numericYear, numericMonth, 0)).getUTCDate()
+  return numericMonth >= 1
+    && numericMonth <= 12
+    && Number(day) >= 1
+    && Number(day) <= daysInMonth
+    && Number(hour) <= 23
+    && Number(minute) <= 59
+    && Number(second) <= 59
 }
 
-function isNullableInteger(value: unknown): value is number | null {
-  return value === null || Number.isSafeInteger(value)
+function isNullableTimestamp(value: unknown): value is string | null {
+  return value === null || isIsoTimestamp(value)
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0
+}
+
+function isNullableMessageId(value: unknown): value is number | null {
+  return value === null || isPositiveSafeInteger(value)
 }
 
 function isSafeRelativeFile(value: unknown): value is string {
@@ -42,6 +75,15 @@ function isSafeRelativeFile(value: unknown): value is string {
     && value !== '.'
     && value !== '..'
     && !/[\p{C}]/u.test(value)
+    && !/[<>:"|?*]/u.test(value)
+    && !/[. ]$/u.test(value)
+    && !WINDOWS_RESERVED_NAME.test(value)
+    && Buffer.byteLength(value) <= 255
+}
+
+function isChatId(value: string): boolean {
+  if (!/^-?[1-9]\d*$/u.test(value)) return false
+  return Number.isSafeInteger(Number(value))
 }
 
 function isArchiveChatState(value: unknown): value is ArchiveChatState {
@@ -50,12 +92,12 @@ function isArchiveChatState(value: unknown): value is ArchiveChatState {
   return isString(value.title)
     && value.title.trim().length > 0
     && isSafeRelativeFile(value.file)
-    && isNullableString(value.initial_since)
-    && isNullableString(value.initial_until)
+    && isNullableTimestamp(value.initial_since)
+    && isNullableTimestamp(value.initial_until)
     && typeof value.full_history === 'boolean'
-    && isNullableInteger(value.last_message_id)
-    && isNullableString(value.last_message_date)
-    && isString(value.last_run)
+    && isNullableMessageId(value.last_message_id)
+    && isNullableTimestamp(value.last_message_date)
+    && isIsoTimestamp(value.last_run)
 }
 
 function parseArchiveManifest(value: unknown): ArchiveManifest {
@@ -67,14 +109,15 @@ function parseArchiveManifest(value: unknown): ArchiveManifest {
     throw new Error('archive_manifest_invalid')
   }
   if (!isString(value.account_name) || value.account_name.trim().length === 0
-    || !Number.isSafeInteger(value.account_user_id)
-    || !isString(value.created_at)
-    || !isString(value.updated_at)
+    || !isPositiveSafeInteger(value.account_user_id)
+    || !isIsoTimestamp(value.created_at)
+    || !isIsoTimestamp(value.updated_at)
     || !isRecord(value.chats)) {
     throw new Error('archive_manifest_invalid')
   }
 
-  for (const chat of Object.values(value.chats)) {
+  for (const [chatId, chat] of Object.entries(value.chats)) {
+    if (!isChatId(chatId)) throw new Error('archive_manifest_invalid')
     if (!isArchiveChatState(chat)) throw new Error('archive_manifest_invalid')
   }
 
@@ -105,6 +148,20 @@ export function validateArchiveAccount(
   }
 }
 
+function syncDirectory(path: string): void {
+  let fileDescriptor: number | null = null
+
+  try {
+    fileDescriptor = openSync(path, constants.O_RDONLY)
+    fsyncSync(fileDescriptor)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (!code || !UNSUPPORTED_DIRECTORY_SYNC_CODES.has(code)) throw error
+  } finally {
+    if (fileDescriptor !== null) closeSync(fileDescriptor)
+  }
+}
+
 export function writeArchiveManifest(path: string, manifest: ArchiveManifest): void {
   parseArchiveManifest(manifest)
   const temporaryPath = join(
@@ -121,9 +178,11 @@ export function writeArchiveManifest(path: string, manifest: ArchiveManifest): v
     )
     writeFileSync(fileDescriptor, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
     fsyncSync(fileDescriptor)
-    closeSync(fileDescriptor)
+    const descriptor = fileDescriptor
     fileDescriptor = null
+    closeSync(descriptor)
     renameSync(temporaryPath, path)
+    syncDirectory(dirname(path))
   } finally {
     if (fileDescriptor !== null) closeSync(fileDescriptor)
     try {

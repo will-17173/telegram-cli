@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -88,8 +89,19 @@ describe('archive manifest', () => {
     ['root value', null],
     ['account name', { ...manifestFor(42), account_name: '' }],
     ['account ID', { ...manifestFor(42), account_user_id: 42.5 }],
+    ['non-positive account ID', { ...manifestFor(42), account_user_id: 0 }],
     ['created timestamp', { ...manifestFor(42), created_at: 7 }],
+    ['malformed created timestamp', { ...manifestFor(42), created_at: 'yesterday' }],
+    ['malformed updated timestamp', { ...manifestFor(42), updated_at: '2026-02-30T00:00:00Z' }],
     ['chat map', { ...manifestFor(42), chats: [] }],
+    ['non-numeric chat key', {
+      ...manifestFor(42),
+      chats: { team: manifestFor(42).chats['-100123'] },
+    }],
+    ['zero chat key', {
+      ...manifestFor(42),
+      chats: { '0': manifestFor(42).chats['-100123'] },
+    }],
     ['chat title', {
       ...manifestFor(42),
       chats: { '-100123': { ...manifestFor(42).chats['-100123'], title: '' } },
@@ -98,9 +110,29 @@ describe('archive manifest', () => {
       ...manifestFor(42),
       chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: '../unsafe.md' } },
     }],
+    ['reserved chat file', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: 'CON' } },
+    }],
+    ['trailing-dot chat file', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: 'chat.md.' } },
+    }],
+    ['chat file with reserved characters', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: 'team:ops.md' } },
+    }],
+    ['oversized chat file', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], file: `${'文'.repeat(100)}.md` } },
+    }],
     ['range value', {
       ...manifestFor(42),
       chats: { '-100123': { ...manifestFor(42).chats['-100123'], initial_since: 12 } },
+    }],
+    ['malformed initial timestamp', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], initial_since: '2025-13-01T00:00:00Z' } },
     }],
     ['history flag', {
       ...manifestFor(42),
@@ -110,13 +142,25 @@ describe('archive manifest', () => {
       ...manifestFor(42),
       chats: { '-100123': { ...manifestFor(42).chats['-100123'], last_message_id: 1.5 } },
     }],
+    ['non-positive message ID', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], last_message_id: 0 } },
+    }],
     ['message date', {
       ...manifestFor(42),
       chats: { '-100123': { ...manifestFor(42).chats['-100123'], last_message_date: 10 } },
     }],
+    ['malformed message date', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], last_message_date: 'soon' } },
+    }],
     ['last run', {
       ...manifestFor(42),
       chats: { '-100123': { ...manifestFor(42).chats['-100123'], last_run: null } },
+    }],
+    ['malformed last run', {
+      ...manifestFor(42),
+      chats: { '-100123': { ...manifestFor(42).chats['-100123'], last_run: '' } },
     }],
   ])('rejects an invalid %s', (_description, value) => {
     const path = join(temporaryDirectory(), 'archive-manifest.json')
@@ -165,5 +209,32 @@ describe('archive manifest', () => {
     writeArchiveManifest(path, manifestFor(42))
 
     expect(statSync(path).mode & 0o777).toBe(0o600)
+  })
+
+  it('cleans up its temp file and preserves an existing target when rename fails', () => {
+    const directory = temporaryDirectory()
+    const path = join(directory, 'archive-manifest.json')
+    mkdirSync(path)
+    writeFileSync(join(path, 'sentinel'), 'keep')
+
+    expect(() => writeArchiveManifest(path, manifestFor(42))).toThrow()
+
+    expect(readFileSync(join(path, 'sentinel'), 'utf8')).toBe('keep')
+    expect(readdirSync(directory)).toEqual(['archive-manifest.json'])
+  })
+
+  it('preserves an existing manifest when replacement validation fails', () => {
+    const directory = temporaryDirectory()
+    const path = join(directory, 'archive-manifest.json')
+    const original = manifestFor(42)
+    writeArchiveManifest(path, original)
+
+    expect(() => writeArchiveManifest(path, {
+      ...original,
+      account_user_id: 0,
+    })).toThrow('archive_manifest_invalid')
+
+    expect(readArchiveManifest(path)).toEqual(original)
+    expect(readdirSync(directory)).toEqual(['archive-manifest.json'])
   })
 })
