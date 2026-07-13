@@ -1,3 +1,4 @@
+import { tl } from '@mtcute/node'
 import type { Message, TelegramClient } from '@mtcute/node'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -80,6 +81,53 @@ describe('MtcuteTelegramClient history', () => {
     expect(rows).toHaveLength(101)
     expect(getHistory).toHaveBeenCalledTimes(2)
     expect(sleep).not.toHaveBeenCalled()
+  })
+
+  it('waits for a flood error and retries the same page without duplicating messages', async () => {
+    vi.useFakeTimers()
+    const firstOffset = { id: 107, date: 1_752_355_200 }
+    const getHistory = vi.fn()
+      .mockResolvedValueOnce(page(8, 100, firstOffset))
+      .mockRejectedValueOnce(new tl.RpcError(420, 'FLOOD_WAIT_14'))
+      .mockResolvedValueOnce(page(108, 50))
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getHistory,
+    } as unknown as TelegramClient
+
+    const rows = await new MtcuteTelegramClient(client).fetchHistory({
+      chat: -100123,
+      limit: 150,
+      minId: 7,
+    })
+
+    expect(sleep).toHaveBeenCalledWith(15_000)
+    expect(getHistory).toHaveBeenCalledTimes(3)
+    expect(getHistory.mock.calls[1]).toEqual(getHistory.mock.calls[2])
+    expect(getHistory).toHaveBeenNthCalledWith(2, -100123, { limit: 50, minId: 7, offset: firstOffset })
+    expect(rows.map((row) => row.msg_id)).toEqual(Array.from({ length: 150 }, (_, index) => index + 8))
+  })
+
+  it('propagates the sixth flood error after five automatic retries', async () => {
+    vi.useFakeTimers()
+    const errors = Array.from({ length: 6 }, () => new tl.RpcError(420, 'FLOOD_WAIT_14'))
+    const getHistory = vi.fn()
+    for (const error of errors) getHistory.mockRejectedValueOnce(error)
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getHistory,
+    } as unknown as TelegramClient
+
+    await expect(new MtcuteTelegramClient(client).fetchHistory({
+      chat: -100123,
+      limit: 1,
+    })).rejects.toBe(errors[5])
+
+    expect(getHistory).toHaveBeenCalledTimes(6)
+    expect(sleep).toHaveBeenCalledTimes(5)
+    expect(sleep).toHaveBeenCalledWith(15_000)
   })
 })
 

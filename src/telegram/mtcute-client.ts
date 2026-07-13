@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { setTimeout } from 'node:timers/promises'
-import { TelegramClient, Thumbnail } from '@mtcute/node'
+import { TelegramClient, Thumbnail, tl } from '@mtcute/node'
 import type {
   FullChat,
   Message,
@@ -103,13 +103,28 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     await this.ensureReady()
     const rows: StoredMessageInput[] = []
     let offset: NonNullable<Parameters<TelegramClient['getHistory']>[1]>['offset']
+    let floodRetries = 0
 
     while (rows.length < options.limit) {
-      const page = await this.client.getHistory(normalizeChatId(options.chat), {
+      const pageOptions = {
         limit: Math.min(100, options.limit - rows.length),
         minId: options.minId,
         offset,
-      })
+      }
+      let page
+      while (true) {
+        try {
+          page = await this.client.getHistory(normalizeChatId(options.chat), pageOptions)
+          break
+        } catch (error) {
+          const floodMatch = tl.RpcError.is(error, 'FLOOD_WAIT_%d')
+            ? /_(\d+)$/.exec(error.text)
+            : tl.RpcError.is(error) ? /^FLOOD_WAIT_(\d+)$/.exec(error.text) : null
+          if (floodMatch == null || floodRetries >= 5) throw error
+          floodRetries += 1
+          await setTimeout((Number(floodMatch[1]) + 1) * 1000)
+        }
+      }
       for (const message of page) {
         rows.push(toStoredMessage(message))
         options.onProgress?.(rows.length)
