@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-13
+
+### Added
+
+- Add complete group management commands for members, administrators, chat settings, invite links, join requests, forum topics, and messages, with permission checks and structured results.
+- Add confirmation flows for destructive group actions, including exact-title confirmation for permanent chat deletion and interactive confirmation modals in `tg listen`.
+- Add a unified slash-command menu to interactive `tg listen`, with exact, prefix, and fuzzy matching for `/reply` and all supported group management commands.
+- Support replying to messages directly from interactive listen mode with `/reply <message-id> <content>`.
+- Display reply context and combine Telegram media groups into logical messages in `tg listen` and human-readable `tg recent` output.
+- Allow `tg account switch` to select an account from an interactive numbered list when no account name is provided.
+
+### Changed
+
+- Show message IDs in interactive listen headers and expose every source message ID for grouped media in recent-message output.
+- Improve `tg recent` paging and reply lookup with indexed range queries and isolated read-only SQLite snapshots.
+- Add package repository, homepage, and issue-tracker metadata for npm consumers.
+
+### Fixed
+
+- Resolve private-user names correctly in the interactive listen send target instead of leaving numeric user targets labeled as `unknown`.
+- Keep interactive listen responsive while resolving reply context, and safely drain pending resolver work during shutdown.
+- Preserve command arguments and completion whitespace while navigating or completing the unified slash-command menu.
+- Reset stale listen menu selections and results consistently when commands complete, menus close, or the active command set changes.
+- Harden group command parsing, permission validation, destructive confirmations, ownership-transfer checks, restriction handling, and adapter error contracts.
+- Keep reply lookup read-only and retry concurrent WAL snapshots so active listeners do not corrupt or block local message reads.
+- Handle missing invitees and wrapped media MIME types without breaking group operations or attachment summaries.
+
 ## [0.2.0] - 2026-07-13
 
 ### Added
