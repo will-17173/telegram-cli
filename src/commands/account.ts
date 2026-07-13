@@ -2,13 +2,12 @@ import { mkdtempSync, mkdirSync, renameSync, rmSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline/promises'
-import { TelegramClient } from '@mtcute/node'
 import type { Command } from 'commander'
 
-import { getAccountRegistryPath, getDataDir, getTelegramCredentials, getTelegramProxy } from '../config/env.js'
+import { getAccountRegistryPath, getDataDir } from '../config/env.js'
+import { authenticateAccountAt, mapAuthUser, type AuthenticatedSession } from '../account/account-authenticator.js'
 import { AccountStore, type AccountMeta } from '../account/account-store.js'
 import { accountSessionPath } from '../account/account-presets.js'
-import { telegramTransportOptions } from '../telegram/proxy.js'
 import { outputFormatConflict, type HandlerResult, type OutputFlags } from './types.js'
 import { renderResult } from '../cli/output.js'
 
@@ -392,13 +391,11 @@ async function addAccount(): Promise<{
   const temporaryAccountDir = mkdtempSync(join(dataDir, 'tmp-account-'))
   const temporarySessionPath = join(temporaryAccountDir, 'session')
 
-  const credentials = getTelegramCredentials()
-  let auth: { getMe: () => Promise<AuthUser>; close: () => Promise<void> } | undefined
+  let auth: AuthenticatedSession | undefined
 
   try {
-    auth = await authenticateAccount(temporarySessionPath, credentials)
-    const user = await auth.getMe()
-    const mapped = mapAuthUser(user)
+    auth = await authenticateAccountAt(temporarySessionPath)
+    const mapped = mapAuthUser(auth.user)
     await auth.close()
     auth = undefined
 
@@ -457,69 +454,6 @@ async function addAccount(): Promise<{
       await auth.close()
     }
     rmSync(temporaryAccountDir, { recursive: true, force: true })
-  }
-}
-
-type AuthUser = {
-  id: number
-  displayName?: string | null
-  firstName?: string | null
-  lastName?: string | null
-  username?: string | null
-  phoneNumber?: string | null
-}
-
-async function authenticateAccount(sessionPath: string, credentials: ReturnType<typeof getTelegramCredentials>): Promise<{ getMe: () => Promise<AuthUser>; close: () => Promise<void> }> {
-  const client = new TelegramClient({
-    apiId: credentials.apiId,
-    apiHash: credentials.apiHash,
-    storage: sessionPath,
-    ...telegramTransportOptions(getTelegramProxy()),
-  }) as unknown as {
-    start: () => Promise<void>
-    getMe: () => Promise<AuthUser>
-    destroy: () => Promise<void>
-  }
-
-  try {
-    await client.start()
-    return {
-      getMe: () => client.getMe(),
-      close: () => client.destroy(),
-    }
-  } catch (error) {
-    await client.destroy().catch(() => undefined)
-    throwCodeError('account_login_failed', errorMessage(error))
-  }
-}
-
-function mapAuthUser(user: AuthUser): {
-  user_id: number
-  username: string
-  phone: string
-  display_name: string
-  name: string
-} {
-  const displayName = user.displayName?.trim()
-  const displayNameFallback = [
-    user.firstName,
-    user.lastName,
-  ].filter((value): value is string => value != null && value.trim().length > 0).join(' ')
-
-  const username = user.username?.trim() || `user-${user.id}`
-  const phone = (user.phoneNumber ?? '').replace(/\D/g, '') || String(user.id)
-  const preferredName = user.username?.trim().toLowerCase() || ''
-  const name = preferredName.length > 0 ? preferredName : phone
-  const resolvedDisplayName = displayName && displayName.length > 0
-    ? displayName
-    : displayNameFallback
-
-  return {
-    user_id: user.id,
-    username: username.toLowerCase(),
-    phone,
-    display_name: resolvedDisplayName.length > 0 ? normalizeDisplayName(resolvedDisplayName) : username,
-    name,
   }
 }
 
