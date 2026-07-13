@@ -28,8 +28,14 @@ describe('listen command matching', () => {
 
   it('supports ordered fuzzy matches across paths, summaries, and keywords', () => {
     expect(ids('/rpy')[0]).toBe('reply')
+    expect(ids('/r!p')[0]).toBe('reply')
     expect(ids('/ban')[0]).toBe('group:member ban')
     expect(ids('/remove admin')[0]).toBe('group:admin demote')
+  })
+
+  it.each(['/@', '/!!!', '/你好'])('does not match non-empty queries that normalize to empty: %s', (input) => {
+    expect(matchListenCommands(input)).toEqual([])
+    expect(completeListenCommand(input)).toBe(input)
   })
 
   it('does not treat arguments as command path query tokens', () => {
@@ -64,6 +70,15 @@ describe('listen command completion', () => {
   it('preserves existing arguments and does not duplicate complete paths', () => {
     expect(completeListenCommand('/reply 42 hi')).toBe('/reply 42 hi')
     expect(completeListenCommand('/member ban @user')).toBe('/member ban @user')
+  })
+
+  it.each(['/member @', '/member !!!', '/member 你好'])('treats an unmatched second token as an argument boundary: %s', (input) => {
+    expect(ids(input).slice(0, 3)).toEqual([
+      'group:member add',
+      'group:member kick',
+      'group:member ban',
+    ])
+    expect(completeListenCommand(input)).toBe(input)
   })
 
   it('only selects among the six visible matches and safely keeps invalid selections unchanged', () => {
