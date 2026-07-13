@@ -122,4 +122,16 @@ describe('executeGroupCommand', () => {
     const result = await executeGroupCommand(parsed('chat delete'), { chat: 100, groups: new GroupWriteService(groups), confirmed: false, knownGroup })
     expect(result).toMatchObject({ ok: false, confirmation: { target: knownGroup.title, details: { chat: 100, title: knownGroup.title } } })
   })
+
+  it('copies selected permissions into admin promotion confirmation details', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const input = parsed('admin promote 7 ban_users,delete_messages')
+    if (input.key !== 'admin promote') throw new Error('expected admin promote')
+    const permissions = input.values.permissions
+    const result = await executeGroupCommand(input, { chat: 100, groups: new GroupWriteService(groups), confirmed: false })
+    expect(result).toMatchObject({ ok: false, confirmation: { target: '7', details: { user: 7, permissions: ['ban_users', 'delete_messages'] } } })
+    if (!('confirmation' in result)) throw new Error('expected confirmation')
+    expect(result.confirmation.details?.permissions).not.toBe(permissions)
+    expect(input.values.permissions).toEqual(['ban_users', 'delete_messages'])
+  })
 })

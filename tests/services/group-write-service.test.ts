@@ -105,4 +105,11 @@ describe('GroupWriteService', () => {
       pin_messages: false, add_admins: false, manage_call: false, anonymous: false, manage_topics: false,
     } } })
   })
+
+  it('rejects unknown administrator permission names at the service boundary', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await new GroupWriteService(groups).execute(request('admin promote 7 ban_users,bogus'))
+    expect(result).toMatchObject({ ok: false, error: { code: 'invalid_option', message: expect.stringContaining('ban_users') } })
+    expect(groups.writeCalls).toHaveLength(0)
+  })
 })

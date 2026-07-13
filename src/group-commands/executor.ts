@@ -52,7 +52,8 @@ function confirmationContext(request: ConfirmationRequest, context: GroupCommand
   switch (request.key) {
     case 'member kick': case 'member ban': case 'member unban': case 'member unmute': case 'member purge': return { target: String(request.values.user), details: { user: request.values.user } }
     case 'member mute': return { target: String(request.values.user), details: { user: request.values.user, durationSeconds: request.values.durationSeconds ?? null } }
-    case 'admin promote': case 'admin demote': case 'admin transfer-owner': return { target: String(request.values.user), details: { user: request.values.user } }
+    case 'admin promote': return { target: String(request.values.user), details: { user: request.values.user, permissions: [...(request.values.permissions ?? [])] } }
+    case 'admin demote': case 'admin transfer-owner': return { target: String(request.values.user), details: { user: request.values.user } }
     case 'admin rank': return { target: String(request.values.user), details: { user: request.values.user, rank: request.values.text } }
     case 'invite revoke': return { target: request.values.invite, details: { invite: request.values.invite } }
     case 'topic delete': return { target: `topic ${request.values.id}`, details: { topicId: request.values.id } }

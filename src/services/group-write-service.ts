@@ -15,7 +15,10 @@ type HandlerContext<K extends GroupCommandKey> = { readonly chat: string | numbe
 type CommandHandler<K extends GroupCommandKey> = (context: HandlerContext<K>, groups: TelegramGroupManagementAdapter) => Promise<GroupWriteServiceResult>
 type CommandHandlers = { readonly [K in GroupCommandKey]: CommandHandler<K> }
 
-export const ADMIN_RIGHT_KEYS = ['change_info', 'delete_messages', 'ban_users', 'invite_users', 'pin_messages', 'add_admins', 'manage_call', 'anonymous', 'manage_topics'] as const
+export const ADMIN_RIGHT_KEYS = ['change_info', 'delete_messages', 'ban_users', 'invite_users', 'pin_messages', 'add_admins', 'manage_call', 'anonymous', 'manage_topics'] as const satisfies readonly (keyof TelegramGroupAdminRights)[]
+const allAdminRightsCovered: Exclude<keyof TelegramGroupAdminRights, typeof ADMIN_RIGHT_KEYS[number]> extends never ? true : false = true
+void allAdminRightsCovered
+function isAdminRight(value: string): value is keyof TelegramGroupAdminRights { return ADMIN_RIGHT_KEYS.some(key => key === value) }
 const selectedAdminRights = (names: readonly string[] | undefined): TelegramGroupAdminRights => {
   const has = (name: string) => names?.includes(name) === true
   return { change_info: has('change_info'), delete_messages: has('delete_messages'), ban_users: has('ban_users'), invite_users: has('invite_users'), pin_messages: has('pin_messages'), add_admins: has('add_admins'), manage_call: has('manage_call'), anonymous: has('anonymous'), manage_topics: has('manage_topics') }
@@ -79,6 +82,9 @@ export class GroupWriteService {
     if (!key) return failure('invalid_command', 'Invalid or noncanonical group command.')
     if (request.key === 'admin promote' && (!request.values.permissions || request.values.permissions.length === 0)) {
       return failure('permissions_required', 'Select at least one administrator permission.')
+    }
+    if (request.key === 'admin promote' && request.values.permissions?.some(permission => !isAdminRight(permission))) {
+      return failure('invalid_option', `Administrator permissions must be one or more of: ${ADMIN_RIGHT_KEYS.join(', ')}.`)
     }
     try { return { ok: true, data: await dispatch(request, this.groups) } }
     catch (error) { return groupWriteFailure(error) }
