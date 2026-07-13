@@ -1,11 +1,16 @@
 import type { HandlerResult } from '../commands/types.js'
 import { messageTable, statsSummary, timelineView, topTable } from '../presenters/human.js'
-import { MessageDB, type StoredMessage } from '../storage/message-db.js'
+import { MessageDB } from '../storage/message-db.js'
 
 type QueryOptions = {
   chat?: string
   hours?: number
   limit?: number
+}
+
+type ChatScope = {
+  chatId?: number
+  chatLabel?: string
 }
 
 export class QueryService {
@@ -19,14 +24,14 @@ export class QueryService {
     const valid = validateQueryOptions(options)
     if (!valid.ok) return valid
 
-    const chatId = this.resolveChat(options.chat)
-    if (!chatId.ok) return chatId
+    const chatScope = this.resolveChat(options.chat)
+    if (!chatScope.ok) return chatScope
 
     try {
       const data = options.regex
-        ? this.db.searchRegex(options.keyword, { chatId: chatId.data, sender: options.sender, hours: options.hours, limit: options.limit })
-        : this.db.search(options.keyword, { chatId: chatId.data, sender: options.sender, hours: options.hours, limit: options.limit })
-      return { ok: true, data, human: messageTable(data, 'Search Results') }
+        ? this.db.searchRegex(options.keyword, { chatId: chatScope.data.chatId, sender: options.sender, hours: options.hours, limit: options.limit })
+        : this.db.search(options.keyword, { chatId: chatScope.data.chatId, sender: options.sender, hours: options.hours, limit: options.limit })
+      return { ok: true, data, human: messageTable(data, 'Search Results', 'No messages found.', { chatLabel: chatScope.data.chatLabel }) }
     } catch (error) {
       if (error instanceof SyntaxError) {
         return { ok: false, error: { code: 'invalid_regex', message: error.message } }
@@ -40,11 +45,11 @@ export class QueryService {
     const valid = validateQueryOptions(normalized)
     if (!valid.ok) return valid
 
-    const chatId = this.resolveChat(options.chat)
-    if (!chatId.ok) return chatId
+    const chatScope = this.resolveChat(options.chat)
+    if (!chatScope.ok) return chatScope
 
-    const data = this.db.getRecent({ chatId: chatId.data, sender: options.sender, hours: normalized.hours, limit: normalized.limit })
-    return { ok: true, data, human: messageTable(data, 'Recent Messages', 'No recent messages found.') }
+    const data = this.db.getRecent({ chatId: chatScope.data.chatId, sender: options.sender, hours: normalized.hours, limit: normalized.limit })
+    return { ok: true, data, human: messageTable(data, 'Recent Messages', 'No recent messages found.', { chatLabel: chatScope.data.chatLabel }) }
   }
 
   stats(): HandlerResult {
@@ -56,9 +61,9 @@ export class QueryService {
     const valid = validateQueryOptions(options)
     if (!valid.ok) return valid
 
-    const chatId = this.resolveChat(options.chat)
-    if (!chatId.ok) return chatId
-    const data = this.db.topSenders({ chatId: chatId.data, hours: options.hours, limit: options.limit })
+    const chatScope = this.resolveChat(options.chat)
+    if (!chatScope.ok) return chatScope
+    const data = this.db.topSenders({ chatId: chatScope.data.chatId, hours: options.hours, limit: options.limit })
     return { ok: true, data, human: topTable('Top Senders', data) }
   }
 
@@ -69,17 +74,17 @@ export class QueryService {
       return invalidOption('granularity', 'Use day or hour for --by.')
     }
 
-    const chatId = this.resolveChat(options.chat)
-    if (!chatId.ok) return chatId
-    const data = this.db.timeline({ chatId: chatId.data, hours: options.hours, granularity: options.granularity ?? 'day' })
+    const chatScope = this.resolveChat(options.chat)
+    if (!chatScope.ok) return chatScope
+    const data = this.db.timeline({ chatId: chatScope.data.chatId, hours: options.hours, granularity: options.granularity ?? 'day' })
     return { ok: true, data, human: timelineView('Timeline', data) }
   }
 
   today(options: { chat?: string }): HandlerResult {
-    const chatId = this.resolveChat(options.chat)
-    if (!chatId.ok) return chatId
-    const data = this.db.getToday({ chatId: chatId.data })
-    return { ok: true, data, human: messageTable(data, 'Today', 'No messages found today.') }
+    const chatScope = this.resolveChat(options.chat)
+    if (!chatScope.ok) return chatScope
+    const data = this.db.getToday({ chatId: chatScope.data.chatId })
+    return { ok: true, data, human: messageTable(data, 'Today', 'No messages found today.', { chatLabel: chatScope.data.chatLabel }) }
   }
 
   filter(options: { keywords: string; chat?: string; hours?: number }): HandlerResult {
@@ -89,18 +94,24 @@ export class QueryService {
     const words = options.keywords.split(',').map((word) => word.trim()).filter(Boolean)
     if (words.length === 0) return { ok: false, error: { code: 'invalid_keywords', message: 'Please provide at least one keyword.' } }
 
-    const source = options.hours == null ? this.today({ chat: options.chat }) : this.recent({ chat: options.chat, hours: options.hours, limit: 100000 })
-    if (!source.ok) return source
+    const chatScope = this.resolveChat(options.chat)
+    if (!chatScope.ok) return chatScope
+    const source = options.hours == null
+      ? this.db.getToday({ chatId: chatScope.data.chatId })
+      : this.db.getRecent({ chatId: chatScope.data.chatId, hours: options.hours, limit: 100000 })
 
     const regex = new RegExp(words.map((word) => escapeRegex(word)).join('|'), 'i')
-    const data = (source.data as StoredMessage[]).filter((row) => row.content && regex.test(row.content))
-    return { ok: true, data, human: messageTable(data, 'Filtered Messages', 'No filtered messages found.') }
+    const data = source.filter((row) => row.content && regex.test(row.content))
+    return { ok: true, data, human: messageTable(data, 'Filtered Messages', 'No filtered messages found.', { chatLabel: chatScope.data.chatLabel }) }
   }
 
-  private resolveChat(chat?: string): HandlerResult<number | undefined> {
-    if (!chat) return { ok: true, data: undefined }
+  private resolveChat(chat?: string): HandlerResult<ChatScope> {
+    if (!chat) return { ok: true, data: {} }
     const matches = this.db.findChats(chat)
-    if (matches.length === 1) return { ok: true, data: matches[0].chat_id }
+    if (matches.length === 1) {
+      const match = matches[0]
+      return { ok: true, data: { chatId: match.chat_id, chatLabel: match.chat_name?.trim() || String(match.chat_id) } }
+    }
     if (matches.length === 0) return { ok: false, error: { code: 'chat_not_found', message: `Chat '${chat}' not found in database.` } }
     return { ok: false, error: { code: 'ambiguous_chat', message: `Chat '${chat}' is ambiguous. Matches: ${matches.map((m) => m.chat_name ?? m.chat_id).join(', ')}` } }
   }

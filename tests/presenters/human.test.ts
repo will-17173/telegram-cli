@@ -145,6 +145,29 @@ describe('human output builders', () => {
     })
   })
 
+  it('moves a scoped chat label into the message table title', () => {
+    const messages = [{
+      id: 1,
+      platform: 'telegram',
+      chat_id: 10,
+      chat_name: 'General',
+      msg_id: 11,
+      sender_id: 1,
+      sender_name: 'Ada',
+      content: 'release update',
+      timestamp: '2026-07-10T01:02:03Z',
+      raw_json: null,
+    }]
+
+    expect(messageTable(messages, 'Recent Messages', 'No recent messages found.', { chatLabel: 'General' })).toEqual({
+      kind: 'table',
+      title: '[General] Recent Messages',
+      columns: ['TIME', 'SENDER', 'MESSAGE'],
+      rows: [[localTimestamp('2026-07-10T01:02:03Z'), 'Ada', 'release update']],
+      emptyText: 'No recent messages found.',
+    })
+  })
+
   it('formats offset ISO timestamps in host local time across day boundaries', () => {
     const timestamp = '2026-07-10T23:30:00-02:00'
 
