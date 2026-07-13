@@ -1,13 +1,13 @@
 import { Buffer } from 'node:buffer'
 import { setTimeout } from 'node:timers/promises'
-import { TelegramClient, Thumbnail, tl } from '@mtcute/node'
+import { InputMedia, TelegramClient, Thumbnail, tl } from '@mtcute/node'
 import type {
   FullChat,
   Message,
   Photo,
 } from '@mtcute/node'
 import { FileLocation, MtPeerNotFoundError } from '@mtcute/node'
-import type { DownloadMessageMediaOptions, TelegramChat, TelegramClientAdapter, TelegramUser, FetchHistoryOptions } from './types.js'
+import type { DownloadMessageMediaOptions, TelegramChat, TelegramClientAdapter, TelegramUser, FetchHistoryOptions, SendMediaOptions, SendMediaResult } from './types.js'
 import type { StoredMessageInput } from '../storage/message-db.js'
 import { MtcuteGroupManagement } from './mtcute-group-management.js'
 
@@ -164,6 +164,31 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     return { msg_id: sent.id, sent_message: toStoredMessage(sent) }
   }
 
+  async sendMedia(options: SendMediaOptions): Promise<SendMediaResult> {
+    if (options.files.length === 0) throw new Error('At least one media file is required.')
+    await this.ensureReady()
+    const chat = normalizeChatId(options.chat)
+
+    if (options.files.length === 1) {
+      const sent = await this.client.sendMedia(
+        chat,
+        inputMediaForFile(options.files[0]!),
+        { caption: options.caption, replyTo: options.reply },
+      )
+      return { messages: [toSendMediaMessage(sent)] }
+    }
+
+    const sent = await this.client.sendMediaGroup(
+      chat,
+      options.files.map((file, index) => inputMediaForFile(
+        file,
+        index === 0 ? options.caption : undefined,
+      )),
+      { replyTo: options.reply },
+    )
+    return { messages: sent.map(toSendMediaMessage) }
+  }
+
   async editMessage(options: { chat: string | number; msgId: number; text: string; linkPreview: boolean }): Promise<void> {
     await this.ensureReady()
     await this.client.editMessage({
@@ -264,6 +289,25 @@ function normalizeChatId(chat: string | number): string | number {
   if (trimmed === '') return chat
   const numeric = Number.parseInt(trimmed, 10)
   return Number.isNaN(numeric) ? chat : String(numeric) === trimmed ? numeric : chat
+}
+
+function inputMediaForFile(file: string, caption?: string) {
+  const extension = /(?:^|\/)[^/]*?(\.[^.\/]+)$/.exec(file)?.[1]?.toLowerCase()
+  const params = caption == null ? undefined : { caption }
+  if (extension && ['.jpg', '.jpeg', '.png', '.webp'].includes(extension)) {
+    return InputMedia.photo(file, params)
+  }
+  if (extension && ['.mp4', '.mov', '.m4v', '.webm'].includes(extension)) {
+    return InputMedia.video(file, params)
+  }
+  return InputMedia.document(file, params)
+}
+
+function toSendMediaMessage(message: Message): SendMediaResult['messages'][number] {
+  return {
+    msg_id: message.id,
+    sent_message: toStoredMessage(message),
+  }
 }
 
 function getUserPhone(peer: unknown): string | null {
