@@ -8,6 +8,12 @@ import {
   TelegramGroupNotFoundError,
   TelegramGroupPasswordRequiredError,
 } from './group-types.js'
+import {
+  TelegramGroupOwnershipTransferError,
+  TelegramGroupPasswordInvalidError,
+  TelegramGroupPasswordTooFreshError,
+  TelegramGroupSessionTooFreshError,
+} from './group-write-types.js'
 import type {
   TelegramAddMembersRequest, TelegramAddMembersResult, TelegramBanMemberRequest, TelegramBanMemberResult,
   TelegramDemoteAdminRequest, TelegramDemoteAdminResult, TelegramKickMemberRequest, TelegramKickMemberResult,
@@ -87,8 +93,15 @@ export class MtcuteGroupMembers {
   }
 
   async transferOwnership(request: TelegramTransferOwnershipRequest): Promise<TelegramTransferOwnershipResult> {
-    await this.ensureReady()
-    throw new TelegramGroupPasswordRequiredError()
+    const { chatId, group } = await this.prepare(request.chat)
+    const userId = normalizePeerId(request.user)
+    try {
+      const targetId = await this.resolveTarget(chatId, userId, request)
+      await this.client.transferChatOwnership({ chatId, userId: targetId, password: request.password })
+      return { operation: 'transferOwnership', chat_id: group.id, target_id: targetId }
+    } catch (error) {
+      throwOwnershipTransferError(error)
+    }
   }
 
   private async prepare(chat: string | number): Promise<{ chatId: string | number, group: Chat & { chatType: 'group' | 'supergroup' } }> {
@@ -135,4 +148,17 @@ function mapRestrictions(value: TelegramGroupRestrictions): Omit<tl.RawChatBanne
     changeInfo: value.change_info, inviteUsers: value.invite_users, pinMessages: value.pin_messages,
     manageTopics: value.manage_topics,
   }
+}
+
+function throwOwnershipTransferError(error: unknown): never {
+  if (tl.RpcError.is(error, 'PASSWORD_HASH_INVALID')) throw new TelegramGroupPasswordInvalidError()
+  if (tl.RpcError.is(error, 'PASSWORD_TOO_FRESH_%d')) throw new TelegramGroupPasswordTooFreshError(error.seconds)
+  if (tl.RpcError.is(error, 'SESSION_TOO_FRESH_%d')) throw new TelegramGroupSessionTooFreshError(error.seconds)
+  if (
+    tl.RpcError.is(error, 'SESSION_PASSWORD_NEEDED')
+    || tl.RpcError.is(error, 'PASSWORD_EMPTY')
+    || tl.RpcError.is(error, 'PASSWORD_MISSING')
+    || tl.RpcError.is(error, 'PASSWORD_REQUIRED')
+  ) throw new TelegramGroupPasswordRequiredError()
+  throw new TelegramGroupOwnershipTransferError()
 }

@@ -43,7 +43,7 @@ export interface TelegramPurgeMemberRequest extends UserRequest {}
 export interface TelegramPromoteAdminRequest extends UserRequest { readonly rights: TelegramGroupAdminRights; readonly rank?: string }
 export interface TelegramDemoteAdminRequest extends UserRequest {}
 export interface TelegramSetAdminRankRequest extends UserRequest { readonly rank: string }
-export interface TelegramTransferOwnershipRequest extends UserRequest {}
+export interface TelegramTransferOwnershipRequest extends UserRequest { readonly password: string }
 export interface TelegramSetTitleRequest extends ChatRequest { readonly title: string }
 export interface TelegramSetDescriptionRequest extends ChatRequest { readonly text: string }
 export interface TelegramSetUsernameRequest extends ChatRequest { readonly username: string | null }
@@ -79,6 +79,38 @@ export interface TelegramPinMessageRequest extends MessageRequest { readonly not
 export interface TelegramUnpinMessageRequest extends MessageRequest {}
 export interface TelegramUnpinAllMessagesRequest extends ChatRequest {}
 export interface TelegramDeleteGroupMessagesRequest extends ChatRequest { readonly messageIds: readonly number[] }
+
+export class TelegramGroupPasswordInvalidError extends Error {
+  constructor() {
+    super('Telegram account password is invalid')
+    this.name = 'TelegramGroupPasswordInvalidError'
+  }
+}
+
+export class TelegramGroupPasswordTooFreshError extends Error {
+  readonly seconds: number
+  constructor(seconds: number) {
+    super(`Telegram account password is too fresh: ${seconds} seconds`)
+    this.name = 'TelegramGroupPasswordTooFreshError'
+    this.seconds = seconds
+  }
+}
+
+export class TelegramGroupSessionTooFreshError extends Error {
+  readonly seconds: number
+  constructor(seconds: number) {
+    super(`Telegram account session is too fresh: ${seconds} seconds`)
+    this.name = 'TelegramGroupSessionTooFreshError'
+    this.seconds = seconds
+  }
+}
+
+export class TelegramGroupOwnershipTransferError extends Error {
+  constructor() {
+    super('Telegram group ownership transfer failed')
+    this.name = 'TelegramGroupOwnershipTransferError'
+  }
+}
 
 export type TelegramAddMembersResult = TelegramGroupWriteResult<'addMembers'>
 export type TelegramKickMemberResult = TelegramGroupWriteResult<'kickMember'>

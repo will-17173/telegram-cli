@@ -7,13 +7,18 @@ import {
   TelegramGroupPasswordRequiredError, TelegramUnsupportedGroupTypeError,
   type TelegramGroupAdminRights, type TelegramGroupManagementAdapter, type TelegramGroupRestrictions,
 } from '../telegram/group-types.js'
-import type { GroupWriteOperationResultMap, TelegramGroupWriteOperation } from '../telegram/group-write-types.js'
+import {
+  TelegramGroupOwnershipTransferError, TelegramGroupPasswordInvalidError, TelegramGroupPasswordTooFreshError,
+  TelegramGroupSessionTooFreshError,
+  type GroupWriteOperationResultMap, type TelegramGroupWriteOperation,
+} from '../telegram/group-write-types.js'
 import { WriteAccessPolicy } from './write-access-policy.js'
 
 export type ParsedGroupWriteRequest = ParsedGroupCommandRequest & { readonly chat: string | number }
+export type GroupWriteExecutionSecrets = { readonly ownershipPassword?: string }
 export type GroupWriteServiceResult = GroupWriteOperationResultMap[TelegramGroupWriteOperation]
 type HandlerContext<K extends GroupCommandKey> = { readonly chat: string | number; readonly values: GroupCommandValuesByKey[K] }
-type CommandHandler<K extends GroupCommandKey> = (context: HandlerContext<K>, groups: TelegramGroupManagementAdapter) => Promise<GroupWriteServiceResult>
+type CommandHandler<K extends GroupCommandKey> = (context: HandlerContext<K>, groups: TelegramGroupManagementAdapter, secrets?: GroupWriteExecutionSecrets) => Promise<GroupWriteServiceResult>
 type CommandHandlers = { readonly [K in GroupCommandKey]: CommandHandler<K> }
 
 export const ADMIN_RIGHT_KEYS = ['change_info', 'delete_messages', 'ban_users', 'invite_users', 'pin_messages', 'add_admins', 'manage_call', 'anonymous', 'manage_topics'] as const satisfies readonly (keyof TelegramGroupAdminRights)[]
@@ -45,7 +50,12 @@ const commandHandlers = {
   'admin promote': ({ chat, values }, g) => g.promoteAdmin({ chat, user: values.user, rights: selectedAdminRights(values.permissions) }),
   'admin demote': ({ chat, values }, g) => g.demoteAdmin({ chat, user: values.user }),
   'admin rank': ({ chat, values }, g) => g.setAdminRank({ chat, user: values.user, rank: values.text }),
-  'admin transfer-owner': ({ chat, values }, g) => g.transferOwnership({ chat, user: values.user }),
+  'admin transfer-owner': ({ chat, values }, g, secrets) => {
+    const password = secrets?.ownershipPassword
+    return password == null || password === ''
+      ? Promise.reject(new TelegramGroupPasswordRequiredError())
+      : g.transferOwnership({ chat, user: values.user, password })
+  },
   'chat title': ({ chat, values }, g) => g.setTitle({ chat, title: values.text }),
   'chat description': ({ chat, values }, g) => g.setDescription({ chat, text: values.text }),
   'chat username': ({ chat, values }, g) => g.setUsername({ chat, username: nullable(values.username) }),
@@ -86,7 +96,10 @@ export class GroupWriteService {
     private readonly writePolicy: WriteAccessPolicy = new WriteAccessPolicy(),
   ) {}
 
-  async execute(request: ParsedGroupWriteRequest): Promise<HandlerResult<GroupWriteServiceResult>> {
+  async execute(
+    request: ParsedGroupWriteRequest,
+    secrets: GroupWriteExecutionSecrets = {},
+  ): Promise<HandlerResult<GroupWriteServiceResult>> {
     const key = canonicalCommandKey(request)
     if (!key) return failure('invalid_command', 'Invalid or noncanonical group command.')
 
@@ -102,16 +115,19 @@ export class GroupWriteService {
     if ((request.key === 'invite create' || request.key === 'invite edit') && request.values.requestNeeded === true && request.values.limit != null) {
       return failure('invalid_option', 'Approval-required invite links cannot have a usage limit.')
     }
+    if (request.key === 'admin transfer-owner' && (secrets.ownershipPassword == null || secrets.ownershipPassword === '')) {
+      return failure('password_required', 'Telegram account password required')
+    }
     if (!isReadOnlyGroupCommand(key)) {
       const access = this.writePolicy.check()
       if (!access.ok) return access
     }
-    try { return { ok: true, data: await dispatch(request, this.groups) } }
-    catch (error) { return groupWriteFailure(error) }
+    try { return { ok: true, data: await dispatch(request, this.groups, secrets) } }
+    catch (error) { return groupWriteFailure(error, secrets.ownershipPassword) }
   }
 }
 
-function dispatch(request: ParsedGroupWriteRequest, groups: TelegramGroupManagementAdapter): Promise<GroupWriteServiceResult> {
+function dispatch(request: ParsedGroupWriteRequest, groups: TelegramGroupManagementAdapter, secrets: GroupWriteExecutionSecrets): Promise<GroupWriteServiceResult> {
   switch (request.key) {
     case 'member add': return COMMAND_HANDLERS[request.key](request, groups)
     case 'member kick': return COMMAND_HANDLERS[request.key](request, groups)
@@ -123,7 +139,7 @@ function dispatch(request: ParsedGroupWriteRequest, groups: TelegramGroupManagem
     case 'admin promote': return COMMAND_HANDLERS[request.key](request, groups)
     case 'admin demote': return COMMAND_HANDLERS[request.key](request, groups)
     case 'admin rank': return COMMAND_HANDLERS[request.key](request, groups)
-    case 'admin transfer-owner': return COMMAND_HANDLERS[request.key](request, groups)
+    case 'admin transfer-owner': return COMMAND_HANDLERS[request.key](request, groups, secrets)
     case 'chat title': return COMMAND_HANDLERS[request.key](request, groups)
     case 'chat description': return COMMAND_HANDLERS[request.key](request, groups)
     case 'chat username': return COMMAND_HANDLERS[request.key](request, groups)
@@ -164,7 +180,7 @@ function dispatch(request: ParsedGroupWriteRequest, groups: TelegramGroupManagem
   }
 }
 
-function groupWriteFailure(error: unknown): HandlerResult<never> {
+function groupWriteFailure(error: unknown, secret?: string): HandlerResult<never> {
   if (error instanceof TelegramGroupNotFoundError) return failure('group_not_found', 'Telegram group not found.')
   if (error instanceof TelegramGroupMemberNotFoundError) return failure('member_not_found', 'Telegram group member not found.')
   if (error instanceof TelegramGroupMembersNotAddedError) return failure('members_not_added', error.message, { chat: error.chat, missing: error.missing.map(item => ({ ...item })) })
@@ -173,6 +189,13 @@ function groupWriteFailure(error: unknown): HandlerResult<never> {
   if (error instanceof TelegramUnsupportedGroupTypeError) return failure('unsupported_group', error.message, { chat: error.chat })
   if (error instanceof TelegramGroupFloodWaitError) return failure('flood_wait', error.message, { seconds: error.seconds })
   if (error instanceof TelegramGroupPasswordRequiredError) return failure('password_required', error.message)
-  return failure('telegram_error', error instanceof Error && error.message.trim() ? error.message : 'Telegram request failed.')
+  if (error instanceof TelegramGroupPasswordInvalidError) {
+    return failure('password_invalid', 'Telegram account password is invalid.')
+  }
+  if (error instanceof TelegramGroupPasswordTooFreshError) return failure('password_too_fresh', error.message, { seconds: error.seconds })
+  if (error instanceof TelegramGroupSessionTooFreshError) return failure('session_too_fresh', error.message, { seconds: error.seconds })
+  if (error instanceof TelegramGroupOwnershipTransferError) return failure('telegram_error', error.message)
+  const message = error instanceof Error && error.message.trim() ? error.message : 'Telegram request failed.'
+  return failure('telegram_error', secret && message.includes(secret) ? 'Telegram request failed.' : message)
 }
 function failure(code: string, message: string, details?: unknown): HandlerResult<never> { return { ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } } }

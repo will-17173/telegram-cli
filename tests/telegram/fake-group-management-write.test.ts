@@ -123,7 +123,7 @@ describe('FakeTelegramGroupManagement write operations', () => {
 
   it('records admin, lifecycle, join request, and message families', async () => {
     const fake = new FakeTelegramGroupManagement()
-    await fake.transferOwnership({ chat: 100, user: 1 })
+    await fake.transferOwnership({ chat: 100, user: 1, password: 'secret' })
     await fake.leaveGroup({ chat: 100 })
     await fake.approveJoinRequest({ chat: 100, user: 2 })
     await fake.deleteGroupMessages({ chat: 100, messageIds: [10, 11] })
