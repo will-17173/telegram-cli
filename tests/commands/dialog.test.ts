@@ -125,6 +125,29 @@ afterEach(() => {
 })
 
 describe('dialog commands', () => {
+  it('registers the planned top-level inbox, read, and search-online routes', async () => {
+    await run('inbox', '--limit', '5', '--json')
+    expect(dialogs.inbox).toHaveBeenCalledWith(5)
+
+    vi.clearAllMocks()
+    await run('read', 'General', '--limit', '2', '--markdown')
+    expect(dialogs.read).toHaveBeenCalledWith({ chat: 'General', limit: 2 })
+
+    vi.clearAllMocks()
+    await run('search-online', 'release', '--limit', '3')
+    expect(dialogs.search).toHaveBeenCalledWith({ query: 'release', limit: 3 })
+  })
+
+  it('rejects malformed top-level limits before constructing a client', async () => {
+    await run('read', 'General', '--limit', '5oops')
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: 'invalid_option', message: 'limit must be an integer between 1 and 1000.' },
+    }, expect.any(Object))
+  })
+
   it('renders unread inbox list with defaults', async () => {
     const expectedDialogs = [
       {
@@ -208,8 +231,8 @@ describe('dialog commands', () => {
       human: expect.objectContaining({
         kind: 'table',
         title: 'Messages',
-        columns: ['TIME', 'SENDER', 'MESSAGE'],
-        rows: [[localTimestamp('2026-07-10T11:00:00.000Z'), '—', 'reply']],
+        columns: ['ID', 'TIME', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
+        rows: [['3', localTimestamp('2026-07-10T11:00:00.000Z'), '—', '—', '—', 'reply']],
       }),
     }, expect.objectContaining({
       yaml: true,
@@ -232,7 +255,7 @@ describe('dialog commands', () => {
       human: {
         kind: 'table',
         title: 'Messages',
-        columns: ['TIME', 'SENDER', 'MESSAGE'],
+        columns: ['ID', 'TIME', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
         rows: [],
         emptyText: 'No online messages found.',
       },

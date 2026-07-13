@@ -38,7 +38,7 @@ export type TelegramManagedChat = {
 }
 
 export interface TelegramDialogAdapter {
-  inbox(): Promise<InboxDialog[]>
+  inbox(limit: number): Promise<InboxDialog[]>
   read(input: { chat: string | number; limit: number; since?: Date; until?: Date }): Promise<OnlineMessage[]>
   search(input: { query: string; chat?: string | number; limit: number; since?: Date; until?: Date }): Promise<OnlineMessage[]>
   listGroups(input: { adminOnly: boolean; limit: number }): Promise<TelegramManagedChat[]>

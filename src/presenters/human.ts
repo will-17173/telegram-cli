@@ -101,22 +101,28 @@ export function onlineMessageTable(
   return {
     kind: 'table',
     title,
-    columns: includeChat ? ['TIME', 'CHAT', 'SENDER', 'MESSAGE'] : ['TIME', 'SENDER', 'MESSAGE'],
+    columns: includeChat
+      ? ['ID', 'TIME', 'CHAT', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE']
+      : ['ID', 'TIME', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
     rows: messages.map((message) => {
       const text = message.text == null || message.text === '' ? '—' : message.text
-      const attachment = message.attachment == null
-        ? ''
-        : ` [${message.attachment.type}]`
+      const attachment = summarizeOnlineAttachment(message.attachment)
       return includeChat
         ? [
+          String(message.msg_id),
           localTimestamp(message.timestamp),
           display(message.chat_name),
           display(message.sender_name),
+          optionalId(message.reply_to_msg_id),
+          fallback(message.media_group_id),
           `${text}${attachment}`,
         ]
         : [
+          String(message.msg_id),
           localTimestamp(message.timestamp),
           display(message.sender_name),
+          optionalId(message.reply_to_msg_id),
+          fallback(message.media_group_id),
           `${text}${attachment}`,
         ]
     }),
@@ -160,8 +166,24 @@ export function contactDetailTable(contact: TelegramContact): HumanOutput & { ki
       { label: 'Mutual Contact', value: booleanLabel(contact.is_mutual_contact) },
       { label: 'Bot', value: booleanLabel(contact.is_bot) },
       { label: 'Deleted', value: booleanLabel(contact.is_deleted) },
+      ...(contact.bio == null ? [] : [{ label: 'Bio', value: fallback(contact.bio) }]),
     ],
   }
+}
+
+function summarizeOnlineAttachment(attachment: OnlineMessage['attachment']): string {
+  if (attachment == null) return ''
+  const details = [
+    attachment.file_name,
+    attachment.file_size == null ? null : `${attachment.file_size} bytes`,
+  ].filter((value): value is string => value != null)
+  return details.length === 0
+    ? ` [${attachment.type}]`
+    : ` [${attachment.type}: ${details.join(', ')}]`
+}
+
+function optionalId(value: number | null): string {
+  return value == null ? '—' : String(value)
 }
 
 export function recordDetail(title: string, record: Record<string, unknown>): HumanOutput & { kind: 'detail' } {

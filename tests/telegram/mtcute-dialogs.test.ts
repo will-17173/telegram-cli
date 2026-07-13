@@ -8,6 +8,26 @@ afterEach(() => {
 })
 
 describe('MtcuteDialogs', () => {
+  it('stops inbox iteration after collecting the requested unread limit', async () => {
+    let yielded = 0
+    const client = mockClient({
+      iterDialogs: async function* () {
+        for (const id of [1, 2, 3]) {
+          yielded += 1
+          yield {
+            peer: { id, type: 'chat', displayName: `Chat ${id}`, chatType: 'group' },
+            unreadCount: id,
+          }
+        }
+      },
+    })
+
+    const result = await new MtcuteDialogs(client, async () => undefined).inbox(2)
+
+    expect(result.map((item) => item.chat_id)).toEqual([1, 2])
+    expect(yielded).toBe(2)
+  })
+
   it('maps unread dialogs and skips zero-unread non-manual entries', async () => {
     const client = mockClient({
       iterDialogs: async function* () {
@@ -45,7 +65,7 @@ describe('MtcuteDialogs', () => {
       },
     })
 
-    const result = await new MtcuteDialogs(client, async () => undefined).inbox()
+    const result = await new MtcuteDialogs(client, async () => undefined).inbox(10)
 
     expect(result).toMatchObject([
       {
@@ -189,6 +209,41 @@ describe('MtcuteDialogs', () => {
     }))
   })
 
+  it('continues paginated search when boundary filtering leaves room under the limit', async () => {
+    const until = new Date('2026-07-13T00:00:20.000Z')
+    const searchGlobal = vi.fn()
+      .mockResolvedValueOnce(paged(
+        message({
+          chatId: 100,
+          chatName: 'General',
+          messageId: 2,
+          text: 'exact boundary',
+          timestamp: until,
+        }),
+        { id: 2, date: 1_752_364_820, peer: { _: 'inputPeerEmpty' } },
+      ))
+      .mockResolvedValueOnce(paged(
+        message({
+          chatId: 100,
+          chatName: 'General',
+          messageId: 1,
+          text: 'older match',
+          timestamp: new Date('2026-07-13T00:00:19.000Z'),
+        }),
+      ))
+    const client = mockClient({ searchGlobal })
+
+    const result = await new MtcuteDialogs(client, async () => undefined).search({
+      query: 'match',
+      limit: 1,
+      until,
+    })
+
+    expect(result).toMatchObject([{ msg_id: 1 }])
+    expect(searchGlobal).toHaveBeenCalledTimes(2)
+    expect(searchGlobal.mock.calls[1]?.[0]).toMatchObject({ offset: expect.any(Object) })
+  })
+
   it('lists managed groups and resolves admin flags through getChat only when needed', async () => {
     const getChat = vi.fn(async (chatId: number | string) => {
       if (chatId === 5) return {
@@ -251,6 +306,33 @@ describe('MtcuteDialogs', () => {
     expect(getChat).toHaveBeenCalledTimes(1)
     expect(getChat).toHaveBeenCalledWith(5)
   })
+
+  it('resolves real mtcute-style incomplete chats using isMin', async () => {
+    const incomplete = {
+      id: 7,
+      type: 'chat',
+      title: 'Incomplete Admin Group',
+      chatType: 'supergroup',
+      isMin: true,
+      get isAdmin() { return false },
+      get isCreator() { return false },
+    }
+    const getChat = vi.fn().mockResolvedValue({
+      ...incomplete,
+      isMin: false,
+      isAdmin: true,
+      isCreator: false,
+    })
+    const client = mockClient({
+      iterDialogs: async function* () { yield { peer: incomplete } },
+      getChat,
+    })
+
+    const result = await new MtcuteDialogs(client, async () => undefined).listGroups({ adminOnly: true, limit: 10 })
+
+    expect(getChat).toHaveBeenCalledWith(7)
+    expect(result).toMatchObject([{ id: 7, is_admin: true }])
+  })
 })
 
 function mockClient(overrides: Record<string, unknown> = {}): TelegramClient {
@@ -298,7 +380,7 @@ function message(input: {
   } as never
 }
 
-function paged(...values: any[]): any[] & { next?: { id: number; date: number } } {
+function paged(...values: any[]): any[] & { next?: { id: number; date: number; peer?: unknown } } {
   const rows = values
   const last = rows[rows.length - 1]
   if (isNext(last)) {
@@ -307,7 +389,7 @@ function paged(...values: any[]): any[] & { next?: { id: number; date: number } 
   return Object.assign([...rows], {}) as any[]
 }
 
-function isNext(value: unknown): value is { id: number; date: number } {
+function isNext(value: unknown): value is { id: number; date: number; peer?: unknown } {
   return value != null
     && typeof value === 'object'
     && typeof (value as { id?: unknown }).id === 'number'

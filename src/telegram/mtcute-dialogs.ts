@@ -7,6 +7,7 @@ import type {
   TelegramManagedChat,
 } from './dialog-types.js'
 import { normalizePeerId } from './mtcute-group-helpers.js'
+import { toOnlineMessage } from './mtcute-message-normalizer.js'
 import type { TelegramChat } from './types.js'
 
 type PeerShape = {
@@ -60,7 +61,7 @@ export class MtcuteDialogs {
     private readonly ensureReady: () => Promise<void>,
   ) {}
 
-  async inbox(): Promise<InboxDialog[]> {
+  async inbox(limit: number): Promise<InboxDialog[]> {
     await this.ensureReady()
     const result: InboxDialog[] = []
 
@@ -77,6 +78,7 @@ export class MtcuteDialogs {
         muted: resolveMuted(raw),
         last_message: raw.lastMessage == null ? null : toOnlineMessage(raw.lastMessage),
       })
+      if (result.length >= limit) break
     }
 
     return result
@@ -117,20 +119,37 @@ export class MtcuteDialogs {
 
   async search(request: SearchRequest): Promise<OnlineMessage[]> {
     await this.ensureReady()
-    const params = {
-      query: request.query,
-      limit: request.limit,
-      ...(request.chat == null ? {} : { chatId: normalizePeerId(request.chat) }),
-      ...(request.since == null ? {} : { minDate: request.since }),
-      ...(request.until == null ? {} : { maxDate: request.until }),
+    const messages: OnlineMessage[] = []
+    let offset: unknown
+
+    while (messages.length < request.limit) {
+      const params = {
+        query: request.query,
+        limit: Math.min(100, request.limit - messages.length),
+        ...(request.chat == null ? {} : { chatId: normalizePeerId(request.chat) }),
+        ...(request.since == null ? {} : { minDate: request.since }),
+        ...(request.until == null ? {} : { maxDate: request.until }),
+        ...(offset == null ? {} : { offset }),
+      }
+      type SearchPage = Array<Message> & { next?: unknown }
+      const page: SearchPage = request.chat == null
+        ? await this.client.searchGlobal(params as Parameters<TelegramClient['searchGlobal']>[0])
+        : await this.client.searchMessages(params as Parameters<TelegramClient['searchMessages']>[0])
+      if (page.length === 0) break
+
+      for (const row of page) {
+        const timestamp = row.date.getTime()
+        if (request.until != null && timestamp >= request.until.getTime()) continue
+        if (request.since != null && timestamp < request.since.getTime()) continue
+        messages.push(toOnlineMessage(row))
+        if (messages.length >= request.limit) break
+      }
+
+      if (messages.length >= request.limit || page.next == null) break
+      offset = page.next
     }
-    const rows: Message[] = request.chat == null
-      ? await this.client.searchGlobal(params as Parameters<TelegramClient['searchGlobal']>[0])
-      : await this.client.searchMessages(params as Parameters<TelegramClient['searchMessages']>[0])
-    const seen = request.until == null ? rows : rows.filter((row) => row.date.getTime() < request.until!.getTime())
-    return (request.since == null ? seen : seen.filter((row) => row.date.getTime() >= request.since!.getTime()))
-      .slice(0, request.limit)
-      .map(toOnlineMessage)
+
+    return messages
   }
 
   async listGroups(request: ListGroupsRequest): Promise<TelegramManagedChat[]> {
@@ -141,7 +160,7 @@ export class MtcuteDialogs {
       const peer = (dialog as unknown as { peer: PeerShape }).peer
       const type = mapManagedType(peer)
       if (type == null) continue
-      const resolved = request.adminOnly && !isKnownAdmin(peer)
+      const resolved = shouldResolvePeer(peer)
         ? await this.client.getChat(peer.id)
         : peer
       if (request.adminOnly && !isAdmin(resolved as PeerShape)) continue
@@ -182,9 +201,8 @@ function mapManagedType(peer: PeerShape): TelegramManagedChat['type'] | null {
   return null
 }
 
-function isKnownAdmin(peer: PeerShape): boolean {
-  if (!peer) return false
-  return peer.isAdmin !== undefined || peer.isCreator !== undefined
+function shouldResolvePeer(peer: PeerShape): boolean {
+  return peer.isMin === true || (peer.isAdmin === undefined && peer.isCreator === undefined)
 }
 
 function isAdmin(peer: PeerShape): boolean {
@@ -206,56 +224,6 @@ function toMutedPeer(peer: PeerShape): boolean | null {
 
 function peerDisplayName(peer: PeerShape): string {
   return peer.displayName?.trim() || peer.title || 'Unknown'
-}
-
-function toOnlineMessage(message: Message): OnlineMessage {
-  return {
-    chat_id: message.chat.id,
-    chat_name: peerDisplayName(message.chat as unknown as PeerShape),
-    msg_id: message.id,
-    timestamp: message.date.toISOString(),
-    sender_id: typeof message.sender.id === 'number' ? message.sender.id : null,
-    sender_name: typeof (message.sender as { displayName?: unknown }).displayName === 'string'
-      ? String((message.sender as { displayName?: string }).displayName)
-      : null,
-    text: message.text === '' ? null : message.text,
-    reply_to_msg_id: message.replyToMessage?.id ?? null,
-    media_group_id: message.groupedIdUnique,
-    attachment: toOnlineAttachment(message.media),
-  }
-}
-
-function toOnlineAttachment(media: Message['media']): OnlineMessage['attachment'] {
-  if (media == null || typeof media !== 'object') return null
-  const type = typeof (media as { type?: unknown }).type
-  const mediaType = type === 'string' && (media as { type: string }).type.trim().length > 0
-    ? (media as { type: string }).type
-    : 'attachment'
-  const source = media as { fileName?: unknown; file_name?: unknown; fileSize?: unknown; size?: unknown }
-  return {
-    type: mediaType,
-    file_name: firstString(source.fileName, source.file_name, (source as { filename?: unknown }).filename) ?? null,
-    file_size: firstNumber(source.fileSize, source.size) ?? null,
-  }
-}
-
-function firstString(...values: unknown[]): string | null {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
-  }
-  return null
-}
-
-function firstNumber(...values: unknown[]): number | null {
-  for (const value of values) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string') {
-      const parsed = Number.parseInt(value, 10)
-      if (!Number.isNaN(parsed)) return parsed
-    }
-  }
-  return null
 }
 
 export function createDialogsAdapter(

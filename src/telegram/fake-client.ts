@@ -223,7 +223,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
 
   private createDialogsAdapter(): TelegramDialogAdapter {
     return {
-      inbox: async () => this.dialogList.slice(),
+      inbox: async (limit) => this.dialogList.slice(0, limit),
       read: async (request) => {
         this.recordCall({ operation: 'readOnline', request: { ...request } })
         return this.filterMessages(this.onlineMessages, {

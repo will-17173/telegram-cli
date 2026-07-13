@@ -2,7 +2,11 @@ import { MtPeerNotFoundError } from '@mtcute/node'
 import type { TelegramClient, User } from '@mtcute/node'
 
 import { normalizePeerId } from './mtcute-group-helpers.js'
-import type { TelegramContact, TelegramContactAdapter } from './contact-types.js'
+import {
+  TelegramPhoneNotResolvableError,
+  type TelegramContact,
+  type TelegramContactAdapter,
+} from './contact-types.js'
 
 export class MtcuteContacts {
   constructor(
@@ -18,9 +22,27 @@ export class MtcuteContacts {
 
   async info(userOrPhone: string | number): Promise<TelegramContact | null> {
     await this.ensureReady()
+    const phone = normalizedPhone(userOrPhone)
+    let selector: Parameters<TelegramClient['getUser']>[0]
+    if (phone == null) {
+      selector = normalizeContactId(userOrPhone)
+    } else {
+      try {
+        selector = await this.client.resolvePhoneNumber(phone)
+      } catch {
+        throw new TelegramPhoneNotResolvableError(phone)
+      }
+    }
+
     try {
-      const user = await this.client.getUser(normalizeContactId(userOrPhone))
-      return toTelegramContact(user)
+      const user = await this.client.getUser(selector)
+      const contact = toTelegramContact(user)
+      try {
+        const full = await this.client.getFullUser(user)
+        return full.bio ? { ...contact, bio: full.bio } : contact
+      } catch {
+        return contact
+      }
     } catch (error) {
       if (isNotFoundError(error)) return null
       throw error
@@ -56,10 +78,15 @@ function toTelegramContact(user: User): TelegramContact {
 
 function normalizeContactId(userOrPhone: string | number): string | number {
   if (typeof userOrPhone === 'number') return userOrPhone
-  const trimmed = userOrPhone.trim().replace(/\s+/g, '')
-  if (trimmed.startsWith('@')) return trimmed.slice(1)
-  if (trimmed.startsWith('+')) return trimmed
+  const trimmed = userOrPhone.trim()
   return normalizePeerId(trimmed) as string | number
+}
+
+function normalizedPhone(userOrPhone: string | number): string | null {
+  if (typeof userOrPhone === 'number') return null
+  const compact = userOrPhone.trim().replace(/[\s()-]/g, '')
+  if (!/^\+?\d{7,15}$/.test(compact)) return null
+  return compact
 }
 
 function isNotFoundError(error: unknown): boolean {
