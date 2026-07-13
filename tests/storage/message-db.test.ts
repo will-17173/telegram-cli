@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fixtureMessages, message } from '../fixtures/messages.js'
 import { MessageDB } from '../../src/storage/message-db.js'
 import { canonicalChatId } from '../../src/storage/chat-resolver.js'
@@ -293,6 +293,33 @@ describe('MessageDB', () => {
     store.close()
   })
 
+  it('only looks up telegram reply messages when platform keys overlap', () => {
+    const store = db()
+    store.insertBatch([
+      message({ platform: 'other', chat_id: 100, msg_id: 7, content: 'other platform' }),
+      message({ platform: 'telegram', chat_id: 100, msg_id: 7, content: 'telegram reply' }),
+    ])
+
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 7 }]).map((row) => row.content)).toEqual(['telegram reply'])
+    store.close()
+  })
+
+  it('creates indexes for global and chat-scoped recent paging', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'tg-cli-')), 'messages.db')
+    const store = new MessageDB(path)
+    store.close()
+    const sqlite = new Database(path, { readonly: true })
+    const indexes = sqlite.prepare("PRAGMA index_list('messages')").all() as Array<{ name: string }>
+    const indexedColumns = indexes.map(({ name }) => ({
+      name,
+      columns: (sqlite.prepare(`PRAGMA index_info('${name}')`).all() as Array<{ name: string }>).map((row) => row.name),
+    }))
+
+    expect(indexedColumns.some((index) => index.columns.join(',') === 'timestamp,id')).toBe(true)
+    expect(indexedColumns.some((index) => index.columns.join(',') === 'chat_id,timestamp,id')).toBe(true)
+    sqlite.close()
+  })
+
   it('pages recent messages stably when timestamps are identical', () => {
     const store = db()
     store.insertBatch([
@@ -330,6 +357,28 @@ describe('MessageDB', () => {
       before: { timestamp: cursorRow.timestamp, id: cursorRow.id },
     }).map((row) => row.msg_id)).toEqual([1])
     store.close()
+  })
+
+  it('combines hours filtering with a recent paging cursor', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-09T12:00:00.000Z'))
+    try {
+      const store = db()
+      store.insertBatch([
+        message({ msg_id: 1, timestamp: '2026-03-09T09:00:00.000Z' }),
+        message({ msg_id: 2, timestamp: '2026-03-09T11:30:00.000Z' }),
+        message({ msg_id: 3, timestamp: '2026-03-09T11:45:00.000Z' }),
+      ])
+
+      const cursor = store.getRecentPage({ hours: 2, limit: 1 })[0]
+      expect(store.getRecentPage({
+        hours: 2,
+        before: { timestamp: cursor.timestamp, id: cursor.id },
+      }).map((row) => row.msg_id)).toEqual([2])
+      store.close()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('uses a default recent page limit of 100 and accepts a specified limit', () => {

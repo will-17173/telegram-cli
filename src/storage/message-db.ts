@@ -65,6 +65,8 @@ export class MessageDB {
         UNIQUE(platform, chat_id, msg_id)
       );
       CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_messages_recent ON messages(timestamp DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_messages_chat_recent ON messages(chat_id, timestamp DESC, id DESC);
       CREATE INDEX IF NOT EXISTS idx_messages_content ON messages(content);
       CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
     `)
@@ -144,7 +146,7 @@ export class MessageDB {
 
   getMessagesByKeys(keys: Array<{ chatId: number; msgId: number }>): StoredMessage[] {
     if (keys.length === 0) return []
-    const stmt = this.db.prepare('SELECT * FROM messages WHERE chat_id = ? AND msg_id = ?')
+    const stmt = this.db.prepare(`SELECT * FROM messages WHERE platform = 'telegram' AND chat_id = ? AND msg_id = ?`)
     const read = this.db.transaction((requested: Array<{ chatId: number; msgId: number }>) => {
       const messages: StoredMessage[] = []
       for (const key of requested) {
