@@ -24,13 +24,13 @@ export function registerDataCommands(app: Command): void {
     .option('--hours <hours>')
     .option('--json')
     .option('--yaml')
-    .action(async (chat: string, options: DataFlags) => {
+    .action(async (chat: string, options: DataFlags, command: Command) => {
       await renderDataResult(options, (service) => service.exportMessages({
         chat,
         format: options.format ?? 'text',
         output: options.output,
         hours: numberOption(options.hours),
-      }))
+      }), command)
     })
 
   app.command('purge')
@@ -39,8 +39,8 @@ export function registerDataCommands(app: Command): void {
     .option('-y, --yes')
     .option('--json')
     .option('--yaml')
-    .action(async (chat: string, options: DataFlags) => {
-      await renderDataResult(options, (service) => service.purge({ chat, yes: Boolean(options.yes) }))
+    .action(async (chat: string, options: DataFlags, command: Command) => {
+      await renderDataResult(options, (service) => service.purge({ chat, yes: Boolean(options.yes) }), command)
     })
 }
 
@@ -48,7 +48,11 @@ function numberOption(value: string | undefined): number | undefined {
   return value == null ? undefined : Number(value)
 }
 
-async function renderDataResult(options: DataFlags, handler: (service: DataService) => HandlerResult): Promise<void> {
+async function renderDataResult(
+  options: DataFlags,
+  handler: (service: DataService) => HandlerResult,
+  command?: Command,
+): Promise<void> {
   const conflict = outputFormatConflict(options)
   if (conflict) {
     await renderResult(conflict, { yaml: true })
@@ -62,5 +66,5 @@ async function renderDataResult(options: DataFlags, handler: (service: DataServi
     } finally {
       service.close()
     }
-  })
+  }, command)
 }

@@ -531,7 +531,7 @@ describe('config command', () => {
 
     expect(result.code).toBe(1)
     expect(result.stdout).toContain('code: invalid_output_format')
-    expect(result.stdout).toContain('message: Use only one of --json or --yaml.')
+    expect(result.stdout).toContain('message: Use only one of --json, --yaml, or --markdown.')
     expect(result.stderr).toBe('')
     expect(`${result.stdout}${result.stderr}`).not.toContain(malformedSecret)
   })

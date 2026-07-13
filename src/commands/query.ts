@@ -28,7 +28,7 @@ export function registerQueryCommands(app: Command): void {
     .option('-n, --limit <limit>', 'Max results', '50')
     .option('--json')
     .option('--yaml')
-    .action(async (keyword: string, options: QueryFlags) => {
+    .action(async (keyword: string, options: QueryFlags, command: Command) => {
       await renderQueryResult(options, (service) => service.search({
         keyword,
         chat: options.chat,
@@ -36,7 +36,7 @@ export function registerQueryCommands(app: Command): void {
         hours: numberOption(options.hours),
         regex: Boolean(options.regex),
         limit: numberOption(options.limit),
-      }))
+      }), command)
     })
 
   app.command('recent')
@@ -47,20 +47,20 @@ export function registerQueryCommands(app: Command): void {
     .option('-n, --limit <limit>', 'Max messages', '50')
     .option('--json')
     .option('--yaml')
-    .action(async (options: QueryFlags) => {
+    .action(async (options: QueryFlags, command: Command) => {
       await renderQueryResult(options, (service) => service.recent({
         chat: options.chat,
         sender: options.sender,
         hours: numberOption(options.hours),
         limit: numberOption(options.limit),
-      }))
+      }), command)
     })
 
   app.command('stats')
     .description('Show local message and chat statistics')
     .option('--json')
     .option('--yaml')
-    .action(async (options: QueryFlags) => renderQueryResult(options, (service) => service.stats()))
+    .action(async (options: QueryFlags, command: Command) => renderQueryResult(options, (service) => service.stats(), command))
 
   app.command('top')
     .description('Show the most active message senders')
@@ -69,12 +69,12 @@ export function registerQueryCommands(app: Command): void {
     .option('-n, --limit <limit>', 'Top N senders', '20')
     .option('--json')
     .option('--yaml')
-    .action(async (options: QueryFlags) => {
+    .action(async (options: QueryFlags, command: Command) => {
       await renderQueryResult(options, (service) => service.top({
         chat: options.chat,
         hours: numberOption(options.hours),
         limit: numberOption(options.limit),
-      }))
+      }), command)
     })
 
   app.command('timeline')
@@ -84,12 +84,12 @@ export function registerQueryCommands(app: Command): void {
     .option('--by <granularity>', 'day or hour', 'day')
     .option('--json')
     .option('--yaml')
-    .action(async (options: QueryFlags) => {
+    .action(async (options: QueryFlags, command: Command) => {
       await renderQueryResult(options, (service) => service.timeline({
         chat: options.chat,
         hours: numberOption(options.hours),
         granularity: options.by,
-      }))
+      }), command)
     })
 
   app.command('today')
@@ -97,7 +97,7 @@ export function registerQueryCommands(app: Command): void {
     .option('-c, --chat <chat>')
     .option('--json')
     .option('--yaml')
-    .action(async (options: QueryFlags) => renderQueryResult(options, (service) => service.today({ chat: options.chat })))
+    .action(async (options: QueryFlags, command: Command) => renderQueryResult(options, (service) => service.today({ chat: options.chat }), command))
 
   app.command('filter')
     .description('Filter locally stored messages by keywords')
@@ -106,12 +106,12 @@ export function registerQueryCommands(app: Command): void {
     .option('--hours <hours>')
     .option('--json')
     .option('--yaml')
-    .action(async (keywords: string, options: QueryFlags) => {
+    .action(async (keywords: string, options: QueryFlags, command: Command) => {
       await renderQueryResult(options, (service) => service.filter({
         keywords,
         chat: options.chat,
         hours: numberOption(options.hours),
-      }))
+      }), command)
     })
 }
 
@@ -119,7 +119,11 @@ function numberOption(value: string | undefined): number | undefined {
   return value == null ? undefined : Number(value)
 }
 
-async function renderQueryResult(options: QueryFlags, handler: (service: QueryService) => HandlerResult): Promise<void> {
+async function renderQueryResult(
+  options: QueryFlags,
+  handler: (service: QueryService) => HandlerResult,
+  command?: Command,
+): Promise<void> {
   const conflict = outputFormatConflict(options)
   if (conflict) {
     await renderResult(conflict, { yaml: true })
@@ -133,5 +137,5 @@ async function renderQueryResult(options: QueryFlags, handler: (service: QuerySe
     } finally {
       service.close()
     }
-  })
+  }, command)
 }

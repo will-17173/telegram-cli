@@ -2,6 +2,7 @@
 /tg-cli/
 /mtcute/
 /docs/superpowers/
+.superpowers/
 /.worktrees/
 
 # Dependencies

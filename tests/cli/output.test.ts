@@ -215,4 +215,47 @@ describe('cli output rendering', () => {
     expect(stdout).toHaveBeenCalledWith('Sent.\n')
     expect(renderInkResult).not.toHaveBeenCalled()
   })
+
+  it('renders markdown for successful rich output', async () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+    const result: HandlerResult = {
+      ok: true,
+      data: { unread: 3 },
+      human: { kind: 'summary', title: 'Inbox', fields: [{ label: 'Unread', value: '3' }] },
+    }
+
+    await renderResult(result, { markdown: true })
+
+    expect(stdout).toHaveBeenCalledWith('# Inbox\n\n- **Unread:** 3\n')
+    expect(renderInkResult).not.toHaveBeenCalled()
+  })
+
+  it('writes markdown errors to stderr and sets exit code', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+    const result: HandlerResult = {
+      ok: false,
+      error: { code: 'invalid_output_format', message: 'Use only one of --json, --yaml, or --markdown.' },
+    }
+
+    await renderResult(result, { markdown: true })
+
+    expect(stderr).toHaveBeenCalledWith('# Error\n\n- **Code:** invalid_output_format\n- **Message:** Use only one of --json, --yaml, or --markdown.\n')
+    expect(process.exitCode).toBe(1)
+    expect(renderInkResult).not.toHaveBeenCalled()
+  })
+
+  it('uses OUTPUT=markdown when no explicit flag is set', async () => {
+    vi.stubEnv('OUTPUT', 'markdown')
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
+    const result: HandlerResult = {
+      ok: true,
+      data: { unread: 3 },
+      human: { kind: 'summary', title: 'Inbox', fields: [{ label: 'Unread', value: '3' }] },
+    }
+
+    await renderResult(result, { isTty: false })
+
+    expect(stdout).toHaveBeenCalledWith('# Inbox\n\n- **Unread:** 3\n')
+    expect(renderInkResult).not.toHaveBeenCalled()
+  })
 })

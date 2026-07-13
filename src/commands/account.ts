@@ -30,7 +30,7 @@ export function registerAccountCommands(app: Command): void {
     .description('Add and authenticate a Telegram account')
     .option('--json')
     .option('--yaml')
-    .action(async (options: AddAccountOptions) => {
+    .action(async (options: AddAccountOptions, command: Command) => {
       await runAccountCommand(options, async () => {
         const registered = await addAccount()
         return {
@@ -46,14 +46,14 @@ export function registerAccountCommands(app: Command): void {
             ],
           },
         }
-      })
+      }, command)
     })
 
   account.command('list')
     .description('List registered accounts')
     .option('--json')
     .option('--yaml')
-    .action(async (options: AccountOperationOptions) => {
+    .action(async (options: AccountOperationOptions, command: Command) => {
       await runAccountCommand(options, () => {
         const store = new AccountStore(getAccountRegistryPath())
         const registry = store.read()
@@ -86,14 +86,14 @@ export function registerAccountCommands(app: Command): void {
             emptyText: 'No accounts found.',
           },
         }
-      })
+      }, command)
     })
 
   account.command('current')
     .description('Show the current account')
     .option('--json')
     .option('--yaml')
-    .action(async (options: AccountOperationOptions) => {
+    .action(async (options: AccountOperationOptions, command: Command) => {
       await runAccountCommand(options, () => {
         const store = new AccountStore(getAccountRegistryPath())
         const registry = store.read()
@@ -138,14 +138,14 @@ export function registerAccountCommands(app: Command): void {
             ],
           },
         }
-      })
+      }, command)
     })
 
   account.command('switch [name]')
     .description('Set the default account')
     .option('--json')
     .option('--yaml')
-    .action(async (name: string | undefined, options: SwitchAccountOptions) => {
+    .action(async (name: string | undefined, options: SwitchAccountOptions, command: Command) => {
       await runAccountCommand(options, async () => {
         const store = new AccountStore(getAccountRegistryPath())
         const selectedName = name ?? await promptForAccount(store, options)
@@ -190,7 +190,7 @@ export function registerAccountCommands(app: Command): void {
             fields: [{ label: 'Current account', value: current.current }],
           },
         }
-      })
+      }, command)
     })
 
   account.command('remove <name>')
@@ -198,7 +198,7 @@ export function registerAccountCommands(app: Command): void {
     .option('--force', 'Delete local files without interactive confirmation')
     .option('--json')
     .option('--yaml')
-    .action(async (name: string, options: RemoveAccountOptions) => {
+    .action(async (name: string, options: RemoveAccountOptions, command: Command) => {
       await runAccountCommand(options, async () => {
         if (!options.force && process.stdin.isTTY !== true) {
           return {
@@ -307,7 +307,7 @@ export function registerAccountCommands(app: Command): void {
             ],
           },
         }
-      })
+      }, command)
     })
 }
 
@@ -355,8 +355,13 @@ async function promptForAccount(store: AccountStore, options: SwitchAccountOptio
 
 type SyncableResult = HandlerResult | Promise<HandlerResult>
 
-async function runAccountCommand(options: AccountOperationOptions, handler: () => SyncableResult): Promise<void> {
-  const conflict = outputFormatConflict(options)
+async function runAccountCommand(
+  options: AccountOperationOptions,
+  handler: () => SyncableResult,
+  command?: Command,
+): Promise<void> {
+  const effectiveOptions = command == null ? options : mergeOptionsWithGlobals(command, options)
+  const conflict = outputFormatConflict(effectiveOptions)
   if (conflict) {
     await renderResult(conflict, { yaml: true })
     return
@@ -364,9 +369,16 @@ async function runAccountCommand(options: AccountOperationOptions, handler: () =
 
   try {
     const result = await handler()
-    await renderResult(result, options)
+    await renderResult(result, effectiveOptions)
   } catch (error) {
-    await renderResult(unwrapFailure(error, 'account_store_error'), options)
+    await renderResult(unwrapFailure(error, 'account_store_error'), effectiveOptions)
+  }
+}
+
+function mergeOptionsWithGlobals<T extends AccountOperationOptions>(command: Command, options: T): T {
+  return {
+    ...command.optsWithGlobals(),
+    ...options,
   }
 }
 

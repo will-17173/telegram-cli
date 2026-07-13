@@ -45,8 +45,9 @@ export function registerConfigCommands(app: Command): void {
     .option('--proxy <url>', 'Telegram proxy URL')
     .option('--json')
     .option('--yaml')
-    .action(async (options: ConfigSetOptions) => {
-      const conflict = outputFormatConflict(options)
+    .action(async (options: ConfigSetOptions, command: Command) => {
+      const effectiveOptions = mergeOptionsWithGlobals(command, options)
+      const conflict = outputFormatConflict(effectiveOptions)
       if (conflict) {
         await renderResult(conflict, { yaml: true })
         return
@@ -62,7 +63,7 @@ export function registerConfigCommands(app: Command): void {
             code: 'invalid_config',
             message: 'Provide API credentials, a proxy, or both.',
           },
-        }, options)
+        }, effectiveOptions)
         return
       }
 
@@ -83,7 +84,7 @@ export function registerConfigCommands(app: Command): void {
             code: 'invalid_config',
             message: error instanceof Error ? error.message : 'Telegram API configuration is invalid.',
           },
-        }, options)
+        }, effectiveOptions)
         return
       }
 
@@ -99,7 +100,7 @@ export function registerConfigCommands(app: Command): void {
             code: 'config_write_failed',
             message: 'Failed to save Telegram configuration.',
           },
-        }, options)
+        }, effectiveOptions)
         return
       }
 
@@ -120,7 +121,7 @@ export function registerConfigCommands(app: Command): void {
               : 'Telegram proxy saved.',
         },
       }
-      await renderResult(result, options)
+      await renderResult(result, effectiveOptions)
     })
 
   config.command('list')
@@ -128,8 +129,9 @@ export function registerConfigCommands(app: Command): void {
     .option('--show-secrets', 'Show the complete API hash')
     .option('--json')
     .option('--yaml')
-    .action(async (options: ConfigListOptions) => {
-      const conflict = outputFormatConflict(options)
+    .action(async (options: ConfigListOptions, command: Command) => {
+      const effectiveOptions = mergeOptionsWithGlobals(command, options)
+      const conflict = outputFormatConflict(effectiveOptions)
       if (conflict) {
         await renderResult(conflict, { yaml: true })
         return
@@ -147,7 +149,7 @@ export function registerConfigCommands(app: Command): void {
             code: 'invalid_config',
             message: 'Telegram configuration is invalid.',
           },
-        }, options)
+        }, effectiveOptions)
         return
       }
 
@@ -172,8 +174,15 @@ export function registerConfigCommands(app: Command): void {
           ].join('\n'),
         },
       }
-      await renderResult(result, options)
+      await renderResult(result, effectiveOptions)
     })
+}
+
+function mergeOptionsWithGlobals<T extends OutputFlags>(command: Command, options: T): T {
+  return {
+    ...command.optsWithGlobals(),
+    ...options,
+  }
 }
 
 function maskSecret(secret: string): string {

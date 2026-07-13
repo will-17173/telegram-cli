@@ -12,6 +12,7 @@ export function createApp(): Command {
     .description('Telegram CLI for syncing chats, searching messages, and local analysis.')
     .option('-v, --verbose', 'Enable debug logging')
     .option('--account <account>', 'Select an account for account-dependent commands')
+    .option('--markdown', 'Produce Markdown output for human-readable results')
     .version('0.3.0')
 
   registerQueryCommands(app)

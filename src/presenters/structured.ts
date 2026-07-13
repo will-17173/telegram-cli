@@ -1,23 +1,28 @@
 import YAML from 'yaml'
 
-export type OutputFormat = 'json' | 'yaml' | 'rich'
+export type OutputFormat = 'json' | 'yaml' | 'markdown' | 'rich'
 const SCHEMA_VERSION = '1'
 
 export type ResolveOutputOptions = {
   json?: boolean
   yaml?: boolean
+  markdown?: boolean
   isTty?: boolean
 }
 
 export function resolveOutputFormat(options: ResolveOutputOptions): OutputFormat {
-  if (options.json && options.yaml) {
-    throw new Error('Use only one of --json or --yaml.')
+  if (options.json && (options.yaml || options.markdown)) {
+    throw new Error('Use only one of --json, --yaml, or --markdown.')
+  }
+  if (options.yaml && options.markdown) {
+    throw new Error('Use only one of --json, --yaml, or --markdown.')
   }
   if (options.yaml) return 'yaml'
   if (options.json) return 'json'
+  if (options.markdown) return 'markdown'
 
   const mode = (process.env.OUTPUT || 'auto').trim().toLowerCase()
-  if (mode === 'yaml' || mode === 'json' || mode === 'rich') return mode
+  if (mode === 'yaml' || mode === 'json' || mode === 'rich' || mode === 'markdown') return mode
   return options.isTty === false ? 'yaml' : 'rich'
 }
 

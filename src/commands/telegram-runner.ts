@@ -1,4 +1,5 @@
 import type { AccountContext } from '../account/account-presets.js'
+import type { Command } from 'commander'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
 import { runWithAccountContext, type AccountCommandOptions } from './account-options.js'
@@ -18,6 +19,7 @@ const BENIGN_UPDATE_WARNINGS = [
 export async function runTelegramCommand(
   options: AccountCommandOptions,
   handler: (client: TelegramClientAdapter, context: AccountContext) => Promise<HandlerResult>,
+  command?: Command,
 ): Promise<void> {
   await runWithAccountContext(options, async (context) => {
     const restoreStdoutWarnings = hideBenignUpdateWarnings(process.stdout)
@@ -42,7 +44,7 @@ export async function runTelegramCommand(
       restoreStderrWarnings()
       await client.close().catch(() => undefined)
     }
-  })
+  }, command)
 }
 
 export function hideBenignUpdateWarnings(stream: NodeJS.WriteStream): () => void {

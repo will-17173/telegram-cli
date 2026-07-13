@@ -3,6 +3,7 @@ import { resolveAccountContext } from '../account/account-context.js'
 import type { AccountContext } from '../account/account-presets.js'
 import { renderResult } from '../cli/output.js'
 import { outputFormatConflict, type HandlerResult, type OutputFlags } from './types.js'
+import type { Command } from 'commander'
 
 export type AccountCommandOptions = OutputFlags & {
   account?: string
@@ -11,8 +12,10 @@ export type AccountCommandOptions = OutputFlags & {
 export async function runWithAccountContext<T>(
   options: AccountCommandOptions,
   handler: (context: AccountContext) => Promise<HandlerResult<T> | void> | (HandlerResult<T> | void),
+  command?: Command,
 ): Promise<void> {
-  const conflict = outputFormatConflict(options)
+  const effectiveOptions = command == null ? options : mergeOptionsWithGlobals(command, options)
+  const conflict = outputFormatConflict(effectiveOptions)
   if (conflict) {
     await renderResult(conflict, { yaml: true })
     return
@@ -21,17 +24,24 @@ export async function runWithAccountContext<T>(
   let context: AccountContext
   try {
     context = resolveAccountContext({
-      explicitName: options.account,
+      explicitName: effectiveOptions.account,
       dataDir: getDataDir(),
     })
   } catch (error) {
-    await renderResult(accountFailureFromError(error), options)
+    await renderResult(accountFailureFromError(error), effectiveOptions)
     return
   }
 
   const result = await handler(context)
   if (result !== undefined) {
-    await renderResult(result, options)
+    await renderResult(result, effectiveOptions)
+  }
+}
+
+function mergeOptionsWithGlobals(command: Command, options: AccountCommandOptions): AccountCommandOptions {
+  return {
+    ...command.optsWithGlobals(),
+    ...options,
   }
 }
 

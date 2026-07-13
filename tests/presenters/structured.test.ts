@@ -29,7 +29,7 @@ describe('structured output', () => {
 
   it('rejects json and yaml together', () => {
     expect(() => resolveOutputFormat({ json: true, yaml: true, isTty: true })).toThrow(
-      'Use only one of --json or --yaml.',
+      'Use only one of --json, --yaml, or --markdown.',
     )
   })
 

@@ -1,6 +1,7 @@
 export type OutputFlags = {
   json?: boolean
   yaml?: boolean
+  markdown?: boolean
 }
 
 export type CommandResult<T = unknown> = {
@@ -42,13 +43,14 @@ export type AppContext = {
   verbose: boolean
 }
 
-export function outputFormatConflict(options: OutputFlags): HandlerResult<never> | undefined {
-  if (!options.json || !options.yaml) return undefined
+export function outputFormatConflict(options: OutputFlags): CommandFailure | undefined {
+  const selected = [options.json, options.yaml, options.markdown].filter(Boolean).length
+  if (selected <= 1) return undefined
   return {
     ok: false,
     error: {
       code: 'invalid_output_format',
-      message: 'Use only one of --json or --yaml.',
+      message: 'Use only one of --json, --yaml, or --markdown.',
     },
   }
 }

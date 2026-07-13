@@ -343,7 +343,7 @@ describe('group commands', () => {
 
     expect(renderResult).toHaveBeenCalledWith({
       ok: false,
-      error: { code: 'invalid_output_format', message: 'Use only one of --json or --yaml.' },
+      error: { code: 'invalid_output_format', message: 'Use only one of --json, --yaml, or --markdown.' },
     }, { yaml: true })
     expect(createTelegramClient).not.toHaveBeenCalled()
     expect(process.exitCode).toBe(1)

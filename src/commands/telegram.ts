@@ -52,7 +52,7 @@ export function registerTelegramCommands(app: Command): void {
     .description('Show Telegram authentication status')
     .option('--json')
     .option('--yaml')
-    .action(async (options: MachineOptions) => {
+    .action(async (options: MachineOptions, command: Command) => {
       await runTelegramCommand(options, async (client) => {
         const user = await client.getCurrentUser()
         return {
@@ -70,14 +70,14 @@ export function registerTelegramCommands(app: Command): void {
             ],
           },
         }
-      })
+      }, command)
     })
 
   app.command('whoami')
     .description('Show the authenticated Telegram account')
     .option('--json')
     .option('--yaml')
-    .action(async (options: MachineOptions) => {
+    .action(async (options: MachineOptions, command: Command) => {
       await runTelegramCommand(options, async (client) => {
         const user = normalizeTelegramUser(await client.getCurrentUser())
         return {
@@ -85,7 +85,7 @@ export function registerTelegramCommands(app: Command): void {
           data: { user },
           human: userDetail(user),
         }
-      })
+      }, command)
     })
 
   app.command('chats')
@@ -93,11 +93,11 @@ export function registerTelegramCommands(app: Command): void {
     .option('--type <type>')
     .option('--json')
     .option('--yaml')
-    .action(async (options: MachineOptions & { type?: string }) => {
+    .action(async (options: MachineOptions & { type?: string }, command: Command) => {
       await runTelegramCommand(options, async (client) => {
         const chats = await client.listChats(options.type as any)
         return { ok: true, data: chats, human: chatTable(chats) }
-      })
+      }, command)
     })
 
   app.command('history')
@@ -107,10 +107,10 @@ export function registerTelegramCommands(app: Command): void {
     .option('--delay <delay>', 'Seconds between history pages', '1')
     .option('--json')
     .option('--yaml')
-    .action(async (chat: string, options: SyncFlags) => {
+    .action(async (chat: string, options: SyncFlags, command: Command) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
       const pageDelay = parsePageDelay(options.delay)
-      await renderSyncResult(options, async (service) => service.history({ chat, limit, pageDelay }))
+      await renderSyncResult(options, async (service) => service.history({ chat, limit, pageDelay }), command)
     })
 
   app.command('sync')
@@ -120,10 +120,10 @@ export function registerTelegramCommands(app: Command): void {
     .option('--delay <delay>', 'Seconds between history pages', '1')
     .option('--json')
     .option('--yaml')
-    .action(async (chat: string, options: SyncFlags) => {
+    .action(async (chat: string, options: SyncFlags, command: Command) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
       const pageDelay = parsePageDelay(options.delay)
-      await renderSyncResult(options, async (service) => service.sync({ chat, limit, pageDelay }))
+      await renderSyncResult(options, async (service) => service.sync({ chat, limit, pageDelay }), command)
     })
 
   app.command('sync-all')
@@ -133,7 +133,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--max-chats <maxChats>', 'Maximum chats to sync')
     .option('--json')
     .option('--yaml')
-    .action(async (options: RefreshFlags) => {
+    .action(async (options: RefreshFlags, command: Command) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
       const delay = Number.parseFloat(options.delay ?? '0')
       const maxChats = options.maxChats == null ? undefined : Number.parseInt(options.maxChats, 10)
@@ -149,7 +149,7 @@ export function registerTelegramCommands(app: Command): void {
           },
           human: syncSummary(result.data),
         }
-      })
+      }, command)
     })
 
   app.command('refresh')
@@ -159,11 +159,11 @@ export function registerTelegramCommands(app: Command): void {
     .option('--max-chats <maxChats>', 'Maximum chats to sync')
     .option('--json')
     .option('--yaml')
-    .action(async (options: RefreshFlags) => {
+    .action(async (options: RefreshFlags, command: Command) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
       const delay = Number.parseFloat(options.delay ?? '0')
       const maxChats = options.maxChats == null ? undefined : Number.parseInt(options.maxChats, 10)
-      await renderSyncResult(options, async (service) => service.refresh({ limit, delay, maxChats }))
+      await renderSyncResult(options, async (service) => service.refresh({ limit, delay, maxChats }), command)
     })
 
   app.command('info')
@@ -171,12 +171,12 @@ export function registerTelegramCommands(app: Command): void {
     .argument('<chat>')
     .option('--json')
     .option('--yaml')
-    .action(async (chat: string, options: MachineOptions) => {
+    .action(async (chat: string, options: MachineOptions, command: Command) => {
       await runTelegramCommand(options, async (client) => {
         const info = await client.getChatInfo(parseChat(chat))
         if (!info) return { ok: false, error: { code: 'chat_not_found', message: `Chat '${chat}' not found on Telegram.` } }
         return { ok: true, data: info, human: recordDetail('Chat info', info) }
-      })
+      }, command)
     })
 
   app.command('send')
@@ -188,7 +188,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--no-preview')
     .option('--json')
     .option('--yaml')
-    .action(async (chat: string, message: string | undefined, options: SendFlags) => {
+    .action(async (chat: string, message: string | undefined, options: SendFlags, command: Command) => {
       const reply = options.reply == null ? undefined : Number(options.reply)
       await renderMessageResult(options, 'Message sent', (service) => service.send({
         chat,
@@ -196,7 +196,7 @@ export function registerTelegramCommands(app: Command): void {
         files: options.file,
         reply,
         linkPreview: options.preview,
-      }))
+      }), command)
     })
 
   app.command('edit')
@@ -207,14 +207,14 @@ export function registerTelegramCommands(app: Command): void {
     .option('--no-preview')
     .option('--json')
     .option('--yaml')
-    .action(async (chat: string, msgId: string, text: string, options: EditFlags) => {
+    .action(async (chat: string, msgId: string, text: string, options: EditFlags, command: Command) => {
       const msgIdNum = Number.parseInt(msgId, 10)
       await renderMessageResult(options, 'Message edited', (service) => service.edit({
         chat,
         msgId: msgIdNum,
         text,
         linkPreview: options.preview,
-      }))
+      }), command)
     })
 
   app.command('delete')
@@ -223,11 +223,11 @@ export function registerTelegramCommands(app: Command): void {
     .argument('<msgIds...>')
     .option('--json')
     .option('--yaml')
-    .action(async (chat: string, msgIds: string[], options: DeleteFlags) => {
+    .action(async (chat: string, msgIds: string[], options: DeleteFlags, command: Command) => {
       await renderMessageResult(options, 'Messages deleted', (service) => service.delete({
         chat,
         msgIds: msgIds.map((id) => Number.parseInt(id, 10)),
-      }))
+      }), command)
     })
 
   app.command('listen')
@@ -239,7 +239,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--no-media', 'Hide attachment summary for incoming messages')
     .option('--auto-download', 'Download incoming attachments automatically')
     .option('--no-interactive', 'Use plain text listen output')
-    .action(async (chats: string[], options: ListenOptions) => {
+    .action(async (chats: string[], options: ListenOptions, command: Command) => {
       const persist = Boolean(options.persist)
       const retrySeconds = Number.parseFloat(options.retrySeconds ?? '5')
       const parsedChats = parseChats(chats)?.map(parseChat)
@@ -365,7 +365,7 @@ export function registerTelegramCommands(app: Command): void {
             albumAggregator.dispose()
             replyResolver.close()
           }
-        })
+        }, command)
       } finally {
         process.off('SIGINT', stopListening)
         process.off('SIGTERM', stopListening)
@@ -408,13 +408,17 @@ function parseChat(chat: string): string | number {
   return Number.isNaN(parsed) || String(parsed) !== chat.trim() ? chat : parsed
 }
 
-async function renderSyncResult(options: SyncFlags, handler: (service: SyncService) => Promise<HandlerResult>): Promise<void> {
+async function renderSyncResult(
+  options: SyncFlags,
+  handler: (service: SyncService) => Promise<HandlerResult>,
+  command?: Command,
+): Promise<void> {
   await runTelegramCommand(options, async (client, context) => {
     const result = await runWithSync(client, context.dbPath, handler)
     return result.ok && result.human == null
       ? { ...result, human: syncSummary(result.data as Parameters<typeof syncSummary>[0]) }
       : result
-  })
+  }, command)
 }
 
 async function runWithSync(
@@ -434,6 +438,7 @@ async function renderMessageResult(
   options: MachineOptions,
   title: string,
   handler: (service: MessageService) => Promise<HandlerResult>,
+  command?: Command,
 ): Promise<void> {
   await runTelegramCommand(options, async (client) => {
     const service = new MessageService(client)
@@ -441,7 +446,7 @@ async function renderMessageResult(
     return result.ok && result.human == null
       ? { ...result, human: actionDetail(title, result.data as Record<string, unknown>) }
       : result
-  })
+  }, command)
 }
 
 function normalizeTelegramUser(user: TelegramUser): {

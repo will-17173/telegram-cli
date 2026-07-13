@@ -172,9 +172,19 @@ describe('local command contracts', () => {
     const result = await run(['stats', '--json', '--yaml'])
     const combined = `${result.stdout}\n${result.stderr}`
     expect(result.code).toBe(1)
-    expect(combined).toContain('Use only one of --json or --yaml.')
+    expect(combined).toContain('Use only one of --json, --yaml, or --markdown.')
     expect(combined).not.toContain('Error:')
     expect(combined).not.toContain('at ')
+  })
+
+  it('respects OUTPUT=markdown for human output', async () => {
+    seed()
+    const result = await run(['stats'], { OUTPUT: 'markdown' })
+
+    expect(result.code).toBe(0)
+    expect(result.stderr).toBe('')
+    expect(result.stdout).toContain('# Stats')
+    expect(result.stdout).toContain('| CHAT |')
   })
 
   it('rejects purge output format conflicts before deleting rows', async () => {
