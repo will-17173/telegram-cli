@@ -19,23 +19,37 @@ type DialogFlags = AccountCommandOptions & {
 }
 
 export function registerDialogCommands(app: Command): void {
+  registerInboxCommand(app, 'inbox')
+  registerReadCommand(app, 'read')
+  registerSearchCommand(app, 'search-online')
+
   const dialog = app.command('dialog')
     .description('Inspect Telegram dialogs, online messages, and managed groups')
 
-  dialog.command('inbox')
+  registerInboxCommand(dialog, 'inbox')
+  registerReadCommand(dialog, 'read')
+  registerSearchCommand(dialog, 'search')
+  registerGroupsCommand(dialog)
+}
+
+function registerInboxCommand(parent: Command, name: string): void {
+  parent.command(name)
     .description('List chats with unread messages')
     .option('-n, --limit <limit>', 'Max dialogs to display')
     .option('--json')
     .option('--yaml')
     .action(async (_options: DialogFlags, command: Command) => {
       const options = optionsWithGlobals<DialogFlags>(command)
+      if (await renderInvalidLimit(options.limit, 500, options)) return
       await runDialogAction({
         options,
         handler: (service) => service.inbox({ limit: options.limit }),
       })
     })
+}
 
-  dialog.command('read')
+function registerReadCommand(parent: Command, name: string): void {
+  parent.command(name)
     .description('Read recent messages from a Telegram chat')
     .argument('<chat>')
     .option('-n, --limit <limit>', 'Max messages to read')
@@ -45,14 +59,17 @@ export function registerDialogCommands(app: Command): void {
     .option('--yaml')
     .action(async (chat: string, options: DialogFlags, command: Command) => {
       const effectiveOptions = optionsWithGlobals<DialogFlags>(command)
+      if (await renderInvalidLimit(effectiveOptions.limit, 1000, effectiveOptions)) return
       await runDialogReadResult({
         action: 'read',
         args: { chat },
         options: effectiveOptions,
       })
     })
+}
 
-  dialog.command('search')
+function registerSearchCommand(parent: Command, name: string): void {
+  parent.command(name)
     .description('Search Telegram online messages')
     .argument('<query>')
     .option('--chat <chat>', 'Limit search to one chat')
@@ -63,14 +80,17 @@ export function registerDialogCommands(app: Command): void {
     .option('--yaml')
     .action(async (query: string, options: DialogFlags, command: Command) => {
       const effectiveOptions = optionsWithGlobals<DialogFlags>(command)
+      if (await renderInvalidLimit(effectiveOptions.limit, 1000, effectiveOptions)) return
       await runDialogReadResult({
         action: 'search',
         args: { query, chat: options.chat },
         options: effectiveOptions,
       })
     })
+}
 
-  dialog.command('groups')
+function registerGroupsCommand(parent: Command): void {
+  parent.command('groups')
     .description('List Telegram managed groups')
     .option('--admin', 'Only groups where you are an admin or creator')
     .option('-n, --limit <limit>', 'Max groups to list')
@@ -78,6 +98,7 @@ export function registerDialogCommands(app: Command): void {
     .option('--yaml')
     .action(async (_options: DialogFlags, command: Command) => {
       const effectiveOptions = optionsWithGlobals<DialogFlags>(command)
+      if (await renderInvalidLimit(effectiveOptions.limit, 500, effectiveOptions)) return
       const conflict = outputFormatConflict(effectiveOptions)
       if (conflict) {
         await renderResult(conflict, { yaml: true })
@@ -89,6 +110,18 @@ export function registerDialogCommands(app: Command): void {
         limit: effectiveOptions.limit,
       }), command)
     })
+}
+
+async function renderInvalidLimit(value: string | undefined, max: number, options: DialogFlags): Promise<boolean> {
+  if (value == null) return false
+  const text = value.trim()
+  const limit = /^\d+$/.test(text) ? Number(text) : Number.NaN
+  if (Number.isSafeInteger(limit) && limit >= 1 && limit <= max) return false
+  await renderResult({
+    ok: false,
+    error: { code: 'invalid_option', message: `limit must be an integer between 1 and ${max}.` },
+  }, options)
+  return true
 }
 
 async function runDialogReadResult(input: {

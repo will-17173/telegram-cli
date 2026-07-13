@@ -88,6 +88,10 @@ describe('DialogService', () => {
       ok: false,
       error: { code: 'invalid_option', message: 'limit must be an integer between 1 and 500.' },
     })
+    expect(await service.inbox({ limit: '5abc' })).toEqual({
+      ok: false,
+      error: { code: 'invalid_option', message: 'limit must be an integer between 1 and 500.' },
+    })
   })
 
   it('reads messages for a chat, trims the chat input, and returns message rows without chat column', async () => {
@@ -122,10 +126,13 @@ describe('DialogService', () => {
       human: {
         kind: 'table',
         title: 'Messages',
-        columns: ['TIME', 'SENDER', 'MESSAGE'],
+        columns: ['ID', 'TIME', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
         rows: [[
+          '3',
           localTimestamp(messages[0]!.timestamp),
           'Alice',
+          '—',
+          '—',
           'first message',
         ]],
         emptyText: 'No online messages found.',
@@ -164,10 +171,13 @@ describe('DialogService', () => {
       human: {
         kind: 'table',
         title: 'Messages',
-        columns: ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
+        columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
         rows: [[
+          '4',
           localTimestamp(messages[0]!.timestamp),
           'General',
+          '—',
+          '—',
           '—',
           '—',
         ]],
@@ -190,6 +200,46 @@ describe('DialogService', () => {
     expect(await service.search({ query: '   ', limit: 0 })).toEqual({
       ok: false,
       error: { code: 'invalid_option', message: 'query is required for search.' },
+    })
+  })
+
+  it('rejects inverted time ranges before invoking the adapter', async () => {
+    const calls: string[] = []
+    const service = new DialogService(new FakeDialogsAdapter({
+      read: async () => { calls.push('read'); return [] },
+      search: async () => { calls.push('search'); return [] },
+    }))
+    const since = new Date('2026-07-13T02:00:00.000Z')
+    const until = new Date('2026-07-13T01:00:00.000Z')
+
+    expect(await service.read({ chat: '@team', limit: 10, since, until })).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_option' },
+    })
+    expect(await service.search({ query: 'release', limit: 10, since, until })).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_option' },
+    })
+    expect(calls).toEqual([])
+  })
+
+  it('counts manually unread dialogs even when unread counters are zero', async () => {
+    const service = new DialogService(new FakeDialogsAdapter({
+      inbox: async () => [{
+        chat_id: 100,
+        chat_name: 'Manual',
+        chat_type: 'user',
+        unread: 0,
+        unread_mentions: 0,
+        unread_reactions: 0,
+        muted: false,
+        last_message: null,
+      }],
+    }))
+
+    expect(await service.inbox()).toMatchObject({
+      ok: true,
+      data: { chats_with_unread: 1 },
     })
   })
 
@@ -253,14 +303,14 @@ describe('DialogService', () => {
 
 class FakeDialogsAdapter {
   constructor(private readonly handlers: {
-    inbox?: () => Promise<import('../../src/telegram/dialog-types.js').InboxDialog[]>
+    inbox?: (limit: number) => Promise<import('../../src/telegram/dialog-types.js').InboxDialog[]>
     read?: (request: { chat: string | number; limit: number; since?: Date; until?: Date }) => Promise<OnlineMessage[]>
     search?: (request: { query: string; chat?: string | number; limit: number; since?: Date; until?: Date }) => Promise<OnlineMessage[]>
     listGroups?: (request: { adminOnly: boolean; limit: number }) => Promise<TelegramManagedChat[]>
   }) {}
 
-  async inbox(): Promise<InboxDialog[]> {
-    return this.handlers.inbox?.() ?? []
+  async inbox(limit: number): Promise<InboxDialog[]> {
+    return this.handlers.inbox?.(limit) ?? []
   }
 
   async read(request: { chat: string | number; limit: number; since?: Date; until?: Date }): Promise<OnlineMessage[]> {

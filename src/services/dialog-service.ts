@@ -52,12 +52,12 @@ export class DialogService {
     if (!valid.ok) return valid
 
     try {
-      const dialogs = (await this.dialogs.inbox()).slice(0, valid.data)
+      const dialogs = (await this.dialogs.inbox(valid.data)).slice(0, valid.data)
       return {
         ok: true,
         data: {
           total_unread: dialogs.reduce((total, item) => total + item.unread, 0),
-          chats_with_unread: dialogs.filter((item) => item.unread > 0 || item.unread_mentions > 0 || item.unread_reactions > 0).length,
+          chats_with_unread: dialogs.length,
           dialogs,
         },
         human: inboxTable(dialogs),
@@ -73,6 +73,8 @@ export class DialogService {
 
     const validLimit = validateLimit(input.limit, MESSAGE_LIMIT_MAX, MESSAGE_LIMIT_DEFAULT)
     if (!validLimit.ok) return validLimit
+    const validRange = validateRange(input.since, input.until)
+    if (!validRange.ok) return validRange
 
     try {
       const messages = await this.dialogs.read({
@@ -97,6 +99,8 @@ export class DialogService {
 
     const validLimit = validateLimit(input.limit, MESSAGE_LIMIT_MAX, MESSAGE_LIMIT_DEFAULT)
     if (!validLimit.ok) return validLimit
+    const validRange = validateRange(input.since, input.until)
+    if (!validRange.ok) return validRange
 
     const validChat = input.chat == null ? undefined : normalizeText(input.chat)
 
@@ -138,12 +142,23 @@ export class DialogService {
 function validateLimit(value: string | number | undefined, max: number, defaultValue: number): DialogResultValidation<number> {
   if (value == null) return { ok: true, data: defaultValue }
 
-  const normalized = typeof value === 'number' ? value : Number.parseInt(String(value), 10)
+  const text = String(value).trim()
+  const normalized = /^\d+$/.test(text) ? Number(text) : Number.NaN
   if (!Number.isSafeInteger(normalized) || normalized < 1 || normalized > max) {
     return { ok: false, error: { code: 'invalid_option', message: `limit must be an integer between 1 and ${max}.` } }
   }
 
   return { ok: true, data: normalized }
+}
+
+function validateRange(since?: Date, until?: Date): DialogResultValidation<true> {
+  if (since != null && until != null && since.getTime() >= until.getTime()) {
+    return {
+      ok: false,
+      error: { code: 'invalid_option', message: 'since must be earlier than until.' },
+    }
+  }
+  return { ok: true, data: true }
 }
 
 function normalizeText(value: string | number): string {

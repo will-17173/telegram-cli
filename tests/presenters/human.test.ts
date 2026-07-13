@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   actionDetail,
   chatTable,
+  contactDetailTable,
   logicalMessageTable,
   messageTable,
+  onlineMessageTable,
   recordDetail,
   statsSummary,
   syncSummary,
@@ -25,6 +27,43 @@ function localClock(timestamp: string): string {
 }
 
 describe('human output builders', () => {
+  it('renders online message ids, replies, media groups, and attachment metadata', () => {
+    expect(onlineMessageTable([{
+      chat_id: 10,
+      chat_name: 'General',
+      msg_id: 22,
+      timestamp: '2026-07-10T01:02:03Z',
+      sender_id: 7,
+      sender_name: 'Ada',
+      text: 'release',
+      reply_to_msg_id: 20,
+      media_group_id: '10:99',
+      attachment: { type: 'document', file_name: 'notes.pdf', file_size: 2048 },
+    }])).toEqual({
+      kind: 'table',
+      title: 'Messages',
+      columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
+      rows: [['22', localTimestamp('2026-07-10T01:02:03Z'), 'General', 'Ada', '20', '10:99', 'release [document: notes.pdf, 2048 bytes]']],
+      emptyText: 'No online messages found.',
+    })
+  })
+
+  it('includes an available contact bio in detail output', () => {
+    expect(contactDetailTable({
+      id: 42,
+      display_name: 'Alice',
+      first_name: 'Alice',
+      last_name: '',
+      username: 'alice',
+      phone: null,
+      is_contact: true,
+      is_mutual_contact: false,
+      is_bot: false,
+      is_deleted: false,
+      bio: 'Release engineer',
+    }).fields).toContainEqual({ label: 'Bio', value: 'Release engineer' })
+  })
+
   it('renders logical content, reply context, and media in one message cell', () => {
     const rows = [{
       id: 1, platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 11,

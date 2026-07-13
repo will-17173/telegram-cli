@@ -114,6 +114,23 @@ describe('contact commands', () => {
     }, {})
   })
 
+  it('applies contact list limit and rejects malformed values before creating a client', async () => {
+    await run('contact', 'list', '--limit', '1')
+    expect(contact.list).toHaveBeenCalledOnce()
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: [expect.objectContaining({ id: 42 })],
+    }), expect.objectContaining({ limit: '1' }))
+
+    vi.clearAllMocks()
+    await run('contact', 'list', '--limit', '1oops')
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: 'invalid_option', message: 'limit must be an integer between 1 and 500.' },
+    }, expect.any(Object))
+  })
+
   it('renders contact info and maps by requested selector', async () => {
     await run('contact', 'info', '@alice', '--json')
 

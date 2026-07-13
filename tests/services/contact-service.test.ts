@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { ContactService } from '../../src/services/contact-service.js'
-import type { TelegramContact, TelegramContactAdapter } from '../../src/telegram/contact-types.js'
+import {
+  TelegramPhoneNotResolvableError,
+  type TelegramContact,
+  type TelegramContactAdapter,
+} from '../../src/telegram/contact-types.js'
 
 function fixtureContact(overrides: Partial<TelegramContact> = {}): TelegramContact {
   return {
@@ -34,7 +38,7 @@ describe('ContactService', () => {
     ]
     const service = new ContactService(adapter({ list: async () => structuredClone(contacts) }))
 
-    const result = await service.list()
+    const result = await service.list({ limit: 2 })
 
     expect(result).toEqual({
       ok: true,
@@ -49,6 +53,20 @@ describe('ContactService', () => {
         ],
         emptyText: 'No contacts found.',
       },
+    })
+  })
+
+  it('applies and validates the contact list limit before rendering', async () => {
+    const contacts = [fixtureContact(), fixtureContact({ id: 7 }), fixtureContact({ id: 9 })]
+    const service = new ContactService(adapter({ list: async () => contacts }))
+
+    expect(await service.list({ limit: '2' })).toMatchObject({
+      ok: true,
+      data: [{ id: 42 }, { id: 7 }],
+    })
+    expect(await service.list({ limit: '2oops' })).toEqual({
+      ok: false,
+      error: { code: 'invalid_option', message: 'limit must be an integer between 1 and 500.' },
     })
   })
 
@@ -113,6 +131,20 @@ describe('ContactService', () => {
       error: {
         code: 'telegram_error',
         message: 'network unavailable',
+      },
+    })
+  })
+
+  it('preserves phone_not_resolvable errors from the adapter', async () => {
+    const service = new ContactService(adapter({
+      info: async () => { throw new TelegramPhoneNotResolvableError('+8613800000000') },
+    }))
+
+    expect(await service.info({ userOrPhone: '+8613800000000' })).toEqual({
+      ok: false,
+      error: {
+        code: 'phone_not_resolvable',
+        message: "Phone number '+8613800000000' could not be resolved by Telegram.",
       },
     })
   })

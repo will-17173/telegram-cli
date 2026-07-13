@@ -3,6 +3,10 @@ import { createApp } from '../../src/cli/app.js'
 import { GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
 
 describe('cli help', () => {
+  it('reports the v0.4.0 command version', () => {
+    expect(createApp().version()).toBe('0.4.0')
+  })
+
   it('registers the tg command surface', () => {
     const app = createApp()
     const names = app.commands.map((command) => command.name()).sort()
@@ -19,12 +23,15 @@ describe('cli help', () => {
       'filter',
       'group',
       'history',
+      'inbox',
       'info',
       'listen',
       'purge',
+      'read',
       'recent',
       'refresh',
       'search',
+      'search-online',
       'send',
       'stats',
       'status',
@@ -76,7 +83,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(26)
+    expect(commands).toHaveLength(29)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 

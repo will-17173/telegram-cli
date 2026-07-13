@@ -8,6 +8,7 @@ import { type AccountCommandOptions } from './account-options.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
 
 type ContactOptions = AccountCommandOptions & {
+  limit?: string
   json?: boolean
   yaml?: boolean
 }
@@ -18,12 +19,15 @@ export function registerContactCommands(app: Command): void {
 
   contact.command('list')
     .description('List Telegram contacts')
+    .option('-n, --limit <limit>', 'Max contacts to list')
     .option('--json')
     .option('--yaml')
     .action(async (_options: ContactOptions, command: Command) => {
+      const options = optionsWithGlobals<ContactOptions>(command)
+      if (await renderInvalidLimit(options)) return
       await runContactAction({
-        options: optionsWithGlobals<ContactOptions>(command),
-        handler: (client) => new ContactService(client.contacts).list(),
+        options,
+        handler: (client) => new ContactService(client.contacts).list({ limit: options.limit }),
       }, command)
     })
 
@@ -38,6 +42,18 @@ export function registerContactCommands(app: Command): void {
         handler: (client) => new ContactService(client.contacts).info({ userOrPhone }),
       }, command)
     })
+}
+
+async function renderInvalidLimit(options: ContactOptions): Promise<boolean> {
+  if (options.limit == null) return false
+  const text = options.limit.trim()
+  const limit = /^\d+$/.test(text) ? Number(text) : Number.NaN
+  if (Number.isSafeInteger(limit) && limit >= 1 && limit <= 500) return false
+  await renderResult({
+    ok: false,
+    error: { code: 'invalid_option', message: 'limit must be an integer between 1 and 500.' },
+  }, options)
+  return true
 }
 
 async function runContactAction(

@@ -1,8 +1,12 @@
 import type { HandlerResult } from '../commands/types.js'
 import { contactDetailTable, contactListTable } from '../presenters/human.js'
-import type { TelegramContact, TelegramContactAdapter } from '../telegram/contact-types.js'
+import {
+  TelegramPhoneNotResolvableError,
+  type TelegramContact,
+  type TelegramContactAdapter,
+} from '../telegram/contact-types.js'
 
-type ContactListOptions = Record<string, never>
+type ContactListOptions = { limit?: string | number }
 
 type ContactInfoOptions = {
   userOrPhone: string | number
@@ -11,9 +15,11 @@ type ContactInfoOptions = {
 export class ContactService {
   constructor(private readonly contacts: TelegramContactAdapter) {}
 
-  async list(_input: ContactListOptions = {}): Promise<HandlerResult<TelegramContact[]>> {
+  async list(input: ContactListOptions = {}): Promise<HandlerResult<TelegramContact[]>> {
+    const limit = validateLimit(input.limit)
+    if (!limit.ok) return limit
     try {
-      const contacts = await this.contacts.list()
+      const contacts = (await this.contacts.list()).slice(0, limit.data)
       return {
         ok: true,
         data: contacts,
@@ -59,6 +65,9 @@ function normalizeText(value: string | number): string {
 }
 
 function contactFailure(error: unknown): HandlerResult<never> {
+  if (error instanceof TelegramPhoneNotResolvableError) {
+    return { ok: false, error: { code: error.code, message: error.message } }
+  }
   return {
     ok: false,
     error: {
@@ -67,4 +76,16 @@ function contactFailure(error: unknown): HandlerResult<never> {
       details: error instanceof Error && error.name ? { name: error.name } : undefined,
     },
   }
+}
+
+function validateLimit(value: string | number | undefined):
+  | { ok: true; data: number }
+  | { ok: false; error: { code: 'invalid_option'; message: string } } {
+  if (value == null) return { ok: true, data: 100 }
+  const text = String(value).trim()
+  const limit = /^\d+$/.test(text) ? Number(text) : Number.NaN
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
+    return { ok: false, error: { code: 'invalid_option', message: 'limit must be an integer between 1 and 500.' } }
+  }
+  return { ok: true, data: limit }
 }

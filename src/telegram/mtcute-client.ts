@@ -15,6 +15,7 @@ import { createContactsAdapter } from './mtcute-contacts.js'
 import type { TelegramContactAdapter } from './contact-types.js'
 import { createDialogsAdapter } from './mtcute-dialogs.js'
 import type { TelegramDialogAdapter } from './dialog-types.js'
+import { normalizeMtcuteMessage } from './mtcute-message-normalizer.js'
 
 type PeerShape = {
   type: string
@@ -385,15 +386,16 @@ function isNotFoundError(error: unknown): boolean {
 }
 
 function toStoredMessage(message: Message): StoredMessageInput {
+  const normalized = normalizeMtcuteMessage(message)
   return {
     platform: 'telegram',
-    chat_id: message.chat.id,
-    chat_name: peerDisplayName(message.chat),
-    msg_id: message.id,
-    sender_id: message.sender.id,
-    sender_name: message.sender.displayName,
-    content: message.text,
-    timestamp: message.date.toISOString(),
+    chat_id: normalized.chat_id,
+    chat_name: normalized.chat_name,
+    msg_id: normalized.msg_id,
+    sender_id: normalized.sender_id,
+    sender_name: normalized.sender_name,
+    content: normalized.text,
+    timestamp: normalized.timestamp,
     raw_json: safeJsonValue(message.raw),
     preview_jpeg_base64: embeddedPhotoPreviewBase64(message.media),
   }

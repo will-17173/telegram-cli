@@ -16,3 +16,12 @@ export interface TelegramContactAdapter {
   list(): Promise<TelegramContact[]>
   info(userOrPhone: string | number): Promise<TelegramContact | null>
 }
+
+export class TelegramPhoneNotResolvableError extends Error {
+  readonly code = 'phone_not_resolvable'
+
+  constructor(readonly phone: string) {
+    super(`Phone number '${phone}' could not be resolved by Telegram.`)
+    this.name = 'TelegramPhoneNotResolvableError'
+  }
+}
