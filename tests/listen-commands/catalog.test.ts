@@ -1,7 +1,37 @@
 import { describe, expect, it } from 'vitest'
 
 import { GROUP_COMMAND_CATALOG, GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
-import { LISTEN_COMMANDS, REPLY_COMMAND_USAGE } from '../../src/listen-commands/catalog.js'
+import {
+  LISTEN_COMMANDS,
+  type GroupListenCommandDefinition,
+} from '../../src/listen-commands/catalog.js'
+import { REPLY_COMMAND_USAGE } from '../../src/services/listen-composer-command.js'
+
+function assertMemberBanNarrowing(command: GroupListenCommandDefinition): void {
+  if (command.groupKey !== 'member ban') return
+
+  const path: typeof GROUP_COMMAND_CATALOG['member ban']['path'] = command.path
+  const definition: typeof GROUP_COMMAND_CATALOG['member ban'] = command.groupDefinition
+  void path
+  void definition
+}
+
+const invalidMemberBanEntry = {
+  id: 'group:member ban',
+  kind: 'group',
+  category: 'group',
+  path: GROUP_COMMAND_CATALOG['chat title'].path,
+  summary: GROUP_COMMAND_CATALOG['chat title'].summary,
+  usage: GROUP_COMMAND_CATALOG['chat title'].usage,
+  keywords: ['member', 'ban'],
+  groupKey: 'member ban',
+  groupDefinition: GROUP_COMMAND_CATALOG['chat title'],
+} as const
+
+// @ts-expect-error a member-ban entry cannot carry the chat-title definition or path
+const invalidGroupCommand: GroupListenCommandDefinition = invalidMemberBanEntry
+void invalidGroupCommand
+void assertMemberBanNarrowing
 
 describe('LISTEN_COMMANDS', () => {
   it('starts with the general reply command', () => {

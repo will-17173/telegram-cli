@@ -1,12 +1,10 @@
 import {
   GROUP_COMMAND_CATALOG,
-  GROUP_COMMANDS,
   type GroupCommandKey,
 } from '../group-commands/catalog.js'
+import { REPLY_COMMAND_USAGE } from '../services/listen-composer-command.js'
 
-export const REPLY_COMMAND_USAGE = 'reply <message-id> [content] [--file <path> ...]'
-
-type GroupCommand = (typeof GROUP_COMMANDS)[number]
+export { REPLY_COMMAND_USAGE }
 
 export interface ReplyListenCommandDefinition {
   readonly id: 'reply'
@@ -18,17 +16,22 @@ export interface ReplyListenCommandDefinition {
   readonly keywords: readonly ['reply', 'respond', 'message', 'file']
 }
 
-export interface GroupListenCommandDefinition {
-  readonly id: `group:${GroupCommandKey}`
-  readonly kind: 'group'
-  readonly category: 'group'
-  readonly path: GroupCommand['path']
-  readonly summary: GroupCommand['summary']
-  readonly usage: GroupCommand['usage']
-  readonly keywords: readonly string[]
-  readonly groupKey: GroupCommandKey
-  readonly groupDefinition: (typeof GROUP_COMMAND_CATALOG)[GroupCommandKey]
+type GroupListenCommandDefinitionByKey = {
+  [K in GroupCommandKey]: {
+    readonly id: `group:${K}`
+    readonly kind: 'group'
+    readonly category: 'group'
+    readonly path: (typeof GROUP_COMMAND_CATALOG)[K]['path']
+    readonly summary: (typeof GROUP_COMMAND_CATALOG)[K]['summary']
+    readonly usage: (typeof GROUP_COMMAND_CATALOG)[K]['usage']
+    readonly keywords: readonly string[]
+    readonly groupKey: K
+    readonly groupDefinition: (typeof GROUP_COMMAND_CATALOG)[K]
+  }
 }
+
+export type GroupListenCommandDefinition =
+  GroupListenCommandDefinitionByKey[GroupCommandKey]
 
 export type ListenCommandDefinition =
   | ReplyListenCommandDefinition
@@ -44,20 +47,53 @@ const replyCommand = freezeDefinition({
   keywords: ['reply', 'respond', 'message', 'file'],
 } as const)
 
-const groupCommands = GROUP_COMMANDS.map((groupDefinition): GroupListenCommandDefinition => {
-  const groupKey = groupCommandKey(groupDefinition)
+const groupCommands = [
+  createGroupCommand(GROUP_COMMAND_CATALOG['member add']), createGroupCommand(GROUP_COMMAND_CATALOG['member kick']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['member ban']), createGroupCommand(GROUP_COMMAND_CATALOG['member unban']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['member mute']), createGroupCommand(GROUP_COMMAND_CATALOG['member unmute']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['member purge']), createGroupCommand(GROUP_COMMAND_CATALOG['admin promote']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['admin demote']), createGroupCommand(GROUP_COMMAND_CATALOG['admin rank']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['admin transfer-owner']), createGroupCommand(GROUP_COMMAND_CATALOG['chat title']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['chat description']), createGroupCommand(GROUP_COMMAND_CATALOG['chat username']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['chat photo']), createGroupCommand(GROUP_COMMAND_CATALOG['chat slowmode']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['chat ttl']), createGroupCommand(GROUP_COMMAND_CATALOG['chat protect']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['chat join-requests']), createGroupCommand(GROUP_COMMAND_CATALOG['chat join-to-send']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['chat default-permissions']), createGroupCommand(GROUP_COMMAND_CATALOG['chat sticker-set']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['chat leave']), createGroupCommand(GROUP_COMMAND_CATALOG['chat delete']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['invite list']), createGroupCommand(GROUP_COMMAND_CATALOG['invite show']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['invite create']), createGroupCommand(GROUP_COMMAND_CATALOG['invite edit']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['invite revoke']), createGroupCommand(GROUP_COMMAND_CATALOG['invite members']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['invite approve']), createGroupCommand(GROUP_COMMAND_CATALOG['invite decline']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['invite approve-all']), createGroupCommand(GROUP_COMMAND_CATALOG['invite decline-all']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['topic list']), createGroupCommand(GROUP_COMMAND_CATALOG['topic create']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['topic edit']), createGroupCommand(GROUP_COMMAND_CATALOG['topic close']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['topic reopen']), createGroupCommand(GROUP_COMMAND_CATALOG['topic pin']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['topic unpin']), createGroupCommand(GROUP_COMMAND_CATALOG['topic reorder']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['topic delete']), createGroupCommand(GROUP_COMMAND_CATALOG['topic general-hidden']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['message pin']), createGroupCommand(GROUP_COMMAND_CATALOG['message unpin']),
+  createGroupCommand(GROUP_COMMAND_CATALOG['message unpin-all']), createGroupCommand(GROUP_COMMAND_CATALOG['message delete']),
+] as const
+
+type CatalogCommand = (typeof GROUP_COMMAND_CATALOG)[GroupCommandKey]
+type GroupKeyOf<D extends CatalogCommand> = D['path'] extends readonly [
+  infer Family extends string,
+  infer Action extends string,
+] ? `${Family} ${Action}` : never
+
+function createGroupCommand<const D extends CatalogCommand>(groupDefinition: D) {
+  const groupKey = groupDefinition.path.join(' ') as GroupKeyOf<D>
   return freezeDefinition({
-    id: `group:${groupKey}`,
+    id: `group:${groupKey}` as const,
     kind: 'group',
     category: 'group',
-    path: groupDefinition.path,
-    summary: groupDefinition.summary,
-    usage: groupDefinition.usage,
+    path: groupDefinition.path as D['path'],
+    summary: groupDefinition.summary as D['summary'],
+    usage: groupDefinition.usage as D['usage'],
     keywords: [...groupDefinition.path],
     groupKey,
-    groupDefinition: GROUP_COMMAND_CATALOG[groupKey],
+    groupDefinition,
   })
-})
+}
 
 export const LISTEN_COMMANDS: readonly ListenCommandDefinition[] = Object.freeze([
   replyCommand,
@@ -70,10 +106,4 @@ function freezeDefinition<
   Object.freeze(definition.path)
   Object.freeze(definition.keywords)
   return Object.freeze(definition)
-}
-
-function groupCommandKey(definition: GroupCommand): GroupCommandKey {
-  const key = definition.path.join(' ')
-  if (key in GROUP_COMMAND_CATALOG) return key as GroupCommandKey
-  throw new Error(`Group command is missing from catalog: ${key}`)
 }

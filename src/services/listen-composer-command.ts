@@ -1,6 +1,7 @@
+export const REPLY_COMMAND_USAGE = 'reply <message-id> [content] [--file <path> ...]'
+
 import type { StoredMessageInput } from '../storage/message-db.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
-import { REPLY_COMMAND_USAGE } from '../listen-commands/catalog.js'
 
 export type ListenComposerCommand =
   | { kind: 'message'; content: string }
