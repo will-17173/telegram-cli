@@ -28,10 +28,14 @@ describe('MtcuteNotifications', () => {
 
   it('sets an exact mute date without sending unrelated notification fields', async () => {
     const resolvedPeer = { _: 'inputPeerChannel', channelId: 100, accessHash: 999n } as const
-    const client = mutationClient(resolvedPeer, { _: 'peerNotifySettings', muteUntil: 1_893_456_000 })
+    const client = mutationClient(
+      resolvedPeer,
+      { _: 'peerNotifySettings', muteUntil: 1_893_542_400 },
+      false,
+    )
     const adapter = new MtcuteNotifications(client, vi.fn())
 
-    await adapter.setMuteUntil('@team', new Date('2030-01-01T00:00:00Z'))
+    const state = await adapter.setMuteUntil('@team', new Date('2030-01-01T00:00:00Z'))
 
     expect(client.call).toHaveBeenCalledWith({
       _: 'account.updateNotifySettings',
@@ -40,6 +44,17 @@ describe('MtcuteNotifications', () => {
     })
     const update = client.call.mock.calls.find(([request]) => request._ === 'account.updateNotifySettings')?.[0]
     expect(update?.settings).toEqual({ _: 'inputPeerNotifySettings', muteUntil: 1_893_456_000 })
+    expect(client.call.mock.calls.map(([request]) => request._)).toEqual([
+      'account.updateNotifySettings',
+      'account.getNotifySettings',
+    ])
+    expect(state).toEqual({
+      chat_id: 100,
+      chat_name: 'Team',
+      explicit_muted: true,
+      mute_until: '2030-01-02T00:00:00.000Z',
+      effective_muted: false,
+    })
   })
 
   it('unmutes with muteUntil zero', async () => {
