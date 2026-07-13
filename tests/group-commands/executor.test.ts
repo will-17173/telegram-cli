@@ -96,4 +96,30 @@ describe('executeGroupCommand', () => {
     expect(evaluateGroupCapability(capability, incompatible as typeof known)).toMatchObject({ ok: false, error: { code } })
     expect(evaluateGroupCapability(capability, undefined)).toBeUndefined()
   })
+
+  it('requests an admin permission selection before confirmation or execution', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await executeGroupCommand(parsed('admin promote 7'), { chat: 100, groups: new GroupWriteService(groups), confirmed: true })
+    expect(result).toMatchObject({ ok: false, selectionRequired: { kind: 'admin_permissions', chat: 100, target: '7', available: expect.arrayContaining(['ban_users', 'add_admins']) } })
+    expect(groups.writeCalls).toHaveLength(0)
+  })
+
+  it.each([
+    ['member ban 7', { target: '7', details: { user: 7 } }],
+    ['member mute @alice 1h', { target: '@alice', details: { user: '@alice', durationSeconds: 3600 } }],
+    ['invite revoke https://t.me/+abc', { target: 'https://t.me/+abc', details: { invite: 'https://t.me/+abc' } }],
+    ['topic delete 9', { target: 'topic 9', details: { topicId: 9 } }],
+    ['message delete 3 4', { target: 'messages 3, 4', details: { messageIds: [3, 4] } }],
+  ])('includes target and side-effect context for %s', async (source, expected) => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await executeGroupCommand(parsed(source), { chat: 100, groups: new GroupWriteService(groups), confirmed: false })
+    expect(result).toMatchObject({ ok: false, confirmation: expected })
+  })
+
+  it('uses the known title as the destructive chat target', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const knownGroup = { ...await groups.getGroup(100), current_user_role: 'creator' as const }
+    const result = await executeGroupCommand(parsed('chat delete'), { chat: 100, groups: new GroupWriteService(groups), confirmed: false, knownGroup })
+    expect(result).toMatchObject({ ok: false, confirmation: { target: knownGroup.title, details: { chat: 100, title: knownGroup.title } } })
+  })
 })

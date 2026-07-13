@@ -15,10 +15,9 @@ type HandlerContext<K extends GroupCommandKey> = { readonly chat: string | numbe
 type CommandHandler<K extends GroupCommandKey> = (context: HandlerContext<K>, groups: TelegramGroupManagementAdapter) => Promise<GroupWriteServiceResult>
 type CommandHandlers = { readonly [K in GroupCommandKey]: CommandHandler<K> }
 
-const allAdminRights = (): TelegramGroupAdminRights => ({ change_info: true, delete_messages: true, ban_users: true, invite_users: true, pin_messages: true, add_admins: true, manage_call: true, anonymous: true, manage_topics: true })
-const selectedAdminRights = (names?: readonly string[]): TelegramGroupAdminRights => {
-  if (!names) return allAdminRights()
-  const has = (name: string) => names.includes(name)
+export const ADMIN_RIGHT_KEYS = ['change_info', 'delete_messages', 'ban_users', 'invite_users', 'pin_messages', 'add_admins', 'manage_call', 'anonymous', 'manage_topics'] as const
+const selectedAdminRights = (names: readonly string[] | undefined): TelegramGroupAdminRights => {
+  const has = (name: string) => names?.includes(name) === true
   return { change_info: has('change_info'), delete_messages: has('delete_messages'), ban_users: has('ban_users'), invite_users: has('invite_users'), pin_messages: has('pin_messages'), add_admins: has('add_admins'), manage_call: has('manage_call'), anonymous: has('anonymous'), manage_topics: has('manage_topics') }
 }
 const selectedRestrictions = (names: readonly string[]): TelegramGroupRestrictions => {
@@ -78,6 +77,9 @@ export class GroupWriteService {
   async execute(request: ParsedGroupWriteRequest): Promise<HandlerResult<GroupWriteServiceResult>> {
     const key = canonicalCommandKey(request)
     if (!key) return failure('invalid_command', 'Invalid or noncanonical group command.')
+    if (request.key === 'admin promote' && (!request.values.permissions || request.values.permissions.length === 0)) {
+      return failure('permissions_required', 'Select at least one administrator permission.')
+    }
     try { return { ok: true, data: await dispatch(request, this.groups) } }
     catch (error) { return groupWriteFailure(error) }
   }

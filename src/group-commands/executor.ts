@@ -1,7 +1,7 @@
 import type { HandlerResult } from '../commands/types.js'
 import type { ParsedGroupCommandRequest } from './parser.js'
 import type { TelegramGroupDetails } from '../telegram/group-types.js'
-import { canonicalCommandKey, GroupWriteService, type GroupWriteServiceResult } from '../services/group-write-service.js'
+import { ADMIN_RIGHT_KEYS, canonicalCommandKey, GroupWriteService, type GroupWriteServiceResult } from '../services/group-write-service.js'
 
 export interface GroupCommandExecutorContext {
   readonly chat: string | number
@@ -16,7 +16,10 @@ export interface GroupCommandExecutorContext {
 }
 export type GroupCommandExecutionResult = HandlerResult<GroupWriteServiceResult> | {
   readonly ok: false
-  readonly confirmation: { readonly risk: 'confirm' | 'confirm-title'; readonly chat: string | number; readonly target?: string; readonly summary: string; readonly title?: string }
+  readonly confirmation: { readonly risk: 'confirm' | 'confirm-title'; readonly chat: string | number; readonly target?: string; readonly summary: string; readonly title?: string; readonly details?: Readonly<Record<string, unknown>> }
+} | {
+  readonly ok: false
+  readonly selectionRequired: { readonly kind: 'admin_permissions'; readonly chat: string | number; readonly target: string; readonly available: typeof ADMIN_RIGHT_KEYS }
 }
 
 const queries = new Set(['invite list', 'invite show', 'invite members', 'topic list'])
@@ -26,16 +29,40 @@ export async function executeGroupCommand(request: ParsedGroupCommandRequest, co
   if (!key) return error('invalid_command', 'Invalid or noncanonical group command.')
   if (context.connectionReady === false) return error('connection_not_ready', 'Telegram connection is not ready.')
   if (context.targetAvailable === false || (context.targetCount !== undefined && context.targetCount !== 1)) return error('ambiguous_chat', 'Select exactly one target chat.')
+  if (request.key === 'admin promote' && (!request.values.permissions || request.values.permissions.length === 0)) {
+    return { ok: false, selectionRequired: { kind: 'admin_permissions', chat: context.chat, target: String(request.values.user), available: ADMIN_RIGHT_KEYS } }
+  }
   const capabilityFailure = preflight(request, context.knownGroup)
   if (capabilityFailure) return capabilityFailure
   const risk = request.definition.risk
   const titleMatches = risk !== 'confirm-title' || (context.knownGroup != null && context.confirmationTitle === context.knownGroup.title)
-  if (risk !== 'none' && (!context.confirmed || !titleMatches)) {
-    return { ok: false, confirmation: { risk, chat: context.chat, summary: request.definition.summary, ...(risk === 'confirm-title' && context.knownGroup ? { title: context.knownGroup.title } : {}) } }
+  if (isConfirmationRequest(request) && (!context.confirmed || !titleMatches)) {
+    const confirmation = confirmationContext(request, context)
+    return { ok: false, confirmation: { risk: request.definition.risk, chat: context.chat, summary: request.definition.summary, ...confirmation, ...(request.definition.risk === 'confirm-title' && context.knownGroup ? { title: context.knownGroup.title } : {}) } }
   }
   const result = await context.groups.execute({ ...request, chat: context.chat })
   if (result.ok && !queries.has(key)) await context.invalidateGroup?.(context.chat)
   return result
+}
+
+type ConfirmationContext = { readonly target?: string; readonly details?: Readonly<Record<string, unknown>> }
+type ConfirmationRequest = Extract<ParsedGroupCommandRequest, { readonly definition: { readonly risk: 'confirm' | 'confirm-title' } }>
+function isConfirmationRequest(request: ParsedGroupCommandRequest): request is ConfirmationRequest { return request.definition.risk !== 'none' }
+function confirmationContext(request: ConfirmationRequest, context: GroupCommandExecutorContext): ConfirmationContext {
+  switch (request.key) {
+    case 'member kick': case 'member ban': case 'member unban': case 'member unmute': case 'member purge': return { target: String(request.values.user), details: { user: request.values.user } }
+    case 'member mute': return { target: String(request.values.user), details: { user: request.values.user, durationSeconds: request.values.durationSeconds ?? null } }
+    case 'admin promote': case 'admin demote': case 'admin transfer-owner': return { target: String(request.values.user), details: { user: request.values.user } }
+    case 'admin rank': return { target: String(request.values.user), details: { user: request.values.user, rank: request.values.text } }
+    case 'invite revoke': return { target: request.values.invite, details: { invite: request.values.invite } }
+    case 'topic delete': return { target: `topic ${request.values.id}`, details: { topicId: request.values.id } }
+    case 'message delete': return { target: `messages ${request.values.ids.join(', ')}`, details: { messageIds: [...request.values.ids] } }
+    case 'chat delete': return { target: context.knownGroup?.title ?? String(context.chat), details: { chat: context.chat, ...(context.knownGroup ? { title: context.knownGroup.title } : {}) } }
+    case 'chat leave': return { target: context.knownGroup?.title ?? String(context.chat), details: { chat: context.chat } }
+    case 'chat ttl': return { target: context.knownGroup?.title ?? String(context.chat), details: { durationSeconds: request.values.durationSeconds } }
+    case 'chat default-permissions': return { target: context.knownGroup?.title ?? String(context.chat), details: { permissions: [...request.values.permissions] } }
+    case 'invite approve-all': case 'invite decline-all': case 'message unpin-all': return { target: context.knownGroup?.title ?? String(context.chat), details: { chat: context.chat } }
+  }
 }
 
 function preflight(request: ParsedGroupCommandRequest, group?: TelegramGroupDetails): HandlerResult<never> | undefined {

@@ -45,7 +45,7 @@ describe('GroupWriteService', () => {
 
   it.each([
     ['member add 1', 'addMembers'], ['member kick 1', 'kickMember'], ['member ban 1', 'banMember'], ['member unban 1', 'unbanMember'], ['member mute 1', 'muteMember'], ['member unmute 1', 'unmuteMember'], ['member purge 1', 'purgeMember'],
-    ['admin promote 1', 'promoteAdmin'], ['admin demote 1', 'demoteAdmin'], ['admin rank 1 Helper', 'setAdminRank'], ['admin transfer-owner 1', 'transferOwnership'],
+    ['admin promote 1 ban_users,delete_messages', 'promoteAdmin'], ['admin demote 1', 'demoteAdmin'], ['admin rank 1 Helper', 'setAdminRank'], ['admin transfer-owner 1', 'transferOwnership'],
     ['chat title New', 'setTitle'], ['chat description Desc', 'setDescription'], ['chat username public', 'setUsername'], ['chat photo photo.jpg', 'setPhoto'], ['chat slowmode off', 'setSlowMode'], ['chat ttl 1h', 'setTtl'], ['chat protect off', 'setContentProtection'], ['chat join-requests on', 'setJoinRequests'], ['chat join-to-send on', 'setJoinToSend'], ['chat default-permissions send_messages', 'setDefaultPermissions'], ['chat sticker-set 2', 'setStickerSet'], ['chat leave', 'leaveGroup'], ['chat delete', 'deleteGroup'],
     ['invite list', 'listInvites'], ['invite show link', 'getInvite'], ['invite create', 'createInvite'], ['invite edit link', 'editInvite'], ['invite revoke link', 'revokeInvite'], ['invite members link', 'listInviteMembers'], ['invite approve 1', 'approveJoinRequest'], ['invite decline 1', 'declineJoinRequest'], ['invite approve-all', 'approveAllJoinRequests'], ['invite decline-all', 'declineAllJoinRequests'],
     ['topic list', 'listTopics'], ['topic create News', 'createTopic'], ['topic edit 1 News', 'editTopic'], ['topic close 1', 'setTopicClosed'], ['topic reopen 1', 'setTopicClosed'], ['topic pin 1', 'setTopicPinned'], ['topic unpin 1', 'setTopicPinned'], ['topic reorder 1 2', 'reorderPinnedTopics'], ['topic delete 1', 'deleteTopic'], ['topic general-hidden on', 'setGeneralTopicHidden'],
@@ -88,5 +88,21 @@ describe('GroupWriteService', () => {
     expect(groups.writeCalls[0]?.request).not.toBe(members.values)
     expect(groups.writeCalls[1]?.request).not.toBe(topics.values)
     expect(groups.writeCalls[2]?.request).not.toBe(invite.values)
+  })
+
+  it('rejects admin promotion without selected permissions', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await new GroupWriteService(groups).execute(request('admin promote 7'))
+    expect(result).toMatchObject({ ok: false, error: { code: 'permissions_required' } })
+    expect(groups.writeCalls).toHaveLength(0)
+  })
+
+  it('grants only explicitly selected admin permissions', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    await new GroupWriteService(groups).execute(request('admin promote 7 ban_users,delete_messages'))
+    expect(groups.writeCalls[0]).toMatchObject({ operation: 'promoteAdmin', request: { rights: {
+      ban_users: true, delete_messages: true, change_info: false, invite_users: false,
+      pin_messages: false, add_admins: false, manage_call: false, anonymous: false, manage_topics: false,
+    } } })
   })
 })
