@@ -222,6 +222,30 @@ describe('AccountSessionService', () => {
     expect(removePath).toHaveBeenCalled()
   })
 
+  it('reports tombstone cleanup failure after a successful login', async () => {
+    await setAuthState(store, 'logged_out')
+    const removePath = vi.fn((path: string) => {
+      if (isSessionTombstone(path)) throw new Error(`cleanup denied for ${path}`)
+      rmSync(path, { recursive: true, force: true })
+    })
+    service = new AccountSessionService({ dataDir, store, authenticate, removePath })
+
+    const result = await service.login({ name: 'alice' })
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'account_session_cleanup_failed',
+        message: 'Account login succeeded, but secure session cleanup did not complete.',
+        details: { recovery_path: expect.any(String) },
+      },
+    })
+    expect(store.get('alice')?.auth_state).toBe('authenticated')
+    expect(readFileSync(sessionPath, 'utf8')).toBe('new-session')
+    expect(recoverableSessionContents(dataDir)).toEqual(['original-session'])
+    expect(result.ok ? '' : result.error.message).not.toContain('cleanup denied')
+  })
+
   it('rejects a different identity and keeps the staged session out', async () => {
     await setAuthState(store, 'logged_out')
     authenticate.mockImplementationOnce(async (path) => {

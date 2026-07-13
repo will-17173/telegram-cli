@@ -8,6 +8,7 @@ import {
   utimesSync,
   writeFileSync,
   readFileSync,
+  renameSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -235,6 +236,89 @@ describe('account store', () => {
     await operation
 
     expect(existsSync(lockPath)).toBe(true)
+  })
+
+  it('does not delete a replacement owner installed while release is isolated', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    const replacementOwner = 'replacement-owner'
+    let replacementInstalled = false
+    const store = new AccountStore(path, {
+      lockOperations: {
+        renamePath(source, destination) {
+          renameSync(source, destination)
+          if (source === lockPath && destination.includes('.isolated-release-')) {
+            mkdirSync(lockPath)
+            writeFileSync(join(lockPath, 'owner'), replacementOwner, 'utf8')
+            replacementInstalled = true
+          }
+        },
+      },
+    })
+
+    await store.withLock(() => undefined)
+
+    expect(replacementInstalled).toBe(true)
+    expect(readFileSync(join(lockPath, 'owner'), 'utf8')).toBe(replacementOwner)
+  })
+
+  it('does not reap a lease refreshed after canonical isolation', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    mkdirSync(lockPath)
+    writeFileSync(join(lockPath, 'owner'), 'live-owner', 'utf8')
+    const stale = new Date(Date.now() - 2_000)
+    utimesSync(join(lockPath, 'owner'), stale, stale)
+    let refreshed = false
+    const store = new AccountStore(path, {
+      lockTimeoutMs: 20,
+      lockRetryMs: 2,
+      lockOperations: {
+        renamePath(source, destination) {
+          renameSync(source, destination)
+          if (source === lockPath && destination.includes('.isolated-reap-')) {
+            const now = new Date()
+            utimesSync(join(destination, 'owner'), now, now)
+            refreshed = true
+          }
+        },
+      },
+    })
+
+    await expect(store.withLock(() => undefined)).rejects.toThrow(/unable to acquire lock in time/)
+
+    expect(refreshed).toBe(true)
+    expect(readFileSync(join(lockPath, 'owner'), 'utf8')).toBe('live-owner')
+  })
+
+  it('never deletes a replacement lock after owner publication loses its canonical path', async () => {
+    const root = tempDir()
+    const path = join(root, REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    const displacedPath = `${lockPath}.displaced`
+    const replacementOwner = 'replacement-owner'
+    const store = new AccountStore(path, {
+      lockOperations: {
+        writeOwner(ownerPath, owner) {
+          renameSync(lockPath, displacedPath)
+          mkdirSync(lockPath)
+          writeFileSync(join(lockPath, 'owner'), replacementOwner, 'utf8')
+          writeFileSync(ownerPath, owner, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+        },
+      },
+    })
+
+    await expect(store.withLock(() => undefined)).rejects.toThrow(/unable to record lock ownership/)
+
+    expect(readFileSync(join(lockPath, 'owner'), 'utf8')).toBe(replacementOwner)
+  })
+
+  it.each([
+    { lockHeartbeatMs: 0, lockStaleMs: 1_000 },
+    { lockHeartbeatMs: 600, lockStaleMs: 1_000 },
+    { lockHeartbeatMs: 100, lockStaleMs: 0 },
+  ])('rejects unsafe lock timing options %#', (options) => {
+    expect(() => new AccountStore(join(tempDir(), REGISTRY_PATH), options)).toThrow(/account_store_error: invalid lock timing options/)
   })
 
   it('raises lock timeout when another lock is active', async () => {

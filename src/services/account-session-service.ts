@@ -53,8 +53,8 @@ export class AccountSessionService {
       let client: TelegramClientAdapter
       try {
         client = this.createClient(accountSessionPath(this.options.dataDir, account.name))
-      } catch (error) {
-        return failure('account_logout_failed', errorMessage(error))
+      } catch {
+        return failure('account_logout_failed', 'Unable to initialize Telegram logout.')
       }
 
       let logoutError: unknown
@@ -71,14 +71,14 @@ export class AccountSessionService {
       }
 
       if (logoutError != null && !isTerminalSessionError(logoutError)) {
-        return failure('account_logout_failed', errorMessage(logoutError))
+        return failure('account_logout_failed', 'Unable to log out the Telegram account.')
       }
 
       const updated = { ...account, auth_state: 'logged_out' as const }
       try {
         this.options.store.write(updateAccount(registry, updated))
-      } catch (error) {
-        return failure('account_store_error', errorMessage(error))
+      } catch {
+        return failure('account_store_error', 'Unable to update account authentication state.')
       }
       return success(updated, true)
     })
@@ -96,28 +96,30 @@ export class AccountSessionService {
       try {
         mkdirSync(dirname(sessionPath), { recursive: true })
         temporaryDir = this.createTemporaryDirectory(join(dirname(sessionPath), '.login-'))
-      } catch (error) {
-        return failure('account_session_replace_failed', errorMessage(error))
+      } catch {
+        return failure('account_session_replace_failed', 'Unable to create staged account session storage.')
       }
       const stagedSessionPath = join(temporaryDir, 'session')
       const discardedSessionPath = join(temporaryDir, 'discarded-session')
       const tombstonePath = join(dirname(sessionPath), `.session-${randomUUID()}.bak`)
       let preserveTombstone = false
       let preserveTemporaryDir = false
+      let completedAccount: AccountMeta | undefined
+      let cleanupRecoveryPath: string | undefined
 
       try {
         let authenticated: AuthenticatedSession
         try {
           authenticated = await this.authenticate(stagedSessionPath)
         } catch (error) {
-          return failure(errorCode(error, 'account_login_failed'), errorMessage(error))
+          return failure(errorCode(error, 'account_login_failed'), 'Unable to authenticate the Telegram account.')
         }
 
         try {
           await authenticated.close()
         } catch (error) {
           preserveTemporaryDir = true
-          return failure('account_login_failed', errorMessage(error), { recovery_path: temporaryDir })
+          return failure('account_login_failed', 'Unable to confirm staged Telegram session shutdown.', { recovery_path: temporaryDir })
         }
 
         if (authenticated.user.id !== account.user_id) {
@@ -140,10 +142,10 @@ export class AccountSessionService {
             const restoreError = restoreSession(tombstonePath, sessionPath, this.renamePath)
             if (restoreError) {
               preserveTombstone = true
-              return recoveryFailure('account_session_replace_failed', error, restoreError, tombstonePath)
+              return recoveryFailure('account_session_replace_failed', tombstonePath)
             }
           }
-          return failure('account_session_replace_failed', errorMessage(error))
+          return failure('account_session_replace_failed', 'Unable to replace the Telegram session safely.')
         }
 
         const updated = { ...account, auth_state: 'authenticated' as const }
@@ -160,26 +162,36 @@ export class AccountSessionService {
           if (rollbackError) {
             preserveTombstone = hadOriginalSession && existsSync(tombstonePath)
             return preserveTombstone
-              ? recoveryFailure('account_store_error', error, rollbackError, tombstonePath)
-              : failure('account_store_error', `${errorMessage(error)} Rollback failed: ${errorMessage(rollbackError)}`)
+              ? recoveryFailure('account_store_error', tombstonePath)
+              : failure('account_store_error', 'Unable to update account authentication state and roll back the staged session.')
           }
-          return failure('account_store_error', errorMessage(error))
+          return failure('account_store_error', 'Unable to update account authentication state.')
         }
 
-        return success(updated, true)
+        completedAccount = updated
       } finally {
-        if (!preserveTemporaryDir) safelyRemove(this.removePath, temporaryDir)
-        if (!preserveTombstone) safelyRemove(this.removePath, tombstonePath)
+        if (!preserveTemporaryDir && !safelyRemove(this.removePath, temporaryDir)) cleanupRecoveryPath = temporaryDir
+        if (!preserveTombstone && !safelyRemove(this.removePath, tombstonePath)) cleanupRecoveryPath = tombstonePath
       }
+
+      if (cleanupRecoveryPath) {
+        return failure(
+          'account_session_cleanup_failed',
+          'Account login succeeded, but secure session cleanup did not complete.',
+          { recovery_path: cleanupRecoveryPath },
+        )
+      }
+      return success(completedAccount, true)
     })
   }
 }
 
-function safelyRemove(removePath: (path: string) => void, path: string): void {
+function safelyRemove(removePath: (path: string) => void, path: string): boolean {
   try {
     removePath(path)
+    return true
   } catch {
-    // Cleanup failure must not replace the operation's primary result.
+    return false
   }
 }
 
@@ -206,10 +218,12 @@ function failure(code: string, message: string, details?: unknown): HandlerResul
   return { ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } }
 }
 
-function recoveryFailure(code: string, cause: unknown, rollbackError: unknown, recoveryPath: string): HandlerResult<never> {
+function recoveryFailure(code: string, recoveryPath: string): HandlerResult<never> {
   return failure(
     code,
-    `${errorMessage(cause)} Failed to restore the original session: ${errorMessage(rollbackError)}`,
+    code === 'account_store_error'
+      ? 'Unable to update account authentication state; the original session requires recovery.'
+      : 'Unable to replace the Telegram session; the original session requires recovery.',
     { recovery_path: recoveryPath },
   )
 }
@@ -240,11 +254,11 @@ function rollbackInstalledSession(options: {
   if (existsSync(options.sessionPath)) {
     try {
       options.renamePath(options.sessionPath, options.discardedSessionPath)
-    } catch (moveError) {
+    } catch {
       try {
         rmSync(options.sessionPath, { recursive: true, force: true })
-      } catch (removeError) {
-        return new Error(`Unable to discard staged session: ${errorMessage(moveError)}; ${errorMessage(removeError)}`)
+      } catch {
+        return new Error('Unable to discard the staged session during rollback.')
       }
     }
   }
@@ -263,8 +277,4 @@ function errorCode(error: unknown, fallback: string): string {
     if (typeof code === 'string' && code.length > 0) return code
   }
   return fallback
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
