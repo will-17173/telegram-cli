@@ -1,0 +1,45 @@
+import type { TelegramChatType } from './types.js'
+
+export type OnlineMessage = {
+  chat_id: number
+  chat_name: string
+  msg_id: number
+  timestamp: string
+  sender_id: number | null
+  sender_name: string | null
+  text: string | null
+  reply_to_msg_id: number | null
+  media_group_id: string | null
+  attachment: {
+    type: string
+    file_name: string | null
+    file_size: number | null
+  } | null
+}
+
+export type InboxDialog = {
+  chat_id: number
+  chat_name: string
+  chat_type: TelegramChatType
+  unread: number
+  unread_mentions: number
+  unread_reactions: number
+  muted: boolean | null
+  last_message: OnlineMessage | null
+}
+
+export type TelegramManagedChat = {
+  id: number
+  name: string
+  type: 'group' | 'supergroup' | 'channel'
+  username: string | null
+  is_admin: boolean
+  is_creator: boolean
+}
+
+export interface TelegramDialogAdapter {
+  inbox(): Promise<InboxDialog[]>
+  read(input: { chat: string | number; limit: number; since?: Date; until?: Date }): Promise<OnlineMessage[]>
+  search(input: { query: string; chat?: string | number; limit: number; since?: Date; until?: Date }): Promise<OnlineMessage[]>
+  listGroups(input: { adminOnly: boolean; limit: number }): Promise<TelegramManagedChat[]>
+}

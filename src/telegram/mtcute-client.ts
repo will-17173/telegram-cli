@@ -11,6 +11,8 @@ import type { DownloadMessageMediaOptions, TelegramChat, TelegramClientAdapter, 
 import type { StoredMessageInput } from '../storage/message-db.js'
 import { MtcuteGroupManagement } from './mtcute-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
+import type { TelegramContactAdapter } from './contact-types.js'
+import type { TelegramDialogAdapter } from './dialog-types.js'
 
 type PeerShape = {
   type: string
@@ -23,10 +25,14 @@ type PeerShape = {
 
 export class MtcuteTelegramClient implements TelegramClientAdapter {
   readonly groups: TelegramGroupManagementAdapter
+  readonly dialogs: TelegramDialogAdapter
+  readonly contacts: TelegramContactAdapter
   private isReady = false
 
   constructor(private readonly client: TelegramClient) {
     this.groups = new MtcuteGroupManagement(client, () => this.ensureReady())
+    this.dialogs = this.createDialogsAdapter()
+    this.contacts = this.createContactsAdapter()
   }
 
   async close(): Promise<void> {
@@ -280,6 +286,22 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       return await this.client.getFullChat(normalizeChatId(chat))
     } catch {
       return null
+    }
+  }
+
+  private createDialogsAdapter(): TelegramDialogAdapter {
+    return {
+      inbox: async () => [],
+      read: async (_request) => [],
+      search: async (_request) => [],
+      listGroups: async (_request) => [],
+    }
+  }
+
+  private createContactsAdapter(): TelegramContactAdapter {
+    return {
+      list: async () => [],
+      info: async (_userOrPhone) => null,
     }
   }
 }

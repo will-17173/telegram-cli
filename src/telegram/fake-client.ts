@@ -1,12 +1,48 @@
 import type { StoredMessageInput } from '../storage/message-db.js'
 import { FakeTelegramGroupManagement } from './fake-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
-import type { DownloadMessageMediaOptions, FetchHistoryOptions, SendMediaOptions, SendMediaResult, TelegramChat, TelegramChatType, TelegramClientAdapter, TelegramUser } from './types.js'
+import type {
+  DownloadMessageMediaOptions,
+  FetchHistoryOptions,
+  SendMediaOptions,
+  SendMediaResult,
+  TelegramChat,
+  TelegramChatType,
+  TelegramClientAdapter,
+  TelegramUser,
+} from './types.js'
+import type { TelegramContact, TelegramContactAdapter } from './contact-types.js'
+import type { InboxDialog, OnlineMessage, TelegramDialogAdapter, TelegramManagedChat } from './dialog-types.js'
+
+type FakeTelegramCall =
+  | {
+    operation: 'readOnline'
+    request: { chat: string | number; limit: number; since?: Date; until?: Date }
+  }
+  | {
+    operation: 'searchOnline'
+    request: { query: string; chat?: string | number; limit: number; since?: Date; until?: Date }
+  }
+  | {
+    operation: 'listContacts'
+    request: Record<string, never>
+  }
+  | {
+    operation: 'contactInfo'
+    request: { userOrPhone: string | number }
+  }
 
 export type FakeTelegramClientOptions = {
   groupManagement?: TelegramGroupManagementAdapter
   chats?: TelegramChat[]
   messagesByChat?: Record<string, StoredMessageInput[]>
+  onlineMessages?: OnlineMessage[]
+  managedChats?: TelegramManagedChat[]
+  dialogs?: InboxDialog[]
+  contacts?: TelegramContact[]
+  contactById?: Record<string, TelegramContact>
+  contactByUsername?: Record<string, TelegramContact>
+  contactByPhone?: Record<string, TelegramContact>
   fetchFailures?: Record<string, Error>
   sendFailures?: Record<string, Error>
   mediaSendFailures?: Record<string, Error>
@@ -19,8 +55,11 @@ export type FakeTelegramClientOptions = {
 }
 
 export class FakeTelegramClient implements TelegramClientAdapter {
+  readonly dialogs: TelegramDialogAdapter
+  readonly contacts: TelegramContactAdapter
   readonly groups: TelegramGroupManagementAdapter
   closeCalls = 0
+  readonly calls: FakeTelegramCall[] = []
   readonly fetchHistoryCalls: FetchHistoryOptions[] = []
   readonly downloadMessageMediaCalls: DownloadMessageMediaOptions[] = []
   readonly sendMessageCalls: Array<{ chat: string | number; message: string; reply?: number; linkPreview: boolean }> = []
@@ -30,6 +69,12 @@ export class FakeTelegramClient implements TelegramClientAdapter {
 
   private readonly chats: TelegramChat[]
   private readonly messagesByChat: Record<string, StoredMessageInput[]>
+  private readonly onlineMessages: OnlineMessage[]
+  private readonly managedChats: TelegramManagedChat[]
+  private readonly dialogList: InboxDialog[]
+  private readonly contactsById: Record<string, TelegramContact>
+  private readonly contactsByUsername: Record<string, TelegramContact>
+  private readonly contactsByPhone: Record<string, TelegramContact>
   private readonly fetchFailures: Record<string, Error>
   private readonly sendFailures: Record<string, Error>
   private readonly mediaSendFailures: Record<string, Error>
@@ -51,6 +96,22 @@ export class FakeTelegramClient implements TelegramClientAdapter {
         row(2, 'Fake message 2'),
       ],
     }
+    this.onlineMessages = options.onlineMessages ?? [onlineMessage(100, 'TestGroup', 3, 'Online message')]
+    this.managedChats = options.managedChats ?? []
+    this.dialogList = options.dialogs ?? []
+    const contacts = options.contacts ?? [telegramContact(42, 'alice', 'Alice')]
+    this.contactsById = normalizeContactMap({
+      ...(options.contactById ?? {}),
+      ...toContactMapById(contacts),
+    })
+    this.contactsByUsername = normalizeContactMap({
+      ...(options.contactByUsername ?? {}),
+      ...toContactMapByUsername(contacts),
+    })
+    this.contactsByPhone = normalizeContactMap({
+      ...(options.contactByPhone ?? {}),
+      ...toContactMapByPhone(contacts),
+    })
     this.fetchFailures = options.fetchFailures ?? {}
     this.sendFailures = options.sendFailures ?? {}
     this.mediaSendFailures = options.mediaSendFailures ?? {}
@@ -60,6 +121,9 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     this.getChatInfoFailures = options.getChatInfoFailures ?? {}
     this.listenFailure = options.listenFailure
     this.listChatsFailure = options.listChatsFailure
+
+    this.dialogs = this.createDialogsAdapter()
+    this.contacts = this.createContactsAdapter()
   }
 
   async close(): Promise<void> {
@@ -153,6 +217,87 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     return 'stopped'
   }
 
+  private createDialogsAdapter(): TelegramDialogAdapter {
+    return {
+      inbox: async () => this.dialogList.slice(),
+      read: async (request) => {
+        this.recordCall({ operation: 'readOnline', request: { ...request } })
+        return this.filterMessages(this.onlineMessages, {
+          chat: request.chat,
+          query: undefined,
+          since: request.since,
+          until: request.until,
+        })
+          .slice(0, request.limit)
+      },
+      search: async (request) => {
+        this.recordCall({ operation: 'searchOnline', request: { ...request } })
+        const normalizedQuery = request.query.trim().toLocaleLowerCase()
+        return this.filterMessages(this.onlineMessages, {
+          query: normalizedQuery,
+          chat: request.chat,
+          since: request.since,
+          until: request.until,
+        })
+          .slice(0, request.limit)
+      },
+      listGroups: async (request) => {
+        const source = request.adminOnly
+          ? this.managedChats.filter((item) => item.is_admin || item.is_creator)
+          : this.managedChats
+        return source.slice(0, request.limit)
+      },
+    }
+  }
+
+  private createContactsAdapter(): TelegramContactAdapter {
+    return {
+      list: async () => {
+        this.recordCall({ operation: 'listContacts', request: {} })
+        return allContacts(this.contactsById, this.contactsByUsername, this.contactsByPhone)
+      },
+      info: async (userOrPhone) => {
+        this.recordCall({ operation: 'contactInfo', request: { userOrPhone } })
+        const idKey = normalizeContactKey(userOrPhone)
+        const idMatch = this.contactsById[idKey]
+        if (idMatch != null) return cloneContact(idMatch)
+        const directPhoneMatch = this.contactsByPhone[idKey]
+        if (directPhoneMatch != null) return cloneContact(directPhoneMatch)
+        const phoneMatch = this.contactsByPhone[phoneLookupKey(idKey)] ?? this.contactsByPhone[phoneLookupKey(String(idKey))]
+        if (phoneMatch != null) return cloneContact(phoneMatch)
+        return this.contactsByUsername[idKey] ? cloneContact(this.contactsByUsername[idKey]!) : null
+      },
+    }
+  }
+
+  private filterMessages(messages: OnlineMessage[], criteria: {
+    query?: string
+    chat?: string | number
+    since?: Date
+    until?: Date
+  }): OnlineMessage[] {
+    return messages.filter((message) => {
+      if (criteria.query != null && !message.text?.toLocaleLowerCase().includes(criteria.query)) {
+        return false
+      }
+      if (criteria.chat != null && !chatMatches(message, criteria.chat)) {
+        return false
+      }
+      const parsed = new Date(message.timestamp)
+      if (Number.isNaN(parsed.getTime())) return false
+      if (criteria.since != null && parsed < criteria.since) return false
+      if (criteria.until != null && parsed >= criteria.until) return false
+      return true
+    }).map((message) => ({
+      ...message,
+      attachment: message.attachment == null ? null : { ...message.attachment },
+    }))
+  }
+
+  private recordCall(call: FakeTelegramCall): void {
+    this.calls.push(cloneCall(call))
+  }
+
   private findChat(chat: string | number): TelegramChat | undefined {
     return this.chats.find((item) => item.id === chat || item.name === chat)
   }
@@ -173,5 +318,152 @@ function row(msgId: number, content: string): StoredMessageInput {
     content,
     timestamp: new Date(`2026-03-09T10:0${msgId}:00.000Z`).toISOString(),
     raw_json: null,
+  }
+}
+
+function onlineMessage(
+  chatId: number,
+  chatName: string,
+  msgId: number,
+  text: string,
+): OnlineMessage {
+  return {
+    chat_id: chatId,
+    chat_name: chatName,
+    msg_id: msgId,
+    timestamp: new Date(`2026-03-09T11:${String(msgId).padStart(2, '0')}:00.000Z`).toISOString(),
+    sender_id: 1,
+    sender_name: 'Alice',
+    text,
+    reply_to_msg_id: null,
+    media_group_id: null,
+    attachment: null,
+  }
+}
+
+function telegramContact(id: number, username: string, displayName: string): TelegramContact {
+  return {
+    id,
+    display_name: displayName,
+    first_name: displayName,
+    last_name: '',
+    username,
+    phone: null,
+    is_contact: true,
+    is_mutual_contact: false,
+    is_bot: false,
+    is_deleted: false,
+  }
+}
+
+function chatMatches(message: OnlineMessage, chat: string | number): boolean {
+  return message.chat_id === toChatId(chat) || message.chat_name === String(chat)
+}
+
+function toChatId(chat: string | number): number {
+  const parsed = Number.parseInt(String(chat), 10)
+  return Number.isNaN(parsed) ? Number.NaN : parsed
+}
+
+function toContactMapById(contacts: TelegramContact[]): Record<string, TelegramContact> {
+  const output: Record<string, TelegramContact> = {}
+  for (const contact of contacts) {
+    output[String(contact.id)] = contact
+  }
+  return output
+}
+
+function toContactMapByUsername(contacts: TelegramContact[]): Record<string, TelegramContact> {
+  const output: Record<string, TelegramContact> = {}
+  for (const contact of contacts) {
+    if (contact.username == null) continue
+    output[normalizeContactKey(contact.username)] = contact
+  }
+  return output
+}
+
+function toContactMapByPhone(contacts: TelegramContact[]): Record<string, TelegramContact> {
+  const output: Record<string, TelegramContact> = {}
+  for (const contact of contacts) {
+    if (contact.phone == null) continue
+    const normalized = phoneLookupKey(contact.phone)
+    output[normalized] = contact
+    const withPlus = normalized.startsWith('+') ? normalized : `+${normalized}`
+    output[withPlus] = contact
+  }
+  return output
+}
+
+function normalizeContactMap(input: Record<string, TelegramContact>): Record<string, TelegramContact> {
+  const output: Record<string, TelegramContact> = {}
+  for (const [key, value] of Object.entries(input)) {
+    output[normalizeContactKey(key)] = value
+  }
+  return output
+}
+
+function normalizeContactKey(value: string | number): string {
+  const trimmed = String(value).trim()
+  const withOutAt = trimmed.startsWith('@') ? trimmed.slice(1) : trimmed
+  return withOutAt.toLocaleLowerCase()
+}
+
+function phoneLookupKey(value: string | number): string {
+  const normalized = normalizeContactKey(value)
+  if (normalized.startsWith('+')) return normalized.slice(1)
+  return normalized
+}
+
+function allContacts(
+  byId: Record<string, TelegramContact>,
+  byUsername: Record<string, TelegramContact>,
+  byPhone: Record<string, TelegramContact>,
+): TelegramContact[] {
+  const unique = new Map<number, TelegramContact>()
+  for (const contact of [...Object.values(byId), ...Object.values(byUsername), ...Object.values(byPhone)]) {
+    unique.set(contact.id, contact)
+  }
+  return Array.from(unique.values()).map(cloneContact)
+}
+
+function cloneContact(contact: TelegramContact): TelegramContact {
+  return { ...contact }
+}
+
+function cloneCall(call: FakeTelegramCall): FakeTelegramCall {
+  if (call.operation === 'readOnline') {
+    return {
+      operation: 'readOnline',
+      request: {
+        chat: call.request.chat,
+        limit: call.request.limit,
+        since: call.request.since,
+        until: call.request.until,
+      },
+    }
+  }
+  if (call.operation === 'searchOnline') {
+    return {
+      operation: 'searchOnline',
+      request: {
+        query: call.request.query,
+        chat: call.request.chat,
+        limit: call.request.limit,
+        since: call.request.since,
+        until: call.request.until,
+      },
+    }
+  }
+  if (call.operation === 'contactInfo') {
+    return {
+      operation: 'contactInfo',
+      request: {
+        userOrPhone: call.request.userOrPhone,
+      },
+    }
+  }
+  return {
+    operation: 'listContacts',
+    request: {},
   }
 }

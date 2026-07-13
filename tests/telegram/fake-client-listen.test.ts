@@ -29,4 +29,15 @@ describe('FakeTelegramClient.listen', () => {
 
     expect(onConnected).not.toHaveBeenCalled()
   })
+
+  it('does not record online or contact calls during listen', async () => {
+    const client = new FakeTelegramClient()
+
+    await client.listen({
+      signal: new AbortController().signal,
+      onMessage: vi.fn(),
+    })
+
+    expect(client.calls).toEqual([])
+  })
 })
