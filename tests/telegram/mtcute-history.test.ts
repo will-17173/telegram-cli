@@ -14,9 +14,11 @@ describe('MtcuteTelegramClient history', () => {
 
   it('paces explicit history pages and stops delaying after the final page', async () => {
     vi.useFakeTimers()
+    const firstOffset = { id: 107, date: 1_752_355_200 }
+    const secondOffset = { id: 207, date: 1_752_358_800 }
     const pages = [
-      page(8, 100, 101),
-      page(108, 100, 202),
+      page(8, 100, firstOffset),
+      page(108, 100, secondOffset),
       page(208, 50),
     ]
     const getHistory = vi.fn(async () => {
@@ -43,8 +45,8 @@ describe('MtcuteTelegramClient history', () => {
     expect(rows.at(-1)?.msg_id).toBe(257)
     expect(getHistory).toHaveBeenCalledTimes(3)
     expect(getHistory).toHaveBeenNthCalledWith(1, -100123, { limit: 100, minId: 7, offset: undefined })
-    expect(getHistory).toHaveBeenNthCalledWith(2, -100123, { limit: 100, minId: 7, offset: 101 })
-    expect(getHistory).toHaveBeenNthCalledWith(3, -100123, { limit: 50, minId: 7, offset: 202 })
+    expect(getHistory).toHaveBeenNthCalledWith(2, -100123, { limit: 100, minId: 7, offset: firstOffset })
+    expect(getHistory).toHaveBeenNthCalledWith(3, -100123, { limit: 50, minId: 7, offset: secondOffset })
     expect(sleep).toHaveBeenCalledTimes(2)
     for (const [delay] of sleep.mock.calls) {
       expect(delay).toBeGreaterThanOrEqual(800)
@@ -61,7 +63,7 @@ describe('MtcuteTelegramClient history', () => {
   })
 
   it('skips the page timer when pageDelay is zero', async () => {
-    const pages = [page(8, 100, 101), page(108, 1)]
+    const pages = [page(8, 100, { id: 107, date: 1_752_355_200 }), page(108, 1)]
     const getHistory = vi.fn(async () => pages.shift()!)
     const client = {
       connect: vi.fn().mockResolvedValue(undefined),
@@ -81,7 +83,7 @@ describe('MtcuteTelegramClient history', () => {
   })
 })
 
-function page(start: number, length: number, next?: number): Message[] & { next?: number } {
+function page(start: number, length: number, next?: { id: number; date: number }): Message[] & { next?: { id: number; date: number } } {
   return Object.assign(
     Array.from({ length }, (_, index) => message(start + index)),
     next == null ? {} : { next },
