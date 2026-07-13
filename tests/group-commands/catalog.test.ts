@@ -130,7 +130,7 @@ describe('GROUP_COMMANDS', () => {
       ;(command!.path as [string, string])[0] = 'changed'
     }).toThrow()
     expect(() => {
-      ;(command!.args as unknown[]).push({})
+      ;(command!.args as unknown as unknown[]).push({})
     }).toThrow()
     expect(() => {
       ;(command!.args[0] as { name: string }).name = 'changed'

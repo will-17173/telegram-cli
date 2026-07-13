@@ -1,6 +1,6 @@
 import type { GroupCommandDefinition } from './types.js'
 
-function deepFreezeCommand(command: GroupCommandDefinition): GroupCommandDefinition {
+function deepFreezeCommand<const T extends GroupCommandDefinition>(command: T): T {
   command.args.forEach(Object.freeze)
   command.options.forEach(Object.freeze)
   Object.freeze(command.path)
@@ -63,6 +63,10 @@ const commands = [
   { path: ['message', 'unpin'], summary: 'Unpin a message in the chat', usage: 'group message unpin <id>', options: [], risk: 'none', args: [{ name: 'id', kind: 'id', required: true }], capability: 'admin' },
   { path: ['message', 'unpin-all'], summary: 'Unpin every message in the chat', usage: 'group message unpin-all', options: [], risk: 'confirm', args: [], capability: 'admin' },
   { path: ['message', 'delete'], summary: 'Delete messages from the chat', usage: 'group message delete <ids...>', options: [], risk: 'confirm', args: [{ name: 'ids', kind: 'ids', required: true, rest: true }], capability: 'admin' }
-] satisfies readonly GroupCommandDefinition[]
+] as const satisfies readonly GroupCommandDefinition[]
 
 export const GROUP_COMMANDS = Object.freeze(commands.map(deepFreezeCommand))
+
+type CatalogCommand = typeof GROUP_COMMANDS[number]
+type CommandKeyOf<T> = T extends { readonly path: readonly [infer A extends string, infer B extends string] } ? `${A} ${B}` : never
+export type GroupCommandKey = CommandKeyOf<CatalogCommand>

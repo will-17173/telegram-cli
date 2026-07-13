@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseGroupCommand } from '../../src/group-commands/parser.js'
-import { GroupWriteService } from '../../src/services/group-write-service.js'
+import { COMMAND_HANDLERS, GroupWriteService } from '../../src/services/group-write-service.js'
 import { FakeTelegramGroupManagement } from '../../src/telegram/fake-group-management.js'
 import { GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
 import {
@@ -18,6 +18,15 @@ function request(source: string) {
 describe('GroupWriteService', () => {
   it('keeps the catalog and dispatch table exhaustive', () => {
     expect(GroupWriteService.paths).toEqual(GROUP_COMMANDS.map(command => command.path.join(' ')))
+    expect(Object.keys(COMMAND_HANDLERS).sort()).toEqual(GROUP_COMMANDS.map(command => command.path.join(' ')).sort())
+  })
+
+  it('rejects a noncanonical request at the service boundary', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const valid = request('chat title Safe')
+    const result = await new GroupWriteService(groups).execute({ ...valid, path: ['chat', 'delete'] })
+    expect(result).toMatchObject({ ok: false, error: { code: 'invalid_command' } })
+    expect(groups.writeCalls).toHaveLength(0)
   })
 
   it.each([
@@ -62,5 +71,22 @@ describe('GroupWriteService', () => {
     const groups = new FakeTelegramGroupManagement({ writeFailures: { setTitle: failure } })
     const result = await new GroupWriteService(groups).execute(request('chat title New'))
     expect(result).toMatchObject({ ok: false, error: { code, ...(details === undefined ? {} : { details }) } })
+  })
+
+  it('copies parsed arrays and nested invite options before adapter calls', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const members = request('member add 1 2')
+    const topics = request('topic reorder 3 4')
+    const invite = request('invite create --title Guests --expire 1h --limit 2 --request-needed on')
+    const snapshots = [members, topics, invite].map(item => structuredClone(item.values))
+    Object.freeze(members.values); Object.freeze((members.values as { users: readonly unknown[] }).users)
+    Object.freeze(topics.values); Object.freeze((topics.values as { ids: readonly number[] }).ids)
+    Object.freeze(invite.values)
+    const service = new GroupWriteService(groups)
+    await service.execute(members); await service.execute(topics); await service.execute(invite)
+    expect([members.values, topics.values, invite.values]).toEqual(snapshots)
+    expect(groups.writeCalls[0]?.request).not.toBe(members.values)
+    expect(groups.writeCalls[1]?.request).not.toBe(topics.values)
+    expect(groups.writeCalls[2]?.request).not.toBe(invite.values)
   })
 })

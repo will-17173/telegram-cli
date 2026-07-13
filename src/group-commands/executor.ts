@@ -1,7 +1,7 @@
 import type { HandlerResult } from '../commands/types.js'
 import type { ParsedGroupCommandRequest } from './parser.js'
 import type { TelegramGroupDetails } from '../telegram/group-types.js'
-import { GroupWriteService, type GroupWriteServiceResult } from '../services/group-write-service.js'
+import { canonicalCommandKey, GroupWriteService, type GroupWriteServiceResult } from '../services/group-write-service.js'
 
 export interface GroupCommandExecutorContext {
   readonly chat: string | number
@@ -22,6 +22,8 @@ export type GroupCommandExecutionResult = HandlerResult<GroupWriteServiceResult>
 const queries = new Set(['invite list', 'invite show', 'invite members', 'topic list'])
 
 export async function executeGroupCommand(request: ParsedGroupCommandRequest, context: GroupCommandExecutorContext): Promise<GroupCommandExecutionResult> {
+  const key = canonicalCommandKey(request)
+  if (!key) return error('invalid_command', 'Invalid or noncanonical group command.')
   if (context.connectionReady === false) return error('connection_not_ready', 'Telegram connection is not ready.')
   if (context.targetAvailable === false || (context.targetCount !== undefined && context.targetCount !== 1)) return error('ambiguous_chat', 'Select exactly one target chat.')
   const capabilityFailure = preflight(request, context.knownGroup)
@@ -32,22 +34,29 @@ export async function executeGroupCommand(request: ParsedGroupCommandRequest, co
     return { ok: false, confirmation: { risk, chat: context.chat, summary: request.definition.summary, ...(risk === 'confirm-title' && context.knownGroup ? { title: context.knownGroup.title } : {}) } }
   }
   const result = await context.groups.execute({ ...request, chat: context.chat })
-  if (result.ok && !queries.has(request.path.join(' '))) await context.invalidateGroup?.(context.chat)
+  if (result.ok && !queries.has(key)) await context.invalidateGroup?.(context.chat)
   return result
 }
 
 function preflight(request: ParsedGroupCommandRequest, group?: TelegramGroupDetails): HandlerResult<never> | undefined {
   if (!group) return undefined
   const capability = request.definition.capability
+  const capabilityError = evaluateGroupCapability(capability, group)
+  if (capabilityError) return capabilityError
+  const permission = requiredPermission[request.definition.path.join(' ')]
+  if (group.current_user_role !== 'creator' && permission && group.permissions != null && !group.permissions[permission]) {
+    return { ok: false, error: { code: 'permission_missing', message: `Missing Telegram group permission: ${permission}`, details: { permission } } }
+  }
+  return undefined
+}
+
+export function evaluateGroupCapability(capability: ParsedGroupCommandRequest['definition']['capability'], group?: TelegramGroupDetails): HandlerResult<never> | undefined {
+  if (!group) return undefined
   if (capability === 'group' && group.type !== 'group' && group.type !== 'supergroup') return error('unsupported_group', 'This command requires a group.')
   if (capability === 'supergroup' && group.type !== 'supergroup') return error('unsupported_group', 'This command requires a supergroup.')
   if (capability === 'forum' && !group.forum) return error('unsupported_group', 'This command requires a forum.')
   if (capability === 'creator' && group.current_user_role != null && group.current_user_role !== 'creator') return error('permission_missing', 'This command requires the group creator.')
   if (capability === 'admin' && group.current_user_role != null && group.current_user_role !== 'admin' && group.current_user_role !== 'creator') return error('permission_missing', 'This command requires a group administrator.')
-  const permission = requiredPermission[request.path.join(' ')]
-  if (group.current_user_role !== 'creator' && permission && group.permissions != null && !group.permissions[permission]) {
-    return { ok: false, error: { code: 'permission_missing', message: `Missing Telegram group permission: ${permission}`, details: { permission } } }
-  }
   return undefined
 }
 function error(code: string, message: string): HandlerResult<never> { return { ok: false, error: { code, message } } }

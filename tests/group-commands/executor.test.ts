@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { executeGroupCommand } from '../../src/group-commands/executor.js'
+import { evaluateGroupCapability, executeGroupCommand } from '../../src/group-commands/executor.js'
 import { parseGroupCommand } from '../../src/group-commands/parser.js'
 import { GroupWriteService } from '../../src/services/group-write-service.js'
 import { FakeTelegramGroupManagement } from '../../src/telegram/fake-group-management.js'
@@ -15,6 +15,15 @@ describe('executeGroupCommand', () => {
     const groups = new FakeTelegramGroupManagement()
     const result = await executeGroupCommand(parsed('member ban 2'), { chat: 100, groups: new GroupWriteService(groups), confirmed: false })
     expect(result).toMatchObject({ ok: false, confirmation: { risk: 'confirm', chat: 100 } })
+    expect(groups.writeCalls).toHaveLength(0)
+  })
+
+  it('rejects a definition/path mismatch without calling Telegram', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const title = parsed('chat title harmless')
+    const malicious = { ...title, path: ['chat', 'delete'] as const }
+    const result = await executeGroupCommand(malicious, { chat: 100, groups: new GroupWriteService(groups), confirmed: true })
+    expect(result).toMatchObject({ ok: false, error: { code: 'invalid_command' } })
     expect(groups.writeCalls).toHaveLength(0)
   })
 
@@ -72,5 +81,19 @@ describe('executeGroupCommand', () => {
     const invalidateGroup = vi.fn()
     await executeGroupCommand(parsed('topic list'), { chat: 100, groups: new GroupWriteService(groups), confirmed: false, invalidateGroup })
     expect(invalidateGroup).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['group', { type: 'channel' }, 'unsupported_group'],
+    ['supergroup', { type: 'group' }, 'unsupported_group'],
+    ['forum', { forum: false }, 'unsupported_group'],
+    ['admin', { current_user_role: 'member' }, 'permission_missing'],
+    ['creator', { current_user_role: 'admin' }, 'permission_missing'],
+  ] as const)('rejects known unmet %s capability and permits unknown group details', async (capability, overrides, code) => {
+    const groups = new FakeTelegramGroupManagement()
+    const known = await groups.getGroup(100)
+    const incompatible = { ...known, ...overrides }
+    expect(evaluateGroupCapability(capability, incompatible as typeof known)).toMatchObject({ ok: false, error: { code } })
+    expect(evaluateGroupCapability(capability, undefined)).toBeUndefined()
   })
 })

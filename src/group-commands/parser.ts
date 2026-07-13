@@ -1,11 +1,23 @@
-import { GROUP_COMMANDS } from './catalog.js'
+import { GROUP_COMMANDS, type GroupCommandKey } from './catalog.js'
 import { tokenizeGroupCommand, type GroupCommandToken } from './tokenize.js'
 import type { GroupCommandDefinition, GroupCommandValueKind } from './types.js'
 
-export interface ParsedGroupCommandRequest {
+type User = string | number
+export interface GroupCommandValuesByKey {
+  'member add': { readonly users: readonly User[] }; 'member kick': { readonly user: User }; 'member ban': { readonly user: User }; 'member unban': { readonly user: User }; 'member mute': { readonly user: User; readonly durationSeconds?: number | null }; 'member unmute': { readonly user: User }; 'member purge': { readonly user: User }
+  'admin promote': { readonly user: User; readonly permissions?: readonly string[] }; 'admin demote': { readonly user: User }; 'admin rank': { readonly user: User; readonly text: string }; 'admin transfer-owner': { readonly user: User }
+  'chat title': { readonly text: string }; 'chat description': { readonly text: string }; 'chat username': { readonly username: string }; 'chat photo': { readonly path: string }; 'chat slowmode': { readonly durationSeconds: number | null }; 'chat ttl': { readonly durationSeconds: number | null }; 'chat protect': { readonly enabled: boolean }; 'chat join-requests': { readonly enabled: boolean }; 'chat join-to-send': { readonly enabled: boolean }; 'chat default-permissions': { readonly permissions: readonly string[] }; 'chat sticker-set': { readonly id: number }; 'chat leave': Record<never, never>; 'chat delete': Record<never, never>
+  'invite list': Record<never, never>; 'invite show': { readonly invite: string }; 'invite create': { readonly title?: string; readonly expireSeconds?: number | null; readonly limit?: number; readonly requestNeeded?: boolean }; 'invite edit': { readonly invite: string; readonly title?: string; readonly expireSeconds?: number | null; readonly limit?: number; readonly requestNeeded?: boolean }; 'invite revoke': { readonly invite: string }; 'invite members': { readonly invite: string }; 'invite approve': { readonly user: User }; 'invite decline': { readonly user: User }; 'invite approve-all': Record<never, never>; 'invite decline-all': Record<never, never>
+  'topic list': Record<never, never>; 'topic create': { readonly title: string }; 'topic edit': { readonly id: number; readonly title: string }; 'topic close': { readonly id: number }; 'topic reopen': { readonly id: number }; 'topic pin': { readonly id: number }; 'topic unpin': { readonly id: number }; 'topic reorder': { readonly ids: readonly number[] }; 'topic delete': { readonly id: number }; 'topic general-hidden': { readonly hidden: boolean }
+  'message pin': { readonly id: number }; 'message unpin': { readonly id: number }; 'message unpin-all': Record<never, never>; 'message delete': { readonly ids: readonly number[] }
+}
+type AssertAllValues<T extends Record<GroupCommandKey, object>> = T
+type AllValuesCovered = AssertAllValues<GroupCommandValuesByKey>
+
+export interface ParsedGroupCommandRequest<K extends GroupCommandKey = GroupCommandKey> {
   readonly definition: GroupCommandDefinition
   readonly path: readonly [string, string]
-  readonly values: Readonly<Record<string, unknown>>
+  readonly values: GroupCommandValuesByKey[K]
   readonly source: string
 }
 
@@ -115,7 +127,8 @@ export function parseGroupCommand(source: string): ParseGroupCommandResult {
       if (argument.required) return failure('missing_argument', `Missing argument: ${argument.name}`, definition)
       continue
     }
-    const rawValues = argument.rest ? available.map(token => token.value) : [available[0].value]
+    const isRest = 'rest' in argument && argument.rest
+    const rawValues = isRest ? available.map(token => token.value) : [available[0].value]
     position += rawValues.length
     if (argument.kind === 'users' || argument.kind === 'ids') {
       const singularKind = argument.kind === 'users' ? 'user' : 'id'
@@ -128,7 +141,7 @@ export function parseGroupCommand(source: string): ParseGroupCommandResult {
       values[camelCase(argument.name)] = parsedValues
       continue
     }
-    const raw = argument.rest ? rawValues.join(' ') : rawValues[0]
+    const raw = isRest ? rawValues.join(' ') : rawValues[0]
     const parsed = parseValue(argument.kind, raw)
     if (!parsed.ok) return failure(parsed.code, parsed.message, definition)
     values[valueName(argument.name, argument.kind)] = parsed.value
@@ -138,7 +151,7 @@ export function parseGroupCommand(source: string): ParseGroupCommandResult {
   for (const option of definition.options) {
     const raw = optionValues.get(option.name)
     if (raw === undefined) {
-      if (option.required) return failure('missing_option', `Missing option: ${option.long}`, definition)
+      if ('required' in option && option.required) return failure('missing_option', `Missing option: ${option.long}`, definition)
       continue
     }
     const parsed = parseValue(option.kind, raw)
@@ -146,7 +159,7 @@ export function parseGroupCommand(source: string): ParseGroupCommandResult {
     values[valueName(option.name, option.kind)] = parsed.value
   }
 
-  return { ok: true, request: { definition, path: definition.path, values, source } }
+  return { ok: true, request: { definition, path: definition.path, values, source } as ParsedGroupCommandRequest }
 }
 
 function isSubsequence(query: string, target: string): boolean {
@@ -159,14 +172,16 @@ export function matchGroupCommands(source: string): readonly GroupCommandMatch[]
   const tokenized = commandTokens(source)
   if (!tokenized.ok) return []
   const query = tokenized.tokens.slice(0, 2).map(token => token.value.toLowerCase())
-  return GROUP_COMMANDS.map((definition, catalogIndex) => {
+  const matches: Array<GroupCommandMatch & { catalogIndex: number }> = []
+  GROUP_COMMANDS.forEach((definition, catalogIndex) => {
     const joinedQuery = query.join(' ')
     const exactParts = query.every((part, index) => definition.path[index]?.startsWith(part))
     const fuzzyParts = query.every((part, index) => isSubsequence(part, definition.path[index] ?? ''))
     const summaryMatch = joinedQuery.length > 0 && isSubsequence(joinedQuery.replace(/\s/g, ''), definition.summary.toLowerCase().replace(/\s/g, ''))
-    if (!exactParts && !fuzzyParts && !summaryMatch) return undefined
-    return { definition, score: exactParts ? 3 : fuzzyParts ? 2 : 1, catalogIndex }
-  }).filter((match): match is GroupCommandMatch & { catalogIndex: number } => Boolean(match))
+    if (!exactParts && !fuzzyParts && !summaryMatch) return
+    matches.push({ definition, score: exactParts ? 3 : fuzzyParts ? 2 : 1, catalogIndex })
+  })
+  return matches
     .sort((left, right) => right.score - left.score || left.catalogIndex - right.catalogIndex)
     .map(({ definition, score }) => ({ definition, score }))
 }
