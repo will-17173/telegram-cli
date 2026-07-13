@@ -16,6 +16,7 @@ import {
   createInteractiveListenRuntime,
   createInteractiveOperationController,
   flushListenBeforeExit,
+  formatInteractiveListenHeader,
   formatInteractiveListenSender,
   interactiveListenPreviewColorDepth,
   InteractiveListen,
@@ -40,13 +41,13 @@ import {
   useTerminalMetrics,
 } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
-import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
+import { DISABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
 import type { ListenMessageRow } from '../../src/presenters/listen-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
 
 describe('runInteractiveListen', () => {
-  it('wraps the interactive run with mouse reporting and preserves its result', async () => {
+  it('keeps mouse reporting disabled for native text selection', async () => {
     const calls: string[] = []
 
     const result = await runInteractiveListen(
@@ -58,7 +59,7 @@ describe('runInteractiveListen', () => {
     )
 
     expect(result).toBe('completed')
-    expect(calls).toEqual([ENABLE_MOUSE_REPORTING, 'run', DISABLE_MOUSE_REPORTING])
+    expect(calls).toEqual([DISABLE_MOUSE_REPORTING, 'run'])
   })
 })
 
@@ -420,6 +421,12 @@ describe('InteractiveListen slash commands', () => {
 })
 
 describe('interactive listen sender formatting', () => {
+  it('shows the message id in the interactive header', () => {
+    expect(formatInteractiveListenHeader({
+      time: '18:03', msgId: 456, sender: 'Alice', senderId: 123,
+    })).toBe('[18:03] #456 Alice (123)')
+  })
+
   it('appends sender ids in single-chat and multi-chat headers', () => {
     expect(formatInteractiveListenSender({ sender: 'Alice', senderId: 123 }))
       .toBe('Alice (123)')

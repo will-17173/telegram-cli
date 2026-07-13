@@ -15,7 +15,7 @@ import { buildListenMessage, type ListenAttachment, type ListenMessageRow } from
 import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScrollState } from './listen-scroll.js'
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
-import { isMouseInput, useMouseScroll, withMouseReporting, type MouseScrollDirection } from './mouse-scroll.js'
+import { DISABLE_MOUSE_REPORTING, isMouseInput } from './mouse-scroll.js'
 import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
 import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
 import { executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
@@ -556,6 +556,12 @@ export function formatInteractiveListenSender(
   return message.chatName == null ? sender : `${message.chatName} | ${sender}`
 }
 
+export function formatInteractiveListenHeader(
+  message: Pick<ListenMessage, 'time' | 'msgId' | 'sender' | 'senderId' | 'chatName'>,
+): string {
+  return `[${message.time}] #${message.msgId} ${formatInteractiveListenSender(message)}`
+}
+
 export function ListenStatusArea({
   status,
   unseenCount,
@@ -586,7 +592,8 @@ export async function runInteractiveListen<T>(
   write: (value: string) => unknown,
   run: () => Promise<T>,
 ): Promise<T> {
-  return withMouseReporting({ write, run })
+  write(DISABLE_MOUSE_REPORTING)
+  return run()
 }
 
 export async function renderInteractiveListen(options: ListenRuntimeOptions): Promise<void> {
@@ -696,20 +703,13 @@ export function InteractiveListen({
   const seenOrderRef = useRef<string[]>([])
   const downloadableAttachments = collectDownloadableAttachments(visibleMessages)
   const selectedAttachment = downloadableAttachments[selectedAttachmentIndex] ?? downloadableAttachments[0]
-  const { visible: scrollbarVisible, show: showScrollbar } = useTransientScrollbar()
+  const { visible: scrollbarVisible } = useTransientScrollbar()
   const scrollbarGeometry = calculateScrollbar({
     height: terminalHeight,
     total: messages.length,
     visible: visibleMessages.length,
     offset: scrollState.offset,
   })
-  const handleMouseScroll = useCallback((direction: MouseScrollDirection) => {
-    showScrollbar()
-    setScrollState((current) => applyScroll(current, direction, Math.max(0, messages.length - 1)))
-  }, [messages.length, showScrollbar])
-
-  useMouseScroll(handleMouseScroll)
-
   useEffect(() => {
     const maxOffset = Math.max(0, messages.length - 1)
     setScrollState((current) => {
@@ -1135,7 +1135,7 @@ export function InteractiveListen({
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}
           {visibleMessages.map((message) => (
             <Box key={message.key} flexDirection="column">
-              <Text dimColor wrap="truncate-end">[{message.time}] {formatInteractiveListenSender(message)}</Text>
+              <Text dimColor wrap="truncate-end">{formatInteractiveListenHeader(message)}</Text>
               {message.replyContext == null ? null : <Text wrap="truncate-end">{formatReplyContext(message.replyContext)}</Text>}
               {message.content == null ? null : <Text wrap="truncate-end">{message.content}</Text>}
               {message.mediaSummary == null ? null : <Text wrap="truncate-end">{message.mediaSummary}</Text>}
