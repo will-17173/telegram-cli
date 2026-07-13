@@ -27,6 +27,7 @@ import { useGroupCommand } from './use-group-command.js'
 import { executeGroupCommand } from '../../group-commands/executor.js'
 import { GroupWriteService } from '../../services/group-write-service.js'
 import { ADMIN_RIGHT_KEYS } from '../../services/group-write-service.js'
+import { WriteAccessPolicy } from '../../services/write-access-policy.js'
 import { GroupCommandConfirm } from './group-command-confirm.js'
 import { truncateCell } from './display-width.js'
 
@@ -647,6 +648,9 @@ export function InteractiveListen({
     const client = clientRef.current
     if (client == null) return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection is not ready.' } }
     if (sendTo == null) return { ok: false, error: { code: 'ambiguous_chat', message: 'Select exactly one target chat with --send-to.' } }
+    const access = new WriteAccessPolicy().check()
+    if (!access.ok) return access
+
     let knownGroup = knownGroupRef.current
     if (knownGroup == null) {
       const lookup = ++groupLookupGenerationRef.current
@@ -903,6 +907,11 @@ export function InteractiveListen({
           if (sendTo == null) { setNote('set --send-to before replying'); return }
           const client = clientRef.current
           if (client == null) { setNote('connection is not ready'); return }
+          const access = new WriteAccessPolicy().check()
+          if (!access.ok) {
+            setNote(access.error.message)
+            return
+          }
           replyExecutionLockRef.current = true
           const ownedGeneration = inputGenerationRef.current
           const originalInput = input
@@ -1089,6 +1098,12 @@ export function InteractiveListen({
   }, [autoDownload, chats, createClient, createReplyResolver, dbPath, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, onRequestStop])
 
   const sendMessage = async (text: string): Promise<void> => {
+    const access = new WriteAccessPolicy().check()
+    if (!access.ok) {
+      setNote(access.error.message)
+      return
+    }
+
     const trimmed = text.trim()
     if (!trimmed) return
     const command = parseListenComposerInput(trimmed)

@@ -75,6 +75,7 @@ describe('Telegram command lifecycle', () => {
   it('exports the shared Telegram command runner', async () => {
     await expect(import('../../src/commands/telegram-runner.js')).resolves.toMatchObject({
       runTelegramCommand: expect.any(Function),
+      runTelegramWriteCommand: expect.any(Function),
       hideBenignUpdateWarnings: expect.any(Function),
     })
   })
@@ -306,6 +307,21 @@ describe('Telegram command lifecycle', () => {
           { label: 'msg_id', value: '9' },
           { label: 'chat', value: 'General' },
         ],
+      },
+    }, expect.any(Object))
+  })
+
+  it('does not construct a client for send when write access is disabled', async () => {
+    writeFileSync(join(currentDataDir, 'config.json'), `${JSON.stringify({ write_access: false })}\n`)
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'send', 'General', 'hello'])
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: {
+        code: 'write_access_disabled',
+        message: 'Telegram remote writes are disabled. Run tg config write-access on to enable them.',
       },
     }, expect.any(Object))
   })

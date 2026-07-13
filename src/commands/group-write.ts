@@ -8,7 +8,7 @@ import { groupWriteHuman } from '../presenters/group.js'
 import { GroupWriteService } from '../services/group-write-service.js'
 import type { TelegramGroupDetails } from '../telegram/group-types.js'
 import type { AccountCommandOptions } from './account-options.js'
-import { runTelegramCommand } from './telegram-runner.js'
+import { runTelegramWriteCommand } from './telegram-runner.js'
 import { outputFormatConflict, type HandlerResult, type OutputFlags } from './types.js'
 
 type WriteOptions = AccountCommandOptions & OutputFlags & { yes?: boolean; confirmTitle?: string; [key: string]: unknown }
@@ -58,7 +58,7 @@ async function runGroupWrite(definition: typeof GROUP_COMMANDS[number], position
   if (definition.risk !== 'none' && !options.yes) {
     return renderResult(confirmationFailure(definition.summary, definition.risk), options)
   }
-  await runTelegramCommand(options, async (client) => {
+  await runTelegramWriteCommand(options, async (client) => {
     let knownGroup: TelegramGroupDetails | undefined
     if (definition.risk === 'confirm-title') knownGroup = await client.groups.getGroup(chat)
     const result = await executeGroupCommand(parsed.request, {

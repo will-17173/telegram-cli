@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FakeTelegramClient } from '../../src/telegram/fake-client.js'
 import { MessageService } from '../../src/services/message-service.js'
+import { WriteAccessPolicy } from '../../src/services/write-access-policy.js'
 import { cleanupSendFiles, createSendDirectory, createSendFiles, makeUnreadable } from '../fixtures/send-files.js'
 
 afterEach(cleanupSendFiles)
@@ -190,6 +191,51 @@ describe('MessageService', () => {
     })
     expect('human' in edit).toBe(false)
     expect('human' in deleted).toBe(false)
+  })
+
+  it('rejects send when write access is disabled', async () => {
+    const fake = new FakeTelegramClient()
+    const service = new MessageService(fake, new WriteAccessPolicy(() => false))
+
+    const result = await service.send({
+      chat: 'TestGroup',
+      message: 'Hello',
+      files: [],
+      linkPreview: true,
+    })
+
+    expect(result).toEqual({ ok: false, error: {
+      code: 'write_access_disabled',
+      message: 'Telegram remote writes are disabled. Run tg config write-access on to enable them.',
+    } })
+    expect(fake.sendMessageCalls).toHaveLength(0)
+    expect(fake.sendMediaCalls).toHaveLength(0)
+  })
+
+  it('rejects edit when write access is disabled', async () => {
+    const fake = new FakeTelegramClient()
+    const service = new MessageService(fake, new WriteAccessPolicy(() => false))
+
+    const result = await service.edit({ chat: 'TestGroup', msgId: 2, text: 'updated', linkPreview: true })
+
+    expect(result).toEqual({ ok: false, error: {
+      code: 'write_access_disabled',
+      message: 'Telegram remote writes are disabled. Run tg config write-access on to enable them.',
+    } })
+    expect(fake.editMessageCalls).toHaveLength(0)
+  })
+
+  it('rejects delete when write access is disabled', async () => {
+    const fake = new FakeTelegramClient()
+    const service = new MessageService(fake, new WriteAccessPolicy(() => false))
+
+    const result = await service.delete({ chat: 'TestGroup', msgIds: [1, 2] })
+
+    expect(result).toEqual({ ok: false, error: {
+      code: 'write_access_disabled',
+      message: 'Telegram remote writes are disabled. Run tg config write-access on to enable them.',
+    } })
+    expect(fake.deleteMessagesCalls).toHaveLength(0)
   })
 
   it('rejects invalid message options before touching Telegram', async () => {

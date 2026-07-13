@@ -94,6 +94,24 @@ describe('group write commands', () => {
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'permissions_required', message: expect.stringContaining('change_info') }) }), expect.anything())
   })
 
+  it('does not construct a client when write access is disabled', async () => {
+    writeFileSync(join(dataDir, 'config.json'), `${JSON.stringify({ write_access: false })}\n`)
+
+    await run('group', 'member', 'ban', 'General', '@alice', '--yes')
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ok: false,
+        error: {
+          code: 'write_access_disabled',
+          message: 'Telegram remote writes are disabled. Run tg config write-access on to enable them.',
+        },
+      }),
+      expect.anything(),
+    )
+  })
+
   it('requires the exact fetched title before deleting a chat', async () => {
     await run('group', 'chat', 'delete', 'General', '--yes', '--confirm-title', 'general')
     expect(groups.getGroup).toHaveBeenCalledWith('General')

@@ -4,6 +4,7 @@ import { createTelegramClient } from '../telegram/client-factory.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
 import { runWithAuthenticatedAccountContext, type AccountCommandOptions } from './account-options.js'
 import type { HandlerResult } from './types.js'
+import { WriteAccessPolicy } from '../services/write-access-policy.js'
 
 type StreamWrite = typeof process.stdout.write
 
@@ -24,6 +25,44 @@ export async function runTelegramCommand(
   await runWithAuthenticatedAccountContext(options, async (context) => {
     const restoreStdoutWarnings = hideBenignUpdateWarnings(process.stdout)
     const restoreStderrWarnings = hideBenignUpdateWarnings(process.stderr)
+
+    let client: TelegramClientAdapter
+    try {
+      client = createTelegramClient(context.sessionPath)
+    } catch (error) {
+      restoreStdoutWarnings()
+      restoreStderrWarnings()
+      return commandFailure('config_error', error)
+    }
+
+    try {
+      return await handler(client, context)
+    } catch (error) {
+      const authError = toAuthSessionError(error, context.account.name)
+      return authError ?? commandFailure('telegram_error', error)
+    } finally {
+      restoreStdoutWarnings()
+      restoreStderrWarnings()
+      await client.close().catch(() => undefined)
+    }
+  }, command)
+}
+
+export async function runTelegramWriteCommand(
+  options: AccountCommandOptions,
+  handler: (client: TelegramClientAdapter, context: AccountContext) => Promise<HandlerResult>,
+  command?: Command,
+): Promise<void> {
+  await runWithAuthenticatedAccountContext(options, async (context) => {
+    const restoreStdoutWarnings = hideBenignUpdateWarnings(process.stdout)
+    const restoreStderrWarnings = hideBenignUpdateWarnings(process.stderr)
+
+    const access = new WriteAccessPolicy().check()
+    if (!access.ok) {
+      restoreStdoutWarnings()
+      restoreStderrWarnings()
+      return access
+    }
 
     let client: TelegramClientAdapter
     try {

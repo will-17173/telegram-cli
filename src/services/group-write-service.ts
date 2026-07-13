@@ -8,6 +8,7 @@ import {
   type TelegramGroupAdminRights, type TelegramGroupManagementAdapter, type TelegramGroupRestrictions,
 } from '../telegram/group-types.js'
 import type { GroupWriteOperationResultMap, TelegramGroupWriteOperation } from '../telegram/group-write-types.js'
+import { WriteAccessPolicy } from './write-access-policy.js'
 
 export type ParsedGroupWriteRequest = ParsedGroupCommandRequest & { readonly chat: string | number }
 export type GroupWriteServiceResult = GroupWriteOperationResultMap[TelegramGroupWriteOperation]
@@ -80,8 +81,15 @@ export function canonicalCommandKey(request: ParsedGroupCommandRequest): GroupCo
 
 export class GroupWriteService {
   static readonly paths = Object.keys(COMMAND_HANDLERS)
-  constructor(private readonly groups: TelegramGroupManagementAdapter) {}
+  constructor(
+    private readonly groups: TelegramGroupManagementAdapter,
+    private readonly writePolicy: WriteAccessPolicy = new WriteAccessPolicy(),
+  ) {}
+
   async execute(request: ParsedGroupWriteRequest): Promise<HandlerResult<GroupWriteServiceResult>> {
+    const access = this.writePolicy.check()
+    if (!access.ok) return access
+
     const key = canonicalCommandKey(request)
     if (!key) return failure('invalid_command', 'Invalid or noncanonical group command.')
     if (request.key === 'admin promote' && (!request.values.permissions || request.values.permissions.length === 0)) {

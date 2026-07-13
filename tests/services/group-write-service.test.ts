@@ -8,6 +8,7 @@ import {
   TelegramGroupMembersNotAddedError, TelegramGroupMissingPermissionError, TelegramGroupNotFoundError,
   TelegramGroupPasswordRequiredError, TelegramUnsupportedGroupTypeError,
 } from '../../src/telegram/group-types.js'
+import { WriteAccessPolicy } from '../../src/services/write-access-policy.js'
 
 function request(source: string) {
   const parsed = parseGroupCommand(source)
@@ -146,6 +147,20 @@ describe('GroupWriteService', () => {
     const groups = new FakeTelegramGroupManagement()
     const result = await new GroupWriteService(groups).execute(request('admin promote 7 ban_users,bogus'))
     expect(result).toMatchObject({ ok: false, error: { code: 'invalid_option', message: expect.stringContaining('ban_users') } })
+    expect(groups.writeCalls).toHaveLength(0)
+  })
+
+  it('rejects writes when write access is disabled', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await new GroupWriteService(groups, new WriteAccessPolicy(() => false)).execute(request('member ban @alice'))
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: 'write_access_disabled',
+        message: 'Telegram remote writes are disabled. Run tg config write-access on to enable them.',
+      },
+    })
     expect(groups.writeCalls).toHaveLength(0)
   })
 })

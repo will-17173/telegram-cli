@@ -11,7 +11,7 @@ import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '
 import { formatListenLine } from '../presenters/listen-message.js'
 import { renderInteractiveListen } from '../presenters/ink/listen.js'
 import { runWithAuthenticatedAccountContext, type AccountCommandOptions } from './account-options.js'
-import { hideBenignUpdateWarnings, runTelegramCommand } from './telegram-runner.js'
+import { hideBenignUpdateWarnings, runTelegramCommand, runTelegramWriteCommand } from './telegram-runner.js'
 import { createListenReplyResolver } from '../services/listen-reply-resolver.js'
 
 type MachineOptions = AccountCommandOptions
@@ -440,7 +440,7 @@ async function renderMessageResult(
   handler: (service: MessageService) => Promise<HandlerResult>,
   command?: Command,
 ): Promise<void> {
-  await runTelegramCommand(options, async (client) => {
+  await runTelegramWriteCommand(options, async (client) => {
     const service = new MessageService(client)
     const result = await handler(service)
     return result.ok && result.human == null

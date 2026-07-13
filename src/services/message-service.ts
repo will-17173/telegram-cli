@@ -2,6 +2,7 @@ import { accessSync, constants, statSync } from 'node:fs'
 import type { HandlerResult } from '../commands/types.js'
 import { actionDetail } from '../presenters/human.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
+import { WriteAccessPolicy } from './write-access-policy.js'
 
 type SendOptions = {
   chat: string
@@ -33,9 +34,20 @@ type DeleteOptions = {
 }
 
 export class MessageService {
-  constructor(private readonly tg: TelegramClientAdapter) {}
+  constructor(
+    private readonly tg: TelegramClientAdapter,
+    private readonly writePolicy: WriteAccessPolicy = new WriteAccessPolicy(),
+  ) {}
+
+  withWriteAccess<T>(): HandlerResult<T> | null {
+    const check = this.writePolicy.check()
+    return check.ok ? null : check
+  }
 
   async send(options: SendOptions): Promise<HandlerResult<SendResult>> {
+    const access = this.withWriteAccess<SendResult>()
+    if (access) return access
+
     const invalid = validateSend(options)
     if (invalid) return invalid
 
@@ -81,6 +93,9 @@ export class MessageService {
   }
 
   async edit(options: EditOptions): Promise<HandlerResult<{ edited: true; msg_id: number; chat: string }>> {
+    const access = this.withWriteAccess<{ edited: true; msg_id: number; chat: string }>()
+    if (access) return access
+
     const invalid = validateEdit(options)
     if (invalid) return invalid
 
@@ -94,6 +109,9 @@ export class MessageService {
   }
 
   async delete(options: DeleteOptions): Promise<HandlerResult<{ deleted: true; msg_ids: number[]; chat: string }>> {
+    const access = this.withWriteAccess<{ deleted: true; msg_ids: number[]; chat: string }>()
+    if (access) return access
+
     const invalid = validateDelete(options)
     if (invalid) return invalid
 
