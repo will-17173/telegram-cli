@@ -1,7 +1,9 @@
 import type { HumanOutput, DetailField } from '../commands/types.js'
 import type { StoredMessage } from '../storage/message-db.js'
 import type { TelegramChat } from '../telegram/types.js'
+import type { TelegramContact } from '../telegram/contact-types.js'
 import type { LogicalMessage } from './logical-message.js'
+import type { InboxDialog, OnlineMessage } from '../telegram/dialog-types.js'
 import { summarizeLogicalMedia } from './logical-message.js'
 import { formatReplyContext } from '../services/reply-context.js'
 
@@ -26,6 +28,10 @@ type ChatCountRow = { chat_name?: unknown; msg_count: number }
 
 type MessageTableOptions = {
   chatLabel?: string
+}
+
+type OnlineMessageTableOptions = {
+  includeChat?: boolean
 }
 
 type SyncResult = {
@@ -62,6 +68,98 @@ export function userDetail(user: DisplayUser, title = 'User'): HumanOutput & { k
       { label: 'Username', value: username(user.username) },
       { label: 'ID', value: display(user.id) },
       { label: 'Phone', value: display(user.phone) },
+    ],
+  }
+}
+
+export function inboxTable(dialogs: InboxDialog[]): HumanOutput & { kind: 'table' } {
+  return {
+    kind: 'table',
+    title: 'Inbox',
+    columns: ['ID', 'NAME', 'TYPE', 'UNREAD', 'MENTIONS', 'REACTIONS', 'MUTED', 'LAST MESSAGE'],
+    rows: dialogs.map((item) => [
+      String(item.chat_id),
+      item.chat_name,
+      item.chat_type,
+      String(item.unread),
+      String(item.unread_mentions),
+      String(item.unread_reactions),
+      item.muted == null ? '-' : item.muted ? 'Yes' : 'No',
+      item.last_message == null ? '-' : `${localTimestamp(item.last_message.timestamp)} (${item.last_message.msg_id})`,
+    ]),
+    emptyText: 'No unread dialogs found.',
+  }
+}
+
+export function onlineMessageTable(
+  messages: OnlineMessage[],
+  title = 'Messages',
+  emptyText = 'No online messages found.',
+  options: OnlineMessageTableOptions = {},
+): HumanOutput & { kind: 'table' } {
+  const includeChat = options.includeChat ?? true
+  return {
+    kind: 'table',
+    title,
+    columns: includeChat ? ['TIME', 'CHAT', 'SENDER', 'MESSAGE'] : ['TIME', 'SENDER', 'MESSAGE'],
+    rows: messages.map((message) => {
+      const text = message.text == null || message.text === '' ? '—' : message.text
+      const attachment = message.attachment == null
+        ? ''
+        : ` [${message.attachment.type}]`
+      return includeChat
+        ? [
+          localTimestamp(message.timestamp),
+          display(message.chat_name),
+          display(message.sender_name),
+          `${text}${attachment}`,
+        ]
+        : [
+          localTimestamp(message.timestamp),
+          display(message.sender_name),
+          `${text}${attachment}`,
+        ]
+    }),
+    emptyText,
+  }
+}
+
+export function contactListTable(contacts: TelegramContact[]): HumanOutput & { kind: 'table' } {
+  return {
+    kind: 'table',
+    title: 'Contacts',
+    columns: ['ID', 'NAME', 'FIRST', 'LAST', 'USERNAME', 'PHONE', 'CONTACT', 'MUTUAL', 'BOT', 'DELETED'],
+    rows: contacts.map((contact) => [
+      String(contact.id),
+      fallback(contact.display_name),
+      fallback(contact.first_name),
+      fallback(contact.last_name),
+      username(contact.username),
+      fallback(contact.phone),
+      booleanLabel(contact.is_contact),
+      booleanLabel(contact.is_mutual_contact),
+      booleanLabel(contact.is_bot),
+      booleanLabel(contact.is_deleted),
+    ]),
+    emptyText: 'No contacts found.',
+  }
+}
+
+export function contactDetailTable(contact: TelegramContact): HumanOutput & { kind: 'detail' } {
+  return {
+    kind: 'detail',
+    title: 'Contact',
+    fields: [
+      { label: 'ID', value: String(contact.id) },
+      { label: 'Display Name', value: fallback(contact.display_name) },
+      { label: 'First Name', value: fallback(contact.first_name) },
+      { label: 'Last Name', value: fallback(contact.last_name) },
+      { label: 'Username', value: username(contact.username) },
+      { label: 'Phone', value: fallback(contact.phone) },
+      { label: 'Contact', value: booleanLabel(contact.is_contact) },
+      { label: 'Mutual Contact', value: booleanLabel(contact.is_mutual_contact) },
+      { label: 'Bot', value: booleanLabel(contact.is_bot) },
+      { label: 'Deleted', value: booleanLabel(contact.is_deleted) },
     ],
   }
 }
@@ -205,6 +303,10 @@ function display(value: unknown): string {
   return String(value)
 }
 
+function fallback(value: string | null): string {
+  return value == null || value === '' ? '—' : value
+}
+
 function safeJson(value: object): string {
   const seen = new WeakSet<object>()
   try {
@@ -240,6 +342,14 @@ function boundValue(value: unknown, depth: number, seen: WeakSet<object>): unkno
 function truncate(value: string, maximum: number, marker: string): string {
   if (value.length <= maximum) return value
   return value.slice(0, Math.max(0, maximum - marker.length)) + marker
+}
+
+function booleanLabel(value: boolean): string {
+  return value ? 'Yes' : 'No'
+}
+
+function localTimestamp(value: string): string {
+  return formatTimestamp(value)
 }
 
 function username(value: unknown): string {

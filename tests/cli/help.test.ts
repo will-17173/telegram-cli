@@ -11,7 +11,9 @@ describe('cli help', () => {
       'account',
       'chats',
       'config',
+      'contact',
       'delete',
+      'dialog',
       'edit',
       'export',
       'filter',
@@ -74,7 +76,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(24)
+    expect(commands).toHaveLength(26)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 
@@ -114,13 +116,25 @@ describe('cli help', () => {
 
     expect(group).toBeDefined()
     expect(group?.description()).toBe('Inspect Telegram groups, members, and audit events')
-    expect(group?.commands.map((command) => command.name())).toEqual(['info', 'members', 'member', 'audit', 'admin', 'chat', 'invite', 'topic', 'message'])
+    expect(group?.commands.map((command) => command.name())).toEqual([
+      'info',
+      'members',
+      'member',
+      'audit',
+      'list',
+      'admin',
+      'chat',
+      'invite',
+      'topic',
+      'message',
+    ])
     expect(group?.commands.slice(0, 4).map((command) => command.description())).toEqual([
       'Show Telegram group information',
       'List Telegram group members',
       'Legacy member lookup; use member info for an unambiguous route (required for reserved action names)',
       'List Telegram group audit events',
     ])
+    expect(group?.commands.slice(0, 5).map((command) => command.name())[4]).toBe('list')
   })
 
   it('registers all catalog arguments and options without a conflicting account option', () => {

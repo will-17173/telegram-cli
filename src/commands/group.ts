@@ -6,7 +6,11 @@ import {
   groupInfoDetail,
   groupMemberDetail,
   groupMembersTable,
+  managedGroupTable,
 } from '../presenters/group.js'
+import {
+  DialogService,
+} from '../services/dialog-service.js'
 import {
   GroupService,
   validateGroupAuditOptions,
@@ -29,6 +33,11 @@ type GroupAuditCommandOptions = OutputFlags & {
   query?: string
   user?: string[]
   type?: string[]
+  limit?: string
+}
+
+type GroupListCommandOptions = OutputFlags & {
+  admin?: boolean
   limit?: string
 }
 
@@ -126,6 +135,29 @@ export function registerGroupCommands(app: Command): void {
       await runTelegramCommand(options, async (client) => {
         const result = await new GroupService(client.groups).audit(validation.options)
         return result.ok ? { ...result, human: groupAuditTable(result.data) } : result
+      })
+    })
+
+  group.command('list')
+    .description('List Telegram managed groups')
+    .option('--admin', 'Only groups where you are an admin or creator')
+    .option('-n, --limit <limit>', 'Max managed groups to list')
+    .option('--json')
+    .option('--yaml')
+  .action(async (_options: GroupListCommandOptions, command: Command) => {
+      const options = optionsWithGlobals<GroupListCommandOptions>(command)
+      const conflict = outputFormatConflict(options)
+      if (conflict) {
+        await renderResult(conflict, { yaml: true })
+        return
+      }
+
+      await runTelegramCommand(options, async (client) => {
+        const result = await new DialogService(client.dialogs).groups({
+          adminOnly: Boolean(options.admin),
+          limit: options.limit,
+        })
+        return result.ok ? { ...result, human: managedGroupTable(result.data) } : result
       })
     })
 

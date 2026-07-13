@@ -8,6 +8,7 @@ import type {
   TelegramGroupMemberResult,
   TelegramGroupRestrictions,
 } from '../telegram/group-types.js'
+import type { TelegramManagedChat } from '../telegram/dialog-types.js'
 import type { GroupWriteServiceResult } from '../services/group-write-service.js'
 import type { TelegramGroupInviteMemberPage, TelegramGroupInvitePage, TelegramGroupInviteResult, TelegramGroupTopicPage, TelegramGroupTopicResult, TelegramGroupWriteResult } from '../telegram/group-write-types.js'
 
@@ -107,6 +108,23 @@ export function groupAuditTable(page: TelegramGroupAuditPage): TableOutput {
       fallback(event.summary),
     ]),
     emptyText: 'No matching audit events.',
+  }
+}
+
+export function managedGroupTable(groups: TelegramManagedChat[]): TableOutput {
+  return {
+    kind: 'table',
+    title: 'Managed Groups',
+    columns: ['ID', 'NAME', 'TYPE', 'USERNAME', 'ADMIN', 'CREATOR'],
+    rows: groups.map((group) => [
+      String(group.id),
+      group.name,
+      group.type,
+      group.username == null ? '-' : username(group.username),
+      boolean(group.is_admin),
+      boolean(group.is_creator),
+    ]),
+    emptyText: 'No managed groups.',
   }
 }
 
