@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { setTimeout } from 'node:timers/promises'
 import { TelegramClient, Thumbnail } from '@mtcute/node'
 import type {
   FullChat,
@@ -101,12 +102,25 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   async fetchHistory(options: FetchHistoryOptions): Promise<StoredMessageInput[]> {
     await this.ensureReady()
     const rows: StoredMessageInput[] = []
-    for await (const message of this.client.iterHistory(normalizeChatId(options.chat), {
-      limit: options.limit,
-      minId: options.minId,
-    })) {
-      rows.push(toStoredMessage(message))
-      options.onProgress?.(rows.length)
+    let offset: NonNullable<Parameters<TelegramClient['getHistory']>[1]>['offset']
+
+    while (rows.length < options.limit) {
+      const page = await this.client.getHistory(normalizeChatId(options.chat), {
+        limit: Math.min(100, options.limit - rows.length),
+        minId: options.minId,
+        offset,
+      })
+      for (const message of page) {
+        rows.push(toStoredMessage(message))
+        options.onProgress?.(rows.length)
+      }
+
+      if (rows.length >= options.limit || page.next == null) break
+      offset = page.next
+      if (options.pageDelay) {
+        const jitter = 0.8 + Math.random() * 0.4
+        await setTimeout(options.pageDelay * jitter)
+      }
     }
     return rows
   }
