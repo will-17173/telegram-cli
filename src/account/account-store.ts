@@ -318,22 +318,33 @@ export class AccountStore {
   private releaseLock(owner: string): void {
     while (true) {
       const isolatedPath = this.isolateCanonicalLock('release')
-      if (!isolatedPath) return
+      if (!isolatedPath) {
+        const reapingPath = this.findIsolatedLockOwnedBy(owner)
+        if (!reapingPath) return
+        if (!this.finalizeIsolatedLock(reapingPath)) continue
+        return
+      }
       if (this.readLockOwner(isolatedPath) !== owner) {
         this.restoreIsolatedLock(isolatedPath)
+        const reapingPath = this.findIsolatedLockOwnedBy(owner)
+        if (reapingPath && !this.finalizeIsolatedLock(reapingPath)) continue
         return
       }
 
-      const deletingPath = `${this.lockPath}.deleting-${randomUUID()}`
-      try {
-        this.renameLockPath(isolatedPath, deletingPath)
-      } catch (error) {
-        if (!exists(isolatedPath)) continue
-        throw new AccountStoreError(`account_store_error: unable to finalize lock release: ${errorMessage(error)}`)
-      }
-      this.removeLockPath(deletingPath)
-      return
+      if (this.finalizeIsolatedLock(isolatedPath)) return
     }
+  }
+
+  private finalizeIsolatedLock(isolatedPath: string): boolean {
+    const deletingPath = `${this.lockPath}.deleting-${randomUUID()}`
+    try {
+      this.renameLockPath(isolatedPath, deletingPath)
+    } catch (error) {
+      if (!exists(isolatedPath)) return false
+      throw new AccountStoreError(`account_store_error: unable to finalize lock release: ${errorMessage(error)}`)
+    }
+    this.removeLockPath(deletingPath)
+    return true
   }
 
   private isLockExpired(path: string): boolean {
@@ -349,9 +360,11 @@ export class AccountStore {
   }
 
   private isolateAndReapExpiredLock(): void {
+    const observedOwner = this.readLockOwner()
+    if (!this.isLockExpired(this.lockPath)) return
     const isolatedPath = this.isolateCanonicalLock('reap')
     if (!isolatedPath) return
-    if (this.isLockExpired(isolatedPath)) {
+    if (this.readLockOwner(isolatedPath) === observedOwner && this.isLockExpired(isolatedPath)) {
       this.removeLockPath(isolatedPath)
       return
     }
@@ -389,6 +402,17 @@ export class AccountStore {
         continue
       }
       return isolatedPath
+    }
+    return undefined
+  }
+
+  private findIsolatedLockOwnedBy(owner: string): string | undefined {
+    const parent = dirname(this.lockPath)
+    const prefix = `${basename(this.lockPath)}.isolated-reap-`
+    for (const name of readdirSync(parent)) {
+      if (!name.startsWith(prefix)) continue
+      const isolatedPath = join(parent, name)
+      if (this.readLockOwner(isolatedPath) === owner) return isolatedPath
     }
     return undefined
   }

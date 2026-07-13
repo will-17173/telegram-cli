@@ -12,6 +12,7 @@ import { isCliInterruptedError } from '../cli/secure-input.js'
 
 export type AccountSessionInput = {
   name: string
+  interactive?: boolean
 }
 
 export type AccountSessionResult = {
@@ -91,6 +92,9 @@ export class AccountSessionService {
       const account = findAccount(registry, input.name)
       if (!account) return accountNotFound(input.name)
       if (account.auth_state === 'authenticated') return success(account, false)
+      if (input.interactive === false) {
+        return failure('interaction_required', 'Account login requires an interactive terminal.')
+      }
 
       const sessionPath = accountSessionPath(this.options.dataDir, account.name)
       let temporaryDir: string

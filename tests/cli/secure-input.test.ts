@@ -8,6 +8,8 @@ import {
   readVisibleInput,
 } from '../../src/cli/secure-input.js'
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
 class FakeTtyInput extends PassThrough {
   isTTY = true
   isRaw = false
@@ -352,6 +354,34 @@ describe('readSecret', () => {
 
     await expect(reading).resolves.toBe('ok')
   })
+
+  it('caps a huge pasted secret at 4096 graphemes', async () => {
+    const input = new FakeTtyInput()
+    const reading = readSecret('Password: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    })
+    input.write(`${'x'.repeat(4096 * 32)}\r`)
+
+    const secret = await reading
+    expect(secret).toHaveLength(4096)
+  })
+
+  it.each(['e\u0301', '👩‍👩‍👧‍👦'])(
+    'keeps the final %s grapheme complete at the secret cap',
+    async (grapheme) => {
+      const input = new FakeTtyInput()
+      const reading = readSecret('Password: ', {
+        input: input as unknown as NodeJS.ReadStream,
+        output: new PassThrough() as unknown as NodeJS.WriteStream,
+      })
+      input.write(`${'x'.repeat(4095)}${grapheme}${'z'.repeat(4096)}\r`)
+
+      const secret = await reading
+      expect(Array.from(graphemeSegmenter.segment(secret))).toHaveLength(4096)
+      expect(secret.endsWith(grapheme)).toBe(true)
+    },
+  )
 
   it('requires a TTY before writing a prompt', async () => {
     const input = new FakeTtyInput()

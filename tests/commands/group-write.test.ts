@@ -102,7 +102,7 @@ describe('group write commands', () => {
     await run('group', 'admin', 'transfer-owner', 'General', '@alice', '--yes', '--json')
 
     expect(readSecret).toHaveBeenCalledOnce()
-    expect(readSecret).toHaveBeenCalledWith('Telegram 2FA password: ')
+    expect(readSecret).toHaveBeenCalledWith('Telegram 2FA password: ', { signal: expect.any(AbortSignal) })
     expect(groups.getGroup).toHaveBeenCalledOnce()
     expect(groups.getGroup).toHaveBeenCalledWith('General')
     expect(groups.transferOwnership).toHaveBeenCalledOnce()

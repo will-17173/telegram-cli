@@ -5,6 +5,8 @@ import { spawnSync } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const fixture = join(process.cwd(), 'tests', 'fixtures', 'secure-input-pty.ts')
+const groupCommandFixture = join(process.cwd(), 'tests', 'fixtures', 'group-write-command-pty.ts')
+const groupClientLoader = join(process.cwd(), 'tests', 'fixtures', 'group-write-client-loader-register.mjs')
 const node = process.execPath
 const tempDirs: string[] = []
 
@@ -119,6 +121,39 @@ describe.runIf(process.platform !== 'win32' && existsSync('/usr/bin/expect'))('s
     `)
 
     expect(result.status).toBe(130)
+  })
+
+  it.each([
+    ['SIGHUP', 129],
+    ['SIGTERM', 143],
+  ])('restores the terminal during the real group ownership prompt on %s', (signal, exitCode) => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'tg-group-write-pty-'))
+    tempDirs.push(dataDir)
+    writeFileSync(join(dataDir, 'accounts.json'), `${JSON.stringify({
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice', user_id: 42, username: 'alice', phone: '13800138000',
+        display_name: 'Alice', auth_state: 'authenticated',
+      }],
+    })}\n`)
+
+    const result = runExpect(`
+      spawn -noecho sh -c {before=$(stty -g); env DATA_DIR=${dataDir} ${node} --import tsx --import ${groupClientLoader} ${groupCommandFixture} group admin transfer-owner General @bob --yes --json; status=$?; after=$(stty -g); echo TERMINAL_BEFORE:$before; echo TERMINAL_AFTER:$after; exit $status}
+      expect -exact {Telegram 2FA password: }
+      exec pkill -${signal} -P [exp_pid]
+      expect eof
+      set child [wait]
+      exit [lindex $child 3]
+    `)
+
+    expect(result.status).toBe(exitCode)
+    const before = /TERMINAL_BEFORE:([^\r\n]+)/.exec(result.output)?.[1]
+    const after = /TERMINAL_AFTER:([^\r\n]+)/.exec(result.output)?.[1]
+    expect(before).toBe(after)
+    expect(result.output).toContain('"code": "interrupted"')
+    expect(result.output.match(/Telegram 2FA password: /g)).toHaveLength(1)
+    expect(result.output).not.toContain('super-secret-value')
   })
 })
 

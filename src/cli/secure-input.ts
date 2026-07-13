@@ -50,6 +50,9 @@ export class InputBusyError extends Error {
 
 const activeTerminalInputs = new WeakSet<NodeJS.ReadStream>()
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+// Match the Ink secret field: ignore printable input beyond 4096 complete graphemes.
+export const MAX_SECRET_INPUT_LENGTH = 4096
+const MAX_SECRET_INPUT_CODE_POINTS = MAX_SECRET_INPUT_LENGTH * 16
 const SIGNAL_CLEANUP_GRACE_MS = 100
 
 type PendingOutputWrite = { onError: (error: Error) => void }
@@ -183,6 +186,19 @@ async function readOwnedTerminalInput(
   const onData = (chunk: Buffer | string): void => {
     if (settled) return
     const text = typeof chunk === 'string' ? chunk : decoder.write(chunk)
+    const printable: string[] = []
+    let examinedPrintable = 0
+    let printableWasTruncated = false
+    const flushPrintable = (): void => {
+      if (printable.length === 0 && !printableWasTruncated) return
+      value = hidden
+        ? appendBoundedPrintable(value, printable, printableWasTruncated)
+        : value + printable.join('')
+      printable.fill('')
+      printable.length = 0
+      examinedPrintable = 0
+      printableWasTruncated = false
+    }
     for (const character of text) {
       const code = character.codePointAt(0)
       if (inputsAwaitingLineFeed.has(input)) {
@@ -190,16 +206,19 @@ async function readOwnedTerminalInput(
         if (character === '\n') continue
       }
       if (code === 3) {
+        flushPrintable()
         settleError(new CliInterruptedError())
         return
       }
       if (character === '\r' || character === '\n') {
+        flushPrintable()
         if (character === '\r') inputsAwaitingLineFeed.add(input)
         if (hidden && value.length === 0) settleError(new InvalidInputError('Secret input cannot be empty.'))
         else settleValue(value)
         return
       }
       if (code === 27) {
+        flushPrintable()
         escapeState = 'start'
         continue
       }
@@ -218,11 +237,20 @@ async function readOwnedTerminalInput(
         continue
       }
       if (code === 8 || code === 127) {
+        flushPrintable()
         value = removeFinalGrapheme(value)
         continue
       }
-      if (code != null && code >= 32 && (code < 127 || code > 159)) value += character
+      if (code != null && code >= 32 && (code < 127 || code > 159)) {
+        if (!hidden || examinedPrintable < MAX_SECRET_INPUT_CODE_POINTS) {
+          printable.push(character)
+          examinedPrintable += 1
+        } else {
+          printableWasTruncated = true
+        }
+      }
     }
+    flushPrintable()
   }
   const onInputError = (error: Error): void => settleError(error)
   const onOutputError = (error: Error): void => settleError(error)
@@ -356,6 +384,25 @@ function releaseOutputWriteState(output: NodeJS.WriteStream, state: OutputWriteS
 
 function removeFinalGrapheme(value: string): string {
   return Array.from(graphemeSegmenter.segment(value), part => part.segment).slice(0, -1).join('')
+}
+
+function appendBoundedPrintable(value: string, appended: readonly string[], appendedWasTruncated: boolean): string {
+  const codePoints: string[] = []
+  let examinedCodePoints = 0
+  let preprocessingWasTruncated = appendedWasTruncated
+  inputSources: for (const source of [value, appended]) {
+    for (const character of source) {
+      if (examinedCodePoints === MAX_SECRET_INPUT_CODE_POINTS) {
+        preprocessingWasTruncated = true
+        break inputSources
+      }
+      codePoints.push(character)
+      examinedCodePoints += 1
+    }
+  }
+  const graphemes = Array.from(graphemeSegmenter.segment(codePoints.join('')), part => part.segment)
+  if (preprocessingWasTruncated) graphemes.pop()
+  return graphemes.slice(0, MAX_SECRET_INPUT_LENGTH).join('')
 }
 
 function drainBufferedInput(input: NodeJS.ReadStream): void {

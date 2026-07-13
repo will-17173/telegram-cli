@@ -669,6 +669,32 @@ describe('account commands', () => {
     expect(telegramClientFactory).not.toHaveBeenCalled()
   })
 
+  it('returns unchanged for an authenticated account without requiring a TTY', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+
+    const result = await run(['account', 'login', 'alice', '--json'], dataDir, false)
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload).toMatchObject({
+      ok: true,
+      data: { changed: false, account: { name: 'alice', auth_state: 'authenticated' } },
+    })
+    expect(telegramClientFactory).not.toHaveBeenCalled()
+  })
+
   it('leaves account files untouched when login authenticates a different identity', async () => {
     const dataDir = createDataDir()
     seedAccounts(dataDir, {

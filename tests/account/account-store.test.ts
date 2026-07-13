@@ -315,6 +315,74 @@ describe('account store', () => {
     expect(readFileSync(join(lockPath, 'owner'), 'utf8')).toBe('live-owner')
   })
 
+  it('does not restore an ownerless lock when its owner releases during reap isolation', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    const ownerToken = 'live-owner'
+    const ownerStore = new AccountStore(path)
+    mkdirSync(lockPath)
+    writeFileSync(join(lockPath, 'owner'), ownerToken, 'utf8')
+    const stale = new Date(Date.now() - 2_000)
+    utimesSync(join(lockPath, 'owner'), stale, stale)
+
+    let releaseForced = false
+    const contender = new AccountStore(path, {
+      lockTimeoutMs: 80,
+      lockRetryMs: 2,
+      lockOperations: {
+        renamePath(source, destination) {
+          renameSync(source, destination)
+          if (!releaseForced && source === lockPath && destination.includes('.isolated-reap-')) {
+            releaseForced = true
+            const refreshed = new Date()
+            utimesSync(join(destination, 'owner'), refreshed, refreshed)
+            ;(ownerStore as unknown as { releaseLock(owner: string): void }).releaseLock(ownerToken)
+          }
+        },
+      },
+    })
+
+    await expect(contender.withLock(() => undefined)).resolves.toBeUndefined()
+
+    expect(releaseForced).toBe(true)
+    expect(lockArtifacts(path)).toEqual([])
+  })
+
+  it('releases its reap-isolated lease without deleting a replacement canonical owner', async () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const lockPath = `${path}.lock`
+    const ownerToken = 'live-owner'
+    const ownerStore = new AccountStore(path)
+    mkdirSync(lockPath)
+    writeFileSync(join(lockPath, 'owner'), ownerToken, 'utf8')
+    const stale = new Date(Date.now() - 2_000)
+    utimesSync(join(lockPath, 'owner'), stale, stale)
+
+    let releaseForced = false
+    const contender = new AccountStore(path, {
+      lockTimeoutMs: 20,
+      lockRetryMs: 2,
+      lockOperations: {
+        renamePath(source, destination) {
+          renameSync(source, destination)
+          if (!releaseForced && source === lockPath && destination.includes('.isolated-reap-')) {
+            releaseForced = true
+            const refreshed = new Date()
+            utimesSync(join(destination, 'owner'), refreshed, refreshed)
+            mkdirSync(lockPath)
+            writeFileSync(join(lockPath, 'owner'), 'replacement-owner', 'utf8')
+            ;(ownerStore as unknown as { releaseLock(owner: string): void }).releaseLock(ownerToken)
+          }
+        },
+      },
+    })
+
+    await expect(contender.withLock(() => undefined)).rejects.toThrow(/unable to acquire lock in time/)
+
+    expect(releaseForced).toBe(true)
+    expect(lockOwnerValues(path)).toEqual(['replacement-owner'])
+  })
+
   it('never deletes a replacement lock after owner publication loses its canonical path', async () => {
     const root = tempDir()
     const path = join(root, REGISTRY_PATH)
@@ -342,12 +410,20 @@ describe('account store', () => {
     const lockPath = `${path}.lock`
     mkdirSync(lockPath)
     writeFileSync(join(lockPath, 'owner'), 'live-owner', 'utf8')
+    const stale = new Date(Date.now() - 2_000)
+    utimesSync(join(lockPath, 'owner'), stale, stale)
     let contentionForced = false
     const store = new AccountStore(path, {
       lockTimeoutMs: 20,
       lockRetryMs: 2,
       lockOperations: {
         renamePath(source, destination) {
+          if (source === lockPath && destination.includes('.isolated-reap-')) {
+            renameSync(source, destination)
+            const refreshed = new Date()
+            utimesSync(join(destination, 'owner'), refreshed, refreshed)
+            return
+          }
           if (!contentionForced && source.includes('.isolated-reap-') && destination === lockPath) {
             mkdirSync(lockPath)
             writeFileSync(join(lockPath, 'owner'), 'replacement-owner', 'utf8')

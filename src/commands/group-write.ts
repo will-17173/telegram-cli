@@ -1,7 +1,7 @@
 import type { Command } from 'commander'
 
 import { renderResult } from '../cli/output.js'
-import { isCliInputError, isCliInterruptedError, readSecret } from '../cli/secure-input.js'
+import { createInterruptScope, isCliInputError, isCliInterruptedError, readSecret } from '../cli/secure-input.js'
 import { GROUP_COMMANDS, isReadOnlyGroupCommand } from '../group-commands/catalog.js'
 import { executeGroupCommand } from '../group-commands/executor.js'
 import { parseGroupCommand } from '../group-commands/parser.js'
@@ -78,7 +78,12 @@ async function runGroupWrite(definition: typeof GROUP_COMMANDS[number], position
     if ('secretRequired' in result) {
       let ownershipPassword: string | undefined
       try {
-        ownershipPassword = await readSecret('Telegram 2FA password: ')
+        const interrupt = createInterruptScope()
+        try {
+          ownershipPassword = await readSecret('Telegram 2FA password: ', { signal: interrupt.signal })
+        } finally {
+          interrupt.dispose()
+        }
         result = await executeGroupCommand(parsed.request, {
           chat,
           groups: new GroupWriteService(client.groups),

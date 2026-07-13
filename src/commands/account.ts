@@ -378,27 +378,8 @@ export function registerAccountCommands(app: Command): void {
       await runAccountCommand(options, async () => {
         const dataDir = getDataDir()
         const store = new AccountStore(getAccountRegistryPath(dataDir))
-        if (!store.get(name)) {
-          return {
-            ok: false,
-            error: {
-              code: 'account_not_found',
-              message: `Account "${name}" is not registered.`,
-            },
-          }
-        }
-        if (process.stdin.isTTY !== true) {
-          return {
-            ok: false,
-            error: {
-              code: 'interaction_required',
-              message: 'Account login requires an interactive terminal.',
-            },
-          }
-        }
-
         const service = new AccountSessionService({ dataDir, store })
-        const result = await service.login({ name })
+        const result = await service.login({ name, interactive: process.stdin.isTTY === true })
         if (!result.ok) return result
         return {
           ...result,
