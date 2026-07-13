@@ -278,6 +278,7 @@ Use `tg <command> --help` to inspect command-specific options. For example, `lis
 
 - `sync-all` and `refresh` are batch operations for local persistence; they are not read-only.
 - `listen` prints a concise separator for each incoming message and can optionally suppress attachment summaries.
+- In interactive `listen`, reply with `/reply <message-id> <content>`. Add attachments with repeatable `--file <path>` options; quote paths that contain spaces.
 - Contact cards show the available name and phone number in attachment summaries. They aren't downloadable attachments and are hidden by `--no-media`.
 - `listen --auto-download` works in both interactive and plain-text modes, saves attachments to `~/Downloads/telegram-cli`, and runs at most three downloads concurrently.
 - Downloads keep Telegram-provided filenames. Unnamed downloads use a MIME-derived extension, then the media-kind extension, then `.bin`.

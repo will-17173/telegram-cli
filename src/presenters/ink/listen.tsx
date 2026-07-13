@@ -18,6 +18,7 @@ import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientSc
 import { isMouseInput, useMouseScroll, withMouseReporting, type MouseScrollDirection } from './mouse-scroll.js'
 import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
 import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
+import { executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
 
 export type ListenMessage = ListenMessageRow & {
   key: string
@@ -851,6 +852,11 @@ function InteractiveListen({
   const sendMessage = async (text: string): Promise<void> => {
     const trimmed = text.trim()
     if (!trimmed) return
+    const command = parseListenComposerInput(trimmed)
+    if (command.kind === 'error') {
+      setNote(command.error)
+      return
+    }
     if (sendTo == null) {
       setNote('set --send-to before sending')
       return
@@ -867,19 +873,21 @@ function InteractiveListen({
     setSending(true)
     setNote('sending...')
     try {
-      const result = await client.sendMessage({
-        chat: sendTo,
-        message: trimmed,
-        linkPreview: true,
-      })
-      if (isCurrent() && result.sent_message != null) {
-        acceptListenMessage(result.sent_message, seenRef.current, seenOrderRef.current, (message) => {
+      const sentMessages = command.kind === 'reply'
+        ? await executeListenReply(client, sendTo, command)
+        : [await client.sendMessage({
+            chat: sendTo,
+            message: command.content,
+            linkPreview: true,
+          })].flatMap(({ sent_message: message }) => message == null ? [] : [message])
+      if (isCurrent()) {
+        for (const sentMessage of sentMessages) acceptListenMessage(sentMessage, seenRef.current, seenOrderRef.current, (message) => {
           registerPendingAttachmentKeys(pendingAttachmentKeysRef.current, message, showMedia)
           autoDownloaderRef.current?.enqueue(message)
           albumAggregatorRef.current?.add(message)
         })
       }
-      if (isCurrent()) setNote('sent')
+      if (isCurrent()) setNote(command.kind === 'reply' ? `replied to #${command.reply}` : 'sent')
     } catch (error) {
       if (isCurrent()) setNote(`send failed: ${messageFromError(error)}`)
     } finally {
@@ -970,7 +978,7 @@ function InteractiveListen({
               sendTargetLabel={sendTargetLabel}
               terminalWidth={contentWidth}
               sending={sending}
-              hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Enter to send · Tab attachments · Ctrl+C exit'}
+              hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Enter send · /reply <id> ... · Tab attachments · Ctrl+C exit'}
             />
           </Box>
         )}
