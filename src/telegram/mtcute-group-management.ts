@@ -29,12 +29,35 @@ import {
   TelegramGroupMemberNotFoundError,
   TelegramGroupNotFoundError,
 } from './group-types.js'
+import type {
+  TelegramAddMembersRequest, TelegramAddMembersResult, TelegramBanMemberRequest, TelegramBanMemberResult,
+  TelegramDemoteAdminRequest, TelegramDemoteAdminResult, TelegramKickMemberRequest, TelegramKickMemberResult,
+  TelegramMuteMemberRequest, TelegramMuteMemberResult, TelegramPromoteAdminRequest, TelegramPromoteAdminResult,
+  TelegramPurgeMemberRequest, TelegramPurgeMemberResult, TelegramSetAdminRankRequest, TelegramSetAdminRankResult,
+  TelegramTransferOwnershipRequest, TelegramTransferOwnershipResult, TelegramUnbanMemberRequest,
+  TelegramUnbanMemberResult, TelegramUnmuteMemberRequest, TelegramUnmuteMemberResult,
+} from './group-write-types.js'
+import { MtcuteGroupMembers } from './mtcute-group-members.js'
 
 export class MtcuteGroupManagement implements TelegramGroupReadAdapter {
+  private readonly members: MtcuteGroupMembers
+
   constructor(
     private readonly client: TelegramClient,
     private readonly ensureReady: () => Promise<void>,
-  ) {}
+  ) { this.members = new MtcuteGroupMembers(client, ensureReady) }
+
+  addMembers(r: TelegramAddMembersRequest): Promise<TelegramAddMembersResult> { return this.members.addMembers(r) }
+  kickMember(r: TelegramKickMemberRequest): Promise<TelegramKickMemberResult> { return this.members.kickMember(r) }
+  banMember(r: TelegramBanMemberRequest): Promise<TelegramBanMemberResult> { return this.members.banMember(r) }
+  unbanMember(r: TelegramUnbanMemberRequest): Promise<TelegramUnbanMemberResult> { return this.members.unbanMember(r) }
+  muteMember(r: TelegramMuteMemberRequest): Promise<TelegramMuteMemberResult> { return this.members.muteMember(r) }
+  unmuteMember(r: TelegramUnmuteMemberRequest): Promise<TelegramUnmuteMemberResult> { return this.members.unmuteMember(r) }
+  purgeMember(r: TelegramPurgeMemberRequest): Promise<TelegramPurgeMemberResult> { return this.members.purgeMember(r) }
+  promoteAdmin(r: TelegramPromoteAdminRequest): Promise<TelegramPromoteAdminResult> { return this.members.promoteAdmin(r) }
+  demoteAdmin(r: TelegramDemoteAdminRequest): Promise<TelegramDemoteAdminResult> { return this.members.demoteAdmin(r) }
+  setAdminRank(r: TelegramSetAdminRankRequest): Promise<TelegramSetAdminRankResult> { return this.members.setAdminRank(r) }
+  transferOwnership(r: TelegramTransferOwnershipRequest): Promise<TelegramTransferOwnershipResult> { return this.members.transferOwnership(r) }
 
   async getGroup(chat: string | number): Promise<TelegramGroupDetails> {
     await this.ensureReady()
@@ -199,7 +222,7 @@ export class MtcuteGroupManagement implements TelegramGroupReadAdapter {
   }
 }
 
-function normalizePeerId(peer: string | number): string | number {
+export function normalizePeerId(peer: string | number): string | number {
   if (typeof peer === 'number') return peer
   const trimmed = peer.trim()
   if (trimmed === '') return peer
@@ -223,7 +246,7 @@ function memberMatchesQuery(member: ChatMember, query: string): boolean {
     || (username?.includes(normalizedQuery) ?? false)
 }
 
-function requireGroup(peer: Chat | User, requestedChat: string | number): Chat & { chatType: 'group' | 'supergroup' } {
+export function requireGroup(peer: Chat | User, requestedChat: string | number): Chat & { chatType: 'group' | 'supergroup' } {
   if (peer.type !== 'chat' || (peer.chatType !== 'group' && peer.chatType !== 'supergroup')) {
     throw new TelegramGroupNotFoundError(requestedChat)
   }
@@ -471,13 +494,13 @@ function toIsoDate(date: Date | null): string | null {
   return date?.toISOString() ?? null
 }
 
-function isPeerNotFoundError(error: unknown): boolean {
+export function isPeerNotFoundError(error: unknown): boolean {
   if (error instanceof MtPeerNotFoundError) return true
   if (!(error instanceof Error)) return false
   return /PEER_ID_INVALID|CHANNEL_(?:INVALID|PRIVATE)|CHAT_ID_INVALID|(?:peer|chat|dialog).*(?:not found|invalid)/i.test(error.message)
 }
 
-function isMemberNotFoundError(error: unknown): boolean {
+export function isMemberNotFoundError(error: unknown): boolean {
   return error instanceof Error
     && /USER_NOT_PARTICIPANT|PARTICIPANT_ID_INVALID|member.*not found|not.*participant/i.test(error.message)
 }
