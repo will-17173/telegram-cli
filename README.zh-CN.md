@@ -14,7 +14,7 @@
 - 从限制下载的频道中下载附件。
 - 搜索、筛选、汇总和导出本地存储的消息。
 - 通过命令行发送、编辑和删除消息。
-- 在不更改群组的前提下查看群组详情、成员和管理员审计事件。
+- 查看并管理群组、成员、管理员、邀请链接、论坛话题和消息。
 - 在支持的场景下使用人类可读输出，或结构化的 JSON/YAML 输出。
 
 ## 为 AI Agent 设计
@@ -185,9 +185,9 @@ tg search "keyword" --account <name>
 
 Telegram API 凭据对所有已添加账号生效，添加其他账号时无需单独配置 API 凭据。
 
-## 只读群组管理
+## 群组管理
 
-`group` 命令通过四个只读操作查看普通群组和超级群组：
+`group` 命令同时提供只读查询，以及成员、管理员、群设置、邀请链接、论坛话题和消息管理。请通过各 family 的帮助查看当前操作：
 
 ```sh
 # 群组详情
@@ -201,17 +201,38 @@ tg group member <chat> <user>
 
 # 管理员审计日志；--user 和 --type 均可重复指定
 tg group audit <chat> --query invite --user <user> --type member_invited --type invite_changed --limit 100 --account alice --json
+
+# 管理示例（chat 参数位于操作参数之前）
+tg group member ban @team @alice --yes
+tg group chat slowmode @team 30s
+tg group topic --help
 ```
 
 `group members` 的 `--type` 恰好支持以下七种筛选器：`recent`、`all`、`admins`、`banned`、`restricted`、`bots` 和 `contacts`。默认使用 `recent` 并返回 100 条结果；`--limit` 可设为 1 到 200。Telegram 可能返回少于其报告总数的成员，因此单页结果不保证包含整个群组的全部成员。
 
 `group audit` 要求当前账号具有群组管理员权限。`--limit` 的范围是 1 到 500，默认返回 100 条事件。可重复的 `--user` 用于筛选操作发起者。可重复的 `--type` 恰好接受以下 17 种稳定的分组事件类型：`info_changed`、`settings_changed`、`member_joined`、`member_left`、`member_invited`、`member_banned`、`member_unbanned`、`member_restricted`、`member_unrestricted`、`admin_promoted`、`admin_demoted`、`message_deleted`、`message_edited`、`message_pinned`、`invite_changed`、`topic_changed` 和 `other`。
 
-四个命令默认输出人类可读内容，并支持 `--json` 或 `--yaml`。它们默认使用 current 账号；`--account <name>` 可仅为本次调用选择另一个已添加账号，且不会改变 current 账号。这些命令严格只读：不会踢出、封禁、限制或提升成员，不会编辑设置，也不会以其他方式更改群组。
+查询和管理操作默认输出人类可读内容；暴露 `--json` 或 `--yaml` 的操作会输出结构化成功或错误结果。失败时进程退出状态非零。命令默认使用 current 账号；`--account <name>` 可仅为本次调用选择另一个已添加账号，且不会改变 current 账号。
+
+管理操作分为 `member`、`admin`、`chat`、`invite`、`topic` 和 `message` 六个 family。成员目标必须显式使用 `@username` 或 Telegram 数字用户 ID。时长支持 `s`、`m`、`h`、`d` 后缀；支持关闭的设置还可使用 `off`。例如 `tg group member mute @team @alice 2h --yes` 会临时禁言，`tg group chat slowmode @team off` 会关闭慢速模式。
+
+有破坏风险的 CLI 操作在缺少 `--yes` 时会直接拒绝，且不会连接 Telegram。永久删除群组还必须用 `--confirm-title` 提供完全一致的当前群名；交互式 listen 模式则通过 Ink 弹窗确认。管理操作需要对应的管理员权限，部分操作还要求超级群组、论坛或 creator 身份。转移所有权时，如果 Telegram 要求密码，本版本只返回 `password_required`，尚不接收密码。
+
+查询成员详情请优先使用规范路由 `tg group member info <chat> <user>`。旧形式 `tg group member <chat> <user>` 仍保留，但当群名等于 `ban`、`mute`、`info` 等保留操作名时会产生歧义，必须使用规范路由。
+
+## Listen 中的群管理命令
+
+交互式 `tg listen` 可使用相同语法的 slash 命令，无需重复当前群组：
+
+```text
+/member mute @alice 2h
+```
+
+输入 `/` 会打开模糊匹配菜单。使用 Up/Down 移动、Tab 补全、Enter 执行、Esc 关闭菜单、结果或确认框。有风险的操作会打开确认弹窗；删除群组还会要求输入完全一致的群名。监听多个群组时，必须先用 `--send-to <chat>` 明确发送目标，例如 `tg listen @team @ops --send-to @team`，之后才能使用群管理命令。
 
 ## 在线命令与本地命令
 
-在线命令会连接 Telegram，因此需要有效的账号会话。这类命令包括 `status`、`whoami`、`chats`、`history`、`sync`、`sync-all`、`refresh`、`info`、`group info`、`group members`、`group member`、`group audit`、`send`、`edit`、`delete` 和 `listen`。
+在线命令会连接 Telegram，因此需要有效的账号会话。这类命令包括 `status`、`whoami`、`chats`、`history`、`sync`、`sync-all`、`refresh`、`info`、全部 `group` 查询与管理 family、`send`、`edit`、`delete` 和 `listen`。
 
 本地命令只读取或修改所选账号的消息数据库，不会连接 Telegram。这类命令包括 `search`、`recent`、`stats`、`top`、`timeline`、`today`、`filter`、`export` 和 `purge`。
 

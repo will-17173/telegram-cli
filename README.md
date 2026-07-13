@@ -14,7 +14,7 @@ A TypeScript command-line client for syncing Telegram chats, listening to live m
 - Download attachments from channels that restrict content saving.
 - Search, filter, summarize, and export locally stored messages.
 - Send, edit, and delete messages from the command line.
-- Inspect group details, members, and administrator audit events without changing the group.
+- Inspect and manage groups, members, administrators, invites, forum topics, and messages.
 - Use human-readable output or structured JSON/YAML where supported.
 
 ## Built for AI agents
@@ -185,9 +185,9 @@ Account names are shown by `tg account list`; they are normally derived from the
 
 Telegram API credentials apply to every registered account. You don't need to configure separate API credentials when adding another account.
 
-## Read-only group management
+## Group management
 
-The `group` command inspects groups and supergroups through four read-only operations:
+The `group` command keeps read-only inspection alongside management families for members, administrators, chat settings, invite links, forum topics, and messages. Use family help to see the current actions:
 
 ```sh
 # Group details
@@ -201,17 +201,38 @@ tg group member <chat> <user>
 
 # Administrator audit log; --user and --type can be repeated
 tg group audit <chat> --query invite --user <user> --type member_invited --type invite_changed --limit 100 --account alice --json
+
+# Management examples (the chat argument comes before action arguments)
+tg group member ban @team @alice --yes
+tg group chat slowmode @team 30s
+tg group topic --help
 ```
 
 `group members` accepts exactly these seven `--type` filters: `recent`, `all`, `admins`, `banned`, `restricted`, `bots`, and `contacts`. It defaults to `recent` and 100 results; `--limit` accepts 1 through 200. Telegram can return fewer members than its reported total, so a page is not guaranteed to enumerate the whole group.
 
 `group audit` requires group administrator rights. Its `--limit` range is 1 through 500, with a default of 100 events. Its repeatable `--user` filter selects action authors. The repeatable `--type` filter accepts exactly these 17 stable grouped event types: `info_changed`, `settings_changed`, `member_joined`, `member_left`, `member_invited`, `member_banned`, `member_unbanned`, `member_restricted`, `member_unrestricted`, `admin_promoted`, `admin_demoted`, `message_deleted`, `message_edited`, `message_pinned`, `invite_changed`, `topic_changed`, and `other`.
 
-All four commands use human-readable output by default and support `--json` or `--yaml`. They use the current account unless `--account <name>` selects another registered account for that invocation; the explicit selection does not change the current account. These commands are strictly read-only: they do not kick, ban, restrict, promote, edit settings, or otherwise change a group.
+Inspection and management actions use human-readable output by default; actions that expose `--json` or `--yaml` provide structured success or error output. Failures set a nonzero exit status. They use the current account unless `--account <name>` selects another registered account for that invocation.
+
+Management actions are grouped under `member`, `admin`, `chat`, `invite`, `topic`, and `message`. Member targets must be explicit `@username` values or numeric Telegram user IDs. Durations accept `s`, `m`, `h`, and `d` suffixes, or `off` where disabling is supported. For example, `tg group member mute @team @alice 2h --yes` temporarily mutes a member, while `tg group chat slowmode @team off` disables slow mode.
+
+Potentially destructive CLI actions refuse to connect to Telegram unless `--yes` is present. Permanently deleting a chat additionally requires `--confirm-title` with the exact current title. Interactive listen mode presents these confirmations in an Ink modal. Management requires the relevant administrator permission, and some actions require a supergroup, forum, or creator role. Ownership transfer currently reports `password_required` when Telegram requires a password; this release does not accept a password for that action.
+
+Use `tg group member info <chat> <user>` as the canonical member-details route. The legacy `tg group member <chat> <user>` form remains available, but a chat name matching a reserved member action such as `ban`, `mute`, or `info` is ambiguous and requires the canonical route.
+
+## Group commands while listening
+
+Interactive `tg listen` accepts the same management grammar as slash commands without repeating the selected chat:
+
+```text
+/member mute @alice 2h
+```
+
+Typing `/` opens fuzzy command matches. Use Up/Down to move, Tab to complete, Enter to run, and Esc to close a menu, result, or confirmation. Risky actions open a confirmation modal; chat deletion also asks for the exact title. When listening to more than one chat, set an unambiguous outgoing target with `--send-to <chat>` before using group commands, for example `tg listen @team @ops --send-to @team`.
 
 ## Online and local commands
 
-Online commands connect to Telegram and require a valid session. These include `status`, `whoami`, `chats`, `history`, `sync`, `sync-all`, `refresh`, `info`, `group info`, `group members`, `group member`, `group audit`, `send`, `edit`, `delete`, and `listen`.
+Online commands connect to Telegram and require a valid session. These include `status`, `whoami`, `chats`, `history`, `sync`, `sync-all`, `refresh`, `info`, all `group` inspection and management families, `send`, `edit`, `delete`, and `listen`.
 
 Local commands read or modify the selected account's message database without connecting to Telegram. These include `search`, `recent`, `stats`, `top`, `timeline`, `today`, `filter`, `export`, and `purge`.
 
@@ -258,6 +279,7 @@ Common commands:
 | `tg group members <chat> [--type <type>] [--query <text>] [--limit <count>]` | List and filter members (default `recent`, limit 100; maximum 200). |
 | `tg group member <chat> <user>` | Show one member's role, rights, and restrictions. |
 | `tg group audit <chat> [--query <text>] [--user <user>] [--type <type>] [--limit <count>]` | Query the administrator audit log (default 100; maximum 500). |
+| `tg group member/admin/chat/invite/topic/message --help` | Discover group management actions by family. |
 
 All sync-like commands write to local SQLite storage. The `sync-all` and `refresh` commands process multiple chats based on locally stored message IDs.
 

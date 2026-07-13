@@ -56,6 +56,32 @@ describe('group write commands', () => {
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'confirmation_required' }) }), expect.anything())
   })
 
+  it.each(GROUP_COMMANDS.filter(command => command.risk !== 'none'))(
+    'safely rejects $path without --yes before creating an adapter',
+    async (definition) => {
+      const valueFor = (kind: string) => kind === 'duration' ? '2h' : kind === 'permissions' ? 'send' : kind === 'ids' ? '17' : kind === 'id' ? '17' : kind === 'path' ? './photo.jpg' : kind === 'toggle' ? 'on' : kind === 'invite' ? 'https://t.me/+x' : kind === 'text' ? 'value' : '@alice'
+      const args = definition.args.flatMap(argument => 'rest' in argument && argument.rest
+        ? [valueFor(argument.kind)]
+        : argument.required ? [valueFor(argument.kind)] : [])
+
+      await run('group', ...definition.path, 'General', ...args)
+
+      expect(createTelegramClient).not.toHaveBeenCalled()
+      expect(renderResult).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({
+            code: 'confirmation_required',
+            message: definition.risk === 'confirm-title'
+              ? expect.stringContaining('--confirm-title <title>')
+              : expect.any(String),
+          }),
+        }),
+        expect.anything(),
+      )
+    },
+  )
+
   it('parses and executes a confirmed action through the shared executor', async () => {
     await run('group', 'member', 'ban', 'General', '@alice', '--yes', '--json')
     expect(groups.banMember).toHaveBeenCalledWith({ chat: 'General', user: '@alice', seconds: null })
