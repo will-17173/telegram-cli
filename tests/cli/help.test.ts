@@ -21,6 +21,7 @@ describe('cli help', () => {
       'history',
       'info',
       'listen',
+      'notification',
       'purge',
       'recent',
       'refresh',
@@ -76,8 +77,24 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(26)
+    expect(commands).toHaveLength(27)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
+  })
+
+  it('registers the exact notification command surface', () => {
+    const notification = createApp().commands.find((command) => command.name() === 'notification')
+
+    expect(notification).toBeDefined()
+    expect(notification?.commands.map((command) => command.name())).toEqual(['info', 'mute', 'unmute'])
+    expect(notification?.commands.map((command) => command.registeredArguments.map(argument => ({
+      name: argument.name(),
+      required: argument.required,
+    })))).toEqual([
+      [{ name: 'chat', required: true }],
+      [{ name: 'chat', required: true }, { name: 'duration', required: false }],
+      [{ name: 'chat', required: true }],
+    ])
+    expect(notification?.commands.every(command => command.options.map(option => option.long).join(',') === '--json,--yaml')).toBe(true)
   })
 
   it('lists page delay for history and sync', () => {
