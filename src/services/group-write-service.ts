@@ -27,6 +27,10 @@ const selectedRestrictions = (names: readonly string[]): TelegramGroupRestrictio
   const has = (name: string) => names.includes(name)
   return { view_messages: has('view_messages'), send_messages: has('send_messages'), send_media: has('send_media'), send_stickers: has('send_stickers'), send_gifs: has('send_gifs'), send_games: has('send_games'), send_inline: has('send_inline'), embed_links: has('embed_links'), send_polls: has('send_polls'), change_info: has('change_info'), invite_users: has('invite_users'), pin_messages: has('pin_messages'), manage_topics: has('manage_topics') }
 }
+export const GROUP_RESTRICTION_KEYS = ['view_messages', 'send_messages', 'send_media', 'send_stickers', 'send_gifs', 'send_games', 'send_inline', 'embed_links', 'send_polls', 'change_info', 'invite_users', 'pin_messages', 'manage_topics'] as const satisfies readonly (keyof TelegramGroupRestrictions)[]
+const allRestrictionsCovered: Exclude<keyof TelegramGroupRestrictions, typeof GROUP_RESTRICTION_KEYS[number]> extends never ? true : false = true
+void allRestrictionsCovered
+function isGroupRestriction(value: string): value is keyof TelegramGroupRestrictions { return GROUP_RESTRICTION_KEYS.some(key => key === value) }
 const nullable = (value: string): string | null => value === 'off' ? null : value
 
 const commandHandlers = {
@@ -51,7 +55,7 @@ const commandHandlers = {
   'chat join-requests': ({ chat, values }, g) => g.setJoinRequests({ chat, enabled: values.enabled }),
   'chat join-to-send': ({ chat, values }, g) => g.setJoinToSend({ chat, enabled: values.enabled }),
   'chat default-permissions': ({ chat, values }, g) => g.setDefaultPermissions({ chat, permissions: selectedRestrictions(values.permissions) }),
-  'chat sticker-set': ({ chat, values }, g) => g.setStickerSet({ chat, sticker: String(values.id) }),
+  'chat sticker-set': ({ chat, values }, g) => g.setStickerSet({ chat, sticker: nullable(values.sticker) }),
   'chat leave': ({ chat }, g) => g.leaveGroup({ chat }), 'chat delete': ({ chat }, g) => g.deleteGroup({ chat }),
   'invite list': ({ chat }, g) => g.listInvites({ chat, limit: 100 }), 'invite show': ({ chat, values }, g) => g.getInvite({ chat, link: values.invite }),
   'invite create': ({ chat, values }, g) => g.createInvite({ chat, options: { title: values.title, expireSeconds: values.expireSeconds, usageLimit: values.limit, requestNeeded: values.requestNeeded } }),
@@ -85,6 +89,12 @@ export class GroupWriteService {
     }
     if (request.key === 'admin promote' && request.values.permissions?.some(permission => !isAdminRight(permission))) {
       return failure('invalid_option', `Administrator permissions must be one or more of: ${ADMIN_RIGHT_KEYS.join(', ')}.`)
+    }
+    if (request.key === 'chat default-permissions' && request.values.permissions.some(permission => !isGroupRestriction(permission))) {
+      return failure('invalid_option', `Default permissions must be one or more of: ${GROUP_RESTRICTION_KEYS.join(', ')}.`)
+    }
+    if ((request.key === 'invite create' || request.key === 'invite edit') && request.values.requestNeeded === true && request.values.limit != null) {
+      return failure('invalid_option', 'Approval-required invite links cannot have a usage limit.')
     }
     try { return { ok: true, data: await dispatch(request, this.groups) } }
     catch (error) { return groupWriteFailure(error) }

@@ -514,6 +514,11 @@ export function InteractiveListen({
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const knownGroupRef = useRef<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const groupLookupGenerationRef = useRef(0)
+  useEffect(() => {
+    groupLookupGenerationRef.current++
+    knownGroupRef.current = undefined
+    setKnownGroup(undefined)
+  }, [sendTo])
   const groupCommand = useGroupCommand(useCallback(async (request, options) => {
     const client = clientRef.current
     if (client == null) return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection is not ready.' } }
@@ -644,10 +649,27 @@ export function InteractiveListen({
         else if (key.return) modal.selectedIndex === 0 ? groupCommand.setState({ ...modal, stage: 'title' }) : groupCommand.close()
         return
       }
-      const confirmation = 'confirmation' in modal.pending ? modal.pending.confirmation : undefined
       if (key.return) {
-        if (confirmation?.title === modal.confirmText) void groupCommand.runConfirmed(modal.request, modal.confirmText)
-        else groupCommand.setState({ ...modal, mismatch: true })
+        const client = clientRef.current
+        if (client == null || sendTo == null) {
+          groupCommand.setState({ kind: 'error', message: 'Telegram connection is not ready.' })
+        } else {
+          const submittedTitle = modal.confirmText
+          const lookup = ++groupLookupGenerationRef.current
+          void client.groups.getGroup(sendTo).then((fresh) => {
+            if (lookup !== groupLookupGenerationRef.current || clientRef.current !== client) return
+            knownGroupRef.current = fresh
+            setKnownGroup(fresh)
+            if (fresh.title === submittedTitle) void groupCommand.runConfirmed(modal.request, submittedTitle)
+            else if ('confirmation' in modal.pending) groupCommand.setState({
+              ...modal,
+              pending: { ...modal.pending, confirmation: { ...modal.pending.confirmation, title: fresh.title, target: fresh.title } },
+              mismatch: true,
+            })
+          }).catch((error) => {
+            if (lookup === groupLookupGenerationRef.current && clientRef.current === client) groupCommand.setState({ kind: 'error', message: messageFromError(error) })
+          })
+        }
       } else if (key.backspace || key.delete) groupCommand.setState({ ...modal, confirmText: modal.confirmText.slice(0, -1), mismatch: false })
       else if (!key.ctrl && !key.meta && inputText) groupCommand.setState({ ...modal, confirmText: modal.confirmText + inputText, mismatch: false })
       return
@@ -813,6 +835,9 @@ export function InteractiveListen({
       },
       onClient: (client) => {
         if (!isActive()) return
+        groupLookupGenerationRef.current++
+        knownGroupRef.current = undefined
+        setKnownGroup(undefined)
         clientRef.current = client
         if (client != null && sendTo != null) {
           const lookup = ++groupLookupGenerationRef.current
@@ -865,6 +890,7 @@ export function InteractiveListen({
 
     return () => {
       groupLookupGenerationRef.current += 1
+      knownGroupRef.current = undefined
       generation.dispose()
       stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.dispose()

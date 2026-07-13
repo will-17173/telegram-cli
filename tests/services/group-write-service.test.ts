@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseGroupCommand } from '../../src/group-commands/parser.js'
-import { COMMAND_HANDLERS, GroupWriteService } from '../../src/services/group-write-service.js'
+import { COMMAND_HANDLERS, GROUP_RESTRICTION_KEYS, GroupWriteService } from '../../src/services/group-write-service.js'
 import { FakeTelegramGroupManagement } from '../../src/telegram/fake-group-management.js'
 import { GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
 import {
@@ -16,6 +16,42 @@ function request(source: string) {
 }
 
 describe('GroupWriteService', () => {
+  it('exports the complete default restriction whitelist', () => {
+    expect(GROUP_RESTRICTION_KEYS).toEqual([
+      'view_messages', 'send_messages', 'send_media', 'send_stickers', 'send_gifs', 'send_games', 'send_inline',
+      'embed_links', 'send_polls', 'change_info', 'invite_users', 'pin_messages', 'manage_topics',
+    ])
+  })
+
+  it.each(['send_messages,typo', 'typo'])('rejects unknown default permissions before the adapter: %s', async permissions => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await new GroupWriteService(groups).execute(request(`chat default-permissions ${permissions}`))
+    expect(result).toMatchObject({ ok: false, error: { code: 'invalid_option', message: expect.stringContaining('send_messages') } })
+    expect(groups.writeCalls).toHaveLength(0)
+  })
+
+  it('maps valid default permissions exactly', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    await new GroupWriteService(groups).execute(request('chat default-permissions view_messages,send_media'))
+    expect(groups.writeCalls[0]).toMatchObject({ request: { permissions: {
+      view_messages: true, send_messages: false, send_media: true, send_stickers: false, send_gifs: false,
+      send_games: false, send_inline: false, embed_links: false, send_polls: false, change_info: false,
+      invite_users: false, pin_messages: false, manage_topics: false,
+    } } })
+  })
+
+  it.each([['chat sticker-set funny_pack', 'funny_pack'], ['chat sticker-set off', null]])('maps %s to sticker value', async (source, sticker) => {
+    const groups = new FakeTelegramGroupManagement()
+    await new GroupWriteService(groups).execute(request(source))
+    expect(groups.writeCalls).toEqual([{ operation: 'setStickerSet', request: { chat: 100, sticker } }])
+  })
+
+  it.each(['invite create --limit 5 --request-needed on', 'invite edit link --limit 5 --request-needed on'])('rejects approval links with a usage limit: %s', async source => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await new GroupWriteService(groups).execute(request(source))
+    expect(result).toMatchObject({ ok: false, error: { code: 'invalid_option' } })
+    expect(groups.writeCalls).toHaveLength(0)
+  })
   it('keeps the catalog and dispatch table exhaustive', () => {
     expect(GroupWriteService.paths).toEqual(GROUP_COMMANDS.map(command => command.path.join(' ')))
     expect(Object.keys(COMMAND_HANDLERS).sort()).toEqual(GROUP_COMMANDS.map(command => command.path.join(' ')).sort())
@@ -33,7 +69,7 @@ describe('GroupWriteService', () => {
     ['member add @one 2', 'addMembers', { chat: 100, users: ['@one', 2] }],
     ['member mute @one 1h', 'muteMember', { chat: 100, user: '@one', seconds: 3600 }],
     ['chat protect on', 'setContentProtection', { chat: 100, enabled: true }],
-    ['invite create --title Guests --expire 10m --limit 5 --request-needed on', 'createInvite', { chat: 100, options: { title: 'Guests', expireSeconds: 600, usageLimit: 5, requestNeeded: true } }],
+    ['invite create --title Guests --expire 10m --limit 5', 'createInvite', { chat: 100, options: { title: 'Guests', expireSeconds: 600, usageLimit: 5, requestNeeded: undefined } }],
     ['topic reopen 4', 'setTopicClosed', { chat: 100, topicId: 4, enabled: false }],
     ['message delete 4 5', 'deleteGroupMessages', { chat: 100, messageIds: [4, 5] }],
   ])('dispatches %s', async (source, operation, expected) => {
@@ -46,7 +82,7 @@ describe('GroupWriteService', () => {
   it.each([
     ['member add 1', 'addMembers'], ['member kick 1', 'kickMember'], ['member ban 1', 'banMember'], ['member unban 1', 'unbanMember'], ['member mute 1', 'muteMember'], ['member unmute 1', 'unmuteMember'], ['member purge 1', 'purgeMember'],
     ['admin promote 1 ban_users,delete_messages', 'promoteAdmin'], ['admin demote 1', 'demoteAdmin'], ['admin rank 1 Helper', 'setAdminRank'], ['admin transfer-owner 1', 'transferOwnership'],
-    ['chat title New', 'setTitle'], ['chat description Desc', 'setDescription'], ['chat username public', 'setUsername'], ['chat photo photo.jpg', 'setPhoto'], ['chat slowmode off', 'setSlowMode'], ['chat ttl 1h', 'setTtl'], ['chat protect off', 'setContentProtection'], ['chat join-requests on', 'setJoinRequests'], ['chat join-to-send on', 'setJoinToSend'], ['chat default-permissions send_messages', 'setDefaultPermissions'], ['chat sticker-set 2', 'setStickerSet'], ['chat leave', 'leaveGroup'], ['chat delete', 'deleteGroup'],
+    ['chat title New', 'setTitle'], ['chat description Desc', 'setDescription'], ['chat username public', 'setUsername'], ['chat photo photo.jpg', 'setPhoto'], ['chat slowmode off', 'setSlowMode'], ['chat ttl 1h', 'setTtl'], ['chat protect off', 'setContentProtection'], ['chat join-requests on', 'setJoinRequests'], ['chat join-to-send on', 'setJoinToSend'], ['chat default-permissions send_messages', 'setDefaultPermissions'], ['chat sticker-set pack_name', 'setStickerSet'], ['chat leave', 'leaveGroup'], ['chat delete', 'deleteGroup'],
     ['invite list', 'listInvites'], ['invite show link', 'getInvite'], ['invite create', 'createInvite'], ['invite edit link', 'editInvite'], ['invite revoke link', 'revokeInvite'], ['invite members link', 'listInviteMembers'], ['invite approve 1', 'approveJoinRequest'], ['invite decline 1', 'declineJoinRequest'], ['invite approve-all', 'approveAllJoinRequests'], ['invite decline-all', 'declineAllJoinRequests'],
     ['topic list', 'listTopics'], ['topic create News', 'createTopic'], ['topic edit 1 News', 'editTopic'], ['topic close 1', 'setTopicClosed'], ['topic reopen 1', 'setTopicClosed'], ['topic pin 1', 'setTopicPinned'], ['topic unpin 1', 'setTopicPinned'], ['topic reorder 1 2', 'reorderPinnedTopics'], ['topic delete 1', 'deleteTopic'], ['topic general-hidden on', 'setGeneralTopicHidden'],
     ['message pin 1', 'pinMessage'], ['message unpin 1', 'unpinMessage'], ['message unpin-all', 'unpinAllMessages'], ['message delete 1 2', 'deleteGroupMessages'],

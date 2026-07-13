@@ -141,6 +141,10 @@ describe('parseGroupCommand', () => {
     expect(parseGroupCommand('/chat default-permissions send,,media')).toMatchObject({ ok: false, error: { code: 'invalid_permissions' } })
   })
 
+  it.each([['/chat sticker-set funny_pack', 'funny_pack'], ['/chat sticker-set off', 'off']])('parses sticker set names: %s', (source, sticker) => {
+    expect(parseGroupCommand(source)).toMatchObject({ ok: true, request: { values: { sticker } } })
+  })
+
   it('parses create and edit options in both GNU forms', () => {
     expect(parseGroupCommand('/invite create --title "VIP Room" --expire=1d --limit 5 --request-needed=on')).toMatchObject({
       ok: true,

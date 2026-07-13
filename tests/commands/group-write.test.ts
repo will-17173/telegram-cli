@@ -102,8 +102,8 @@ describe('group write commands', () => {
   })
 
   it('forwards catalog options without losing spaces', async () => {
-    await run('group', 'invite', 'create', 'General', '--title', 'Team Link', '--expire', '2h', '--limit', '5', '--request-needed', 'on', '--yaml')
-    expect(groups.createInvite).toHaveBeenCalledWith({ chat: 'General', options: { title: 'Team Link', expireSeconds: 7200, usageLimit: 5, requestNeeded: true } })
+    await run('group', 'invite', 'create', 'General', '--title', 'Team Link', '--expire', '2h', '--limit', '5', '--request-needed', 'off', '--yaml')
+    expect(groups.createInvite).toHaveBeenCalledWith({ chat: 'General', options: { title: 'Team Link', expireSeconds: 7200, usageLimit: 5, requestNeeded: false } })
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: true }), expect.objectContaining({ yaml: true }))
   })
 
