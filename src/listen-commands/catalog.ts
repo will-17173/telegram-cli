@@ -85,10 +85,29 @@ function isGroupCommandKey(value: string): value is GroupCommandKey {
   return Object.hasOwn(GROUP_COMMAND_CATALOG, value)
 }
 
-export const LISTEN_COMMANDS: readonly ListenCommandDefinition[] = Object.freeze([
+const listenCommands: readonly ListenCommandDefinition[] = [
   replyCommand,
   ...groupCommands,
-])
+]
+
+assertUniqueListenCommands(listenCommands)
+export const LISTEN_COMMANDS: readonly ListenCommandDefinition[] = Object.freeze(listenCommands)
+
+export function assertUniqueListenCommands(
+  commands: readonly { readonly id: string; readonly path: readonly string[] }[],
+): void {
+  const ids = new Set<string>()
+  const paths = new Set<string>()
+
+  for (const command of commands) {
+    if (ids.has(command.id)) throw new Error(`Duplicate listen command ID: ${command.id}`)
+    ids.add(command.id)
+
+    const path = command.path.join(' ')
+    if (paths.has(path)) throw new Error(`Duplicate listen command path: ${path}`)
+    paths.add(path)
+  }
+}
 
 function freezeDefinition<
   const T extends { readonly path: readonly string[]; readonly keywords: readonly string[] },

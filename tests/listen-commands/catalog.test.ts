@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { GROUP_COMMAND_CATALOG, GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
 import {
+  assertUniqueListenCommands,
   LISTEN_COMMANDS,
   type GroupListenCommandDefinition,
 } from '../../src/listen-commands/catalog.js'
@@ -99,5 +100,21 @@ describe('LISTEN_COMMANDS', () => {
       expect(Object.isFrozen(command.path)).toBe(true)
       expect(Object.isFrozen(command.keywords)).toBe(true)
     }
+  })
+})
+
+describe('assertUniqueListenCommands', () => {
+  it('rejects a duplicate command ID', () => {
+    expect(() => assertUniqueListenCommands([
+      { id: 'same', path: ['one'] },
+      { id: 'same', path: ['two'] },
+    ])).toThrow('Duplicate listen command ID: same')
+  })
+
+  it('rejects a duplicate command path', () => {
+    expect(() => assertUniqueListenCommands([
+      { id: 'one', path: ['same', 'path'] },
+      { id: 'two', path: ['same', 'path'] },
+    ])).toThrow('Duplicate listen command path: same path')
   })
 })
