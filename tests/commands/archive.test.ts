@@ -171,12 +171,7 @@ describe('archive command', () => {
   })
 
   it('uses the existing stable error for an expired Telegram session', async () => {
-    const expired = new Error('Telegram API error 401: AUTH_KEY_UNREGISTERED') as Error & {
-      code: number
-      text: string
-    }
-    expired.code = 401
-    expired.text = 'AUTH_KEY_UNREGISTERED'
+    const expired = { code: 401, text: 'AUTH_KEY_UNREGISTERED' }
     archive.mockRejectedValueOnce(expired)
 
     const result = await run(['archive', '@team', '--json'])

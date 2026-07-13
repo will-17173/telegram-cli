@@ -21,6 +21,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { ParsedTimeRange } from '../commands/time-range.js'
 import type { HandlerResult } from '../commands/types.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../telegram/archive-types.js'
+import { isTelegramAuthSessionError } from '../telegram/errors.js'
 import { archiveChatFile, archiveMediaFile } from './archive-layout.js'
 import {
   readArchiveManifest,
@@ -253,6 +254,7 @@ export class ArchiveService {
           })
         }
       } catch (error) {
+        if (isTelegramAuthSessionError(error)) throw error
         const failure = publicArchiveFailure(error)
         result.failed.push({
           chat_id: chat.id,
@@ -509,8 +511,9 @@ export class ArchiveService {
       stagingOwned = false
       this.transaction.syncDirectory(directory)
       return { path: relativePath, archived: true }
-    } catch {
+    } catch (error) {
       if (stagingOwned) removeOwnedStagingFile(temporary, stagingIdentity)
+      if (isTelegramAuthSessionError(error)) throw error
       return mediaDownloadFailure(chat.id, messageId, relativePath)
     }
   }

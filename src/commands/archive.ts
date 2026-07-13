@@ -7,7 +7,8 @@ import type { ArchiveCommandResult } from '../services/archive-types.js'
 import type { AccountContext } from '../account/account-presets.js'
 import type { AccountCommandOptions } from './account-options.js'
 import { parseTimeRange, type ParsedTimeRange } from './time-range.js'
-import { isTelegramAuthSessionError, runTelegramCommand } from './telegram-runner.js'
+import { isTelegramAuthSessionError } from '../telegram/errors.js'
+import { runTelegramCommand } from './telegram-runner.js'
 import {
   outputFormatConflict,
   type HandlerResult,

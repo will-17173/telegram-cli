@@ -47,6 +47,10 @@ function message(id: number, chatId = -100, timestamp = `2026-07-${String(id).pa
   }
 }
 
+function authSessionError(): { code: number; text: string } {
+  return { code: 401, text: 'AUTH_KEY_UNREGISTERED' }
+}
+
 function sourceFor(
   chats: ArchiveChat[] = [{ id: -100, title: 'Team', type: 'group' }],
   pages: Record<number, ArchiveMessage[][]> = { [-100]: [[message(2), message(1)]] },
@@ -108,6 +112,45 @@ function existingManifest(output: string, overrides: Partial<ArchiveManifest['ch
 }
 
 describe('ArchiveService', () => {
+  it('rethrows an auth-session error from history without committing a partial archive', async () => {
+    const output = outputDirectory()
+    const source = sourceFor()
+    const expired = authSessionError()
+    source.iterHistoryPages.mockImplementation(() => (async function* () {
+      throw expired
+    })())
+
+    await expect(new ArchiveService(source).archive(input(output, { full: true })))
+      .rejects.toBe(expired)
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))).toBeNull()
+    expect(existsSync(join(output, '-100-team.md'))).toBe(false)
+    expect(readdirSync(output, { recursive: true }).map(String)
+      .filter((path) => path.includes('.segment'))).toEqual([])
+  })
+
+  it('cleans media staging and rethrows an auth-session download error without committing', async () => {
+    const output = outputDirectory()
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachment: {
+        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
+      },
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+    const expired = authSessionError()
+    source.downloadMedia.mockImplementation(async ({ destination }: { destination: string }) => {
+      writeFileSync(destination, 'partial download')
+      throw expired
+    })
+
+    await expect(new ArchiveService(source).archive(input(output, { full: true, media: true })))
+      .rejects.toBe(expired)
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))).toBeNull()
+    expect(existsSync(join(output, '-100-team.md'))).toBe(false)
+    expect(readdirSync(output, { recursive: true }).map(String)
+      .filter((path) => path.includes('.media-stage.'))).toEqual([])
+  })
+
   it('incrementally appends only messages newer than the effective cursor', async () => {
     const output = outputDirectory()
     const forty = message(40, -100, '2026-07-10T12:00:00.000Z')

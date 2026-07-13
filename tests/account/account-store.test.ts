@@ -120,6 +120,26 @@ describe('account store', () => {
     })
   })
 
+  it('rejects an unsafe account name passed directly to write', () => {
+    const store = new AccountStore(join(tempDir(), REGISTRY_PATH))
+
+    expect(() => store.write({
+      version: 2,
+      current_account: null,
+      accounts: [account('../../outside', 100)],
+    })).toThrow('account_store_error: malformed registry file')
+  })
+
+  it('rejects an unsafe current account passed directly to write', () => {
+    const store = new AccountStore(join(tempDir(), REGISTRY_PATH))
+
+    expect(() => store.write({
+      version: 2,
+      current_account: '../../outside',
+      accounts: [account('alice', 100)],
+    })).toThrow('account_store_error: malformed registry file')
+  })
+
   it('migrates and returns a valid legacy v1 registry document', () => {
     const path = join(tempDir(), REGISTRY_PATH)
     writeFileSync(
