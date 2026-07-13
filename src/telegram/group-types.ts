@@ -1,3 +1,5 @@
+import type { GroupPeer, TelegramGroupWriteAdapter } from './group-write-types.js'
+
 export type TelegramManagedGroupType = 'group' | 'supergroup'
 
 export type TelegramGroupMemberStatus = 'creator' | 'admin' | 'member' | 'restricted' | 'banned' | 'left'
@@ -133,12 +135,14 @@ export interface TelegramListGroupAuditEventsRequest {
   limit: number
 }
 
-export interface TelegramGroupManagementAdapter {
+export interface TelegramGroupReadAdapter {
   getGroup(chat: string | number): Promise<TelegramGroupDetails>
   listMembers(request: TelegramListGroupMembersRequest): Promise<TelegramGroupMemberPage>
   getMember(chat: string | number, user: string | number): Promise<TelegramGroupMemberResult>
   listAuditEvents(request: TelegramListGroupAuditEventsRequest): Promise<TelegramGroupAuditPage>
 }
+
+export interface TelegramGroupManagementAdapter extends TelegramGroupReadAdapter, TelegramGroupWriteAdapter {}
 
 export class TelegramGroupNotFoundError extends Error {
   constructor(chat: string | number) {
@@ -158,5 +162,39 @@ export class TelegramGroupAdminRequiredError extends Error {
   constructor(chat: string | number) {
     super(`Telegram group administrator privileges required: ${String(chat)}`)
     this.name = 'TelegramGroupAdminRequiredError'
+  }
+}
+
+export class TelegramUnsupportedGroupTypeError extends Error {
+  readonly chat: GroupPeer
+  constructor(chat: GroupPeer) {
+    super(`Unsupported Telegram group type: ${String(chat)}`)
+    this.name = 'TelegramUnsupportedGroupTypeError'
+    this.chat = chat
+  }
+}
+
+export class TelegramGroupMissingPermissionError extends Error {
+  readonly permission: keyof TelegramGroupAdminRights
+  constructor(permission: keyof TelegramGroupAdminRights) {
+    super(`Missing Telegram group permission: ${permission}`)
+    this.name = 'TelegramGroupMissingPermissionError'
+    this.permission = permission
+  }
+}
+
+export class TelegramGroupFloodWaitError extends Error {
+  readonly seconds: number
+  constructor(seconds: number) {
+    super(`Telegram flood wait: ${seconds} seconds`)
+    this.name = 'TelegramGroupFloodWaitError'
+    this.seconds = seconds
+  }
+}
+
+export class TelegramGroupPasswordRequiredError extends Error {
+  constructor() {
+    super('Telegram account password required')
+    this.name = 'TelegramGroupPasswordRequiredError'
   }
 }
