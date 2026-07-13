@@ -1,6 +1,7 @@
 import { StringDecoder } from 'node:string_decoder'
 import { posix } from 'node:path'
 import type { ArchiveMessage } from '../telegram/archive-types.js'
+import { sanitizeAttachmentFileName } from './attachment-download.js'
 
 export type { ArchiveMessage } from '../telegram/archive-types.js'
 
@@ -9,6 +10,9 @@ const MESSAGE_MARKER_PREFIX = '<!-- tg:message chat='
 const MESSAGE_ID_PREFIX = ' id='
 const MESSAGE_MARKER_SUFFIX = ' -->'
 const MAX_MESSAGE_MARKER_LENGTH = `<!-- tg:message chat=-${Number.MAX_SAFE_INTEGER} id=${Number.MAX_SAFE_INTEGER} -->`.length
+const MAX_ARCHIVE_MEDIA_LINE_LENGTH = 4096
+const ARCHIVE_MEDIA_LINE = /^Attachment: \[(?:\\.|[^\\\]])*\]\((media\/(?:\\.|[^\\)])+)\); type: .*; size: (?:unknown|-?(?:0|[1-9]\d*) bytes); downloadable: yes$/u
+const ARCHIVE_MEDIA_PATH = /^media\/(-?(?:0|[1-9]\d*))\/([1-9]\d*)-(.+)$/u
 
 function safeInteger(value: number, label: string): string {
   if (!Number.isSafeInteger(value)) {
@@ -271,4 +275,136 @@ export async function scanArchivedMessageIds(
     if (maxId == null || id > maxId) maxId = id
   }
   return { ids, maxId }
+}
+
+export type ArchivedMediaLink = {
+  messageId: number
+  path: string
+}
+
+function decodeArchiveLinkDestination(value: string): string | null {
+  let decoded = ''
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]!
+    if (character === '\\') {
+      const escaped = value[index + 1]
+      if (escaped !== '\\' && escaped !== '(' && escaped !== ')') return null
+      decoded += escaped
+      index += 1
+    } else if (value.startsWith('%20', index)) {
+      decoded += ' '
+      index += 2
+    } else {
+      decoded += character
+    }
+  }
+  return escapeLinkDestination(decoded) === value ? decoded : null
+}
+
+function canonicalMarker(line: string): { chatId: number; messageId: number } | null {
+  const normalized = line.endsWith('\r') ? line.slice(0, -1) : line
+  const match = MESSAGE_MARKER.exec(normalized)
+  if (match == null || !isCanonicalInteger(match[1]!, true) || !isCanonicalInteger(match[2]!, false)) {
+    return null
+  }
+  return { chatId: Number(match[1]), messageId: Number(match[2]) }
+}
+
+function archivedMediaLink(
+  line: string,
+  chatId: number,
+  messageId: number,
+): ArchivedMediaLink | null {
+  const normalized = line.endsWith('\r') ? line.slice(0, -1) : line
+  const lineMatch = ARCHIVE_MEDIA_LINE.exec(normalized)
+  if (lineMatch == null) return null
+  const path = decodeArchiveLinkDestination(lineMatch[1]!)
+  if (path == null) return null
+
+  const pathMatch = ARCHIVE_MEDIA_PATH.exec(path)
+  if (pathMatch == null
+    || Number(pathMatch[1]) !== chatId
+    || String(chatId) !== pathMatch[1]
+    || Number(pathMatch[2]) !== messageId
+    || String(messageId) !== pathMatch[2]) {
+    return null
+  }
+
+  const safeName = pathMatch[3]!
+  if (safeName.includes('/')
+    || safeName.includes('\\')
+    || sanitizeAttachmentFileName(safeName) !== safeName) {
+    return null
+  }
+  return { messageId, path }
+}
+
+export async function scanArchivedMediaLinks(
+  input: NodeJS.ReadableStream,
+  expectedChatId: number,
+): Promise<ArchivedMediaLink[]> {
+  const links: ArchivedMediaLink[] = []
+  const seen = new Set<string>()
+  const decoder = new StringDecoder('utf8')
+  let line = ''
+  let discardingLine = false
+  let currentMessageId: number | null = null
+
+  const consumeLine = (value: string): void => {
+    const marker = canonicalMarker(value)
+    if (marker != null) {
+      currentMessageId = marker.chatId === expectedChatId ? marker.messageId : null
+      return
+    }
+    if (value === '---' || value === '---\r') {
+      currentMessageId = null
+      return
+    }
+    if (currentMessageId == null) return
+    const link = archivedMediaLink(value, expectedChatId, currentMessageId)
+    if (link == null) return
+    const key = `${link.messageId}\u0000${link.path}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      links.push(link)
+    }
+  }
+
+  const append = (value: string): void => {
+    if (discardingLine || value === '') return
+    if (line.length + value.length > MAX_ARCHIVE_MEDIA_LINE_LENGTH) {
+      line = ''
+      discardingLine = true
+      return
+    }
+    line += value
+  }
+
+  const consume = (value: string): void => {
+    let offset = 0
+    let newline = value.indexOf('\n', offset)
+    while (newline !== -1) {
+      append(value.slice(offset, newline))
+      if (!discardingLine) consumeLine(line)
+      line = ''
+      discardingLine = false
+      offset = newline + 1
+      newline = value.indexOf('\n', offset)
+    }
+    append(value.slice(offset))
+  }
+
+  for await (const chunk of input as AsyncIterable<unknown>) {
+    if (typeof chunk === 'string') {
+      consume(decoder.end())
+      consume(chunk)
+    } else if (chunk instanceof Uint8Array) {
+      consume(decoder.write(chunk))
+    } else {
+      throw new TypeError('archive_input_chunk_must_be_string_or_buffer')
+    }
+  }
+  consume(decoder.end())
+  if (!discardingLine && line !== '') consumeLine(line)
+  return links
 }

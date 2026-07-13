@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import type { ParsedTimeRange } from '../commands/time-range.js'
 import type { HandlerResult } from '../commands/types.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../telegram/archive-types.js'
@@ -27,6 +27,7 @@ import {
 import {
   renderArchiveHeader,
   renderArchiveMessage,
+  scanArchivedMediaLinks,
   scanArchivedMessageIds,
 } from './archive-markdown.js'
 import { sanitizeAttachmentFileName } from './attachment-download.js'
@@ -292,6 +293,22 @@ export class ArchiveService {
       const effectiveMinId = incremental
         ? maxDefined(previous.last_message_id, scanned.maxId)
         : undefined
+      if (incremental && downloadMedia) {
+        const links = await scanArchivedMediaLinks(createReadStream(destination), chat.id)
+        for (const link of links) {
+          const mediaDestination = safeArchiveMediaDestination(output, link.path)
+          if (mediaDestination == null || nonEmptyFile(mediaDestination)) continue
+          const downloaded = await this.downloadMediaFile(
+            output,
+            chat,
+            link.messageId,
+            link.path,
+            token,
+          )
+          if (downloaded.archived) media += 1
+          if (downloaded.warning != null) warnings.push(downloaded.warning)
+        }
+      }
       let pageNumber = 0
       for await (const page of this.source.iterHistoryPages({
         chat: chat.id,
@@ -407,15 +424,20 @@ export class ArchiveService {
     if (attachment == null || !attachment.downloadable) return { archived: false }
 
     const safeName = sanitizeAttachmentFileName(attachment.file_name ?? 'attachment')
-    const relative = join('media', String(chat.id), `${message.msg_id}-${safeName}`)
-    const destination = join(output, relative)
-    try {
-      if (existsSync(destination) && statSync(destination).size > 0) {
-        return { path: relative, archived: true }
-      }
-    } catch {
-      // Retry through a fresh owned temporary file below.
-    }
+    const relativePath = posix.join('media', String(chat.id), `${message.msg_id}-${safeName}`)
+    return this.downloadMediaFile(output, chat, message.msg_id, relativePath, token)
+  }
+
+  private async downloadMediaFile(
+    output: string,
+    chat: ArchiveChat,
+    messageId: number,
+    relativePath: string,
+    token: string,
+  ): Promise<{ path?: string; archived: boolean; warning?: ArchiveCommandResult['warnings'][number] }> {
+    const destination = safeArchiveMediaDestination(output, relativePath)
+    if (destination == null) return { archived: false }
+    if (nonEmptyFile(destination)) return { path: relativePath, archived: true }
 
     const directory = dirname(destination)
     mkdirSync(directory, { recursive: true })
@@ -423,7 +445,7 @@ export class ArchiveService {
     try {
       await this.source.downloadMedia({
         chat: chat.id,
-        messageId: message.msg_id,
+        messageId,
         destination: temporary,
       })
       if (!existsSync(temporary) || statSync(temporary).size === 0) {
@@ -437,15 +459,17 @@ export class ArchiveService {
       }
       renameSync(temporary, destination)
       this.transaction.syncDirectory(directory)
-      return { path: relative, archived: true }
+      return { path: relativePath, archived: true }
     } catch {
       removeOwnedQuietly([temporary])
+      const fileName = basename(relativePath).slice(`${messageId}-`.length)
       return {
+        path: relativePath,
         archived: false,
         warning: {
           chat_id: chat.id,
           code: 'archive_media_failed',
-          message: `Media download failed for message #${message.msg_id} attachment ${safeName}.`,
+          message: `Media download failed for message #${messageId} attachment ${fileName}.`,
         },
       }
     }
@@ -503,6 +527,25 @@ function maxDefined(left: number | null, right: number | null): number | undefin
   if (left == null) return right ?? undefined
   if (right == null) return left
   return Math.max(left, right)
+}
+
+function nonEmptyFile(path: string): boolean {
+  try {
+    const status = statSync(path)
+    return status.isFile() && status.size > 0
+  } catch {
+    return false
+  }
+}
+
+function safeArchiveMediaDestination(output: string, relativePath: string): string | null {
+  const root = resolve(output)
+  const destination = resolve(root, ...relativePath.split('/'))
+  const fromRoot = relative(root, destination)
+  if (fromRoot === '' || fromRoot === '..' || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+    return null
+  }
+  return destination
 }
 
 function validateEffectiveRange(range: EffectiveRange): void {

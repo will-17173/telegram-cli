@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readArchiveManifest, writeArchiveManifest } from '../../src/services/archive-manifest.js'
 import { renderArchiveMessage } from '../../src/services/archive-markdown.js'
@@ -176,6 +176,65 @@ describe('ArchiveService', () => {
     expect(readFileSync(join(output, '-100-team.md'), 'utf8')).toContain('report.pdf')
     expect(JSON.stringify(result)).not.toContain('/secret/')
     expect(readdirSync(output).some((file) => file.includes('.tmp'))).toBe(false)
+  })
+
+  it('retries failed media from its durable archive link without duplicating the message', async () => {
+    const output = outputDirectory()
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachment: {
+        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
+      },
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+    source.downloadMedia
+      .mockRejectedValueOnce(new Error('/secret/first-download'))
+      .mockImplementationOnce(async ({ destination }: { destination: string }) => {
+        writeFileSync(destination, 'pdf')
+      })
+    const service = new ArchiveService(source)
+
+    const first = await service.archive(input(output, { full: true, media: true }))
+    const firstMarkdown = readFileSync(join(output, '-100-team.md'), 'utf8')
+    const second = await service.archive(input(output, { full: true, media: true }))
+    const secondMarkdown = readFileSync(join(output, '-100-team.md'), 'utf8')
+
+    expect(first).toMatchObject({ ok: false, error: { code: 'archive_partial_failure' } })
+    expect(firstMarkdown).toContain('(media/-100/40-report.pdf)')
+    expect(second).toMatchObject({
+      ok: true,
+      data: { completed: [expect.objectContaining({ messages_archived: 0, media_archived: 1 })] },
+    })
+    expect([...secondMarkdown.matchAll(/id=(\d+)/gu)].map((match) => Number(match[1])))
+      .toEqual([40])
+    expect(source.downloadMedia).toHaveBeenCalledTimes(2)
+    expect(readFileSync(join(output, 'media', '-100', '40-report.pdf'), 'utf8')).toBe('pdf')
+    expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats['-100']?.last_message_id)
+      .toBe(40)
+  })
+
+  it('ignores malformed archive media links instead of touching their targets', async () => {
+    const output = outputDirectory()
+    const otherOutput = outputDirectory()
+    existingManifest(output, { last_message_id: 40 })
+    const outside = join(otherOutput, 'victim.pdf')
+    writeFileSync(outside, 'keep')
+    const archived = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachment: {
+        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
+      },
+    }
+    writeFileSync(
+      join(output, '-100-team.md'),
+      `${renderArchiveMessage(archived, `../${basename(otherOutput)}/victim.pdf`)}\n`,
+    )
+    const source = sourceFor(undefined, { [-100]: [] })
+
+    await new ArchiveService(source).archive(input(output, { full: true, media: true }))
+
+    expect(source.downloadMedia).not.toHaveBeenCalled()
+    expect(readFileSync(outside, 'utf8')).toBe('keep')
   })
 
   it('downloads media atomically to a deterministic path and reuses non-empty files', async () => {
