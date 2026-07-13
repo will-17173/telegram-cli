@@ -120,15 +120,17 @@ describe('listen reply resolver', () => {
     resolver.close()
   })
 
-  it('evicts oldest distinct keys without evicting a refreshed existing key', () => {
+  it('limits logical groups and preserves overlapping keys owned by a newer group', () => {
     const { dbPath, db } = setup()
     db.close()
     const resolver = createListenReplyResolver(dbPath, 2)
-    resolver.remember([message(1, { content: 'one' }), message(2, { content: 'two' })])
-    resolver.remember([message(1, { content: 'one updated' }), message(3, { content: 'three' })])
+    resolver.remember([message(1, { content: 'one' }), message(2, { content: 'two old' })])
+    resolver.remember([message(2, { content: 'two new' }), message(3, { content: 'three' })])
+    resolver.remember([message(4, { content: 'four' })])
     expect(resolver.resolve([reply(10, 1)])).toMatchObject({ resolved: false })
-    expect(resolver.resolve([reply(10, 2)])).toMatchObject({ resolved: true, content: 'two' })
+    expect(resolver.resolve([reply(10, 2)])).toMatchObject({ resolved: true, content: 'two new' })
     expect(resolver.resolve([reply(10, 3)])).toMatchObject({ resolved: true, content: 'three' })
+    expect(resolver.resolve([reply(10, 4)])).toMatchObject({ resolved: true, content: 'four' })
     resolver.close()
   })
 

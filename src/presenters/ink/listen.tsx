@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, render, useApp, useInput, useStdout } from 'ink'
 import stringWidth from 'string-width'
 import { existsSync, mkdirSync } from 'node:fs'
@@ -447,39 +447,80 @@ export function ListenMessageBody({ message }: { message: ListenMessage }): Reac
   )
 }
 
-export function createInteractiveListenGroupResolver(
-  dbPath: string,
-  factory: (dbPath: string, limit: number) => ListenReplyResolver = createListenReplyResolver,
-) {
-  const resolver = factory(dbPath, LISTEN_HISTORY_LIMIT)
+export type ResolvedListenGroup = {
+  key: string
+  messages: StoredMessageInput[]
+  replyContext?: ReplyContext
+}
+
+export function createInteractiveListenGroupQueue(options: {
+  resolver: ListenReplyResolver
+  schedule?: (run: () => void) => void
+  isActive: () => boolean
+  onGroup: (group: ResolvedListenGroup) => void
+  onError: (error: unknown) => void
+}) {
+  const pending: StoredMessageInput[][] = []
+  const schedule = options.schedule ?? ((run) => setImmediate(run))
+  let scheduled: Promise<void> | null = null
+  let resolveScheduled: (() => void) | null = null
+  let closing = false
   let closed = false
-  const close = (): void => {
-    if (closed) return
-    closed = true
-    resolver.close()
-  }
-  const resolveContext = (messages: StoredMessageInput[]): ReplyContext | undefined => {
+
+  const drain = (): void => {
     try {
-      return resolver.resolve(messages)
-    } catch (error) {
-      close()
-      throw error
+      while (pending.length > 0) {
+        const messages = pending.shift()!
+        try {
+          const replyContext = options.resolver.resolve(messages)
+          options.resolver.remember(messages)
+          const first = messages[0]
+          if (first != null && options.isActive()) {
+            options.onGroup({ key: `${first.chat_id}:${first.msg_id}`, messages, replyContext })
+          }
+        } catch (error) {
+          options.onError(error)
+          pending.length = 0
+          break
+        }
+      }
+    } finally {
+      resolveScheduled?.()
+      resolveScheduled = null
+      scheduled = null
+      if (closing) closeResolver()
     }
   }
-  return {
-    resolve(messages: StoredMessageInput[], context: ListenMessageRenderContext): ListenMessage {
-      try {
-        const replyContext = resolveContext(messages)
-        const message = toListenMessage(messages, { ...context, replyContext })
-        resolver.remember(messages)
-        return message
-      } catch (error) {
-        close()
-        throw error
-      }
-    },
-    close,
+  const closeResolver = (): void => {
+    if (closed) return
+    closed = true
+    options.resolver.close()
   }
+  return {
+    enqueue(messages: StoredMessageInput[]): void {
+      if (closing) return
+      pending.push(messages)
+      if (scheduled != null) return
+      scheduled = new Promise<void>((resolve) => { resolveScheduled = resolve })
+      schedule(drain)
+    },
+    async close(): Promise<void> {
+      closing = true
+      if (scheduled != null) await scheduled
+      closeResolver()
+    },
+  }
+}
+
+export function createInteractiveListenRuntime(
+  dbPath: string,
+  factory: (dbPath: string, limit: number) => ListenReplyResolver,
+  options: Omit<Parameters<typeof createInteractiveListenGroupQueue>[0], 'resolver'>,
+) {
+  return createInteractiveListenGroupQueue({
+    ...options,
+    resolver: factory(dbPath, LISTEN_HISTORY_LIMIT),
+  })
 }
 
 export function ListenStatus({ status, unseenCount }: { status: string; unseenCount: number }): React.JSX.Element {
@@ -553,7 +594,7 @@ function InteractiveListen({
   const { stdout } = useStdout()
   const terminalMetrics = useTerminalMetrics(stdout)
   const [status, setStatus] = useState('connecting...')
-  const [messages, setMessages] = useState<ListenMessage[]>([])
+  const [messageGroups, setMessageGroups] = useState<ResolvedListenGroup[]>([])
   const [input, setInput] = useState('')
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
@@ -569,6 +610,12 @@ function InteractiveListen({
   const previewWidth = Math.max(1, Math.min(24, contentWidth - 2))
   const renderContextRef = useRef<ListenMessageRenderContext>({ showMedia, previewWidth, colorDepth: previewColorDepth, showChatName })
   renderContextRef.current = { showMedia, previewWidth, colorDepth: previewColorDepth, showChatName }
+  const messageViewCacheRef = useRef<ListenMessageViewCache | null>(null)
+  if (messageViewCacheRef.current == null) messageViewCacheRef.current = new ListenMessageViewCache()
+  const messages = useMemo(
+    () => messageViewCacheRef.current!.build(messageGroups, renderContextRef.current),
+    [messageGroups, showMedia, previewWidth, previewColorDepth, showChatName],
+  )
   const messagePaneHeight = calculateListenMessagePaneHeight(terminalHeight, note.length > 0, autoDownload)
   const visibleMessages = takeListenViewport(messages, messagePaneHeight, scrollState.offset)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
@@ -683,20 +730,23 @@ function InteractiveListen({
       stopListening()
     }
     stopSignal.addEventListener('abort', stopFromSignal)
-    const groupResolver = createInteractiveListenGroupResolver(dbPath, createReplyResolver)
-    const albumAggregator = new ListenAlbumAggregator({
-      emit: (group) => {
-        if (!isActive()) return
-        const message = groupResolver.resolve(group, renderContextRef.current)
+    const groupQueue = createInteractiveListenRuntime(dbPath, createReplyResolver ?? createListenReplyResolver, {
+      isActive,
+      onGroup: (group) => {
         setScrollState((current) => applyMessageArrival(current))
-        setMessages((current) => [...current, message].slice(-LISTEN_HISTORY_LIMIT))
+        setMessageGroups((current) => [...current, group].slice(-LISTEN_HISTORY_LIMIT))
       },
       onError: (error) => {
         if (!isActive()) return
-        groupResolver.close()
         setStatus(`listen failed: ${messageFromError(error)}`)
         onRequestStop()
         exit()
+      },
+    })
+    const albumAggregator = new ListenAlbumAggregator({
+      emit: (group) => {
+        if (!isActive()) return
+        groupQueue.enqueue(group)
       },
     })
     albumAggregatorRef.current = albumAggregator
@@ -774,10 +824,11 @@ function InteractiveListen({
     })
 
     return () => {
-      generation.dispose()
       stopSignal.removeEventListener('abort', stopFromSignal)
+      albumAggregator.flush()
+      generation.dispose()
       albumAggregator.dispose()
-      groupResolver.close()
+      void groupQueue.close()
       if (albumAggregatorRef.current === albumAggregator) albumAggregatorRef.current = null
       void clientRef.current?.close().catch(() => undefined)
       clientRef.current = null
@@ -928,10 +979,9 @@ export type ListenMessageRenderContext = {
   replyContext?: ReplyContext
 }
 
-type ResolvedListenGroup = { messages: StoredMessageInput[]; replyContext?: ReplyContext }
-
 type ListenMessageCacheEntry = {
   group: StoredMessageInput[]
+  replyContext: ReplyContext | undefined
   showMedia: boolean
   previewWidth: number
   colorDepth: number
@@ -954,10 +1004,11 @@ export class ListenMessageViewCache {
       const replyContext = Array.isArray(input) ? context.replyContext : input.replyContext
       const first = group[0]
       if (first == null) throw new Error('Cannot render an empty listen message group')
-      const key = `${first.chat_id}:${first.msg_id}`
+      const key = Array.isArray(input) ? `${first.chat_id}:${first.msg_id}` : input.key
       const cached = this.entries.get(key)
       if (
         cached?.group === group
+        && cached.replyContext === replyContext
         && cached.showMedia === context.showMedia
         && cached.previewWidth === previewWidth
         && cached.colorDepth === context.colorDepth
@@ -969,6 +1020,7 @@ export class ListenMessageViewCache {
       const message = toListenMessage(group, { ...context, previewWidth, replyContext })
       nextEntries.set(key, {
         group,
+        replyContext,
         showMedia: context.showMedia,
         previewWidth,
         colorDepth: context.colorDepth,

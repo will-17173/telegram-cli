@@ -11,7 +11,8 @@ import {
   calculateListenMessagePaneHeight,
   canManuallyDownload,
   collectDownloadableAttachments,
-  createInteractiveListenGroupResolver,
+  createInteractiveListenGroupQueue,
+  createInteractiveListenRuntime,
   createInteractiveOperationController,
   flushListenBeforeExit,
   formatInteractiveListenSender,
@@ -597,50 +598,103 @@ describe('interactive album messages', () => {
     expect(output).not.toContain('Download')
   })
 
-  it('resolves before building across reconnects, remembers afterward, and closes once on cleanup', () => {
+  it('queues groups off the callback stack, preserves order, and closes after draining', async () => {
+    const scheduled: Array<() => void> = []
     const calls: string[] = []
     const resolver = {
-      resolve: vi.fn(() => {
-        calls.push('resolve')
-        return { messageId: 7, resolved: true as const, timestamp: '2026-07-10T07:20:00.000Z', senderId: 2, senderName: 'Memory', content: 'target' }
+      resolve: vi.fn((messages: StoredMessageInput[]) => {
+        calls.push(`resolve:${messages[0]!.msg_id}`)
+        return undefined
       }),
-      remember: vi.fn(() => calls.push('remember')),
+      remember: vi.fn((messages: StoredMessageInput[]) => calls.push(`remember:${messages[0]!.msg_id}`)),
       close: vi.fn(() => calls.push('close')),
     }
-    const factory = vi.fn(() => resolver)
-    const runtime = createInteractiveListenGroupResolver('/tmp/messages.db', factory)
-
-    const row = runtime.resolve([storedPhoto(11, 'current')], {
-      showMedia: true,
-      previewWidth: 1,
-      colorDepth: 1,
+    const committed: number[] = []
+    const queue = createInteractiveListenGroupQueue({
+      resolver,
+      schedule: (run) => scheduled.push(run),
+      isActive: () => true,
+      onGroup: (group) => committed.push(group.messages[0]!.msg_id),
+      onError: vi.fn(),
     })
-    runtime.resolve([storedPhoto(12, 'after reconnect')], {
-      showMedia: true,
-      previewWidth: 1,
-      colorDepth: 1,
-    })
-    runtime.close()
-    runtime.close()
 
-    expect(factory).toHaveBeenCalledWith('/tmp/messages.db', LISTEN_HISTORY_LIMIT)
-    expect(row.replyContext?.resolved && row.replyContext.senderName).toBe('Memory')
-    expect(calls).toEqual(['resolve', 'remember', 'resolve', 'remember', 'close'])
+    queue.enqueue([storedPhoto(11, 'first')])
+    queue.enqueue([storedPhoto(12, 'second')])
+    expect(calls).toEqual([])
+    expect(scheduled).toHaveLength(1)
+    scheduled.shift()!()
+    await queue.close()
+
+    expect(committed).toEqual([11, 12])
+    expect(calls).toEqual(['resolve:11', 'remember:11', 'resolve:12', 'remember:12', 'close'])
   })
 
-  it('closes the resolver when interactive reply resolution fails', () => {
-    const resolver = {
-      resolve: vi.fn(() => { throw new Error('snapshot failed') }),
-      remember: vi.fn(),
-      close: vi.fn(),
-    }
-    const runtime = createInteractiveListenGroupResolver('/tmp/messages.db', () => resolver)
+  it('uses one resolver across reconnect batches and closes it once at final cleanup', async () => {
+    const scheduled: Array<() => void> = []
+    const resolver = { resolve: vi.fn(() => undefined), remember: vi.fn(), close: vi.fn() }
+    const factory = vi.fn(() => resolver)
+    const runtime = createInteractiveListenRuntime('/tmp/messages.db', factory, {
+      schedule: (run) => scheduled.push(run),
+      isActive: () => true,
+      onGroup: vi.fn(),
+      onError: vi.fn(),
+    })
 
-    expect(() => runtime.resolve([storedPhoto(11, 'current')], {
-      showMedia: true,
-      previewWidth: 1,
-      colorDepth: 1,
-    })).toThrow('snapshot failed')
+    runtime.enqueue([storedPhoto(11, 'before disconnect')])
+    scheduled.shift()!()
+    await Promise.resolve()
+    runtime.enqueue([storedPhoto(12, 'after reconnect')])
+    scheduled.shift()!()
+    await runtime.close()
+
+    expect(factory).toHaveBeenCalledOnce()
+    expect(factory).toHaveBeenCalledWith('/tmp/messages.db', LISTEN_HISTORY_LIMIT)
+    expect(resolver.resolve).toHaveBeenCalledTimes(2)
+    expect(resolver.close).toHaveBeenCalledOnce()
+  })
+
+  it('does not commit after generation cleanup and reports resolve errors without rejection', async () => {
+    const scheduled: Array<() => void> = []
+    let active = true
+    const error = new Error('snapshot failed')
+    const resolver = { resolve: vi.fn(() => { throw error }), remember: vi.fn(), close: vi.fn() }
+    const onGroup = vi.fn()
+    const onError = vi.fn()
+    const queue = createInteractiveListenGroupQueue({
+      resolver,
+      schedule: (run) => scheduled.push(run),
+      isActive: () => active,
+      onGroup,
+      onError,
+    })
+    queue.enqueue([storedPhoto(11, 'first')])
+    active = false
+    scheduled.shift()!()
+    await queue.close()
+
+    expect(onGroup).not.toHaveBeenCalled()
+    expect(onError).toHaveBeenCalledWith(error)
+    expect(resolver.close).toHaveBeenCalledOnce()
+  })
+
+  it('drains remembered work after unmount without committing stale state', async () => {
+    const scheduled: Array<() => void> = []
+    const resolver = { resolve: vi.fn(() => undefined), remember: vi.fn(), close: vi.fn() }
+    const onGroup = vi.fn()
+    const queue = createInteractiveListenGroupQueue({
+      resolver,
+      schedule: (run) => scheduled.push(run),
+      isActive: () => false,
+      onGroup,
+      onError: vi.fn(),
+    })
+
+    queue.enqueue([storedPhoto(11, 'pending at unmount')])
+    scheduled.shift()!()
+    await queue.close()
+
+    expect(resolver.remember).toHaveBeenCalledOnce()
+    expect(onGroup).not.toHaveBeenCalled()
     expect(resolver.close).toHaveBeenCalledOnce()
   })
   it('creates one row and keeps each attachment download message ID', () => {
@@ -738,6 +792,28 @@ describe('interactive album messages', () => {
     expect(after[0]?.key).toBe(before[0]?.key)
     expect(new Set(after.map((row) => row.key)).size).toBe(after.length)
     expect(after[0]?.media.map((item) => item.messageId)).toEqual([11, 12])
+  })
+
+  it('rebuilds a resolved historical group for resize without resolving it again', () => {
+    const decodePreview = vi.fn((_base64: string, width: number) => ({
+      width,
+      rows: Array.from({ length: width }, () => []),
+    }))
+    const group = [{ ...storedPhoto(11, 'caption'), preview_jpeg_base64: twoByTwoJpeg }]
+    const resolved = {
+      key: '100:11',
+      messages: group,
+      replyContext: { messageId: 7, resolved: false as const },
+    }
+    const cache = new ListenMessageViewCache()
+
+    const before = cache.build([resolved], { showMedia: true, previewWidth: 2, colorDepth: 24, decodePreview })
+    const after = cache.build([resolved], { showMedia: true, previewWidth: 4, colorDepth: 24, decodePreview })
+
+    expect(before[0]?.media[0]?.previewRows).toBe(2)
+    expect(after[0]?.media[0]?.previewRows).toBe(4)
+    expect(after[0]?.replyContext).toEqual(resolved.replyContext)
+    expect(decodePreview).toHaveBeenCalledTimes(2)
   })
 
   it('caps preview decoding width at 24 cells', () => {

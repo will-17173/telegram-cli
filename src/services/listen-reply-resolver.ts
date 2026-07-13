@@ -11,7 +11,8 @@ export type ListenReplyResolver = {
 
 export function createListenReplyResolver(dbPath: string, limit = 500): ListenReplyResolver {
   let db: MessageDB | undefined
-  const memory = new Map<string, StoredMessageInput>()
+  const memory = new Map<string, { message: StoredMessageInput; owner: symbol }>()
+  const groups: Array<{ owner: symbol; keys: string[] }> = []
   let closed = false
 
   return {
@@ -19,7 +20,7 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
       const logical = groupLogicalMessages(messages)[0]
       if (logical?.replyToMessageId == null) return undefined
       const replyId = logical.replyToMessageId
-      const target = memory.get(messageKey(logical.first.platform, logical.first.chat_id, replyId))
+      const target = memory.get(messageKey(logical.first.platform, logical.first.chat_id, replyId))?.message
       if (target != null) return buildReplyContext(replyId, asStoredMessage(target))
       if (closed) return buildReplyContext(replyId)
       if (logical.first.platform !== 'telegram') return buildReplyContext(replyId)
@@ -34,13 +35,22 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
     },
     remember(messages) {
       if (closed) return
+      const retainedLimit = Math.max(0, limit)
+      if (retainedLimit === 0) return
+      const owner = Symbol('listen-group')
+      const keys: string[] = []
       for (const message of messages) {
         const key = messageKey(message.platform, message.chat_id, message.msg_id)
-        if (!memory.has(key) && memory.size >= Math.max(0, limit)) {
-          const oldest = memory.keys().next().value as string | undefined
-          if (oldest != null) memory.delete(oldest)
+        keys.push(key)
+        memory.set(key, { message, owner })
+      }
+      groups.push({ owner, keys })
+      while (groups.length > retainedLimit) {
+        const oldest = groups.shift()
+        if (oldest == null) break
+        for (const key of oldest.keys) {
+          if (memory.get(key)?.owner === oldest.owner) memory.delete(key)
         }
-        if (limit > 0) memory.set(key, message)
       }
     },
     close() {
