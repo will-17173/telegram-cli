@@ -22,11 +22,13 @@ export type TelegramCredentials = {
 export type TelegramConfigurationUpdate = {
   credentials?: TelegramCredentials
   proxy?: string
+  writeAccess?: boolean
 }
 
 type StoredTelegramConfiguration = {
   credentials?: TelegramCredentials
   proxy?: string
+  writeAccess?: boolean
 }
 
 export class MissingCredentialsError extends Error {
@@ -66,6 +68,10 @@ export function readProxy(path: string): string | undefined {
   return readStoredConfiguration(path)?.proxy
 }
 
+export function readWriteAccess(path: string): boolean {
+  return readStoredConfiguration(path)?.writeAccess ?? true
+}
+
 export function writeConfiguration(
   path: string,
   update: TelegramConfigurationUpdate,
@@ -75,12 +81,15 @@ export function writeConfiguration(
     ? existing.credentials
     : validateCredentials(update.credentials)
   const proxy = update.proxy === undefined ? existing.proxy : normalizeProxy(update.proxy)
+  const writeAccess = update.writeAccess === undefined
+    ? existing.writeAccess
+    : validateWriteAccess(update.writeAccess)
 
-  if (!credentials && !proxy) {
+  if (!credentials && !proxy && writeAccess === undefined) {
     throw new Error(INVALID_CREDENTIALS_MESSAGE)
   }
 
-  writeDocument(path, createDocument({ credentials, proxy }))
+  writeDocument(path, createDocument({ credentials, proxy, writeAccess }))
 }
 
 export function writeCredentials(path: string, credentials: TelegramCredentials): void {
@@ -113,6 +122,7 @@ function parseDocument(value: unknown): StoredTelegramConfiguration {
   const hasApiId = Object.prototype.hasOwnProperty.call(document, 'api_id')
   const hasApiHash = Object.prototype.hasOwnProperty.call(document, 'api_hash')
   const hasProxy = Object.prototype.hasOwnProperty.call(document, 'proxy')
+  const hasWriteAccess = Object.prototype.hasOwnProperty.call(document, 'write_access')
 
   if (hasApiId !== hasApiHash) {
     throw new Error(INVALID_CREDENTIALS_MESSAGE)
@@ -135,11 +145,12 @@ function parseDocument(value: unknown): StoredTelegramConfiguration {
   }
 
   const proxy = hasProxy ? normalizeProxy(document.proxy) : undefined
-  if (!credentials && !proxy) {
+  const writeAccess = hasWriteAccess ? normalizeWriteAccess(document.write_access) : undefined
+  if (!credentials && !proxy && writeAccess === undefined) {
     throw new Error(INVALID_CREDENTIALS_MESSAGE)
   }
 
-  return { credentials, proxy }
+  return { credentials, proxy, writeAccess }
 }
 
 function normalizeProxy(value: unknown): string {
@@ -147,6 +158,17 @@ function normalizeProxy(value: unknown): string {
     throw new Error(INVALID_CREDENTIALS_MESSAGE)
   }
   return value.trim()
+}
+
+function validateWriteAccess(value: boolean): boolean {
+  return normalizeWriteAccess(value)
+}
+
+function normalizeWriteAccess(value: unknown): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(INVALID_CREDENTIALS_MESSAGE)
+  }
+  return value
 }
 
 function createDocument(configuration: StoredTelegramConfiguration): Record<string, unknown> {
@@ -157,6 +179,9 @@ function createDocument(configuration: StoredTelegramConfiguration): Record<stri
   }
   if (configuration.proxy) {
     document.proxy = configuration.proxy
+  }
+  if (configuration.writeAccess !== undefined) {
+    document.write_access = configuration.writeAccess
   }
   return document
 }

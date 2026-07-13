@@ -16,6 +16,7 @@ import {
   MissingCredentialsError,
   readCredentials,
   readProxy,
+  readWriteAccess,
   validateCredentials,
   writeConfiguration,
   writeCredentials,
@@ -72,10 +73,32 @@ describe('credential store', () => {
     expect(() => readCredentials(path)).toThrow(MissingCredentialsError)
   })
 
+  it('defaults write access to true when config is missing', () => {
+    const path = join(tempDir(), 'missing.json')
+
+    expect(readWriteAccess(path)).toBe(true)
+  })
+
+  it('reads write access from existing configuration', () => {
+    const path = join(tempDir(), 'config.json')
+    writeFileSync(path, '{"write_access":false}\n')
+
+    expect(readWriteAccess(path)).toBe(false)
+  })
+
   it('returns undefined when reading a proxy from a missing file', () => {
     const path = join(tempDir(), 'missing.json')
 
     expect(readProxy(path)).toBeUndefined()
+  })
+
+  it('persists write access in an update-only write', () => {
+    const path = join(tempDir(), 'config.json')
+
+    writeConfiguration(path, { writeAccess: false })
+
+    expect(readWriteAccess(path)).toBe(false)
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ write_access: false })
   })
 
   it('preserves the proxy when updating credentials', () => {
@@ -113,6 +136,21 @@ describe('credential store', () => {
       api_id: 12345,
       api_hash: 'secret',
       proxy: 'socks5://127.0.0.1:1080',
+    })
+  })
+
+  it('persists write access during proxy updates', () => {
+    const path = join(tempDir(), 'config.json')
+    writeConfiguration(path, { credentials: { apiId: 54321, apiHash: 'existing' }, writeAccess: false })
+
+    writeConfiguration(path, { proxy: '  socks5://127.0.0.1:1080  ' })
+
+    expect(readWriteAccess(path)).toBe(false)
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      api_id: 54321,
+      api_hash: 'existing',
+      proxy: 'socks5://127.0.0.1:1080',
+      write_access: false,
     })
   })
 
@@ -192,6 +230,7 @@ describe('credential store', () => {
     '{"api_hash":"secret"}',
     '{"api_id":12345,"proxy":"socks5://localhost:1080"}',
     '{"api_hash":"secret","proxy":"socks5://localhost:1080"}',
+    '{"write_access":"false"}',
   ])('rejects malformed generalized configuration: %s', (contents) => {
     const path = join(tempDir(), 'config.json')
     writeFileSync(path, contents)

@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { writeConfiguration } from '../../src/config/credential-store.js'
 import { createApp } from '../../src/cli/app.js'
 
 type RunResult = {
@@ -342,6 +343,61 @@ describe('config command', () => {
     expect(result).toEqual({ stdout: `${message}\n`, stderr: '', code: 0 })
   })
 
+  it('returns write-access status by default and marks no mutation', async () => {
+    const dataDir = tempDir()
+    writeConfiguration(join(dataDir, 'config.json'), { writeAccess: false })
+
+    const result = await run(['config', 'write-access', '--json'], dataDir)
+
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: true,
+      schema_version: '1',
+      data: {
+        write_access: false,
+        changed: false,
+      },
+    })
+    expect(result.code).toBe(0)
+  })
+
+  it.each([
+    ['on', true],
+    ['off', false],
+  ])('sets write access with %s', async (action, value) => {
+    const dataDir = tempDir()
+    const path = join(dataDir, 'config.json')
+    writeConfiguration(path, { writeAccess: false })
+
+    const result = await run(['config', 'write-access', action, '--json'], dataDir)
+
+    expect(result.code).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: true,
+      schema_version: '1',
+      data: {
+        write_access: value,
+        changed: true,
+      },
+    })
+    expect(JSON.parse(readFileSync(path, 'utf8')).write_access).toBe(value)
+  })
+
+  it('requires a valid write-access action', async () => {
+    const dataDir = tempDir()
+
+    const result = await run(['config', 'write-access', 'maybe', '--json'], dataDir)
+
+    expect(result.code).toBe(1)
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: false,
+      schema_version: '1',
+      error: {
+        code: 'invalid_config',
+        message: 'Action must be one of: status, on, or off.',
+      },
+    })
+  })
+
   it('lists stored values with a masked API hash and complete proxy URL', async () => {
     const dataDir = tempDir()
     const apiHash = 'stored-api-hash-secret'
@@ -363,6 +419,7 @@ describe('config command', () => {
         credentials_source: 'stored',
         proxy,
         proxy_source: 'stored',
+        write_access: true,
       },
     })
     expect(result).toMatchObject({ stderr: '', code: 0 })
@@ -393,6 +450,7 @@ describe('config command', () => {
         credentials_source: 'environment',
         proxy: 'socks5://environment-secret@127.0.0.1:1081',
         proxy_source: 'environment',
+        write_access: true,
       },
     })
     expect(`${result.stdout}${result.stderr}`).not.toContain('stored-secret')
@@ -415,6 +473,7 @@ describe('config command', () => {
         credentials_source: 'default',
         proxy: null,
         proxy_source: null,
+        write_access: true,
       },
     })
   })
@@ -447,6 +506,7 @@ describe('config command', () => {
         ? 'socks5://127.0.0.1:1081'
         : 'socks5://127.0.0.1:1080',
       proxy_source: expected.proxySource,
+      write_access: true,
     })
   })
 
@@ -460,7 +520,7 @@ describe('config command', () => {
     const result = await run(['config', 'list', '--yaml'], dataDir)
 
     expect(result).toEqual({
-      stdout: `ok: true\nschema_version: "1"\ndata:\n  api_id: 12345\n  api_hash: "${'*'.repeat('yaml-secret'.length - 4)}cret"\n  credentials_source: stored\n  proxy: null\n  proxy_source: null\n`,
+      stdout: `ok: true\nschema_version: "1"\ndata:\n  api_id: 12345\n  api_hash: "${'*'.repeat('yaml-secret'.length - 4)}cret"\n  credentials_source: stored\n  proxy: null\n  proxy_source: null\n  write_access: true\n`,
       stderr: '',
       code: 0,
     })
@@ -470,11 +530,11 @@ describe('config command', () => {
   it.each([
     {
       stored: { api_id: 12345, api_hash: 'human-secret', proxy: 'socks5://127.0.0.1:1080' },
-      output: `API ID               12345\nAPI hash             ${'*'.repeat('human-secret'.length - 4)}cret\nCredentials source   stored\nProxy                socks5://127.0.0.1:1080\nProxy source         stored\n`,
+      output: `API ID               12345\nAPI hash             ${'*'.repeat('human-secret'.length - 4)}cret\nCredentials source   stored\nProxy                socks5://127.0.0.1:1080\nProxy source         stored\nWrite access         true\n`,
     },
     {
       stored: undefined,
-      output: `API ID               2040\nAPI hash             ${'*'.repeat(28)}e627\nCredentials source   default\nProxy                none\nProxy source         none\n`,
+      output: `API ID               2040\nAPI hash             ${'*'.repeat(28)}e627\nCredentials source   default\nProxy                none\nProxy source         none\nWrite access         true\n`,
     },
   ])('prints exact human configuration: $output', async ({ stored, output }) => {
     const dataDir = tempDir()

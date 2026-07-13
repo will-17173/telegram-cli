@@ -4,6 +4,7 @@ import { validateCredentials, writeConfiguration } from '../config/credential-st
 import {
   getConfigPath,
   getTelegramCredentials,
+  getTelegramWriteAccess,
   getTelegramProxyConfiguration,
   type CredentialSource,
   type ProxySource,
@@ -33,6 +34,14 @@ type ConfigListData = {
   credentials_source: CredentialSource
   proxy: string | null
   proxy_source: ProxySource | null
+  write_access: boolean
+}
+
+type ConfigWriteAccessOptions = OutputFlags
+
+type ConfigWriteAccessData = {
+  write_access: boolean
+  changed: boolean
 }
 
 export function registerConfigCommands(app: Command): void {
@@ -139,9 +148,11 @@ export function registerConfigCommands(app: Command): void {
 
       let credentials
       let proxy
+      let writeAccess
       try {
         credentials = getTelegramCredentials()
         proxy = getTelegramProxyConfiguration()
+        writeAccess = getTelegramWriteAccess()
       } catch {
         await renderResult({
           ok: false,
@@ -159,6 +170,7 @@ export function registerConfigCommands(app: Command): void {
         credentials_source: credentials.source,
         proxy: proxy?.url ?? null,
         proxy_source: proxy?.source ?? null,
+        write_access: writeAccess,
       }
       const result: HandlerResult<ConfigListData> = {
         ok: true,
@@ -171,7 +183,81 @@ export function registerConfigCommands(app: Command): void {
             `Credentials source   ${data.credentials_source}`,
             `Proxy                ${data.proxy ?? 'none'}`,
             `Proxy source         ${data.proxy_source ?? 'none'}`,
+            `Write access         ${data.write_access}`,
           ].join('\n'),
+        },
+      }
+      await renderResult(result, effectiveOptions)
+    })
+
+  config.command('write-access [action]')
+    .description('Show or update Telegram remote write permission')
+    .option('--json')
+    .option('--yaml')
+    .action(async (action: string | undefined, options: ConfigWriteAccessOptions, command: Command) => {
+      const effectiveOptions = mergeOptionsWithGlobals(command, options)
+      const conflict = outputFormatConflict(effectiveOptions)
+      if (conflict) {
+        await renderResult(conflict, { yaml: true })
+        return
+      }
+
+      const target = action?.trim().toLowerCase() as 'status' | 'on' | 'off' | undefined
+      if (target !== undefined && target !== 'status' && target !== 'on' && target !== 'off') {
+        await renderResult({
+          ok: false,
+          error: {
+            code: 'invalid_config',
+            message: 'Action must be one of: status, on, or off.',
+          },
+        }, effectiveOptions)
+        return
+      }
+
+      if (target === undefined || target === 'status') {
+        try {
+          const data: ConfigWriteAccessData = {
+            write_access: getTelegramWriteAccess(),
+            changed: false,
+          }
+          await renderResult({ ok: true, data }, effectiveOptions)
+          return
+        } catch {
+          await renderResult({
+            ok: false,
+            error: {
+              code: 'invalid_config',
+              message: 'Telegram configuration is invalid.',
+            },
+          }, effectiveOptions)
+          return
+        }
+      }
+
+      const writeAccess = target === 'on'
+      try {
+        writeConfiguration(getConfigPath(), { writeAccess })
+      } catch {
+        await renderResult({
+          ok: false,
+          error: {
+            code: 'config_write_failed',
+            message: 'Failed to save Telegram configuration.',
+          },
+        }, effectiveOptions)
+        return
+      }
+
+      const data: ConfigWriteAccessData = {
+        write_access: writeAccess,
+        changed: true,
+      }
+      const result: HandlerResult<ConfigWriteAccessData> = {
+        ok: true,
+        data,
+        human: {
+          kind: 'text',
+          text: writeAccess ? 'Telegram remote writes enabled.' : 'Telegram remote writes disabled.',
         },
       }
       await renderResult(result, effectiveOptions)

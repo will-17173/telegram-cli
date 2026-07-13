@@ -13,6 +13,7 @@ import {
   getSessionName,
   getSessionPath,
   getTelegramCredentials,
+  getTelegramWriteAccess,
   getTelegramProxy,
   getTelegramProxyConfiguration,
 } from '../../src/config/env.js'
@@ -111,6 +112,13 @@ describe('env config', () => {
 
   it('returns undefined when neither environment nor stored proxy exists', () => {
     expect(getTelegramProxy()).toBeUndefined()
+  })
+
+  it('reads write-access configuration and defaults to true', () => {
+    expect(getTelegramWriteAccess()).toBe(true)
+
+    writeConfiguration(getConfigPath(), { writeAccess: false })
+    expect(getTelegramWriteAccess()).toBe(false)
   })
 
   it('propagates malformed stored configuration when no environment proxy exists', () => {

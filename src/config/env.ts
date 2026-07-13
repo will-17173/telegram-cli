@@ -6,6 +6,7 @@ import {
   MissingCredentialsError,
   readCredentials,
   readProxy,
+  readWriteAccess,
   validateCredentials,
   type TelegramCredentials,
 } from './credential-store.js'
@@ -70,6 +71,10 @@ export function getTelegramProxyConfiguration(): ResolvedTelegramProxy | undefin
 
 export function getTelegramProxy(): string | undefined {
   return getTelegramProxyConfiguration()?.url
+}
+
+export function getTelegramWriteAccess(): boolean {
+  return readWriteAccess(getConfigPath())
 }
 
 export function getSessionName(): string {

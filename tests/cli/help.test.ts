@@ -54,7 +54,7 @@ describe('cli help', () => {
   it('registers the config set and list subcommands', () => {
     const config = createApp().commands.find((command) => command.name() === 'config')
 
-    expect(config?.commands.map((command) => command.name())).toEqual(['set', 'list'])
+    expect(config?.commands.map((command) => command.name())).toEqual(['set', 'list', 'write-access'])
   })
 
   it('registers config list with optional structured output options only', () => {
