@@ -21,6 +21,10 @@ type TimelineRow = { period: string; count?: number; msg_count?: number }
 
 type ChatCountRow = { chat_name?: unknown; msg_count: number }
 
+type MessageTableOptions = {
+  chatLabel?: string
+}
+
 type SyncResult = {
   chat?: unknown
   stored?: number
@@ -80,17 +84,15 @@ export function actionDetail(title: string, values: Record<string, unknown>): Hu
   }
 }
 
-export function messageTable(messages: StoredMessage[], title = 'Messages', emptyText = 'No messages found.'): HumanOutput & { kind: 'table' } {
+export function messageTable(messages: StoredMessage[], title = 'Messages', emptyText = 'No messages found.', options: MessageTableOptions = {}): HumanOutput & { kind: 'table' } {
+  const scoped = options.chatLabel != null
   return {
     kind: 'table',
-    title,
-    columns: ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
-    rows: messages.map((message) => [
-      display(message.timestamp),
-      display(message.chat_name),
-      display(message.sender_name),
-      display(message.content),
-    ]),
+    title: scoped ? `[${options.chatLabel}] ${title}` : title,
+    columns: scoped ? ['TIME', 'SENDER', 'MESSAGE'] : ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
+    rows: messages.map((message) => scoped
+      ? [display(message.timestamp), display(message.sender_name), display(message.content)]
+      : [display(message.timestamp), display(message.chat_name), display(message.sender_name), display(message.content)]),
     emptyText,
   }
 }
