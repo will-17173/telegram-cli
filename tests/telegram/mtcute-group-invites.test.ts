@@ -1,7 +1,7 @@
 import { MtPeerNotFoundError, tl, type TelegramClient } from '@mtcute/node'
 import { describe, expect, it, vi } from 'vitest'
 import { MtcuteGroupInvites } from '../../src/telegram/mtcute-group-invites.js'
-import { TelegramGroupAdminRequiredError, TelegramGroupNotFoundError } from '../../src/telegram/group-types.js'
+import { TelegramGroupAdminRequiredError, TelegramGroupMemberNotFoundError, TelegramGroupNotFoundError } from '../../src/telegram/group-types.js'
 
 describe('MtcuteGroupInvites', () => {
   it('forwards bounded list options and normalizes invite records', async () => {
@@ -95,6 +95,18 @@ describe('MtcuteGroupInvites', () => {
     await expect(new MtcuteGroupInvites(mock({ getInviteLinks: vi.fn().mockRejectedValue(new tl.RpcError(400, 'CHAT_ADMIN_REQUIRED')) }), vi.fn()).listInvites({ chat: -100123, limit: 1 })).rejects.toBeInstanceOf(TelegramGroupAdminRequiredError)
     const failure = new Error('invite unknown')
     await expect(new MtcuteGroupInvites(mock({ getInviteLinks: vi.fn().mockRejectedValue(failure) }), vi.fn()).listInvites({ chat: -100123, limit: 1 })).rejects.toBe(failure)
+  })
+
+  it.each([
+    ['approveJoinRequest', 'approve'],
+    ['declineJoinRequest', 'decline'],
+  ] as const)('maps target failures for %s to member-not-found', async (method, action) => {
+    const client = mock({ hideJoinRequest: vi.fn().mockRejectedValue(new tl.RpcError(400, 'USER_NOT_PARTICIPANT')) })
+    const adapter = new MtcuteGroupInvites(client, vi.fn())
+    const error = await adapter[method]({ chat: -100123, user: 77 }).catch((failure: unknown) => failure)
+    expect(client.hideJoinRequest).toHaveBeenCalledWith({ chatId: -100123, user: 77, action })
+    expect(error).toBeInstanceOf(TelegramGroupMemberNotFoundError)
+    expect((error as Error).message).toContain('77 in -100123')
   })
 })
 function mock(overrides: Record<string, unknown> = {}): TelegramClient & Record<string, ReturnType<typeof vi.fn>> { const invite = { link: 'x', raw: {}, creator: null, date: new Date(0), endDate: null, usageLimit: Infinity, usage: 0, approvalNeeded: false, isRevoked: false }; return { getChat: vi.fn().mockResolvedValue({ type: 'chat', id: -100123, chatType: 'supergroup', title: 'G' }), getInviteLinks: vi.fn().mockResolvedValue([]), createInviteLink: vi.fn().mockResolvedValue(invite), hideJoinRequest: vi.fn(), hideAllJoinRequests: vi.fn(), resolvePeer: vi.fn(), call: vi.fn(), ...overrides } as never }

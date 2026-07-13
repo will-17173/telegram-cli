@@ -4,7 +4,7 @@ import { MtcuteGroupSettings } from '../../src/telegram/mtcute-group-settings.js
 import { TelegramGroupAdminRequiredError } from '../../src/telegram/group-types.js'
 
 describe('MtcuteGroupSettings', () => {
-  it('ensures readiness, routes group deletion, and maps permission polarity', async () => {
+  it('keeps true restriction flags true across all permission fields', async () => {
     const order: string[] = []
     const client = mock({ getChat: vi.fn(async () => { order.push('chat'); return group('group') }) })
     const settings = new MtcuteGroupSettings(client, async () => { order.push('ready') })
@@ -12,9 +12,9 @@ describe('MtcuteGroupSettings', () => {
     await settings.deleteGroup({ chat: -123 })
     expect(order.slice(0, 2)).toEqual(['ready', 'chat'])
     expect(client.setChatDefaultPermissions).toHaveBeenCalledWith(-123, {
-      viewMessages: false, sendMessages: true, sendMedia: false, sendStickers: true,
-      sendGifs: false, sendGames: true, sendInline: false, embedLinks: true,
-      sendPolls: false, changeInfo: true, inviteUsers: false, pinMessages: true, manageTopics: false,
+      viewMessages: true, sendMessages: false, sendMedia: true, sendStickers: false,
+      sendGifs: true, sendGames: false, sendInline: true, embedLinks: false,
+      sendPolls: true, changeInfo: false, inviteUsers: true, pinMessages: false, manageTopics: true,
     })
     expect(client.deleteGroup).toHaveBeenCalledWith(-123)
   })
