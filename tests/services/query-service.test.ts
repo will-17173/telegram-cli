@@ -40,6 +40,15 @@ function messageRow(row: { timestamp: string; chat_name: string | null; sender_n
   ]
 }
 
+function scopedMessageRow(row: { timestamp: string; sender_name: string | null; content: string | null }): string[] {
+  const timestamp = new Date(row.timestamp)
+  return [
+    `${String(timestamp.getFullYear()).padStart(4, '0')}-${String(timestamp.getMonth() + 1).padStart(2, '0')}-${String(timestamp.getDate()).padStart(2, '0')} ${String(timestamp.getHours()).padStart(2, '0')}:${String(timestamp.getMinutes()).padStart(2, '0')}`,
+    row.sender_name ?? '—',
+    row.content ?? '—',
+  ]
+}
+
 describe('QueryService human views', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -138,6 +147,44 @@ describe('QueryService human views', () => {
         rows: expected.map(messageRow),
         emptyText: 'No filtered messages found.',
       },
+    })
+    service.close()
+  })
+
+  it('uses the resolved chat name for all scoped message views', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-10T02:00:00.000Z'))
+    const { db, service } = setup([message({ timestamp: localTodayIso(9) })])
+    const row = scopedMessageRow(db.getToday({ chatId: 10 })[0]!)
+
+    const views = [
+      [service.search({ keyword: 'release', chat: '10' }), '[General] Search Results', 'No messages found.'],
+      [service.recent({ chat: '10' }), '[General] Recent Messages', 'No recent messages found.'],
+      [service.today({ chat: '10' }), '[General] Today', 'No messages found today.'],
+      [service.filter({ keywords: 'release', chat: '10' }), '[General] Filtered Messages', 'No filtered messages found.'],
+    ] as const
+
+    for (const [result, title, emptyText] of views) {
+      expect(result).toMatchObject({ ok: true, human: { kind: 'table', title, columns: ['TIME', 'SENDER', 'MESSAGE'], rows: [row], emptyText } })
+    }
+    service.close()
+  })
+
+  it('keeps the resolved chat title when a scoped query has no rows', () => {
+    const { service } = setup([message()])
+    expect(service.search({ keyword: 'missing', chat: '10' })).toMatchObject({
+      ok: true,
+      data: [],
+      human: { title: '[General] Search Results', columns: ['TIME', 'SENDER', 'MESSAGE'], rows: [] },
+    })
+    service.close()
+  })
+
+  it('uses the canonical chat id when a scoped chat has no stored name', () => {
+    const { service } = setup([message({ chat_name: null })])
+    expect(service.recent({ chat: '10' })).toMatchObject({
+      ok: true,
+      human: { title: '[10] Recent Messages', columns: ['TIME', 'SENDER', 'MESSAGE'] },
     })
     service.close()
   })
