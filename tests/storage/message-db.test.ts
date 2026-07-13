@@ -274,4 +274,73 @@ describe('MessageDB', () => {
     ])
     store.close()
   })
+
+  it('looks up reply messages by chat and message id in request order', () => {
+    const store = db()
+    store.insertBatch([
+      message({ chat_id: 100, msg_id: 7, content: 'first chat' }),
+      message({ chat_id: 200, msg_id: 7, content: 'second chat' }),
+      message({ chat_id: -1001234567890, msg_id: 8, content: 'supergroup' }),
+    ])
+
+    expect(store.getMessagesByKeys([
+      { chatId: 200, msgId: 7 },
+      { chatId: -1001234567890, msgId: 8 },
+      { chatId: 100, msgId: 7 },
+    ]).map((row) => row.content)).toEqual(['second chat', 'supergroup', 'first chat'])
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 999 }])).toEqual([])
+    expect(store.getMessagesByKeys([])).toEqual([])
+    store.close()
+  })
+
+  it('pages recent messages stably when timestamps are identical', () => {
+    const store = db()
+    store.insertBatch([
+      message({ msg_id: 1, timestamp: '2026-03-09T10:00:00.000Z' }),
+      message({ msg_id: 2, timestamp: '2026-03-09T10:00:00.000Z' }),
+      message({ msg_id: 3, timestamp: '2026-03-09T10:00:00.000Z' }),
+    ])
+
+    const first = store.getRecentPage({ limit: 2 })
+    const second = store.getRecentPage({
+      limit: 2,
+      before: { timestamp: first[1].timestamp, id: first[1].id },
+    })
+
+    expect(first.map((row) => row.msg_id)).toEqual([3, 2])
+    expect(second.map((row) => row.msg_id)).toEqual([1])
+    expect(new Set([...first, ...second].map((row) => row.id)).size).toBe(3)
+    store.close()
+  })
+
+  it('combines recent paging cursors with existing filters', () => {
+    const store = db()
+    store.insertBatch([
+      message({ chat_id: 100, msg_id: 1, sender_name: 'Alice', timestamp: '2026-03-09T10:00:00.000Z' }),
+      message({ chat_id: 200, msg_id: 2, sender_name: 'Alice', timestamp: '2026-03-09T11:00:00.000Z' }),
+      message({ chat_id: 100, msg_id: 3, sender_name: 'Bob', timestamp: '2026-03-09T12:00:00.000Z' }),
+      message({ chat_id: 100, msg_id: 4, sender_name: 'Alice', timestamp: '2026-03-09T13:00:00.000Z' }),
+    ])
+
+    const cursorRow = store.getRecentPage({ chatId: 100, sender: 'Alice', limit: 1 })[0]
+    expect(cursorRow.msg_id).toBe(4)
+    expect(store.getRecentPage({
+      chatId: 100,
+      sender: 'Alice',
+      before: { timestamp: cursorRow.timestamp, id: cursorRow.id },
+    }).map((row) => row.msg_id)).toEqual([1])
+    store.close()
+  })
+
+  it('uses a default recent page limit of 100 and accepts a specified limit', () => {
+    const store = db()
+    store.insertBatch(Array.from({ length: 101 }, (_, index) => message({
+      msg_id: index + 1,
+      timestamp: new Date(Date.UTC(2026, 2, 9, 10, index)).toISOString(),
+    })))
+
+    expect(store.getRecentPage()).toHaveLength(100)
+    expect(store.getRecentPage({ limit: 3 })).toHaveLength(3)
+    store.close()
+  })
 })

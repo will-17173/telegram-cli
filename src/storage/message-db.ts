@@ -29,6 +29,10 @@ export type SearchOptions = {
   limit?: number
 }
 
+export type RecentPageOptions = SearchOptions & {
+  before?: { timestamp: string; id: number }
+}
+
 type FilterOptions = SearchOptions & {
   since?: string
 }
@@ -120,6 +124,36 @@ export class MessageDB {
         SELECT * FROM messages WHERE ${conditions.join(' AND ')} ORDER BY timestamp DESC LIMIT ?
       ) ORDER BY timestamp ASC
     `).all(...params, limit) as StoredMessage[]
+  }
+
+  getRecentPage(options: RecentPageOptions = {}): StoredMessage[] {
+    const params: unknown[] = []
+    const conditions = ['1=1']
+    this.addFilters(conditions, params, options)
+    if (options.before) {
+      conditions.push('(timestamp < ? OR (timestamp = ? AND id < ?))')
+      params.push(options.before.timestamp, options.before.timestamp, options.before.id)
+    }
+    return this.db.prepare(`
+      SELECT * FROM messages
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY timestamp DESC, id DESC
+      LIMIT ?
+    `).all(...params, options.limit ?? 100) as StoredMessage[]
+  }
+
+  getMessagesByKeys(keys: Array<{ chatId: number; msgId: number }>): StoredMessage[] {
+    if (keys.length === 0) return []
+    const stmt = this.db.prepare('SELECT * FROM messages WHERE chat_id = ? AND msg_id = ?')
+    const read = this.db.transaction((requested: Array<{ chatId: number; msgId: number }>) => {
+      const messages: StoredMessage[] = []
+      for (const key of requested) {
+        const row = stmt.get(canonicalChatId(key.chatId), key.msgId) as StoredMessage | undefined
+        if (row) messages.push(row)
+      }
+      return messages
+    })
+    return read(keys)
   }
 
   getToday(options: TodayOptions = {}): StoredMessage[] {
