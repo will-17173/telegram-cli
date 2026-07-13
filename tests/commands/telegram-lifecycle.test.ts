@@ -359,6 +359,17 @@ describe('Telegram command lifecycle', () => {
     }, expect.any(Object))
   })
 
+  it.each(['7junk', '1.5', '', '   '])('rejects malformed send reply value %j without sending', async (reply) => {
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'send', 'General', 'hello', '--reply', reply])
+
+    expect(client.sendMessage).not.toHaveBeenCalled()
+    expect(client.sendMedia).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: 'invalid_option', message: 'reply must be a positive integer.' },
+    }, expect.any(Object))
+  })
+
   it('preserves service-owned history human output', async () => {
     await createApp().exitOverride().parseAsync(['node', 'tg', 'history', 'General', '--limit', '10', '--delay', '2.5'])
 

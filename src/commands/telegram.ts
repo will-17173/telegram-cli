@@ -188,7 +188,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--json')
     .option('--yaml')
     .action(async (chat: string, message: string | undefined, options: SendFlags) => {
-      const reply = options.reply == null ? undefined : Number.parseInt(options.reply, 10)
+      const reply = options.reply == null ? undefined : Number(options.reply)
       await renderMessageResult(options, 'Message sent', (service) => service.send({
         chat,
         message,
