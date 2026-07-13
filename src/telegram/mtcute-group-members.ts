@@ -95,13 +95,18 @@ export class MtcuteGroupMembers {
   async transferOwnership(request: TelegramTransferOwnershipRequest): Promise<TelegramTransferOwnershipResult> {
     const { chatId, group } = await this.prepare(request.chat)
     const userId = normalizePeerId(request.user)
+    let targetId: string | number
     try {
-      const targetId = await this.resolveTarget(chatId, userId, request)
+      targetId = await this.resolveTarget(chatId, userId, request)
+    } catch (error) {
+      throwWriteError(error, request.chat, request.user)
+    }
+    try {
       await this.client.transferChatOwnership({ chatId, userId: targetId, password: request.password })
-      return { operation: 'transferOwnership', chat_id: group.id, target_id: targetId }
     } catch (error) {
       throwOwnershipTransferError(error)
     }
+    return { operation: 'transferOwnership', chat_id: group.id, target_id: targetId }
   }
 
   private async prepare(chat: string | number): Promise<{ chatId: string | number, group: Chat & { chatType: 'group' | 'supergroup' } }> {

@@ -176,6 +176,17 @@ describe('MtcuteGroupMembers', () => {
     expect(error).not.toHaveProperty('request')
   })
 
+  it('preserves unresolved ownership targets as member-not-found errors', async () => {
+    const password = 'ownership-secret'
+    const client = mockClient({ getChatMember: vi.fn().mockResolvedValue(null) })
+    const error = await new MtcuteGroupMembers(client, vi.fn())
+      .transferOwnership({ chat: '@team', user: '@missing', password }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TelegramGroupMemberNotFoundError)
+    expect(client.transferChatOwnership).not.toHaveBeenCalled()
+    expect(JSON.stringify(error)).not.toContain(password)
+  })
+
   it('resolves username targets to real member IDs instead of fabricating them', async () => {
     const client = mockClient({ getChatMember: vi.fn().mockResolvedValue(member(42)) })
     const result = await new MtcuteGroupMembers(client, vi.fn()).kickMember({ chat: '@group', user: '@person' })

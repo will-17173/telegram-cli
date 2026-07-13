@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import type { TelegramClient } from '@mtcute/node'
+import { describe, expect, it, vi } from 'vitest'
 import { parseGroupCommand } from '../../src/group-commands/parser.js'
 import { COMMAND_HANDLERS, GROUP_RESTRICTION_KEYS, GroupWriteService } from '../../src/services/group-write-service.js'
 import { FakeTelegramGroupManagement } from '../../src/telegram/fake-group-management.js'
@@ -13,6 +14,7 @@ import {
   TelegramGroupOwnershipTransferError, TelegramGroupPasswordInvalidError, TelegramGroupPasswordTooFreshError,
   TelegramGroupSessionTooFreshError,
 } from '../../src/telegram/group-write-types.js'
+import { MtcuteGroupMembers } from '../../src/telegram/mtcute-group-members.js'
 
 function request(source: string) {
   const parsed = parseGroupCommand(source)
@@ -209,6 +211,25 @@ describe('GroupWriteService', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'telegram_error' } })
     expect(JSON.stringify(result)).not.toContain(password)
     expect(result).not.toHaveProperty('error.details.request')
+  })
+
+  it('maps unresolved ownership usernames to member_not_found without exposing the secret', async () => {
+    const password = 'bad-secret'
+    const client = {
+      getChat: vi.fn().mockResolvedValue({ type: 'chat', id: 100, chatType: 'supergroup', title: 'Group' }),
+      getChatMember: vi.fn().mockResolvedValue(null),
+      transferChatOwnership: vi.fn().mockResolvedValue(undefined),
+    } as unknown as TelegramClient
+    const groups = new FakeTelegramGroupManagement()
+    const members = new MtcuteGroupMembers(client, vi.fn())
+    groups.transferOwnership = members.transferOwnership.bind(members)
+    const transfer = request('admin transfer-owner @missing')
+    const result = await new GroupWriteService(groups).execute(transfer, { ownershipPassword: password })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'member_not_found' } })
+    expect(client.transferChatOwnership).not.toHaveBeenCalled()
+    expect(JSON.stringify(result)).not.toContain(password)
+    expect(JSON.stringify(transfer)).not.toContain(password)
   })
 
   it('rejects unknown administrator permission names at the service boundary', async () => {
