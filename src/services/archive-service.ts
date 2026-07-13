@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import type { Stats } from 'node:fs'
+import type { BigIntStats } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { ParsedTimeRange } from '../commands/time-range.js'
 import type { HandlerResult } from '../commands/types.js'
@@ -485,9 +485,9 @@ export class ArchiveService {
         constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
       )
       try {
-        const status = fstatSync(descriptor)
+        const status = fstatSync(descriptor, { bigint: true })
         if (!status.isFile()
-          || status.size === 0
+          || status.size === 0n
           || fileIdentity(status) !== stagingIdentity) {
           throw new Error('archive_unsafe_media_temp')
         }
@@ -533,7 +533,7 @@ export class ArchiveService {
     }
 
     const root = realpathSync(output)
-    const rootStatus = lstatSync(root)
+    const rootStatus = lstatSync(root, { bigint: true })
     if (!rootStatus.isDirectory()) throw new Error('archive_unsafe_media_root')
     const identities = [fileIdentity(rootStatus)]
     let directory = root
@@ -541,12 +541,12 @@ export class ArchiveService {
       const next = join(directory, component)
       let status
       try {
-        status = lstatSync(next)
+        status = lstatSync(next, { bigint: true })
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
         mkdirSync(next, { mode: 0o700 })
         this.transaction.syncDirectory(directory)
-        status = lstatSync(next)
+        status = lstatSync(next, { bigint: true })
       }
       if (status.isSymbolicLink() || !status.isDirectory()) {
         throw new Error('archive_unsafe_media_directory')
@@ -560,11 +560,11 @@ export class ArchiveService {
     const destination = join(directory, components.at(-1)!)
     if (!pathIsWithin(root, destination)) throw new Error('archive_unsafe_media_destination')
     try {
-      const status = lstatSync(destination)
+      const status = lstatSync(destination, { bigint: true })
       if (status.isSymbolicLink() || !status.isFile()) {
         throw new Error('archive_unsafe_media_destination')
       }
-      return { root, destination, directory, identities, reused: status.size > 0 }
+      return { root, destination, directory, identities, reused: status.size > 0n }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       return { root, destination, directory, identities, reused: false }
@@ -654,7 +654,7 @@ function createOwnedStagingFile(path: string): string {
     0o600,
   )
   try {
-    const status = fstatSync(descriptor)
+    const status = fstatSync(descriptor, { bigint: true })
     if (!status.isFile()) throw new Error('archive_unsafe_media_temp')
     return fileIdentity(status)
   } finally {
@@ -675,15 +675,16 @@ function assertSameMediaTarget(
   }
 }
 
-function fileIdentity(status: Stats): string {
+function fileIdentity(status: BigIntStats): string {
+  if (status.ino <= 0n || status.dev < 0n) throw new Error('archive_unusable_file_identity')
   return `${status.dev}:${status.ino}`
 }
 
 function assertOwnedRegularNonEmptyFile(path: string, identity: string): void {
-  const status = lstatSync(path)
+  const status = lstatSync(path, { bigint: true })
   if (status.isSymbolicLink()
     || !status.isFile()
-    || status.size === 0
+    || status.size === 0n
     || fileIdentity(status) !== identity) {
     throw new Error('archive_unsafe_media_temp')
   }
@@ -691,7 +692,7 @@ function assertOwnedRegularNonEmptyFile(path: string, identity: string): void {
 
 function removeOwnedStagingFile(path: string, identity: string): void {
   try {
-    const status = lstatSync(path)
+    const status = lstatSync(path, { bigint: true })
     if (status.isSymbolicLink() || !status.isFile() || fileIdentity(status) !== identity) return
     unlinkSync(path)
   } catch {

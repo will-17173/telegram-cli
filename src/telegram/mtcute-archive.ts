@@ -1,5 +1,7 @@
 import { FileLocation } from '@mtcute/node'
 import type { Message, TelegramClient } from '@mtcute/node'
+import { createWriteStream } from 'node:fs'
+import { pipeline } from 'node:stream/promises'
 
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from './archive-types.js'
 
@@ -11,9 +13,14 @@ type PeerShape = {
   title?: string
 }
 
+type ArchiveClient = Pick<
+  TelegramClient,
+  'iterDialogs' | 'getPeer' | 'iterHistory' | 'getMessages' | 'downloadAsNodeStream'
+>
+
 export class MtcuteArchive implements TelegramArchiveAdapter {
   constructor(
-    private readonly client: TelegramClient,
+    private readonly client: ArchiveClient,
     private readonly ensureReady: () => Promise<void>,
     private readonly pageSize = 100,
   ) {}
@@ -83,9 +90,13 @@ export class MtcuteArchive implements TelegramArchiveAdapter {
     if (message == null) throw new Error(`Message ${input.messageId} was not found`)
     const location = downloadableLocation(message.media)
     if (location == null) throw new Error('This attachment cannot be downloaded')
-    await this.client.downloadToFile(input.destination, location, {
+    const source = this.client.downloadAsNodeStream(location, {
       progressCallback: input.onProgress,
     })
+    await pipeline(source, createWriteStream(input.destination, {
+      flags: 'w',
+      autoClose: true,
+    }))
   }
 }
 

@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { FileLocation, tl } from '@mtcute/node'
 import type { Message, TelegramClient } from '@mtcute/node'
 import { describe, expect, it, vi } from 'vitest'
@@ -68,18 +69,62 @@ describe('MtcuteArchive', () => {
 
   it('downloads message media to the requested file', async () => {
     const location = new FileLocation(new Uint8Array([1, 2, 3]), 3)
-    const destination = '/tmp/archive/photo.jpg'
-    const downloadToFile = vi.fn().mockResolvedValue(undefined)
+    const directory = await mkdtemp(join(tmpdir(), 'tg-mtcute-archive-'))
+    const destination = join(directory, 'photo.jpg')
+    await writeFile(destination, 'old bytes')
+    const before = await stat(destination)
+    const downloadAsNodeStream = vi.fn(() => Readable.from([Buffer.from('photo bytes')]))
     const client = mockClient({
       getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
-      downloadToFile,
+      downloadAsNodeStream,
     })
     const adapter = new MtcuteArchive(client, async () => undefined)
     const onProgress = vi.fn()
 
-    await adapter.downloadMedia({ chat: '@team', messageId: 3, destination, onProgress })
+    try {
+      await adapter.downloadMedia({ chat: '@team', messageId: 3, destination, onProgress })
 
-    expect(downloadToFile).toHaveBeenCalledWith(destination, location, { progressCallback: onProgress })
+      expect(downloadAsNodeStream).toHaveBeenCalledWith(location, { progressCallback: onProgress })
+      expect(await readFile(destination, 'utf8')).toBe('photo bytes')
+      expect((await stat(destination)).ino).toBe(before.ino)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('waits for delayed stream completion before resolving the media download', async () => {
+    const location = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+    const directory = await mkdtemp(join(tmpdir(), 'tg-mtcute-archive-delayed-'))
+    const destination = join(directory, 'photo.jpg')
+    await writeFile(destination, '')
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const downloadAsNodeStream = vi.fn(() => Readable.from((async function* () {
+      yield Buffer.from('first ')
+      await gate
+      yield Buffer.from('second')
+    })()))
+    const client = mockClient({
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      downloadAsNodeStream,
+    })
+    const onProgress = vi.fn()
+    let settled = false
+
+    try {
+      const pending = new MtcuteArchive(client, async () => undefined)
+        .downloadMedia({ chat: '@team', messageId: 3, destination, onProgress })
+        .finally(() => { settled = true })
+      await new Promise(resolve => setImmediate(resolve))
+      expect(settled).toBe(false)
+      release()
+      await pending
+
+      expect(await readFile(destination, 'utf8')).toBe('first second')
+      expect(downloadAsNodeStream).toHaveBeenCalledWith(location, { progressCallback: onProgress })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('reports a missing message before attempting a download', async () => {
@@ -88,7 +133,30 @@ describe('MtcuteArchive', () => {
 
     await expect(adapter.downloadMedia({ chat: '@team', messageId: 404, destination: '/tmp/missing' }))
       .rejects.toThrow('Message 404 was not found')
-    expect(client.downloadToFile).not.toHaveBeenCalled()
+    expect(client.downloadAsNodeStream).not.toHaveBeenCalled()
+  })
+
+  it('propagates media stream errors after closing the destination stream', async () => {
+    const location = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+    const directory = await mkdtemp(join(tmpdir(), 'tg-mtcute-archive-error-'))
+    const destination = join(directory, 'photo.jpg')
+    await writeFile(destination, '')
+    const failure = new tl.RpcError(420, 'FLOOD_WAIT_12')
+    const client = mockClient({
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      downloadAsNodeStream: vi.fn(() => Readable.from((async function* () {
+        yield Buffer.from('partial')
+        throw failure
+      })())),
+    })
+
+    try {
+      await expect(new MtcuteArchive(client, async () => undefined).downloadMedia({
+        chat: '@team', messageId: 3, destination,
+      })).rejects.toBe(failure)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('rejects downloads for messages without downloadable media', async () => {
@@ -235,7 +303,7 @@ function mockClient(overrides: Record<string, unknown>): TelegramClient {
   return {
     iterHistory: vi.fn(() => messages()),
     getMessages: vi.fn().mockResolvedValue([]),
-    downloadToFile: vi.fn().mockResolvedValue(undefined),
+    downloadAsNodeStream: vi.fn(() => Readable.from([])),
     iterDialogs: async function* () {},
     getPeer: vi.fn(),
     ...overrides,
