@@ -73,23 +73,34 @@ describe('FakeTelegramClient settings adapters', () => {
         exclude_read: false,
         exclude_archived: true,
       },
+      chats: [{ chat_id: 100, chat_name: 'Team' }],
       included_chats: [{ chat_id: 100, chat_name: 'Team' }],
       excluded_chats: [{ chat_id: 200, chat_name: 'Noise' }],
       pinned_chats: [{ chat_id: 100, chat_name: 'Team' }],
     }
     const fake = new FakeTelegramClient({ folderDetails: { Work: configured } })
     configured.rules.include_groups = false
+    configured.chats[0]!.chat_name = 'Changed outside'
     configured.included_chats[0]!.chat_name = 'Changed outside'
 
     const first = await fake.folders.info('Work')
     expect(first.rules.include_groups).toBe(true)
+    expect(first.chats[0]?.chat_name).toBe('Team')
     expect(first.included_chats[0]?.chat_name).toBe('Team')
     first.rules.include_groups = false
+    first.chats[0]!.chat_name = 'Changed return'
     first.included_chats[0]!.chat_name = 'Changed return'
 
     await expect(fake.folders.info('Work')).resolves.toMatchObject({
       rules: { include_groups: true },
+      chats: [{ chat_name: 'Team' }],
       included_chats: [{ chat_name: 'Team' }],
+    })
+  })
+
+  it('returns an empty required effective chat list from default folder info', async () => {
+    await expect(new FakeTelegramClient().folders.info('Work')).resolves.toMatchObject({
+      chats: [],
     })
   })
 

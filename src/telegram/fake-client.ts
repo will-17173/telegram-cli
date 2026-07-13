@@ -621,6 +621,7 @@ function cloneFolderDetail(folder: TelegramFolderDetail): TelegramFolderDetail {
   return {
     ...folder,
     rules: { ...folder.rules },
+    chats: folder.chats.map((chat) => ({ ...chat })),
     included_chats: folder.included_chats.map((chat) => ({ ...chat })),
     excluded_chats: folder.excluded_chats.map((chat) => ({ ...chat })),
     pinned_chats: folder.pinned_chats.map((chat) => ({ ...chat })),
@@ -644,6 +645,7 @@ function defaultFolderDetail(folder: string | number): TelegramFolderDetail {
       exclude_read: false,
       exclude_archived: false,
     },
+    chats: [],
     included_chats: [],
     excluded_chats: [],
     pinned_chats: [],

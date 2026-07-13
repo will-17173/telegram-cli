@@ -371,6 +371,39 @@ describe('MtcuteTelegramFolderAdapter', () => {
     }))
   })
 
+  it.each([
+    [{ nonContacts: true, bots: false }, false],
+    [{ contacts: true, bots: false }, true],
+    [{ bots: true }, false],
+    [{ bots: true }, true],
+  ] as const)(
+    'excludes bots included by overlapping contact and bot rules: %o, contact=%s',
+    async (rules, isContact) => {
+      const dynamic = createFolder({ id: 3, ...rules })
+      const excluded = createFolder({ id: 3, ...rules, excludePeers: [peer] })
+      const bot = peerShape(42, 'Helper Bot', 'user', undefined, peer, { isContact, isBot: true })
+      const client = mockClient({
+        getFolders: vi.fn()
+          .mockResolvedValueOnce(folderResponse([dynamic]))
+          .mockResolvedValueOnce(folderResponse([excluded])),
+        getPeer: vi.fn().mockResolvedValue(bot),
+        resolvePeer: vi.fn().mockResolvedValue(peer),
+        editFolder: vi.fn().mockResolvedValue(excluded),
+      })
+      const adapter = new MtcuteTelegramFolderAdapter(client, vi.fn())
+
+      await expect(adapter.removeChat({ folder: 3, chat: '@helper_bot' }))
+        .resolves.toEqual({ folder_id: 3, chat_id: 42, changed: true })
+      await expect(adapter.removeChat({ folder: 3, chat: '@helper_bot' }))
+        .resolves.toEqual({ folder_id: 3, chat_id: 42, changed: false })
+      expect(client.editFolder).toHaveBeenCalledOnce()
+      expect(client.editFolder).toHaveBeenCalledWith({
+        folder: dynamic,
+        modification: { excludePeers: [peer] },
+      })
+    },
+  )
+
   it('rejects unresolved chats and unsupported chatlist mutations', async () => {
     const client = mockClient({
       getFolders: vi.fn()
@@ -461,14 +494,15 @@ function peerShape(
   type: 'user' | 'chat',
   chatType?: 'group' | 'supergroup' | 'channel',
   inputPeer: tl.TypeInputPeer = peer,
+  flags: { isContact?: boolean; isBot?: boolean } = {},
 ) {
   return {
     id,
     displayName,
     type,
     chatType,
-    isContact: false,
-    isBot: false,
+    isContact: flags.isContact ?? false,
+    isBot: flags.isBot ?? false,
     inputPeer,
   }
 }

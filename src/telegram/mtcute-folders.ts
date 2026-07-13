@@ -21,6 +21,8 @@ export type FolderPeerCategory =
   | 'broadcast'
   | 'channel'
   | 'bot'
+  | 'contact-bot'
+  | 'non-contact-bot'
 
 export type RawFolder = tl.RawDialogFilter | tl.RawDialogFilterChatlist
 
@@ -271,7 +273,7 @@ function toSummary(folder: RawFolder, chatCount: number): TelegramFolderSummary 
 
 function classifyPeer(peer: Peer): FolderPeerCategory {
   if (peer.type === 'user') {
-    if (peer.isBot) return 'bot'
+    if (peer.isBot) return peer.isContact ? 'contact-bot' : 'non-contact-bot'
     return peer.isContact ? 'contact' : 'non-contact'
   }
   switch (peer.chatType) {
@@ -318,6 +320,12 @@ function categoryIsIncluded(
       return 'contacts' in folder && folder.contacts === true
     case 'non-contact':
       return 'nonContacts' in folder && folder.nonContacts === true
+    case 'contact-bot':
+      return ('contacts' in folder && folder.contacts === true)
+        || ('bots' in folder && folder.bots === true)
+    case 'non-contact-bot':
+      return ('nonContacts' in folder && folder.nonContacts === true)
+        || ('bots' in folder && folder.bots === true)
     case 'group':
     case 'supergroup':
       return 'groups' in folder && folder.groups === true

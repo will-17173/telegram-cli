@@ -27,7 +27,7 @@ export type TelegramFolderChat = {
 export type TelegramFolderDetail = TelegramFolderSummary & {
   rules: TelegramFolderRules
   /** Effective membership after Telegram applies dynamic include/exclude rules. */
-  chats?: TelegramFolderChat[]
+  chats: TelegramFolderChat[]
   included_chats: TelegramFolderChat[]
   excluded_chats: TelegramFolderChat[]
   pinned_chats: TelegramFolderChat[]
