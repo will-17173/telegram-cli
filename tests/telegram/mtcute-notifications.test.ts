@@ -83,6 +83,20 @@ describe('MtcuteNotifications', () => {
     }))
   })
 
+  it('clamps pre-epoch mute dates to Telegram unmute', async () => {
+    const client = mutationClient(inputPeer(), { _: 'peerNotifySettings', muteUntil: 0 }, false)
+
+    await new MtcuteNotifications(client, vi.fn()).setMuteUntil(
+      '@team',
+      new Date('1960-01-01T00:00:00Z'),
+    )
+
+    expect(client.call).toHaveBeenCalledWith(expect.objectContaining({
+      _: 'account.updateNotifySettings',
+      settings: { _: 'inputPeerNotifySettings', muteUntil: 0 },
+    }))
+  })
+
   it('uses inherited dialog state when raw settings omit muteUntil', async () => {
     const client = mockClient({
       resolvePeer: vi.fn().mockResolvedValue(inputPeer()),
@@ -124,6 +138,32 @@ describe('MtcuteNotifications', () => {
       .rejects.toMatchObject({ code: 'flood_wait', seconds: 8 })
     await expect(new MtcuteNotifications(validationClient, vi.fn()).get('@team'))
       .rejects.toMatchObject({ code: 'telegram_error' })
+  })
+
+  it('normalizes get readiness failures and redacts raw secrets', async () => {
+    const marker = 'RAW_ACCESS_HASH_SECRET'
+    const ensureReady = vi.fn().mockRejectedValue(
+      new Error(`PEER_ID_INVALID accessHash=${marker}`),
+    )
+
+    const error = await new MtcuteNotifications(mockClient(), ensureReady)
+      .get('@missing')
+      .catch((caught: unknown) => caught)
+
+    expect(error).toMatchObject({ code: 'chat_not_found' })
+    expect((error as Error).message).not.toContain(marker)
+  })
+
+  it('normalizes set readiness failures and redacts raw secrets', async () => {
+    const marker = 'RAW_SESSION_SECRET'
+    const ensureReady = vi.fn().mockRejectedValue(new Error(`connect failed: ${marker}`))
+
+    const error = await new MtcuteNotifications(mockClient(), ensureReady)
+      .setMuteUntil('@team', null)
+      .catch((caught: unknown) => caught)
+
+    expect(error).toMatchObject({ code: 'telegram_error' })
+    expect((error as Error).message).not.toContain(marker)
   })
 
   it('calls readiness before Telegram operations', async () => {

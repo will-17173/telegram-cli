@@ -26,8 +26,8 @@ export class MtcuteNotifications {
   ) {}
 
   async get(chat: string | number): Promise<TelegramNotificationState> {
-    await this.ensureReady()
     try {
+      await this.ensureReady()
       const peer = await this.client.resolvePeer(normalizePeerId(chat))
       return await this.fetchState(peer)
     } catch (error) {
@@ -36,8 +36,8 @@ export class MtcuteNotifications {
   }
 
   async setMuteUntil(chat: string | number, until: Date | null): Promise<TelegramNotificationState> {
-    await this.ensureReady()
     try {
+      await this.ensureReady()
       const peer = await this.client.resolvePeer(normalizePeerId(chat))
       await this.client.call({
         _: 'account.updateNotifySettings',
@@ -83,7 +83,7 @@ function toRawMuteUntil(until: Date | null): number {
   if (!Number.isFinite(seconds)) {
     throw new TelegramNotificationError('telegram_error', 'Telegram notification settings are invalid.')
   }
-  return Math.min(seconds, PERMANENT_MUTE_UNTIL)
+  return Math.max(0, Math.min(seconds, PERMANENT_MUTE_UNTIL))
 }
 
 function toNotificationState(
