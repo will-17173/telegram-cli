@@ -30,6 +30,7 @@ import { ADMIN_RIGHT_KEYS } from '../../services/group-write-service.js'
 import { WriteAccessPolicy } from '../../services/write-access-policy.js'
 import { GroupCommandConfirm } from './group-command-confirm.js'
 import { truncateCell } from './display-width.js'
+import { SecureInput } from './secure-input.js'
 
 export type ListenMessage = ListenMessageRow & {
   key: string
@@ -662,6 +663,7 @@ export function InteractiveListen({
       groups: new GroupWriteService(client.groups),
       confirmed: options?.confirmed ?? false,
       confirmationTitle: options?.confirmationTitle,
+      ownershipPassword: options?.ownershipPassword,
       knownGroup,
       connectionReady: true,
       targetAvailable: true,
@@ -748,6 +750,7 @@ export function InteractiveListen({
       return
     }
     const modal = groupCommand.state
+    if (modal.kind === 'password') return
     if (modal.kind === 'confirm') {
       if (key.escape) { closeGroupCommand(); return }
       if (key.upArrow || key.downArrow) { groupCommand.setState({ ...modal, selectedIndex: modal.selectedIndex === 0 ? 1 : 0 }); return }
@@ -1203,6 +1206,7 @@ export function InteractiveListen({
         {groupCommand.state.kind === 'confirm-title' && 'confirmation' in groupCommand.state.pending ? groupCommand.state.stage === 'confirm'
           ? <GroupCommandConfirm confirmation={groupCommand.state.pending.confirmation} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} />
           : <Box flexDirection="column" width={contentWidth}><Text color="yellow">{truncateCell('Type the exact title to permanently delete this chat:', contentWidth)}</Text><Text>{truncateCell(groupCommand.state.pending.confirmation.title ?? '', contentWidth)}</Text><Text color="#8ecbff">{truncateCell(`› ${groupCommand.state.confirmText}`, contentWidth)}</Text>{groupCommand.state.mismatch ? <Text color="red">{truncateCell('Title does not match exactly.', contentWidth)}</Text> : null}<Text dimColor>{truncateCell('Enter verify · Esc back', contentWidth)}</Text></Box> : null}
+        {groupCommand.state.kind === 'password' ? <SecureInput label="Telegram 2FA password" onSubmit={(value) => { void groupCommand.runWithOwnershipPassword(value) }} onCancel={closeGroupCommand} /> : null}
         {permissionState ? <Box flexDirection="column" width={contentWidth}><Text color="#8ecbff">{truncateCell('Administrator permissions', contentWidth)}</Text>{ADMIN_RIGHT_KEYS.map((right, index) => <Text key={right} color={index === permissionState.selectedIndex ? '#8ecbff' : undefined}>{truncateCell(`${index === permissionState.selectedIndex ? '› ' : '  '}[${permissionState.selected.includes(right) ? 'x' : ' '}] ${right}`, contentWidth)}</Text>)}{permissionState.warning ? <Text color="yellow">{truncateCell(permissionState.warning, contentWidth)}</Text> : null}<Text dimColor>{truncateCell('↑/↓ select · Space toggle · Enter continue · Esc cancel', contentWidth)}</Text></Box> : null}
         <Box marginTop={1} flexDirection="column" flexGrow={1} overflow="hidden">
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}

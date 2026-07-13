@@ -1,6 +1,7 @@
 import type { Command } from 'commander'
 
 import { renderResult } from '../cli/output.js'
+import { isCliInputError, isCliInterruptedError, readSecret } from '../cli/secure-input.js'
 import { GROUP_COMMANDS, isReadOnlyGroupCommand } from '../group-commands/catalog.js'
 import { executeGroupCommand } from '../group-commands/executor.js'
 import { parseGroupCommand } from '../group-commands/parser.js'
@@ -61,22 +62,45 @@ async function runGroupWrite(definition: typeof GROUP_COMMANDS[number], position
   const runTelegram = isReadOnlyGroupCommand(parsed.request.key)
     ? runTelegramCommand
     : runTelegramWriteCommand
+  let interruptedExitCode: number | undefined
   await runTelegram(options, async (client) => {
     let knownGroup: TelegramGroupDetails | undefined
     if (definition.risk === 'confirm-title') knownGroup = await client.groups.getGroup(chat)
-    const result = await executeGroupCommand(parsed.request, {
+    let result = await executeGroupCommand(parsed.request, {
       chat,
       groups: new GroupWriteService(client.groups),
       confirmed: options.yes === true,
       confirmationTitle: options.confirmTitle,
       knownGroup,
     })
+    if ('secretRequired' in result) {
+      let ownershipPassword: string | undefined
+      try {
+        ownershipPassword = await readSecret('Telegram 2FA password: ')
+        result = await executeGroupCommand(parsed.request, {
+          chat,
+          groups: new GroupWriteService(client.groups),
+          confirmed: options.yes === true,
+          confirmationTitle: options.confirmTitle,
+          knownGroup,
+          ownershipPassword,
+        })
+      } catch (error) {
+        if (!isCliInputError(error)) throw error
+        if (isCliInterruptedError(error)) interruptedExitCode = error.exitCode
+        return { ok: false, error: { code: error.code, message: error.message } }
+      } finally {
+        ownershipPassword = undefined
+      }
+    }
     if ('confirmation' in result) return confirmationFailure(result.confirmation.summary, result.confirmation.risk, result.confirmation.title)
     if ('selectionRequired' in result) {
       return { ok: false, error: { code: 'permissions_required', message: `Administrator permissions must be one or more of: ${result.selectionRequired.available.join(', ')}.` } }
     }
+    if ('secretRequired' in result) return { ok: false, error: { code: 'interaction_required', message: 'Telegram 2FA password is required.' } }
     return result.ok ? { ...result, human: groupWriteHuman(result.data, chat, definition.summary) } : result
   })
+  if (interruptedExitCode !== undefined) process.exitCode = interruptedExitCode
 }
 
 function confirmationFailure(summary: string, risk: 'confirm' | 'confirm-title', title?: string): HandlerResult<never> {

@@ -45,6 +45,36 @@ describe('executeGroupCommand', () => {
     expect(groups.writeCalls[0]?.operation).toBe('banMember')
   })
 
+  it('requests an ownership password only after destructive confirmation and executes once with it', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const service = new GroupWriteService(groups)
+    const request = parsed('admin transfer-owner 2')
+
+    await expect(executeGroupCommand(request, { chat: 100, groups: service, confirmed: false })).resolves.toMatchObject({
+      ok: false,
+      confirmation: { risk: 'confirm', chat: 100 },
+    })
+    await expect(executeGroupCommand(request, { chat: 100, groups: service, confirmed: true })).resolves.toEqual({
+      ok: false,
+      secretRequired: { kind: 'ownership_password' },
+    })
+    expect(groups.writeCalls).toHaveLength(0)
+
+    const result = await executeGroupCommand(request, {
+      chat: 100,
+      groups: service,
+      confirmed: true,
+      ownershipPassword: 'secret',
+    })
+
+    expect(result).toMatchObject({ ok: true })
+    expect(groups.writeCalls).toEqual([{
+      operation: 'transferOwnership',
+      request: { chat: 100, user: 2 },
+    }])
+    expect(JSON.stringify(result)).not.toContain('secret')
+  })
+
   it('requires an exact known title for confirm-title', async () => {
     const groups = new FakeTelegramGroupManagement()
     const knownGroup = { ...await groups.getGroup(100), current_user_role: 'creator' as const }

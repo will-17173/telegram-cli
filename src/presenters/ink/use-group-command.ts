@@ -9,6 +9,7 @@ export type GroupCommandState =
   | { kind: 'executing' }
   | { kind: 'result'; result: GroupCommandExecutionResult }
   | { kind: 'error'; message: string; usage?: string }
+  | { kind: 'password'; request: ParsedGroupCommandRequest }
   | { kind: 'confirm'; pending: GroupCommandExecutionResult; request: ParsedGroupCommandRequest; originalInput: string; selectedIndex: number }
   | { kind: 'confirm-title'; pending: GroupCommandExecutionResult; request: ParsedGroupCommandRequest; originalInput: string; stage: 'confirm' | 'title'; selectedIndex: number; confirmText: string; mismatch?: boolean }
   | { kind: 'select-permissions'; pending: GroupCommandExecutionResult; request: ParsedGroupCommandRequest; originalInput: string; selectedIndex: number; selected: readonly string[]; warning?: string }
@@ -19,7 +20,7 @@ export type GroupCommandSubmitResult =
   | { kind: 'result'; result: GroupCommandExecutionResult }
   | { kind: 'pending'; pending: GroupCommandExecutionResult; request: ParsedGroupCommandRequest; input: string }
 
-type ExecutionOptions = { confirmed?: boolean; confirmationTitle?: string }
+type ExecutionOptions = { confirmed?: boolean; confirmationTitle?: string; ownershipPassword?: string }
 export function createGroupCommandController({ execute }: {
   execute: (request: Extract<ReturnType<typeof parseGroupCommand>, { ok: true }>['request'], options?: ExecutionOptions) => Promise<GroupCommandExecutionResult>
 }) {
@@ -109,14 +110,37 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
     try {
       const result = await execute(request, { confirmed: true, confirmationTitle })
       if (owned !== generation.current) return
-      setState(result.ok ? { kind: 'result', result } : 'error' in result
-        ? { kind: 'error', message: result.error.message }
-        : { kind: 'error', message: 'Telegram did not accept the confirmation.' })
+      setState(result.ok ? { kind: 'result', result } : 'secretRequired' in result
+        ? { kind: 'password', request }
+        : 'error' in result
+          ? { kind: 'error', message: result.error.message }
+          : { kind: 'error', message: 'Telegram did not accept the confirmation.' })
     } catch (error) {
       if (owned === generation.current) setState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
     } finally {
       if (executionLock.current === owned) executionLock.current = 0
     }
   }, [execute])
-  return { state, setState, submit, submitParsed, close, runConfirmed }
+  const runWithOwnershipPassword = useCallback(async (ownershipPassword: string) => {
+    if (state.kind !== 'password' || executionLock.current !== 0) return
+    const { request } = state
+    const owned = ++generation.current
+    executionLock.current = owned
+    setState({ kind: 'executing' })
+    try {
+      const result = await execute(request, { confirmed: true, ownershipPassword })
+      ownershipPassword = ''
+      if (owned !== generation.current) return
+      setState(result.ok ? { kind: 'result', result } : 'error' in result
+        ? { kind: 'error', message: result.error.message }
+        : { kind: 'error', message: 'Telegram did not accept the password.' })
+    } catch (error) {
+      ownershipPassword = ''
+      if (owned === generation.current) setState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+    } finally {
+      ownershipPassword = ''
+      if (executionLock.current === owned) executionLock.current = 0
+    }
+  }, [execute, state])
+  return { state, setState, submit, submitParsed, close, runConfirmed, runWithOwnershipPassword }
 }
