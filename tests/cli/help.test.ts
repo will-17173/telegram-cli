@@ -59,6 +59,26 @@ describe('cli help', () => {
     expect(config?.commands.map((command) => command.name())).toEqual(['set', 'list', 'write-access'])
   })
 
+  it('registers account logout and login with their command options', () => {
+    const account = createApp().commands.find((command) => command.name() === 'account')
+    const logout = account?.commands.find((command) => command.name() === 'logout')
+    const login = account?.commands.find((command) => command.name() === 'login')
+
+    expect(logout?.registeredArguments.map((argument) => ({
+      name: argument.name(),
+      required: argument.required,
+    }))).toEqual([{ name: 'name', required: false }])
+    expect(logout?.options.map((option) => option.long)).toEqual(['--yes', '--json', '--yaml'])
+    expect(logout?.description()).toBe('Log out a Telegram account while keeping local messages')
+
+    expect(login?.registeredArguments.map((argument) => ({
+      name: argument.name(),
+      required: argument.required,
+    }))).toEqual([{ name: 'name', required: true }])
+    expect(login?.options.map((option) => option.long)).toEqual(['--json', '--yaml'])
+    expect(login?.description()).toBe('Log in to an existing Telegram account')
+  })
+
   it('registers config list with optional structured output options only', () => {
     const config = createApp().commands.find((command) => command.name() === 'config')
     const list = config?.commands.find((command) => command.name() === 'list')

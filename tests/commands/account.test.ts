@@ -23,6 +23,7 @@ const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient
       writeFileSync(options.storage, 'uncommitted-session')
     }),
     getMe: vi.fn(async () => AUTH_USER),
+    logOut: vi.fn(async () => undefined),
     destroy: vi.fn(async () => {
       writeFileSync(options.storage, 'committed-session')
     }),
@@ -56,9 +57,16 @@ function createDataDir(): string {
 }
 
 function seedAccounts(dataDir: string, registry: {
-  version: 1
+  version: 1 | 2
   current_account: string | null
-  accounts: Array<{ name: string; user_id: number; username: string; phone: string; display_name: string }>
+  accounts: Array<{
+    name: string
+    user_id: number
+    username: string
+    phone: string
+    display_name: string
+    auth_state?: 'authenticated' | 'logged_out'
+  }>
 }): void {
   writeFileSync(getAccountRegistryPath(dataDir), `${JSON.stringify(registry, null, 2)}\n`)
 }
@@ -366,6 +374,193 @@ describe('account commands', () => {
       expect(result.code).toBe(0)
       expect(payload.ok).toBe(true)
       expect(payload.data.account.display_name).toBe('漫漫长夜 W')
+    } finally {
+      Object.assign(AUTH_USER, originalAuthUser)
+    }
+  })
+
+  it('logs out a named account with explicit confirmation and retains its messages database', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+    const accountDir = join(dataDir, 'accounts', 'alice')
+    mkdirSync(accountDir, { recursive: true })
+    writeFileSync(join(accountDir, 'session'), 'existing-session')
+    writeFileSync(join(accountDir, 'messages.db'), 'retained-messages')
+
+    const result = await run(['account', 'logout', 'alice', '--yes', '--json'], dataDir)
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload).toMatchObject({
+      ok: true,
+      data: {
+        account: { name: 'alice', auth_state: 'logged_out' },
+        retained_db_path: join(accountDir, 'messages.db'),
+      },
+    })
+    expect(readFileSync(join(accountDir, 'messages.db'), 'utf8')).toBe('retained-messages')
+  })
+
+  it('uses the current account when logout name is omitted', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+    const accountDir = join(dataDir, 'accounts', 'alice')
+    mkdirSync(accountDir, { recursive: true })
+    writeFileSync(join(accountDir, 'session'), 'existing-session')
+
+    const result = await run(['account', 'logout', '--yes', '--json'], dataDir)
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload.data.account).toMatchObject({ name: 'alice', auth_state: 'logged_out' })
+  })
+
+  it('requires confirmation for non-interactive logout', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+
+    const result = await run(['account', 'logout', 'alice'], dataDir, false)
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain('confirmation_required')
+    expect(telegramClientFactory).not.toHaveBeenCalled()
+  })
+
+  it('writes the interactive logout prompt to stderr and declines without creating a client', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+
+    const result = await run(['account', 'logout', 'alice', '--json'], dataDir, true, 'n')
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(result.stderr).toContain('Log out alice while keeping local messages? [y/N]')
+    expect(payload).toMatchObject({ ok: true, data: { account: { name: 'alice' }, changed: false } })
+    expect(telegramClientFactory).not.toHaveBeenCalled()
+  })
+
+  it('logs in an existing account interactively and emits only the final YAML result on stdout', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+
+    const result = await run(['account', 'login', 'alice', '--yaml'], dataDir, true)
+    const payload = YAML.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload).toMatchObject({
+      ok: true,
+      data: { account: { name: 'alice', auth_state: 'authenticated' } },
+    })
+    expect(result.stdout).not.toContain('Log in')
+  })
+
+  it('requires an interactive terminal before starting account login', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+
+    const result = await run(['account', 'login', 'alice', '--json'], dataDir, false)
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(1)
+    expect(payload).toMatchObject({ ok: false, error: { code: 'interaction_required' } })
+    expect(telegramClientFactory).not.toHaveBeenCalled()
+  })
+
+  it('leaves account files untouched when login authenticates a different identity', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+    const accountDir = join(dataDir, 'accounts', 'alice')
+    mkdirSync(accountDir, { recursive: true })
+    writeFileSync(join(accountDir, 'session'), 'original-session')
+    writeFileSync(join(accountDir, 'messages.db'), 'original-messages')
+    const originalAuthUser = { ...AUTH_USER }
+    AUTH_USER.id = 2002
+
+    try {
+      const result = await run(['account', 'login', 'alice', '--json'], dataDir, true)
+      const payload = JSON.parse(result.stdout)
+
+      expect(result.code).toBe(1)
+      expect(payload).toMatchObject({ ok: false, error: { code: 'account_identity_mismatch' } })
+      expect(readFileSync(join(accountDir, 'session'), 'utf8')).toBe('original-session')
+      expect(readFileSync(join(accountDir, 'messages.db'), 'utf8')).toBe('original-messages')
     } finally {
       Object.assign(AUTH_USER, originalAuthUser)
     }
