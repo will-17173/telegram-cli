@@ -697,6 +697,33 @@ describe('interactive album messages', () => {
     expect(onGroup).not.toHaveBeenCalled()
     expect(resolver.close).toHaveBeenCalledOnce()
   })
+
+  it('keeps timers responsive while an async database reply is pending', async () => {
+    const scheduled: Array<() => void> = []
+    let finishResolve!: () => void
+    const pending = new Promise<void>((resolve) => { finishResolve = resolve })
+    const resolver = {
+      resolve: vi.fn(() => undefined),
+      resolveAsync: vi.fn(async () => { await pending; return undefined }),
+      remember: vi.fn(), close: vi.fn(), closeAsync: vi.fn(async () => undefined),
+    }
+    const queue = createInteractiveListenGroupQueue({
+      resolver, schedule: (run) => scheduled.push(run), isActive: () => true,
+      onGroup: vi.fn(), onError: vi.fn(),
+    })
+    queue.enqueue([storedPhoto(11, 'db miss')])
+    scheduled.shift()!()
+
+    const sentinel = vi.fn()
+    await new Promise<void>((resolve) => setTimeout(() => { sentinel(); resolve() }, 0))
+    expect(sentinel).toHaveBeenCalledOnce()
+    expect(resolver.remember).not.toHaveBeenCalled()
+
+    finishResolve()
+    await queue.close()
+    expect(resolver.remember).toHaveBeenCalledOnce()
+    expect(resolver.closeAsync).toHaveBeenCalledOnce()
+  })
   it('creates one row and keeps each attachment download message ID', () => {
     const row = toListenMessage([
       storedPhoto(11, ''),

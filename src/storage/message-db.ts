@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import { constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { access, copyFile, mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { getDbPath } from '../config/env.js'
@@ -56,8 +57,24 @@ export function __setMessageDbSnapshotCopyHookForTests(hook: SnapshotCopyHook | 
 export class MessageDB {
   private readonly db: Database.Database
   private readonly snapshotDir?: string
+  private closed = false
 
   constructor(path = getDbPath(), options: { readonly?: boolean } = {}) {
+    const adopted = options as { readonly?: boolean; snapshotDir?: string }
+    if (adopted.snapshotDir != null) {
+      this.snapshotDir = adopted.snapshotDir
+      let snapshotDb: Database.Database | undefined
+      try {
+        snapshotDb = new Database(path, { fileMustExist: true })
+        snapshotDb.pragma('query_only = ON')
+        snapshotDb.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()
+        this.db = snapshotDb
+      } catch (error) {
+        snapshotDb?.close()
+        throw error
+      }
+      return
+    }
     if (options.readonly) {
       const { snapshotDir, snapshotPath } = createConsistentSnapshot(path)
       this.snapshotDir = snapshotDir
@@ -98,6 +115,16 @@ export class MessageDB {
       CREATE INDEX IF NOT EXISTS idx_messages_content ON messages(content);
       CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
     `)
+  }
+
+  static async openReadonly(path: string): Promise<MessageDB> {
+    const { snapshotDir, snapshotPath } = await createConsistentSnapshotAsync(path)
+    try {
+      return new MessageDB(snapshotPath, { snapshotDir } as { readonly?: boolean })
+    } catch (error) {
+      await rm(snapshotDir, { recursive: true, force: true })
+      throw error
+    }
   }
 
   insertBatch(messages: StoredMessageInput[]): number {
@@ -301,11 +328,20 @@ export class MessageDB {
   }
 
   close(): void {
+    if (this.closed) return
+    this.closed = true
     try {
       this.db.close()
     } finally {
       if (this.snapshotDir != null) rmSync(this.snapshotDir, { recursive: true, force: true })
     }
+  }
+
+  async closeAsync(): Promise<void> {
+    if (this.closed) return
+    this.closed = true
+    this.db.close()
+    if (this.snapshotDir != null) await rm(this.snapshotDir, { recursive: true, force: true })
   }
 
   private filteredQuery(firstCondition: string, firstParams: unknown[], options: SearchOptions): { sql: string; params: unknown[] } {
@@ -442,5 +478,66 @@ function cloneOrCopyFile(source: string, destination: string): void {
     copyFileSync(source, destination, constants.COPYFILE_FICLONE)
   } catch {
     copyFileSync(source, destination)
+  }
+}
+
+async function createConsistentSnapshotAsync(sourcePath: string, maxAttempts = 5): Promise<{ snapshotDir: string; snapshotPath: string }> {
+  try {
+    await access(sourcePath)
+  } catch {
+    throw new Error(`Read-only message database does not exist: ${sourcePath}`)
+  }
+  let lastError: unknown
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const snapshotDir = await mkdtemp(join(tmpdir(), 'tg-cli-message-db-'))
+    const snapshotPath = join(snapshotDir, 'messages.db')
+    try {
+      const before = await sourceFingerprintAsync(sourcePath)
+      await cloneOrCopyFileAsync(sourcePath, snapshotPath)
+      snapshotCopyHook?.({ attempt, sourcePath, snapshotPath })
+      if (before.wal != null) await cloneOrCopyFileAsync(`${sourcePath}-wal`, `${snapshotPath}-wal`)
+      const after = await sourceFingerprintAsync(sourcePath)
+      if (!sameFingerprint(before, after) || !(await copyMatchesAsync(snapshotPath, before))) {
+        throw new Error('SQLite source generation changed while copying')
+      }
+      return { snapshotDir, snapshotPath }
+    } catch (error) {
+      lastError = error
+      await rm(snapshotDir, { recursive: true, force: true })
+    }
+  }
+  const detail = lastError instanceof Error ? `: ${lastError.message}` : ''
+  throw new Error(`Unable to create consistent read-only SQLite snapshot after ${maxAttempts} attempts${detail}`)
+}
+
+async function sourceFingerprintAsync(sourcePath: string): Promise<SourceFingerprint> {
+  const main = await fileFingerprintAsync(sourcePath)
+  let wal: FileFingerprint | null = null
+  try { wal = await fileFingerprintAsync(`${sourcePath}-wal`) } catch { /* absent WAL */ }
+  return { main, wal }
+}
+
+async function fileFingerprintAsync(path: string): Promise<FileFingerprint> {
+  const value = await stat(path, { bigint: true })
+  return {
+    dev: value.dev.toString(), ino: value.ino.toString(), size: value.size.toString(),
+    mtimeNs: value.mtimeNs.toString(), ctimeNs: value.ctimeNs.toString(),
+  }
+}
+
+async function copyMatchesAsync(snapshotPath: string, source: SourceFingerprint): Promise<boolean> {
+  const main = await fileFingerprintAsync(snapshotPath)
+  if (main.size !== source.main.size) return false
+  if (source.wal == null) {
+    try { await access(`${snapshotPath}-wal`); return false } catch { return true }
+  }
+  return (await fileFingerprintAsync(`${snapshotPath}-wal`)).size === source.wal.size
+}
+
+async function cloneOrCopyFileAsync(source: string, destination: string): Promise<void> {
+  try {
+    await copyFile(source, destination, constants.COPYFILE_FICLONE)
+  } catch {
+    await copyFile(source, destination)
   }
 }

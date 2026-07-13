@@ -453,8 +453,11 @@ export type ResolvedListenGroup = {
   replyContext?: ReplyContext
 }
 
+type InteractiveReplyResolver = Pick<ListenReplyResolver, 'resolve' | 'remember' | 'close'>
+  & Partial<Pick<ListenReplyResolver, 'resolveAsync' | 'closeAsync'>>
+
 export function createInteractiveListenGroupQueue(options: {
-  resolver: ListenReplyResolver
+  resolver: InteractiveReplyResolver
   schedule?: (run: () => void) => void
   isActive: () => boolean
   onGroup: (group: ResolvedListenGroup) => void
@@ -467,12 +470,20 @@ export function createInteractiveListenGroupQueue(options: {
   let closing = false
   let closed = false
 
-  const drain = (): void => {
+  const closeResolver = async (): Promise<void> => {
+    if (closed) return
+    closed = true
+    if (options.resolver.closeAsync != null) await options.resolver.closeAsync()
+    else options.resolver.close()
+  }
+  const drain = async (): Promise<void> => {
     try {
       while (pending.length > 0) {
         const messages = pending.shift()!
         try {
-          const replyContext = options.resolver.resolve(messages)
+          const replyContext = options.resolver.resolveAsync == null
+            ? options.resolver.resolve(messages)
+            : await options.resolver.resolveAsync(messages)
           options.resolver.remember(messages)
           const first = messages[0]
           if (first != null && options.isActive()) {
@@ -488,13 +499,8 @@ export function createInteractiveListenGroupQueue(options: {
       resolveScheduled?.()
       resolveScheduled = null
       scheduled = null
-      if (closing) closeResolver()
+      if (closing) await closeResolver()
     }
-  }
-  const closeResolver = (): void => {
-    if (closed) return
-    closed = true
-    options.resolver.close()
   }
   return {
     enqueue(messages: StoredMessageInput[]): void {
@@ -502,19 +508,19 @@ export function createInteractiveListenGroupQueue(options: {
       pending.push(messages)
       if (scheduled != null) return
       scheduled = new Promise<void>((resolve) => { resolveScheduled = resolve })
-      schedule(drain)
+      schedule(() => { void drain() })
     },
     async close(): Promise<void> {
       closing = true
       if (scheduled != null) await scheduled
-      closeResolver()
+      await closeResolver()
     },
   }
 }
 
 export function createInteractiveListenRuntime(
   dbPath: string,
-  factory: (dbPath: string, limit: number) => ListenReplyResolver,
+  factory: (dbPath: string, limit: number) => InteractiveReplyResolver,
   options: Omit<Parameters<typeof createInteractiveListenGroupQueue>[0], 'resolver'>,
 ) {
   return createInteractiveListenGroupQueue({

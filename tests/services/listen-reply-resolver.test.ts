@@ -38,6 +38,21 @@ describe('listen reply resolver', () => {
     resolver.close()
   })
 
+  it('shares one asynchronous readonly snapshot across database fallbacks', async () => {
+    const { dbPath, db } = setup()
+    db.insertMessage(message(7, { content: 'async database' }))
+    db.close()
+    const resolver = createListenReplyResolver(dbPath)
+
+    const [first, second] = await Promise.all([
+      resolver.resolveAsync([reply(8, 7)]),
+      resolver.resolveAsync([reply(9, 7)]),
+    ])
+    expect(first).toMatchObject({ resolved: true, content: 'async database' })
+    expect(second).toMatchObject({ resolved: true, content: 'async database' })
+    await resolver.closeAsync()
+  })
+
   it('resolves a reply committed in an uncheckpointed WAL', () => {
     const dir = mkdtempSync(join(tmpdir(), 'listen-reply-wal-'))
     dirs.push(dir)

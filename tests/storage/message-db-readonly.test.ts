@@ -8,6 +8,22 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { __setMessageDbSnapshotCopyHookForTests, MessageDB } from '../../src/storage/message-db.js'
 
 describe('MessageDB readonly snapshots', () => {
+  it('opens and cleans an asynchronous readonly snapshot', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'message-db-async-'))
+    dirs.push(dir)
+    const sourcePath = join(dir, 'messages.db')
+    const writer = walWriter(sourcePath)
+    writer.prepare(`INSERT INTO messages
+      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json)
+      VALUES ('telegram', 100, 'Chat', 6, 1, 'Alice', 'async snapshot', '2026-07-10T07:22:00.000Z', NULL)`).run()
+    const before = directoryFingerprint(dir)
+
+    const readonly = await MessageDB.openReadonly(sourcePath)
+    expect(readonly.getMessagesByKeys([{ chatId: 100, msgId: 6 }])[0]?.content).toBe('async snapshot')
+    readonly.close()
+    expect(directoryFingerprint(dir)).toEqual(before)
+    writer.close()
+  })
   const dirs: string[] = []
   afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })))
 
