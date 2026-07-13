@@ -163,4 +163,17 @@ describe('GroupWriteService', () => {
     })
     expect(groups.writeCalls).toHaveLength(0)
   })
+
+  it.each([
+    'invite list',
+    'invite show link',
+    'invite members link',
+    'topic list',
+  ])('allows read-only command %s when write access is disabled', async (source) => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await new GroupWriteService(groups, new WriteAccessPolicy(() => false)).execute(request(source))
+
+    expect(result.ok).toBe(true)
+    expect(groups.writeCalls).toHaveLength(1)
+  })
 })

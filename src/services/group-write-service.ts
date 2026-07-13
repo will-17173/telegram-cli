@@ -10,6 +10,10 @@ import {
 import type { GroupWriteOperationResultMap, TelegramGroupWriteOperation } from '../telegram/group-write-types.js'
 import { WriteAccessPolicy } from './write-access-policy.js'
 
+const READ_ONLY_GROUP_COMMANDS = ['invite list', 'invite show', 'invite members', 'topic list'] as const satisfies readonly GroupCommandKey[]
+const readOnlyGroupCommands = new Set<string>(READ_ONLY_GROUP_COMMANDS)
+const isReadOnlyGroupCommand = (key: GroupCommandKey): boolean => readOnlyGroupCommands.has(key)
+
 export type ParsedGroupWriteRequest = ParsedGroupCommandRequest & { readonly chat: string | number }
 export type GroupWriteServiceResult = GroupWriteOperationResultMap[TelegramGroupWriteOperation]
 type HandlerContext<K extends GroupCommandKey> = { readonly chat: string | number; readonly values: GroupCommandValuesByKey[K] }
@@ -87,11 +91,13 @@ export class GroupWriteService {
   ) {}
 
   async execute(request: ParsedGroupWriteRequest): Promise<HandlerResult<GroupWriteServiceResult>> {
-    const access = this.writePolicy.check()
-    if (!access.ok) return access
-
     const key = canonicalCommandKey(request)
     if (!key) return failure('invalid_command', 'Invalid or noncanonical group command.')
+    if (!isReadOnlyGroupCommand(key)) {
+      const access = this.writePolicy.check()
+      if (!access.ok) return access
+    }
+
     if (request.key === 'admin promote' && (!request.values.permissions || request.values.permissions.length === 0)) {
       return failure('permissions_required', 'Select at least one administrator permission.')
     }
