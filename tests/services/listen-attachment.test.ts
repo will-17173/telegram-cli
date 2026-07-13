@@ -140,6 +140,34 @@ describe('listen attachment metadata', () => {
     expect(value).toMatchObject({ kind: 'Photo', mimeType: 'image/png', fileName: 'image.png' })
   })
 
+  it('preserves a wrapper MIME type while reading the nested document filename', () => {
+    const [value] = discoverListenAttachments(message({
+      raw_json: {
+        media: {
+          _: 'messageMediaDocument',
+          mime_type: 'video/mp4',
+          document: { file_name: 'clip.mp4' },
+        },
+      },
+    }))
+
+    expect(value).toMatchObject({ kind: 'Video', mimeType: 'video/mp4', fileName: 'clip.mp4' })
+  })
+
+  it('infers document wrapper kinds from the mime alias', () => {
+    const [value] = discoverListenAttachments(message({
+      raw_json: {
+        media: {
+          _: 'messageMediaDocument',
+          mime: 'audio/ogg',
+          document: { file_name: 'voice.ogg' },
+        },
+      },
+    }))
+
+    expect(value).toMatchObject({ kind: 'Audio', mimeType: 'audio/ogg', fileName: 'voice.ogg' })
+  })
+
   it('builds a stable key and Telegram download target', () => {
     const value = attachment()
 

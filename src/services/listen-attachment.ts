@@ -99,7 +99,7 @@ function describeMediaNode(node: RawRecord): MediaDescription[] {
       ? `👤 Contact${details.length > 0 ? ` · ${details}` : ''}`
       : `📎 ${kind}${details.length > 0 ? ` (${details})` : ''}`,
     fileName: firstString(source.fileName, source.file_name, source.filename, source.name),
-    mimeType: firstString(source.mime_type, source.mimeType, source.mime),
+    mimeType: mediaMimeType(node, source),
     downloadable: DOWNLOADABLE_MEDIA_KINDS.has(kind),
   }]
 }
@@ -129,7 +129,7 @@ function detectMediaKind(node: RawRecord): string | null {
 
 function inferDocumentKind(node: RawRecord): string {
   const source = mediaDetailSource(node, 'Document')
-  const mimeType = firstString(source.mime_type, source.mimeType, source.mime)?.toLowerCase()
+  const mimeType = mediaMimeType(node, source)?.toLowerCase()
   if (mimeType?.startsWith('video/')) return 'Video'
   if (mimeType?.startsWith('audio/')) return 'Audio'
   if (mimeType?.startsWith('image/')) return 'Photo'
@@ -140,7 +140,7 @@ function buildMediaDetails(node: RawRecord, kind: string): string {
   const source = mediaDetailSource(node, kind)
   if (kind === 'Contact') return buildContactDetails(source)
   const fileName = firstString(source.fileName, source.file_name, source.filename, source.name)
-  const mimeType = firstString(source.mime_type, source.mimeType, source.mime)
+  const mimeType = mediaMimeType(node, source)
   const size = firstNumber(source.size, source.size_bytes, source.file_size)
   const caption = firstString(node.caption)
   const parts: string[] = []
@@ -150,6 +150,17 @@ function buildMediaDetails(node: RawRecord, kind: string): string {
   if (size != null) parts.push(humanizeBytes(size))
   if (caption != null) parts.push(`caption: ${caption}`)
   return parts.join(' • ')
+}
+
+function mediaMimeType(node: RawRecord, source: RawRecord): string | null {
+  return firstString(
+    source.mime_type,
+    source.mimeType,
+    source.mime,
+    node.mime_type,
+    node.mimeType,
+    node.mime,
+  )
 }
 
 function buildContactDetails(source: RawRecord): string {
