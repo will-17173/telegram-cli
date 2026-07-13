@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createListenReplyResolver } from '../../src/services/listen-reply-resolver.js'
-import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
+import { __setMessageDbSnapshotCopyHookForTests, MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
 
 describe('listen reply resolver', () => {
   const dirs: string[] = []
@@ -138,6 +138,29 @@ describe('listen reply resolver', () => {
     const resolver = createListenReplyResolver(dbPath)
     resolver.close()
     expect(() => resolver.close()).not.toThrow()
+  })
+
+  it('does not open a database snapshot when resolving after close', () => {
+    const { dbPath, db } = setup()
+    db.insertMessage(message(7, { content: 'database' }))
+    db.close()
+    const resolver = createListenReplyResolver(dbPath)
+    resolver.remember([message(6, { content: 'memory' })])
+    resolver.close()
+    let snapshotAttempts = 0
+    const restore = __setMessageDbSnapshotCopyHookForTests(({ sourcePath }) => {
+      if (sourcePath === dbPath) snapshotAttempts += 1
+    })
+    try {
+      expect(resolver.resolve([reply(8, 6)])).toMatchObject({ resolved: true, content: 'memory' })
+      expect(resolver.resolve([reply(8, 7)])).toEqual({ messageId: 7, resolved: false })
+      resolver.remember([message(7, { content: 'too late' })])
+      expect(resolver.resolve([reply(8, 7)])).toEqual({ messageId: 7, resolved: false })
+      resolver.close()
+      expect(snapshotAttempts).toBe(0)
+    } finally {
+      restore()
+    }
   })
 })
 

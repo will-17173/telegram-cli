@@ -21,6 +21,7 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
       const replyId = logical.replyToMessageId
       const target = memory.get(messageKey(logical.first.platform, logical.first.chat_id, replyId))
       if (target != null) return buildReplyContext(replyId, asStoredMessage(target))
+      if (closed) return buildReplyContext(replyId)
       if (logical.first.platform !== 'telegram') return buildReplyContext(replyId)
       if (db == null) {
         if (!existsSync(dbPath)) return buildReplyContext(replyId)
@@ -32,6 +33,7 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
       }])[0])
     },
     remember(messages) {
+      if (closed) return
       for (const message of messages) {
         const key = messageKey(message.platform, message.chat_id, message.msg_id)
         if (!memory.has(key) && memory.size >= Math.max(0, limit)) {

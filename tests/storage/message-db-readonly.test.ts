@@ -1,13 +1,11 @@
 import Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { MessageDB } from '../../src/storage/message-db.js'
-
-const SNAPSHOT_PREFIX = 'tg-cli-message-db-'
+import { __setMessageDbSnapshotCopyHookForTests, MessageDB } from '../../src/storage/message-db.js'
 
 describe('MessageDB readonly snapshots', () => {
   const dirs: string[] = []
@@ -57,16 +55,72 @@ describe('MessageDB readonly snapshots', () => {
     const sourceDir = tempDir('message-db-cleanup-')
     const sourcePath = join(sourceDir, 'messages.db')
     const writer = walWriter(sourcePath)
-    const before = snapshotDirectories()
-    const readonly = new MessageDB(sourcePath, { readonly: true })
-    readonly.close()
-    expect(snapshotDirectories().filter((name) => !before.includes(name))).toEqual([])
-
     const invalidPath = join(sourceDir, 'invalid.db')
     cpSync(new URL(import.meta.url), invalidPath)
-    expect(() => new MessageDB(invalidPath, { readonly: true })).toThrow()
-    expect(snapshotDirectories().filter((name) => !before.includes(name))).toEqual([])
-    writer.close()
+    const attempts: string[] = []
+    const restore = __setMessageDbSnapshotCopyHookForTests(({ sourcePath: copiedSource, snapshotPath }) => {
+      if (copiedSource === sourcePath || copiedSource === invalidPath) attempts.push(dirname(snapshotPath))
+    })
+    try {
+      const readonly = new MessageDB(sourcePath, { readonly: true })
+      readonly.close()
+      expect(() => new MessageDB(invalidPath, { readonly: true })).toThrow()
+      expect(attempts.length).toBeGreaterThanOrEqual(2)
+      expect(attempts.every((path) => !existsSync(path))).toBe(true)
+    } finally {
+      restore()
+      writer.close()
+    }
+  })
+
+  it('retries when a checkpoint changes main and WAL after the first main copy', () => {
+    const sourceDir = tempDir('message-db-race-')
+    const sourcePath = join(sourceDir, 'messages.db')
+    const writer = walWriter(sourcePath)
+    writer.prepare(`INSERT INTO messages
+      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json)
+      VALUES ('telegram', 100, 'Chat', 9, 1, 'Alice', 'after checkpoint', '2026-07-10T07:22:00.000Z', NULL)`).run()
+    let hooks = 0
+    const restore = __setMessageDbSnapshotCopyHookForTests(({ attempt, sourcePath: copiedSource }) => {
+      if (copiedSource !== sourcePath) return
+      hooks += 1
+      if (attempt === 1) writer.pragma('wal_checkpoint(TRUNCATE)')
+    })
+
+    try {
+      const readonly = new MessageDB(sourcePath, { readonly: true })
+      expect(readonly.getMessagesByKeys([{ chatId: 100, msgId: 9 }])[0]?.content).toBe('after checkpoint')
+      readonly.close()
+      expect(hooks).toBeGreaterThanOrEqual(2)
+    } finally {
+      restore()
+      writer.close()
+    }
+  })
+
+  it('fails clearly and cleans every attempt when the source changes continuously', () => {
+    const sourceDir = tempDir('message-db-unstable-')
+    const sourcePath = join(sourceDir, 'messages.db')
+    const writer = walWriter(sourcePath)
+    let changes = 0
+    const attempts: string[] = []
+    const restore = __setMessageDbSnapshotCopyHookForTests(({ sourcePath: copiedSource, snapshotPath }) => {
+      if (copiedSource !== sourcePath) return
+      attempts.push(dirname(snapshotPath))
+      changes += 1
+      const next = new Date(Date.now() + changes * 1000)
+      utimesSync(sourcePath, next, next)
+    })
+
+    try {
+      expect(() => new MessageDB(sourcePath, { readonly: true }))
+        .toThrow('Unable to create consistent read-only SQLite snapshot after 5 attempts')
+      expect(changes).toBe(5)
+      expect(attempts.every((path) => !existsSync(path))).toBe(true)
+    } finally {
+      restore()
+      writer.close()
+    }
   })
 
   function tempDir(prefix: string): string {
@@ -96,8 +150,4 @@ function directoryFingerprint(dir: string): unknown {
     const stat = statSync(path)
     return { name, size: stat.size, mtimeMs: stat.mtimeMs, hash: createHash('sha256').update(readFileSync(path)).digest('hex') }
   })
-}
-
-function snapshotDirectories(): string[] {
-  return readdirSync(tmpdir()).filter((name) => name.startsWith(SNAPSHOT_PREFIX)).sort()
 }

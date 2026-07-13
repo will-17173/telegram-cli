@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { getDbPath } from '../config/env.js'
@@ -44,19 +45,25 @@ export type TodayOptions = {
   limit?: number
 }
 
+type SnapshotCopyHook = (context: { attempt: number; sourcePath: string; snapshotPath: string }) => void
+let snapshotCopyHook: SnapshotCopyHook | undefined
+
+export function __setMessageDbSnapshotCopyHookForTests(hook: SnapshotCopyHook | undefined): () => void {
+  const previous = snapshotCopyHook
+  snapshotCopyHook = hook
+  return () => { snapshotCopyHook = previous }
+}
+
 export class MessageDB {
   private readonly db: Database.Database
   private readonly snapshotDir?: string
 
   constructor(path = getDbPath(), options: { readonly?: boolean } = {}) {
     if (options.readonly) {
-      const snapshotDir = mkdtempSync(join(tmpdir(), 'tg-cli-message-db-'))
+      const { snapshotDir, snapshotPath } = createConsistentSnapshot(path)
       this.snapshotDir = snapshotDir
-      const snapshotPath = join(snapshotDir, 'messages.db')
       let snapshotDb: Database.Database | undefined
       try {
-        copyFileSync(path, snapshotPath)
-        if (existsSync(`${path}-wal`)) copyFileSync(`${path}-wal`, `${snapshotPath}-wal`)
         snapshotDb = new Database(snapshotPath, { fileMustExist: true })
         snapshotDb.pragma('query_only = ON')
         snapshotDb.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()
@@ -359,4 +366,77 @@ export class MessageDB {
       )
     )`
   }
+}
+
+type FileFingerprint = {
+  size: string
+  mtimeNs: string
+  ctimeNs: string
+  hash: string
+}
+
+type SourceFingerprint = {
+  main: FileFingerprint
+  wal: FileFingerprint | null
+}
+
+function createConsistentSnapshot(sourcePath: string, maxAttempts = 5): { snapshotDir: string; snapshotPath: string } {
+  if (!existsSync(sourcePath)) throw new Error(`Read-only message database does not exist: ${sourcePath}`)
+  let lastError: unknown
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const snapshotDir = mkdtempSync(join(tmpdir(), 'tg-cli-message-db-'))
+    const snapshotPath = join(snapshotDir, 'messages.db')
+    try {
+      const before = sourceFingerprint(sourcePath)
+      copyFileSync(sourcePath, snapshotPath)
+      snapshotCopyHook?.({ attempt, sourcePath, snapshotPath })
+      if (before.wal != null) copyFileSync(`${sourcePath}-wal`, `${snapshotPath}-wal`)
+      const after = sourceFingerprint(sourcePath)
+      if (!sameFingerprint(before, after) || !copyMatches(snapshotPath, before)) {
+        throw new Error('SQLite source generation changed while copying')
+      }
+      return { snapshotDir, snapshotPath }
+    } catch (error) {
+      lastError = error
+      rmSync(snapshotDir, { recursive: true, force: true })
+    }
+  }
+
+  const detail = lastError instanceof Error ? `: ${lastError.message}` : ''
+  throw new Error(`Unable to create consistent read-only SQLite snapshot after ${maxAttempts} attempts${detail}`)
+}
+
+function sourceFingerprint(sourcePath: string): SourceFingerprint {
+  return {
+    main: fileFingerprint(sourcePath),
+    wal: existsSync(`${sourcePath}-wal`) ? fileFingerprint(`${sourcePath}-wal`) : null,
+  }
+}
+
+function fileFingerprint(path: string): FileFingerprint {
+  const before = statSync(path, { bigint: true })
+  const hash = createHash('sha256').update(readFileSync(path)).digest('hex')
+  const after = statSync(path, { bigint: true })
+  if (before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
+    throw new Error('SQLite source file changed while fingerprinting')
+  }
+  return {
+    size: after.size.toString(),
+    mtimeNs: after.mtimeNs.toString(),
+    ctimeNs: after.ctimeNs.toString(),
+    hash,
+  }
+}
+
+function sameFingerprint(left: SourceFingerprint, right: SourceFingerprint): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function copyMatches(snapshotPath: string, source: SourceFingerprint): boolean {
+  const main = fileFingerprint(snapshotPath)
+  if (main.size !== source.main.size || main.hash !== source.main.hash) return false
+  if (source.wal == null) return !existsSync(`${snapshotPath}-wal`)
+  const wal = fileFingerprint(`${snapshotPath}-wal`)
+  return wal.size === source.wal.size && wal.hash === source.wal.hash
 }
