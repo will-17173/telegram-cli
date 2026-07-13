@@ -189,4 +189,16 @@ describe('matching and completion', () => {
     expect(completeGroupCommand('/member ban @alice')).toBe('/member ban @alice')
     expect(completeGroupCommand('/zzz')).toBe('/zzz')
   })
+
+  it('preserves leading whitespace when completing slash and CLI commands', () => {
+    expect(completeGroupCommand('  /mem b')).toBe('  /member ban ')
+    expect(completeGroupCommand('\tmem b')).toBe('\tmember ban ')
+  })
+
+  it('does not alter tokenizer source offsets while completing commands', () => {
+    expect(tokenizeGroupCommand('  /mem b')).toMatchObject({
+      ok: true,
+      tokens: [{ value: '/mem', start: 2, end: 6 }, { value: 'b', start: 7, end: 8 }]
+    })
+  })
 })

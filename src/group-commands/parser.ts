@@ -179,8 +179,9 @@ export function completeGroupCommand(source: string, selectedIndex = 0): string 
   if (!match) return source
   const tokens = tokenized.tokens
   if (tokens.length >= 2 && tokens[0].value === match.definition.path[0] && tokens[1].value === match.definition.path[1]) return source
+  const leadingWhitespace = source.slice(0, tokens[0]?.start ?? 0)
   const slash = source.trimStart().startsWith('/') ? '/' : ''
-  const command = `${slash}${match.definition.path.join(' ')}`
+  const command = `${leadingWhitespace}${slash}${match.definition.path.join(' ')}`
   if (tokens.length <= 2) return `${command} `
   const remainder = source.slice(tokens[2].start)
   return `${command} ${remainder}`
