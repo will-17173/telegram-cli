@@ -73,7 +73,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     await this.ensureReady()
     try {
       const parsed = normalizeChatId(chat)
-      const peer = await this.client.getChat(parsed)
+      const peer = await this.client.getPeer(parsed)
       const full = await this.fetchFullChat(parsed)
       const info: Record<string, string> = {
         ID: String(peer.id),
