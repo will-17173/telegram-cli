@@ -113,12 +113,13 @@ export async function readSecret(promptText: string, options: SecureInputOptions
   const onEnd = (): void => rejectInput?.(new CliInterruptedError())
   const onAbort = (): void => rejectInput?.(abortReason(options.signal!))
 
-  input.setRawMode(true)
+  options.signal?.addEventListener('abort', onAbort, { once: true })
   try {
+    input.setRawMode(true)
+    if (options.signal?.aborted) return await result
     input.on('data', onData)
     input.once('error', onError)
     input.once('end', onEnd)
-    options.signal?.addEventListener('abort', onAbort, { once: true })
     input.resume()
     output.write(promptText)
     return await result

@@ -92,4 +92,36 @@ describe('readSecret', () => {
     expect(input.rawModes).toEqual([true, false])
     expect(input.listenerCount('data')).toBe(0)
   })
+
+  it('does not miss an abort triggered while raw mode is being enabled', async () => {
+    const input = new FakeTtyInput()
+    const controller = new AbortController()
+    const interruption = new CliInterruptedError()
+    const setRawMode = input.setRawMode.bind(input)
+    input.setRawMode = (mode: boolean) => {
+      setRawMode(mode)
+      if (mode) controller.abort(interruption)
+      return input
+    }
+
+    const reading = readSecret('Password: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+      signal: controller.signal,
+    })
+    const outcome = await Promise.race([
+      reading.then(
+        value => ({ status: 'resolved' as const, value }),
+        error => ({ status: 'rejected' as const, error }),
+      ),
+      new Promise<{ status: 'pending' }>(resolve => setTimeout(() => resolve({ status: 'pending' }), 25)),
+    ])
+
+    expect(outcome).toEqual({ status: 'rejected', error: interruption })
+    expect(input.rawModes).toEqual([true, false])
+    expect(input.readableFlowing).toBe(false)
+    expect(input.listenerCount('data')).toBe(0)
+    expect(input.listenerCount('error')).toBe(0)
+    expect(input.listenerCount('end')).toBe(0)
+  })
 })
