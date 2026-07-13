@@ -34,6 +34,17 @@ For example, an agent can search one account and parse the result as JSON:
 tg search "release" --account work --json
 ```
 
+### Agent skill
+
+Install the [`using-telegram-cli`](https://skills.sh/will-17173/telegram-cli/using-telegram-cli) skill to teach a supported AI coding agent how to authenticate accounts, synchronize and query messages, automate structured output, and guard Telegram write operations:
+
+```sh
+npx skills add https://github.com/will-17173/telegram-cli \
+  --skill using-telegram-cli
+```
+
+Add `--global` to make the skill available across projects instead of installing it into the current project.
+
 ## Installation
 
 Telegram CLI requires Node.js 22 or later.
