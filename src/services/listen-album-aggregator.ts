@@ -1,4 +1,5 @@
 import type { StoredMessageInput } from '../storage/message-db.js'
+import { extractGroupedId } from '../telegram/raw-message.js'
 
 type TimerHandle = ReturnType<typeof setTimeout>
 
@@ -51,35 +52,4 @@ export class ListenAlbumAggregator {
     this.pending.delete(key)
     this.options.emit([...album.messages].sort((left, right) => left.msg_id - right.msg_id))
   }
-}
-
-function extractGroupedId(rawJson: unknown): string | null {
-  const raw = parseRawJson(rawJson)
-  if (raw == null) return null
-  const groupedId = raw.groupedId ?? raw.grouped_id
-  if (typeof groupedId === 'string' || typeof groupedId === 'number') return String(groupedId)
-  if (isRecord(groupedId)) {
-    const low = groupedId.low
-    const high = groupedId.high
-    if ((typeof low === 'number' || typeof low === 'string') && (typeof high === 'number' || typeof high === 'string')) {
-      return `${low}:${high}`
-    }
-  }
-  return null
-}
-
-function parseRawJson(value: unknown): Record<string, unknown> | null {
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value)
-      return isRecord(parsed) ? parsed : null
-    } catch {
-      return null
-    }
-  }
-  return isRecord(value) ? value : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value)
 }
