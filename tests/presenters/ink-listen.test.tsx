@@ -122,6 +122,89 @@ describe('ListenComposer', () => {
 })
 
 describe('InteractiveListen slash commands', () => {
+  it('discovers reply with group commands and completes fuzzy reply input', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/'); await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('reply  Reply to a message')
+      expect(frame).toContain('member ban')
+    })
+    stdin.write('rpy'); await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('Reply to a message')
+      expect(frame).toContain('› /rpy')
+    })
+    stdin.write('\t'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /reply'))
+    controller.abort(); app.unmount()
+  })
+
+  it('executes a selected reply without submitting it as a group command', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    client.sendMessage.mockResolvedValue({ sent_message: storedPhoto(99, 'reply sent') })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/reply 88 hello'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 hello'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledWith({ chat: 100, message: 'hello', reply: 88, linkPreview: true }))
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('replied to #88'))
+    expect(client.groups.getGroup).toHaveBeenCalledTimes(1)
+    controller.abort(); app.unmount()
+  })
+
+  it('locks repeated reply submission and does not clear newer input after Escape', async () => {
+    let resolveSend!: (value: { sent_message: StoredMessageInput }) => void
+    const pending = new Promise<{ sent_message: StoredMessageInput }>(resolve => { resolveSend = resolve })
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    client.sendMessage.mockReturnValue(pending)
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/reply 88 slow'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 slow'))
+    stdin.write('\r'); await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(1)); stdin.write('\r')
+    stdin.write('\u001b'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).not.toContain('(sending...)')); stdin.write(' newer')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 slow newer'))
+    resolveSend({ sent_message: storedPhoto(99, 'late') })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 slow newer')
+    controller.abort(); app.unmount()
+  })
+
+  it('retains a failed reply for retry and sends its exact files and caption', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const sendMedia = vi.fn().mockRejectedValueOnce(new Error('upload failed')).mockResolvedValue({ messages: [] })
+    Object.assign(client, { sendMedia })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    const command = '/reply 88 exact caption --file ./a.jpg --file ./b.png'
+    stdin.write(command); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain(command)); stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('send failed: upload failed'))
+    expect(lastTerminalFrame(stdout.output)).toContain(command)
+    stdin.write('\r'); await vi.waitFor(() => expect(sendMedia).toHaveBeenCalledTimes(2))
+    expect(sendMedia).toHaveBeenLastCalledWith({ chat: 100, files: ['./a.jpg', './b.png'], caption: 'exact caption', reply: 88 })
+    controller.abort(); app.unmount()
+  })
+
+  it('does not send a reply when no single target is selected', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100, 200]} persist retrySeconds={1} sendTo={undefined} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/reply 88 nope'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 nope')); stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('set --send-to before replying'))
+    expect(client.sendMessage).not.toHaveBeenCalled()
+    controller.abort(); app.unmount()
+  })
+
   it('reports an ambiguous multi-chat target without writing', async () => {
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })

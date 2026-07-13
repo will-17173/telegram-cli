@@ -50,11 +50,7 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
   const generation = useRef(0)
   const executionLock = useRef(0)
   const controller = createGroupCommandController({ execute })
-  const submit = useCallback(async (input: string, selectedIndex: number) => {
-    const owned = ++generation.current
-    setState({ kind: 'executing' })
-    const outcome = await controller.submit(input, selectedIndex)
-    if (owned !== generation.current) return { ...outcome, applied: false }
+  const applyOutcome = useCallback((outcome: GroupCommandSubmitResult, selectedIndex: number) => {
     if (outcome.kind === 'error') setState(outcome)
     else if (outcome.kind === 'result') setState({ kind: 'result', result: outcome.result })
     else if (outcome.kind === 'pending') {
@@ -67,8 +63,43 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
             : { kind: 'confirm', pending, request: outcome.request, originalInput: outcome.input, selectedIndex: 1 }
           : { kind: 'result', result: pending })
     } else setState({ kind: 'menu', selectedIndex })
-    return { ...outcome, applied: true }
-  }, [execute])
+  }, [])
+  const submit = useCallback(async (input: string, selectedIndex: number) => {
+    if (executionLock.current !== 0) return { kind: 'error', message: 'Command is already running.', applied: false } as const
+    const owned = ++generation.current
+    executionLock.current = owned
+    setState({ kind: 'executing' })
+    try {
+      const outcome = await controller.submit(input, selectedIndex)
+      if (owned !== generation.current) return { ...outcome, applied: false }
+      applyOutcome(outcome, selectedIndex)
+      return { ...outcome, applied: true }
+    } finally {
+      if (executionLock.current === owned) executionLock.current = 0
+    }
+  }, [execute, applyOutcome])
+  const submitParsed = useCallback(async (request: ParsedGroupCommandRequest, originalInput: string, selectedIndex = 0) => {
+    if (executionLock.current !== 0) return { kind: 'error', message: 'Command is already running.', applied: false } as const
+    const owned = ++generation.current
+    executionLock.current = owned
+    setState({ kind: 'executing' })
+    let outcome: GroupCommandSubmitResult
+    try {
+      try {
+        const result = await execute(request)
+        outcome = !result.ok && ('confirmation' in result || 'selectionRequired' in result)
+          ? { kind: 'pending', pending: result, request: freezeRequest(request), input: originalInput }
+          : { kind: 'result', result }
+      } catch (error) {
+        outcome = { kind: 'error', message: error instanceof Error ? error.message : String(error) }
+      }
+      if (owned !== generation.current) return { ...outcome, applied: false }
+      applyOutcome(outcome, selectedIndex)
+      return { ...outcome, applied: true }
+    } finally {
+      if (executionLock.current === owned) executionLock.current = 0
+    }
+  }, [execute, applyOutcome])
   const close = useCallback(() => { generation.current++; setState({ kind: 'closed' }) }, [])
   const runConfirmed = useCallback(async (request: ParsedGroupCommandRequest, confirmationTitle?: string) => {
     if (executionLock.current !== 0) return
@@ -87,5 +118,5 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
       if (executionLock.current === owned) executionLock.current = 0
     }
   }, [execute])
-  return { state, setState, submit, close, runConfirmed }
+  return { state, setState, submit, submitParsed, close, runConfirmed }
 }

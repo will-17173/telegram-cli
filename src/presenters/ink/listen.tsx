@@ -19,11 +19,12 @@ import { DISABLE_MOUSE_REPORTING, isMouseInput } from './mouse-scroll.js'
 import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
 import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
 import { executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
-import { GroupCommandMenu, groupCommandMenuAvailability, moveGroupCommandSelectionEnabled, visibleGroupCommandMatches } from './group-command-menu.js'
+import { ListenCommandMenu, listenCommandMenuAvailability, moveListenCommandSelectionEnabled } from './listen-command-menu.js'
+import { completeListenCommand, visibleListenCommandMatches } from '../../listen-commands/match.js'
+import { parseSelectedListenCommand } from '../../listen-commands/dispatch.js'
 import { GroupCommandResult } from './group-command-result.js'
 import { useGroupCommand } from './use-group-command.js'
 import { executeGroupCommand } from '../../group-commands/executor.js'
-import { completeGroupCommand } from '../../group-commands/parser.js'
 import { GroupWriteService } from '../../services/group-write-service.js'
 import { ADMIN_RIGHT_KEYS } from '../../services/group-write-service.js'
 import { GroupCommandConfirm } from './group-command-confirm.js'
@@ -632,6 +633,8 @@ export function InteractiveListen({
   const [sendTargetLabel, setSendTargetLabel] = useState(sendTo == null ? '' : buildSendTargetLabel(sendTo))
   const [knownGroup, setKnownGroup] = useState<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
+  const replyExecutionLockRef = useRef(false)
+  const inputGenerationRef = useRef(0)
   const knownGroupRef = useRef<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const groupLookupGenerationRef = useRef(0)
   useEffect(() => {
@@ -814,21 +817,26 @@ export function InteractiveListen({
     }
     const slashMode = input.trimStart().startsWith('/')
     if (slashMode && key.escape) {
+      if (replyExecutionLockRef.current) {
+        inputGenerationRef.current++
+        setSending(false)
+      }
       groupCommand.close()
       return
     }
     if (slashMode && (key.upArrow || key.downArrow)) {
-      const count = visibleGroupCommandMatches(input).length
+      const count = visibleListenCommandMatches(input).length
       const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
-      const disabled = groupCommandMenuAvailability(input, knownGroup).map(Boolean)
-      groupCommand.setState({ kind: 'menu', selectedIndex: moveGroupCommandSelectionEnabled(selected, key.upArrow ? -1 : 1, disabled.slice(0, count)) })
+      const disabled = listenCommandMenuAvailability(input, knownGroup).map(Boolean)
+      groupCommand.setState({ kind: 'menu', selectedIndex: moveListenCommandSelectionEnabled(selected, key.upArrow ? -1 : 1, disabled.slice(0, count)) })
       return
     }
     if (slashMode && key.tab) {
       const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
-      const failure = groupCommandMenuAvailability(input, knownGroup)[selected]
+      const failure = listenCommandMenuAvailability(input, knownGroup)[selected]
       if (failure && 'error' in failure) { setNote(failure.error.message); return }
-      setInput(completeGroupCommand(input, selected))
+      inputGenerationRef.current++
+      setInput(completeListenCommand(input, selected))
       groupCommand.setState({ kind: 'menu', selectedIndex: selected })
       setFocus('input')
       return
@@ -867,12 +875,53 @@ export function InteractiveListen({
     if (key.return) {
       if (slashMode) {
         const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
-        const failure = groupCommandMenuAvailability(input, knownGroup)[selected]
+        const failure = listenCommandMenuAvailability(input, knownGroup)[selected]
         if (failure && 'error' in failure) { setNote(failure.error.message); return }
-        void groupCommand.submit(input, selected).then((outcome) => {
+        const match = visibleListenCommandMatches(input)[selected]
+        if (!match) { setNote('No matching command.'); return }
+        const parsed = parseSelectedListenCommand(input, match)
+        if (parsed.kind === 'complete') {
+          inputGenerationRef.current++
+          setInput(parsed.input)
+          return
+        }
+        if (parsed.kind === 'error') {
+          setNote(parsed.usage == null ? parsed.message : `${parsed.message} · usage: /${parsed.usage}`)
+          return
+        }
+        if (parsed.kind === 'reply') {
+          if (replyExecutionLockRef.current) return
+          if (sendTo == null) { setNote('set --send-to before replying'); return }
+          const client = clientRef.current
+          if (client == null) { setNote('connection is not ready'); return }
+          replyExecutionLockRef.current = true
+          const ownedGeneration = inputGenerationRef.current
+          const originalInput = input
+          setSending(true)
+          setNote('sending...')
+          void executeListenReply(client, sendTo, parsed.command).then((sentMessages) => {
+            if (ownedGeneration !== inputGenerationRef.current) return
+            for (const sentMessage of sentMessages) acceptListenMessage(sentMessage, seenRef.current, seenOrderRef.current, (message) => {
+              registerPendingAttachmentKeys(pendingAttachmentKeysRef.current, message, showMedia)
+              autoDownloaderRef.current?.enqueue(message)
+              albumAggregatorRef.current?.add(message)
+            })
+            setInput('')
+            setNote(`replied to #${parsed.command.reply}`)
+          }).catch((error) => {
+            if (ownedGeneration === inputGenerationRef.current) {
+              setInput(originalInput)
+              setNote(`send failed: ${messageFromError(error)}`)
+            }
+          }).finally(() => {
+            replyExecutionLockRef.current = false
+            if (ownedGeneration === inputGenerationRef.current) setSending(false)
+          })
+          return
+        }
+        void groupCommand.submitParsed(parsed.request, input, selected).then((outcome) => {
           if (!outcome.applied) return
-          if (outcome.kind === 'complete') setInput(outcome.input)
-          else if (outcome.kind === 'result' && outcome.result.ok) setInput('')
+          if (outcome.kind === 'result' && outcome.result.ok) setInput('')
         })
         return
       }
@@ -880,6 +929,7 @@ export function InteractiveListen({
       return
     }
     if (key.backspace || key.delete) {
+      inputGenerationRef.current++
       setInput((current) => current.slice(0, -1))
       return
     }
@@ -887,6 +937,7 @@ export function InteractiveListen({
       return
     }
     if (!key.ctrl && !key.meta && inputText.length > 0) {
+      inputGenerationRef.current++
       setInput((current) => {
         const next = current + inputText
         if (next.trimStart().startsWith('/')) {
@@ -1160,7 +1211,7 @@ export function InteractiveListen({
         {groupCommand.state.kind !== 'result' ? <Box flexDirection="column">
           {sendTo == null ? <Text dimColor>Set --send-to &lt;chat&gt; (or pass one chat to listen) before sending messages.</Text> : null}
           <Box marginTop={1} flexDirection="column" flexShrink={0}>
-            {input.trimStart().startsWith('/') && groupCommand.state.kind === 'menu' ? <GroupCommandMenu input={input} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} knownGroup={knownGroup} /> : null}
+            {input.trimStart().startsWith('/') && groupCommand.state.kind === 'menu' ? <ListenCommandMenu input={input} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} knownGroup={knownGroup} /> : null}
             <ListenComposer
               input={input}
               sendTargetLabel={sendTo == null ? '(not selected)' : sendTargetLabel}
