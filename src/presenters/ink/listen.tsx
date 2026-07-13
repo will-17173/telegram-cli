@@ -637,7 +637,7 @@ export function InteractiveListen({
   const [knownGroup, setKnownGroup] = useState<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const replyExecutionLockRef = useRef(false)
-  const inputGenerationRef = useRef(0)
+  const inputGenerationRef = useRef<object>({})
   const commandSelectionRef = useRef(0)
   const knownGroupRef = useRef<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const groupLookupGenerationRef = useRef<object>({})
@@ -850,7 +850,7 @@ export function InteractiveListen({
     const slashMode = input.trimStart().startsWith('/')
     if (slashMode && key.escape) {
       if (replyExecutionLockRef.current) {
-        inputGenerationRef.current++
+        inputGenerationRef.current = {}
         setSending(false)
       }
       closeGroupCommand()
@@ -868,7 +868,7 @@ export function InteractiveListen({
       const selected = commandSelectionRef.current
       const failure = listenCommandMenuAvailability(input, knownGroup)[selected]
       if (failure && 'error' in failure) { setNote(failure.error.message); return }
-      inputGenerationRef.current++
+      inputGenerationRef.current = {}
       setInput(completeListenCommand(input, selected))
       commandSelectionRef.current = 0
       groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
@@ -915,7 +915,7 @@ export function InteractiveListen({
         if (!match) { setNote('No matching command.'); return }
         const parsed = parseSelectedListenCommand(input, match)
         if (parsed.kind === 'complete') {
-          inputGenerationRef.current++
+          inputGenerationRef.current = {}
           setInput(parsed.input)
           commandSelectionRef.current = 0
           groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
@@ -970,7 +970,7 @@ export function InteractiveListen({
       return
     }
     if (key.backspace || key.delete) {
-      inputGenerationRef.current++
+      inputGenerationRef.current = {}
       setInput((current) => current.slice(0, -1))
       return
     }
@@ -978,7 +978,7 @@ export function InteractiveListen({
       return
     }
     if (!key.ctrl && !key.meta && inputText.length > 0) {
-      inputGenerationRef.current++
+      inputGenerationRef.current = {}
       setInput((current) => {
         const next = current + inputText
         if (next.trimStart().startsWith('/')) {
