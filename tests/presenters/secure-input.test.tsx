@@ -124,7 +124,7 @@ describe('SecureInput', () => {
       stdout: new PassThrough() as unknown as NodeJS.WriteStream,
       patchConsole: false,
     })
-    await act(async () => { stdin.write('x'.repeat(MAX_SECURE_INPUT_LENGTH + 500)) })
+    await act(async () => { stdin.write('x'.repeat(MAX_SECURE_INPUT_LENGTH * 32)) })
     await act(async () => { stdin.write('\r') })
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
     expect(onSubmit.mock.calls[0]?.[0]).toHaveLength(MAX_SECURE_INPUT_LENGTH)
@@ -146,6 +146,23 @@ describe('SecureInput', () => {
     expect(Array.from(submitted)).toHaveLength(MAX_SECURE_INPUT_LENGTH)
     expect(submitted.endsWith('😀')).toBe(true)
     expect(/\p{Surrogate}/u.test(submitted)).toBe(false)
+    app.unmount()
+  })
+
+  it.each(['e\u0301', '👩‍👩‍👧‍👦'])('keeps the final %s grapheme complete at the cap', async (grapheme) => {
+    const stdin = new MockStdin()
+    const onSubmit = vi.fn()
+    const app = render(<SecureInput label="Password" onSubmit={onSubmit} onCancel={vi.fn()} />, {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: new PassThrough() as unknown as NodeJS.WriteStream,
+      patchConsole: false,
+    })
+    await act(async () => { stdin.write(`${'x'.repeat(MAX_SECURE_INPUT_LENGTH - 1)}${grapheme}`) })
+    await act(async () => { stdin.write('\r') })
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
+    const submitted = onSubmit.mock.calls[0]?.[0] as string
+    expect(Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(submitted))).toHaveLength(MAX_SECURE_INPUT_LENGTH)
+    expect(submitted.endsWith(grapheme)).toBe(true)
     app.unmount()
   })
 })

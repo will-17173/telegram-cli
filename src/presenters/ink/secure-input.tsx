@@ -3,6 +3,7 @@ import { Box, Text, useInput } from 'ink'
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 export const MAX_SECURE_INPUT_LENGTH = 4096
+const MAX_SECURE_INPUT_CODE_POINTS = MAX_SECURE_INPUT_LENGTH * 16
 // JavaScript strings are immutable: clearing retained buffer entries minimizes lifetime but cannot guarantee memory zeroization.
 
 export function SecureInput({ label, onSubmit, onCancel }: {
@@ -41,14 +42,26 @@ export function SecureInput({ label, onSubmit, onCancel }: {
       return
     }
     if (!key.ctrl && !key.meta && input.length > 0) {
-      const printable = Array.from(input).filter(character => {
-        const code = character.codePointAt(0)
-        return code != null && code >= 32 && (code < 127 || code > 159)
-      }).join('')
-      const combined = Array.from(secret.current.join('') + printable).slice(0, MAX_SECURE_INPUT_LENGTH).join('')
+      const codePoints: string[] = []
+      let examinedCodePoints = 0
+      let preprocessingWasTruncated = false
+      inputSources: for (const source of [secret.current.join(''), input]) {
+        for (const character of source) {
+          if (examinedCodePoints === MAX_SECURE_INPUT_CODE_POINTS) {
+            preprocessingWasTruncated = true
+            break inputSources
+          }
+          examinedCodePoints += 1
+          const code = character.codePointAt(0)
+          if (code != null && code >= 32 && (code < 127 || code > 159)) codePoints.push(character)
+        }
+      }
+      const combined = codePoints.join('')
+      const graphemes = Array.from(graphemeSegmenter.segment(combined), part => part.segment)
+      if (preprocessingWasTruncated) graphemes.pop()
       secret.current.fill('')
       secret.current.length = 0
-      secret.current.push(...Array.from(graphemeSegmenter.segment(combined), part => part.segment).slice(0, MAX_SECURE_INPUT_LENGTH))
+      secret.current.push(...graphemes.slice(0, MAX_SECURE_INPUT_LENGTH))
       setGraphemeCount(secret.current.length)
     }
   })

@@ -352,7 +352,7 @@ export async function runInteractiveAutoDownloadLifecycle(options: {
       const client = options.createClient()
       let closePromise: Promise<void> | undefined
       const closeClient = (): Promise<void> => {
-        closePromise ??= Promise.resolve(client.close()).catch(() => undefined)
+        closePromise ??= Promise.resolve().then(() => client.close()).catch(() => undefined)
         return closePromise
       }
       currentClient = client
@@ -733,6 +733,34 @@ export function InteractiveListen({
   const deferredStopRef = useRef(false)
   const shutdownRequestedRef = useRef(false)
   const shutdownGraceTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  function requestOwnershipShutdown(source: 'terminal' | 'external'): void {
+    if (deferredStopRef.current || shutdownRequestedRef.current) {
+      deferredStopRef.current = false
+      shutdownRequestedRef.current = false
+      if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
+      shutdownGraceTimerRef.current = null
+      groupCommand.setState({ kind: 'error', message: 'Ownership transfer outcome is indeterminate after forced shutdown.' })
+      setTimeout(stopListening, 0)
+      return
+    }
+    if (source === 'terminal') {
+      deferredStopRef.current = true
+      setNote('Group write is already running; wait for its outcome.')
+      return
+    }
+    shutdownRequestedRef.current = true
+    setNote('Shutdown requested; waiting briefly for the ownership transfer outcome.')
+    shutdownGraceTimerRef.current = setTimeout(() => {
+      shutdownGraceTimerRef.current = null
+      groupCommand.setState({
+        kind: 'error',
+        message: 'Ownership transfer outcome is indeterminate because shutdown grace expired.',
+      })
+      setTimeout(stopListening, 0)
+    }, OWNERSHIP_SHUTDOWN_GRACE_MS)
+  }
+
   const seenRef = useRef<Set<string>>(new Set())
   const seenOrderRef = useRef<string[]>([])
   const downloadableAttachments = collectDownloadableAttachments(visibleMessages)
@@ -771,8 +799,7 @@ export function InteractiveListen({
     const modal = groupCommand.state
     if (modal.kind === 'executing' && modal.irreversible === true) {
       if (key.ctrl && (inputText === 'c' || inputText === 'C' || inputText === '\u0003')) {
-        deferredStopRef.current = true
-        setNote('Group write is already running; wait for its outcome.')
+        requestOwnershipShutdown('terminal')
       } else if (key.escape) {
         setNote('Group write is already running; wait for its outcome.')
       }
@@ -1014,23 +1041,7 @@ export function InteractiveListen({
     const stopFromSignal = () => {
       if (stoppingRef.current) return
       if (irreversibleGroupWriteRef.current) {
-        if (shutdownRequestedRef.current) {
-          if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
-          shutdownGraceTimerRef.current = null
-          groupCommand.setState({ kind: 'error', message: 'Ownership transfer outcome is indeterminate after forced shutdown.' })
-          setTimeout(stopListening, 0)
-          return
-        }
-        shutdownRequestedRef.current = true
-        setNote('Shutdown requested; waiting briefly for the ownership transfer outcome.')
-        shutdownGraceTimerRef.current = setTimeout(() => {
-          shutdownGraceTimerRef.current = null
-          groupCommand.setState({
-            kind: 'error',
-            message: 'Ownership transfer outcome is indeterminate because shutdown grace expired.',
-          })
-          setTimeout(stopListening, 0)
-        }, OWNERSHIP_SHUTDOWN_GRACE_MS)
+        requestOwnershipShutdown('external')
         return
       }
       stopListening()
@@ -1148,17 +1159,16 @@ export function InteractiveListen({
       albumAggregator.dispose()
       void groupQueue.close()
       if (albumAggregatorRef.current === albumAggregator) albumAggregatorRef.current = null
-      if (!stoppingRef.current) void clientRef.current?.close().catch(() => undefined)
+      lifecycleStop.abort()
       clientRef.current = null
       autoDownloader?.stop()
       void autoDownloader?.waitForActive()
       if (autoDownloaderRef.current === autoDownloader) autoDownloaderRef.current = null
-      lifecycleStop.abort()
       if (lifecycleStopRef.current === lifecycleStop) lifecycleStopRef.current = null
       if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
       shutdownGraceTimerRef.current = null
     }
-  }, [autoDownload, chats, createClient, createReplyResolver, dbPath, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, onRequestStop])
+  }, [autoDownload, chats, createClient, createReplyResolver, dbPath, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, shutdownRequests, onRequestStop])
 
   const sendMessage = async (text: string): Promise<void> => {
     const access = new WriteAccessPolicy().check()
