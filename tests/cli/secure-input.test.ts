@@ -73,6 +73,40 @@ describe('readVisibleInput', () => {
     await expect(reading).resolves.toBe('12345')
   })
 
+  it('does not let a split CRLF complete the next prompt', async () => {
+    const input = new FakeTtyInput()
+    const streams = {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    }
+    const first = readVisibleInput('Phone: ', streams)
+    input.write('one\r')
+    await expect(first).resolves.toBe('one')
+
+    const second = readVisibleInput('Code: ', streams)
+    input.write('\n')
+    input.write('two\r')
+
+    await expect(second).resolves.toBe('two')
+  })
+
+  it('discards a split multiline paste before the next prompt', async () => {
+    const input = new FakeTtyInput()
+    const streams = {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    }
+    const first = readVisibleInput('Phone: ', streams)
+    input.write('one\n')
+    await expect(first).resolves.toBe('one')
+    input.write('pasted-remainder\n')
+
+    const second = readVisibleInput('Code: ', streams)
+    input.write('two\n')
+
+    await expect(second).resolves.toBe('two')
+  })
+
   it('rejects a destroyed input without retaining ownership', async () => {
     const input = new FakeTtyInput()
     input.destroy()
@@ -667,6 +701,46 @@ describe('readSecret', () => {
       await expect(reading).resolves.toBe(value)
       expect(output.listenerCount('error')).toBe(1)
     }
+  })
+
+  it('releases shared listeners after an autoDestroy:false callback failure', async () => {
+    const input = new FakeTtyInput()
+    const failure = new Error('write failed')
+    const output = new Writable({
+      autoDestroy: false,
+      write(_chunk, _encoding, callback) {
+        setTimeout(() => callback(failure), 5)
+      },
+    })
+
+    const reading = readSecret('Password: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    })
+    input.write('hunter2\r')
+    await expect(reading).resolves.toBe('hunter2')
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    expect(output.listenerCount('error')).toBe(0)
+    expect(output.listenerCount('close')).toBe(0)
+  })
+
+  it('releases shared listeners when output closes before callbacks', async () => {
+    const input = new FakeTtyInput()
+    const output = new PassThrough()
+    output.write = ((_chunk: Uint8Array | string, _encoding?: BufferEncoding, _callback?: (error?: Error | null) => void) => true) as typeof output.write
+    const reading = readSecret('Password: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    })
+    input.write('hunter2\r')
+    await expect(reading).resolves.toBe('hunter2')
+    expect(output.listenerCount('error')).toBe(1)
+
+    output.emit('close')
+
+    expect(output.listenerCount('error')).toBe(0)
+    expect(output.listenerCount('close')).toBe(0)
   })
 })
 

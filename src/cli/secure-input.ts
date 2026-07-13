@@ -53,6 +53,7 @@ const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme
 const SIGNAL_CLEANUP_GRACE_MS = 100
 
 type PendingOutputWrite = { onError: (error: Error) => void }
+type OutputWriteHandle = { detachErrorHandler: () => void }
 type OutputWriteState = {
   pending: Set<PendingOutputWrite>
   failed: boolean
@@ -61,6 +62,8 @@ type OutputWriteState = {
 }
 
 const pendingOutputWrites = new WeakMap<NodeJS.WriteStream, OutputWriteState>()
+const inputsAwaitingLineFeed = new WeakSet<NodeJS.ReadStream>()
+const ignoreOutputError = (): void => undefined
 
 export function createInterruptScope(): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController()
@@ -137,6 +140,7 @@ async function readTerminalInput(prompt: string, streams: SecureInputOptions, hi
 
   activeTerminalInputs.add(input)
   try {
+    drainBufferedInput(input)
     return await readOwnedTerminalInput(prompt, input, output, streams.signal, hidden)
   } finally {
     activeTerminalInputs.delete(input)
@@ -157,6 +161,7 @@ async function readOwnedTerminalInput(
   let settled = false
   let rawModeTouched = false
   let promptStarted = false
+  let promptWrite: OutputWriteHandle | undefined
   let operationFailed = false
   let escapeState: 'none' | 'start' | 'sequence' | 'osc' = 'none'
   let resolveInput: ((value: string) => void) | undefined
@@ -180,11 +185,16 @@ async function readOwnedTerminalInput(
     const text = typeof chunk === 'string' ? chunk : decoder.write(chunk)
     for (const character of text) {
       const code = character.codePointAt(0)
+      if (inputsAwaitingLineFeed.has(input)) {
+        inputsAwaitingLineFeed.delete(input)
+        if (character === '\n') continue
+      }
       if (code === 3) {
         settleError(new CliInterruptedError())
         return
       }
       if (character === '\r' || character === '\n') {
+        if (character === '\r') inputsAwaitingLineFeed.add(input)
         if (hidden && value.length === 0) settleError(new InvalidInputError('Secret input cannot be empty.'))
         else settleValue(value)
         return
@@ -239,7 +249,7 @@ async function readOwnedTerminalInput(
     if (!settled) input.resume()
     if (!settled) {
       promptStarted = true
-      startOutputWrite(output, prompt, settleError)
+      promptWrite = startOutputWrite(output, prompt, settleError)
     }
     return await result
   } catch (error) {
@@ -260,6 +270,11 @@ async function readOwnedTerminalInput(
     cleanup(() => input.removeListener('close', onInputUnavailable))
     cleanup(() => signal?.removeEventListener('abort', onAbort))
     cleanup(() => {
+      // A broken writer may keep the token forever, so detach the operation closure before releasing input.
+      promptWrite?.detachErrorHandler()
+      promptWrite = undefined
+    })
+    cleanup(() => {
       if (rawModeTouched) input.setRawMode(originalRawMode)
     })
     cleanup(() => {
@@ -277,10 +292,15 @@ async function readOwnedTerminalInput(
 function startOutputWrite(
   output: NodeJS.WriteStream,
   text: string,
-  onError: (error: Error) => void = () => undefined,
-): void {
+  onError: (error: Error) => void = ignoreOutputError,
+): OutputWriteHandle {
   const state = getOutputWriteState(output)
   const pendingWrite = { onError }
+  const handle = {
+    detachErrorHandler: () => {
+      pendingWrite.onError = ignoreOutputError
+    },
+  }
   state.pending.add(pendingWrite)
   try {
     output.write(text, error => {
@@ -288,6 +308,7 @@ function startOutputWrite(
       if (error) {
         state.failed = true
         pendingWrite.onError(error)
+        if (state.pending.size === 0) scheduleOutputStateRelease(output, state)
       } else if (state.pending.size === 0 && !state.failed) {
         releaseOutputWriteState(output, state)
       }
@@ -297,6 +318,14 @@ function startOutputWrite(
     if (state.pending.size === 0 && !state.failed) releaseOutputWriteState(output, state)
     throw error instanceof Error ? error : new Error(String(error))
   }
+  return handle
+}
+
+function scheduleOutputStateRelease(output: NodeJS.WriteStream, state: OutputWriteState): void {
+  const immediate = setImmediate(() => {
+    if (state.pending.size === 0) releaseOutputWriteState(output, state)
+  })
+  immediate.unref()
 }
 
 function getOutputWriteState(output: NodeJS.WriteStream): OutputWriteState {
@@ -308,6 +337,7 @@ function getOutputWriteState(output: NodeJS.WriteStream): OutputWriteState {
   state.failed = false
   state.guard = error => {
     for (const pendingWrite of state.pending) pendingWrite.onError(error)
+    if (state.pending.size === 0) releaseOutputWriteState(output, state)
   }
   state.onClose = () => releaseOutputWriteState(output, state)
   pendingOutputWrites.set(output, state)
@@ -326,6 +356,12 @@ function releaseOutputWriteState(output: NodeJS.WriteStream, state: OutputWriteS
 
 function removeFinalGrapheme(value: string): string {
   return Array.from(graphemeSegmenter.segment(value), part => part.segment).slice(0, -1).join('')
+}
+
+function drainBufferedInput(input: NodeJS.ReadStream): void {
+  while (input.read() !== null) {
+    // Discard bytes entered before this prompt, including remainder from a multiline paste.
+  }
 }
 
 export function isCliInterruptedError(error: unknown): error is CliInterruptedError {
