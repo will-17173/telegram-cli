@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { buildListenMessage, formatListenLine } from '../../src/presenters/listen-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
+import { buildReplyContext } from '../../src/services/reply-context.js'
 
 describe('listen message formatting', () => {
   it('preserves the sender id for interactive presentation', () => {
@@ -26,7 +27,7 @@ describe('listen message formatting', () => {
       messageId: 1,
     }])
     expect(output).not.toContain('(no text)')
-    expect(output).toContain('📎 Photo')
+    expect(output).toContain('📎 1 Photo')
   })
 
   it('shows a media caption together with its attachment', () => {
@@ -52,6 +53,9 @@ describe('listen message formatting', () => {
     expect(row.content).toBe('album caption')
     expect(row.media.map((item) => item.messageId)).toEqual([11, 12])
     expect(row.media.map((item) => item.label)).toEqual(['📎 Photo', '📎 Photo'])
+    expect(row.mediaSummary).toBe('📎 2 Photos')
+    expect(formatListenLine([first, second], { showMedia: true }).match(/📎 2 Photos/g)).toHaveLength(1)
+    expect(formatListenLine([first, second], { showMedia: true })).not.toContain('📎 Photo\n')
   })
 
   it('includes chat name when showChatName is enabled', () => {
@@ -80,6 +84,40 @@ describe('listen message formatting', () => {
     const row = buildListenMessage(message, { showMedia: false })
 
     expect(row.media).toEqual([])
+    expect(row.mediaSummary).toBeNull()
+  })
+
+  it('formats resolved reply context between the header and content', () => {
+    const replyContext = buildReplyContext(7, {
+      id: 7,
+      ...mediaMessage({ msgId: 7, content: 'original' }),
+      sender_name: 'Bob',
+      raw_json: null,
+    })
+    const output = formatListenLine(mediaMessage({ content: 'reply' }), { replyContext, showMedia: false })
+
+    expect(output.indexOf('Alice\n')).toBeLessThan(output.indexOf('↳ Reply to'))
+    expect(output.indexOf('↳ Reply to')).toBeLessThan(output.indexOf('reply\n'))
+    expect(output).toContain('Bob (#7): original')
+    expect(buildListenMessage(mediaMessage(), { replyContext }).replyContext).toEqual(replyContext)
+  })
+
+  it('formats missing reply context exactly like the shared formatter', () => {
+    expect(formatListenLine(mediaMessage({ content: 'reply' }), {
+      replyContext: buildReplyContext(99),
+      showMedia: false,
+    })).toContain('↳ Reply to message #99 (not found locally)')
+  })
+
+  it('keeps an album caption while hiding its media summary', () => {
+    const row = buildListenMessage([
+      mediaMessage({ msgId: 11 }),
+      mediaMessage({ msgId: 12, content: 'album caption' }),
+    ], { showMedia: false })
+
+    expect(row.content).toBe('album caption')
+    expect(row.media).toEqual([])
+    expect(row.mediaSummary).toBeNull()
   })
 
   it('shows contact details only when media is visible', () => {
@@ -89,8 +127,7 @@ describe('listen message formatting', () => {
       phoneNumber: '+86 13800138000',
     })
 
-    expect(formatListenLine(message, { showMedia: true }))
-      .toContain('👤 Contact · Zhang San · +86 13800138000')
+    expect(formatListenLine(message, { showMedia: true })).toContain('📎 1 Contact')
     expect(buildListenMessage(message, { showMedia: false }).media).toEqual([])
     expect(formatListenLine(message, { showMedia: false })).not.toContain('Contact')
   })

@@ -497,6 +497,7 @@ describe('collectDownloadableAttachments', () => {
       sender: 'Alice',
       senderId: null,
       content: null,
+      mediaSummary: null,
       media: [
         {
           chatId: 100,
@@ -737,6 +738,7 @@ function message(sender: string, lineCount: number): ListenMessageRow {
     sender,
     senderId: null,
     content: null,
+    mediaSummary: null,
     media: Array.from({ length: mediaCount }, (_, index) => ({
       chatId: 100,
       kind: 'Photo',

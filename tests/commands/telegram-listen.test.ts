@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { StoredMessageInput } from '../../src/storage/message-db.js'
+import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
 import type { DownloadMessageMediaOptions } from '../../src/telegram/types.js'
+import { accountDbPath } from '../../src/account/account-presets.js'
 
 const renderInteractiveListen = vi.hoisted(() => vi.fn(async () => undefined))
 
@@ -293,7 +294,7 @@ describe('listen command', () => {
 
     const output = writes.join('')
 
-    expect(output).toContain('📎 Photo')
+    expect(output).toContain('📎 1 Photo')
   })
 
   it('hides attached media when --no-media is enabled', async () => {
@@ -333,7 +334,69 @@ describe('listen command', () => {
     const output = writes.join('')
     expect(output.split('Alice\n').length - 1).toBe(1)
     expect(output.split('album caption\n').length - 1).toBe(1)
-    expect(output.split('📎 Photo\n').length - 1).toBe(2)
+    expect(output.split('📎 2 Photos\n').length - 1).toBe(1)
+  })
+
+  it('resolves a reply from an earlier message in the same plain listen session', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage({ ...fixtureMessage(), msg_id: 7, content: 'live original', raw_json: { _: 'message' } })
+      onMessage(replyMessage(8, 7))
+      return 'stopped'
+    })
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--no-interactive'])
+    } finally {
+      write.mockRestore()
+    }
+    expect(writes.join('')).toContain('Alice (#7): live original')
+  })
+
+  it('resolves a reply from the active account database without persisting live messages', async () => {
+    const dbPath = accountDbPath(dataDir, 'alice')
+    const db = new MessageDB(dbPath)
+    db.insertMessage({ ...fixtureMessage(), msg_id: 7, content: 'stored original', raw_json: { _: 'message' } })
+    db.close()
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage(replyMessage(8, 7))
+      return 'stopped'
+    })
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--no-interactive'])
+    } finally {
+      write.mockRestore()
+    }
+    const check = new MessageDB(dbPath)
+    expect(check.count()).toBe(1)
+    check.close()
+    expect(writes.join('')).toContain('Alice (#7): stored original')
+  })
+
+  it('shows missing reply context when the target is not local', async () => {
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage(replyMessage(8, 99))
+      return 'stopped'
+    })
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--no-interactive'])
+    } finally {
+      write.mockRestore()
+    }
+    expect(writes.join('')).toContain('↳ Reply to message #99 (not found locally)')
   })
 
   it('flushes a pending album before waiting to reconnect', async () => {
@@ -422,5 +485,14 @@ function albumMessage(msgId: number, content: string): StoredMessageInput {
       groupedId: { low: 77, high: 0 },
       media: { _: 'messageMediaPhoto', photo: {} },
     },
+  }
+}
+
+function replyMessage(msgId: number, replyToMsgId: number): StoredMessageInput {
+  return {
+    ...fixtureMessage(),
+    msg_id: msgId,
+    content: 'live reply',
+    raw_json: { _: 'message', replyTo: { replyToMsgId } },
   }
 }

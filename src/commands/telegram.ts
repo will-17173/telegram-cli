@@ -12,6 +12,7 @@ import { formatListenLine } from '../presenters/listen-message.js'
 import { renderInteractiveListen } from '../presenters/ink/listen.js'
 import { runWithAccountContext, type AccountCommandOptions } from './account-options.js'
 import { hideBenignUpdateWarnings, runTelegramCommand } from './telegram-runner.js'
+import { createListenReplyResolver } from '../services/listen-reply-resolver.js'
 
 type MachineOptions = AccountCommandOptions
 
@@ -253,12 +254,6 @@ export function registerTelegramCommands(app: Command): void {
       const stopListening = () => controller.abort()
       const restoreUpdateWarnings = hideBenignUpdateWarnings(process.stdout)
       const restoreUpdateErrors = hideBenignUpdateWarnings(process.stderr)
-      const albumAggregator = new ListenAlbumAggregator({
-        emit: (messages) => process.stdout.write(formatListenLine(messages, {
-          showMedia,
-          showChatName,
-        })),
-      })
       let autoDownloader: AutoDownloadCoordinator | undefined
 
       process.on('SIGINT', stopListening)
@@ -284,68 +279,84 @@ export function registerTelegramCommands(app: Command): void {
             return
           }
 
-          if (autoDownload) {
-            autoDownloader = new AutoDownloadCoordinator({
-              onEvent: printAutoDownloadEvent,
-            })
-          }
+          const replyResolver = createListenReplyResolver(context.dbPath)
+          const albumAggregator = new ListenAlbumAggregator({
+            emit: (messages) => {
+              const replyContext = replyResolver.resolve(messages)
+              process.stdout.write(formatListenLine(messages, {
+                showMedia,
+                showChatName,
+                replyContext,
+              }))
+              replyResolver.remember(messages)
+            },
+          })
 
-          while (true) {
-            const client = createClient()
-            let retry = false
-            let clientClosed = false
-            const closeClient = async () => {
-              if (clientClosed) return
-              clientClosed = true
-              await client.close().catch(() => undefined)
-            }
-            autoDownloader?.setClient(client)
-            try {
-              const result = await client.listen({
-                chats: parsedChats,
-                signal: controller.signal,
-                onMessage: (message) => {
-                  const key = `${message.chat_id}:${message.msg_id}`
-                  if (seenMessages.has(key)) return
-                  seenMessages.add(key)
-                  seenMessageOrder.push(key)
-                  if (seenMessages.size > 5000) {
-                    const oldest = seenMessageOrder.shift()
-                    if (oldest != null) seenMessages.delete(oldest)
-                  }
-                  autoDownloader?.enqueue(message)
-                  albumAggregator.add(message)
-                },
+          try {
+            if (autoDownload) {
+              autoDownloader = new AutoDownloadCoordinator({
+                onEvent: printAutoDownloadEvent,
               })
-              if (!persist || result === 'stopped') break
-              if (result === 'disconnected') {
+            }
+
+            while (true) {
+              const client = createClient()
+              let retry = false
+              let clientClosed = false
+              const closeClient = async () => {
+                if (clientClosed) return
+                clientClosed = true
+                await client.close().catch(() => undefined)
+              }
+              autoDownloader?.setClient(client)
+              try {
+                const result = await client.listen({
+                  chats: parsedChats,
+                  signal: controller.signal,
+                  onMessage: (message) => {
+                    const key = `${message.chat_id}:${message.msg_id}`
+                    if (seenMessages.has(key)) return
+                    seenMessages.add(key)
+                    seenMessageOrder.push(key)
+                    if (seenMessages.size > 5000) {
+                      const oldest = seenMessageOrder.shift()
+                      if (oldest != null) seenMessages.delete(oldest)
+                    }
+                    autoDownloader?.enqueue(message)
+                    albumAggregator.add(message)
+                  },
+                })
+                if (!persist || result === 'stopped') break
+                if (result === 'disconnected') retry = true
+              } catch (error) {
+                if (!persist) throw error
                 retry = true
-              }
-            } catch (error) {
-              if (!persist) throw error
-              retry = true
-            } finally {
-              albumAggregator.flush()
-              if (autoDownloader != null) {
-                if (controller.signal.aborted) {
-                  autoDownloader.stop()
-                  await closeClient()
-                  await autoDownloader.waitForActive()
-                } else if (retry) {
-                  autoDownloader.setClient(null)
-                  await autoDownloader.waitForActive()
-                } else {
-                  await autoDownloader.waitForIdle()
-                  autoDownloader.setClient(null)
+              } finally {
+                albumAggregator.flush()
+                if (autoDownloader != null) {
+                  if (controller.signal.aborted) {
+                    autoDownloader.stop()
+                    await closeClient()
+                    await autoDownloader.waitForActive()
+                  } else if (retry) {
+                    autoDownloader.setClient(null)
+                    await autoDownloader.waitForActive()
+                  } else {
+                    await autoDownloader.waitForIdle()
+                    autoDownloader.setClient(null)
+                  }
                 }
+                await closeClient()
               }
-              await closeClient()
+              if (retry) {
+                await sleep(retrySeconds)
+                continue
+              }
+              break
             }
-            if (retry) {
-              await sleep(retrySeconds)
-              continue
-            }
-            break
+          } finally {
+            albumAggregator.dispose()
+            replyResolver.close()
           }
         })
       } finally {
@@ -354,7 +365,6 @@ export function registerTelegramCommands(app: Command): void {
         restoreUpdateWarnings()
         restoreUpdateErrors()
         autoDownloader?.stop()
-        albumAggregator.dispose()
       }
       process.stdout.write('listening completed\n')
     })

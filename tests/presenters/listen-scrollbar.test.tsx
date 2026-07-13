@@ -81,6 +81,7 @@ function listenRow(sender: string, previewRows = 0): ListenMessageRow {
     sender,
     senderId: null,
     content: null,
+    mediaSummary: null,
     media: previewRows === 0 ? [] : [{
       chatId: 1,
       messageId: 1,
