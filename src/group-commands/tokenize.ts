@@ -24,7 +24,7 @@ export function tokenizeGroupCommand(source: string): TokenizeGroupCommandResult
     while (index < source.length) {
       const character = source[index]
       if (!quote && /\s/.test(character)) break
-      if (character === '\\') {
+      if (character === '\\' && quote !== "'") {
         if (index + 1 < source.length) {
           value += source[index + 1]
           index += 2

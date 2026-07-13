@@ -28,6 +28,13 @@ describe('tokenizeGroupCommand', () => {
       error: { code: 'unterminated_quote' }
     })
   })
+
+  it('treats backslashes literally inside single quotes', () => {
+    expect(tokenizeGroupCommand("chat title 'a\\b'")).toMatchObject({
+      ok: true,
+      tokens: [{ value: 'chat' }, { value: 'title' }, { value: 'a\\b' }]
+    })
+  })
 })
 
 describe('parseGroupCommand', () => {
@@ -41,6 +48,10 @@ describe('parseGroupCommand', () => {
     ['/chat title Release Room', 'Release Room']
   ])('parses title text from %s', (source, text) => {
     expect(parseGroupCommand(source)).toMatchObject({ ok: true, request: { values: { text } } })
+  })
+
+  it('parses single-quoted text', () => {
+    expect(parseGroupCommand("/chat title 'Release Room'")).toMatchObject({ ok: true, request: { values: { text: 'Release Room' } } })
   })
 
   it('normalizes numeric users and durations', () => {
@@ -59,6 +70,48 @@ describe('parseGroupCommand', () => {
 
   it('normalizes off duration to null', () => {
     expect(parseGroupCommand('/chat slowmode off')).toMatchObject({ ok: true, request: { values: { durationSeconds: null } } })
+  })
+
+  it.each([
+    ['1s', 1],
+    ['2m', 120],
+    ['3h', 10800],
+    ['4d', 345600]
+  ])('parses duration unit %s', (duration, durationSeconds) => {
+    expect(parseGroupCommand(`/chat slowmode ${duration}`)).toMatchObject({ ok: true, request: { values: { durationSeconds } } })
+  })
+
+  it('rejects duration overflow', () => {
+    expect(parseGroupCommand('/chat slowmode 9007199254740991d')).toMatchObject({ ok: false, error: { code: 'invalid_duration' } })
+  })
+
+  it('accepts only positive safe ids', () => {
+    expect(parseGroupCommand('/message pin 9007199254740991')).toMatchObject({ ok: true, request: { values: { id: 9007199254740991 } } })
+    expect(parseGroupCommand('/message pin 9007199254740992')).toMatchObject({ ok: false, error: { code: 'invalid_id' } })
+    expect(parseGroupCommand('/message pin 0')).toMatchObject({ ok: false, error: { code: 'invalid_id' } })
+  })
+
+  it('parses rest user and id lists', () => {
+    expect(parseGroupCommand('/member add @alice 42 9007199254740992')).toMatchObject({
+      ok: true,
+      request: { values: { users: ['@alice', 42, '9007199254740992'] } }
+    })
+    expect(parseGroupCommand('/topic reorder 1 2 3')).toMatchObject({ ok: true, request: { values: { ids: [1, 2, 3] } } })
+  })
+
+  it('returns usage when a positional argument is missing', () => {
+    expect(parseGroupCommand('/member ban')).toMatchObject({
+      ok: false,
+      error: { code: 'missing_argument', usage: 'group member ban <user>' }
+    })
+  })
+
+  it.each([
+    ['/chat title ""', 'invalid_text'],
+    ['/chat photo ""', 'invalid_path'],
+    ['/invite show ""', 'invalid_invite']
+  ])('rejects empty non-empty string values for %s', (source, code) => {
+    expect(parseGroupCommand(source)).toMatchObject({ ok: false, error: { code } })
   })
 
   it('rejects invalid toggles with usage', () => {
@@ -95,6 +148,12 @@ describe('parseGroupCommand', () => {
     expect(parseGroupCommand(source)).toMatchObject({ ok: false, error: { code } })
   })
 
+  it('distinguishes empty option values from missing option values', () => {
+    expect(parseGroupCommand('/invite create --title ""')).toMatchObject({ ok: false, error: { code: 'invalid_text' } })
+    expect(parseGroupCommand('/invite create --title=')).toMatchObject({ ok: false, error: { code: 'invalid_text' } })
+    expect(parseGroupCommand('/invite create --title')).toMatchObject({ ok: false, error: { code: 'missing_option_value' } })
+  })
+
   it('rejects extra positional arguments', () => {
     expect(parseGroupCommand('/member ban @alice extra')).toMatchObject({ ok: false, error: { code: 'unexpected_argument' } })
   })
@@ -103,6 +162,22 @@ describe('parseGroupCommand', () => {
 describe('matching and completion', () => {
   it('ranks ordered subsequence fuzzy matches in catalog order', () => {
     expect(matchGroupCommands('/memb bn')[0]?.definition.path).toEqual(['member', 'ban'])
+  })
+
+  it('uses catalog order to break equal-rank ties', () => {
+    expect(matchGroupCommands('/c').slice(0, 3).map(match => match.definition.path)).toEqual([
+      ['chat', 'title'],
+      ['chat', 'description'],
+      ['chat', 'username']
+    ])
+  })
+
+  it('ranks exact prefixes ahead of ordered subsequences', () => {
+    const matches = matchGroupCommands('/memb b')
+    expect(matches[0]?.definition.path).toEqual(['member', 'ban'])
+    expect(matches.findIndex(match => match.definition.path[1] === 'ban')).toBeLessThan(
+      matches.findIndex(match => match.definition.path[1] === 'unban')
+    )
   })
 
   it('keeps a complete command matched after arguments begin', () => {

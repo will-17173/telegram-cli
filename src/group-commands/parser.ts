@@ -101,7 +101,7 @@ export function parseGroupCommand(source: string): ParseGroupCommandResult {
     if (!option) return failure('unknown_option', `Unknown option: ${long}`, definition)
     if (optionValues.has(option.name)) return failure('duplicate_option', `Duplicate option: ${long}`, definition)
     const raw = equals < 0 ? input[++index]?.value : token.value.slice(equals + 1)
-    if (raw === undefined || raw === '' || (equals < 0 && raw.startsWith('--'))) {
+    if (raw === undefined || (equals < 0 && raw.startsWith('--'))) {
       return failure('missing_option_value', `Missing value for option: ${long}`, definition)
     }
     optionValues.set(option.name, raw)
@@ -160,14 +160,15 @@ export function matchGroupCommands(source: string): readonly GroupCommandMatch[]
   if (!tokenized.ok) return []
   const query = tokenized.tokens.slice(0, 2).map(token => token.value.toLowerCase())
   return GROUP_COMMANDS.map((definition, catalogIndex) => {
-    const path = definition.path.join(' ')
     const joinedQuery = query.join(' ')
     const exactParts = query.every((part, index) => definition.path[index]?.startsWith(part))
     const fuzzyParts = query.every((part, index) => isSubsequence(part, definition.path[index] ?? ''))
     const summaryMatch = joinedQuery.length > 0 && isSubsequence(joinedQuery.replace(/\s/g, ''), definition.summary.toLowerCase().replace(/\s/g, ''))
     if (!exactParts && !fuzzyParts && !summaryMatch) return undefined
-    return { definition, score: exactParts ? 3000 - path.length : fuzzyParts ? 2000 - path.length : 1000 - catalogIndex }
-  }).filter((match): match is GroupCommandMatch => Boolean(match)).sort((left, right) => right.score - left.score)
+    return { definition, score: exactParts ? 3 : fuzzyParts ? 2 : 1, catalogIndex }
+  }).filter((match): match is GroupCommandMatch & { catalogIndex: number } => Boolean(match))
+    .sort((left, right) => right.score - left.score || left.catalogIndex - right.catalogIndex)
+    .map(({ definition, score }) => ({ definition, score }))
 }
 
 export function completeGroupCommand(source: string, selectedIndex = 0): string {
