@@ -81,6 +81,34 @@ describe('listen command completion', () => {
     expect(completeListenCommand(input)).toBe(input)
   })
 
+  it.each([
+    '/member @ban',
+    '/member @add',
+    '/member @kick',
+    '/member #ban',
+    '/member 123',
+    '/member --ban',
+    '/member "ban"',
+    "/member 'add'",
+  ])('never interprets an argument-shaped second token as a subcommand: %s', (input) => {
+    expect(ids(input).slice(0, 3)).toEqual([
+      'group:member add',
+      'group:member kick',
+      'group:member ban',
+    ])
+    expect(completeListenCommand(input)).toBe(input)
+  })
+
+  it('still treats an ordinary second token as a subcommand', () => {
+    expect(ids('/member ban')[0]).toBe('group:member ban')
+    expect(completeListenCommand('/member ban')).toBe('/member ban')
+  })
+
+  it('preserves reply arguments', () => {
+    expect(ids('/reply @x')[0]).toBe('reply')
+    expect(completeListenCommand('/reply @x')).toBe('/reply @x')
+  })
+
   it('only selects among the six visible matches and safely keeps invalid selections unchanged', () => {
     const visible = visibleListenCommandMatches('/')
     expect(visible).toHaveLength(6)

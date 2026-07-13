@@ -59,6 +59,12 @@ function anyMatch(query: readonly string[]): boolean {
   return LISTEN_COMMANDS.some(definition => score(definition, query) > 0)
 }
 
+function isArgumentShapedToken(input: string, token: GroupCommandToken | undefined): boolean {
+  if (!token) return false
+  const raw = input.slice(token.start, token.end)
+  return /^[@#]/.test(raw) || /^--/.test(raw) || /^-?\d/.test(raw) || /^["']/.test(raw)
+}
+
 function parseQuery(input: string): ParsedQuery | undefined {
   const tokens = rawTokens(input)
   if (!tokens) return undefined
@@ -69,7 +75,8 @@ function parseQuery(input: string): ParsedQuery | undefined {
   // A listen command has at most two path components. Treat a second token as
   // command text only when it can identify a command; otherwise it is an arg.
   const two = values.slice(0, 2)
-  const secondIsCommand = tokens.length > 1 && anyMatch(two)
+  const secondIsArgument = isArgumentShapedToken(input, tokens[1])
+  const secondIsCommand = tokens.length > 1 && !secondIsArgument && anyMatch(two)
   const query = secondIsCommand ? two : values.slice(0, 1)
   const argumentBoundary = tokens.length > 1 && !secondIsCommand
     && LISTEN_COMMANDS.some(definition => definition.path.length > 1 && definition.path[0] === values[0])
