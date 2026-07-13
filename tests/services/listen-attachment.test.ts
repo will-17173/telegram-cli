@@ -77,6 +77,7 @@ describe('listen attachment metadata', () => {
       kind: 'Contact',
       label: expectedLabel,
       fileName: null,
+      mimeType: null,
       downloadable: false,
     }])
   })

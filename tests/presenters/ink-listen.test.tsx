@@ -469,6 +469,7 @@ describe('collectDownloadableAttachments', () => {
           kind: 'Contact',
           label: '👤 Contact · Zhang San · +86 13800138000',
           fileName: null,
+          mimeType: null,
           downloadable: false,
         },
         {
@@ -477,6 +478,7 @@ describe('collectDownloadableAttachments', () => {
           kind: 'Photo',
           label: '📎 Photo',
           fileName: null,
+          mimeType: null,
           downloadable: true,
         },
       ],
