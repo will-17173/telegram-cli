@@ -68,8 +68,8 @@ describe('group management package contracts', () => {
   ]
 
   it('keeps the explicit handler registry aligned with the public catalog', () => {
-    expect(Object.keys(COMMAND_HANDLERS).sort()).toEqual(handlerPaths.toSorted())
-    expect(GROUP_COMMANDS.map(command => command.path.join(' ')).sort()).toEqual(handlerPaths.toSorted())
+    expect(Object.keys(COMMAND_HANDLERS).sort()).toEqual([...handlerPaths].sort())
+    expect(GROUP_COMMANDS.map(command => command.path.join(' ')).sort()).toEqual([...handlerPaths].sort())
   })
 
   it('shows every catalog action in its family help output', () => {
