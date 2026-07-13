@@ -17,6 +17,7 @@ import {
 import type { AccountCommandOptions } from './account-options.js'
 import { runTelegramCommand } from './telegram-runner.js'
 import { outputFormatConflict, type OutputFlags } from './types.js'
+import { registerGroupWriteCommands } from './group-write.js'
 
 type GroupMembersCommandOptions = OutputFlags & {
   type?: string
@@ -121,6 +122,8 @@ export function registerGroupCommands(app: Command): void {
         return result.ok ? { ...result, human: groupAuditTable(result.data) } : result
       })
     })
+
+  registerGroupWriteCommands(group)
 }
 
 async function renderConflict(options: AccountCommandOptions): Promise<boolean> {

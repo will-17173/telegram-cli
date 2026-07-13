@@ -8,9 +8,32 @@ import type {
   TelegramGroupMemberResult,
   TelegramGroupRestrictions,
 } from '../telegram/group-types.js'
+import type { GroupWriteServiceResult } from '../services/group-write-service.js'
+import type { TelegramGroupInviteMemberPage, TelegramGroupInvitePage, TelegramGroupInviteResult, TelegramGroupTopicPage, TelegramGroupTopicResult, TelegramGroupWriteResult } from '../telegram/group-write-types.js'
 
 type DetailOutput = HumanOutput & { kind: 'detail' }
 type TableOutput = HumanOutput & { kind: 'table' }
+
+export function groupWriteHuman(data: GroupWriteServiceResult, chat: string | number, summary: string): HumanOutput {
+  if ('invites' in data) return inviteTable(data)
+  if ('members' in data && 'link' in data) return inviteMembersTable(data)
+  if ('topics' in data) return topicTable(data)
+  if ('invite' in data) return inviteDetail(data)
+  if ('topic' in data) return topicDetail(data)
+  const result = data as TelegramGroupWriteResult
+  return { kind: 'summary', title: summary, fields: [
+    { label: 'Chat', value: String(result.chat_id ?? chat) },
+    { label: 'Operation', value: result.operation },
+    { label: 'Target', value: result.target_id == null ? '-' : String(result.target_id) },
+    { label: 'Effective', value: result.effective_until ?? '-' },
+  ] }
+}
+
+function inviteTable(page: TelegramGroupInvitePage): TableOutput { return { kind: 'table', title: 'Group Invites', columns: ['LINK', 'TITLE', 'USES', 'EXPIRES', 'REQUEST'], rows: page.invites.map(i => [i.link, fallback(i.title), `${i.usage_count}/${i.usage_limit ?? '-'}`, fallback(i.expires_at), boolean(i.request_needed)]), emptyText: 'No invite links.' } }
+function inviteMembersTable(page: TelegramGroupInviteMemberPage): TableOutput { return { kind: 'table', title: 'Invite Members', columns: ['ID', 'NAME', 'USERNAME', 'JOINED', 'REQUESTED'], rows: page.members.map(m => [String(m.user_id), m.display_name, username(m.username), fallback(m.joined_at), boolean(m.requested)]), emptyText: 'No invite members.' } }
+function topicTable(page: TelegramGroupTopicPage): TableOutput { return { kind: 'table', title: 'Group Topics', columns: ['ID', 'TITLE', 'CLOSED', 'PINNED', 'HIDDEN'], rows: page.topics.map(t => [String(t.id), t.title, boolean(t.closed), boolean(t.pinned), boolean(t.hidden)]), emptyText: 'No forum topics.' } }
+function inviteDetail(result: TelegramGroupInviteResult): DetailOutput { return { kind: 'detail', title: 'Group Invite', fields: [{ label: 'Chat ID', value: String(result.chat_id) }, { label: 'Link', value: result.invite.link }, { label: 'Title', value: fallback(result.invite.title) }, { label: 'Uses', value: `${result.invite.usage_count}/${result.invite.usage_limit ?? '-'}` }] } }
+function topicDetail(result: TelegramGroupTopicResult): DetailOutput { return { kind: 'detail', title: 'Group Topic', fields: [{ label: 'Chat ID', value: String(result.chat_id) }, { label: 'ID', value: String(result.topic.id) }, { label: 'Title', value: result.topic.title }] } }
 
 export function groupInfoDetail(group: TelegramGroupDetails): DetailOutput {
   return {
