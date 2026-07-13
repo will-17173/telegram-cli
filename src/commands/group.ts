@@ -78,18 +78,24 @@ export function registerGroupCommands(app: Command): void {
       })
     })
 
-  group.command('member')
+  const member = group.command('member')
+    .description('Legacy member lookup; use member info for an unambiguous route (required for reserved action names)')
+    .argument('<chat>')
+    .argument('<user>')
+    .option('--json')
+    .option('--yaml')
+    .action(async (chat: string, user: string, _localOptions: OutputFlags, command: Command) => {
+      await runMemberInfo(chat, user, command)
+    })
+
+  member.command('info')
     .description('Show a Telegram group member')
     .argument('<chat>')
     .argument('<user>')
     .option('--json')
     .option('--yaml')
     .action(async (chat: string, user: string, _localOptions: OutputFlags, command: Command) => {
-      const options = optionsWithGlobals<AccountCommandOptions>(command)
-      await runTelegramCommand(options, async (client) => {
-        const result = await new GroupService(client.groups).member(chat, user)
-        return result.ok ? { ...result, human: groupMemberDetail(result.data) } : result
-      })
+      await runMemberInfo(chat, user, command)
     })
 
   group.command('audit')
@@ -124,6 +130,14 @@ export function registerGroupCommands(app: Command): void {
     })
 
   registerGroupWriteCommands(group)
+}
+
+async function runMemberInfo(chat: string, user: string, command: Command): Promise<void> {
+  const options = optionsWithGlobals<AccountCommandOptions>(command)
+  await runTelegramCommand(options, async (client) => {
+    const result = await new GroupService(client.groups).member(chat, user)
+    return result.ok ? { ...result, human: groupMemberDetail(result.data) } : result
+  })
 }
 
 async function renderConflict(options: AccountCommandOptions): Promise<boolean> {

@@ -9,6 +9,8 @@ const groups = vi.hoisted(() => ({
   promoteAdmin: vi.fn(async () => ({ operation: 'promoteAdmin', chat_id: 42 })),
   deleteGroup: vi.fn(async () => ({ operation: 'deleteGroup', chat_id: 42 })),
   createInvite: vi.fn(async () => ({ chat_id: 42, invite: { link: 'https://t.me/+x', title: null, creator_id: 1, created_at: null, expires_at: null, usage_limit: null, usage_count: 0, request_needed: false, revoked: false } })),
+  deleteTopic: vi.fn(async (request) => ({ operation: 'deleteTopic', chat_id: 42, target_id: request.topicId })),
+  deleteGroupMessages: vi.fn(async () => ({ operation: 'deleteGroupMessages', chat_id: 42 })),
   getGroup: vi.fn(),
 }))
 const client = vi.hoisted(() => ({ groups, close: vi.fn(async () => undefined) }))
@@ -89,5 +91,15 @@ describe('group write commands', () => {
     await run('group', 'chat', 'slowmode', 'General', '2m', '--json', '--yaml')
     expect(createTelegramClient).not.toHaveBeenCalled()
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: expect.objectContaining({ code: 'invalid_output_format' }) }), { yaml: true })
+  })
+
+  it('executes a confirmed topic command with the exact request', async () => {
+    await run('group', 'topic', 'delete', 'General', '17', '--yes')
+    expect(groups.deleteTopic).toHaveBeenCalledWith({ chat: 'General', topicId: 17 })
+  })
+
+  it('executes a confirmed message command with every parsed id', async () => {
+    await run('group', 'message', 'delete', 'General', '11', '12', '13', '--yes')
+    expect(groups.deleteGroupMessages).toHaveBeenCalledWith({ chat: 'General', messageIds: [11, 12, 13] })
   })
 })

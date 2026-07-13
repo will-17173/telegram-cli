@@ -118,7 +118,7 @@ describe('cli help', () => {
     expect(group?.commands.slice(0, 4).map((command) => command.description())).toEqual([
       'Show Telegram group information',
       'List Telegram group members',
-      'Show a Telegram group member',
+      'Legacy member lookup; use member info for an unambiguous route (required for reserved action names)',
       'List Telegram group audit events',
     ])
   })
@@ -150,5 +150,15 @@ describe('cli help', () => {
     expect(help).toContain('--user <user>')
     expect(help).toContain('Filter by action author')
     expect(help).not.toContain('actor or target')
+  })
+
+  it('documents the unambiguous member info route and legacy compatibility', () => {
+    const group = createApp().commands.find(command => command.name() === 'group')
+    const member = group?.commands.find(command => command.name() === 'member')
+    const info = member?.commands.find(command => command.name() === 'info')
+
+    expect(info?.helpInformation()).toContain('member info [options] <chat> <user>')
+    expect(member?.description().toLowerCase()).toContain('legacy')
+    expect(member?.description()).toContain('member info')
   })
 })
