@@ -427,6 +427,32 @@ export function ListenStatus({ status, unseenCount }: { status: string; unseenCo
   return <Text dimColor>{status}{unseenCount > 0 ? ` · ↓ ${unseenCount} new messages` : ''}</Text>
 }
 
+export function ListenStatusArea({
+  status,
+  unseenCount,
+  autoDownload,
+}: {
+  status: string
+  unseenCount: number
+  autoDownload: boolean
+}): React.JSX.Element {
+  return (
+    <Box flexDirection="column">
+      <ListenStatus status={status} unseenCount={unseenCount} />
+      {autoDownload ? <Text dimColor>Auto-download enabled</Text> : null}
+    </Box>
+  )
+}
+
+export function calculateListenMessagePaneHeight(
+  terminalHeight: number,
+  hasNote: boolean,
+  autoDownload: boolean,
+): number {
+  const reservedLines = 7 + (hasNote ? 1 : 0) + (autoDownload ? 1 : 0)
+  return Math.max(2, terminalHeight - reservedLines)
+}
+
 export async function runInteractiveListen<T>(
   write: (value: string) => unknown,
   run: () => Promise<T>,
@@ -482,8 +508,7 @@ function InteractiveListen({
     }),
     [messageGroups, showMedia, previewWidth, previewColorDepth, showChatName],
   )
-  const reservedLines = 7 + (note ? 1 : 0)
-  const messagePaneHeight = Math.max(2, terminalHeight - reservedLines)
+  const messagePaneHeight = calculateListenMessagePaneHeight(terminalHeight, note.length > 0, autoDownload)
   const visibleMessages = takeListenViewport(messages, messagePaneHeight, scrollState.offset)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const albumAggregatorRef = useRef<ListenAlbumAggregator | null>(null)
@@ -773,7 +798,11 @@ function InteractiveListen({
   return (
     <Box flexDirection="row" width={terminalWidth} height={terminalHeight} overflow="hidden">
       <Box flexDirection="column" width={contentWidth} height={terminalHeight} overflow="hidden">
-        <ListenStatus status={status} unseenCount={scrollState.unseenCount} />
+        <ListenStatusArea
+          status={status}
+          unseenCount={scrollState.unseenCount}
+          autoDownload={autoDownload}
+        />
         {note ? <Text dimColor>{note}</Text> : null}
         <Box marginTop={1} flexDirection="column" flexGrow={1} overflow="hidden">
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}

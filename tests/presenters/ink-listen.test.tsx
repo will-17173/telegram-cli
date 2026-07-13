@@ -8,6 +8,7 @@ import {
   acceptListenMessage,
   attachmentDownloadKeyAt,
   attachmentDownloadTarget,
+  calculateListenMessagePaneHeight,
   canManuallyDownload,
   collectDownloadableAttachments,
   createInteractiveOperationController,
@@ -22,6 +23,7 @@ import {
   type ListenMessage,
   ListenMessageViewCache,
   ListenStatus,
+  ListenStatusArea,
   pruneAttachmentDownloadStates,
   pruneListenMessageGroups,
   registerPendingAttachmentKeys,
@@ -511,6 +513,29 @@ describe('ListenStatus', () => {
       .toBe('connected')
   })
 
+})
+
+describe('ListenStatusArea', () => {
+  it('shows the auto-download reminder when enabled', () => {
+    expect(renderToString(
+      <ListenStatusArea status="connected" unseenCount={0} autoDownload />,
+    )).toContain('Auto-download enabled')
+  })
+
+  it('hides the auto-download reminder when disabled', () => {
+    expect(renderToString(
+      <ListenStatusArea status="connected" unseenCount={0} autoDownload={false} />,
+    )).not.toContain('Auto-download enabled')
+  })
+})
+
+describe('calculateListenMessagePaneHeight', () => {
+  it('reserves one line each for the auto-download reminder and note', () => {
+    expect(calculateListenMessagePaneHeight(20, false, false)).toBe(13)
+    expect(calculateListenMessagePaneHeight(20, false, true)).toBe(12)
+    expect(calculateListenMessagePaneHeight(20, true, false)).toBe(12)
+    expect(calculateListenMessagePaneHeight(20, true, true)).toBe(11)
+  })
 })
 
 describe('interactive album messages', () => {
