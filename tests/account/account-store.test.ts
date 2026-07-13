@@ -48,6 +48,78 @@ function account(name: string, userId: number): AccountMeta {
 }
 
 describe('account store', () => {
+  it.each([
+    '../../outside',
+    '..\\outside',
+    '/absolute',
+    '\\absolute',
+    'C:\\absolute',
+    'C:/absolute',
+    'nested/account',
+    'nested\\account',
+    '.',
+    '..',
+    'bad\u0000name',
+    'bad\u001fname',
+    'Cafe\u0301',
+  ])('rejects unsafe v2 account name %j from a hand-edited registry', (name) => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    writeFileSync(path, JSON.stringify({
+      version: 2,
+      current_account: name,
+      accounts: [account(name, 100)],
+    }))
+
+    expect(() => new AccountStore(path).read()).toThrow('account_store_error: malformed registry file')
+  })
+
+  it.each([
+    '../../outside',
+    '..\\outside',
+    '/absolute',
+    'nested/account',
+    '.',
+    '..',
+  ])('rejects unsafe legacy v1 account name %j instead of migrating it', (name) => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const unsafe = account(name, 100)
+    const { auth_state: _authState, ...legacy } = unsafe
+    writeFileSync(path, JSON.stringify({
+      version: 1,
+      current_account: name,
+      accounts: [legacy],
+    }))
+
+    expect(() => new AccountStore(path).read()).toThrow('account_store_error: malformed registry file')
+    expect(JSON.parse(readFileSync(path, 'utf8')).version).toBe(1)
+  })
+
+  it('rejects an unsafe current account even when stored accounts are safe', () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    writeFileSync(path, JSON.stringify({
+      version: 2,
+      current_account: '../../outside',
+      accounts: [account('alice', 100)],
+    }))
+
+    expect(() => new AccountStore(path).read()).toThrow('account_store_error: malformed registry file')
+  })
+
+  it('preserves safe normalized Unicode names containing spaces', () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const safe = account('研发 Team', 100)
+    writeFileSync(path, JSON.stringify({
+      version: 2,
+      current_account: safe.name,
+      accounts: [safe],
+    }))
+
+    expect(new AccountStore(path).read()).toMatchObject({
+      current_account: '研发 Team',
+      accounts: [{ name: '研发 Team' }],
+    })
+  })
+
   it('migrates and returns a valid legacy v1 registry document', () => {
     const path = join(tempDir(), REGISTRY_PATH)
     writeFileSync(

@@ -1,11 +1,12 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { AccountStore, type AccountMeta } from '../../src/account/account-store.js'
 import { getAccountRegistryPath } from '../../src/config/env.js'
 import { resolveAccountContext, resolveAuthenticatedAccountContext } from '../../src/account/account-context.js'
+import { accountDbPath, accountSessionPath } from '../../src/account/account-presets.js'
 
 const REGISTRY_PATH = 'accounts.json'
 
@@ -52,6 +53,34 @@ function writeRegistry(path: string, registry: SeedRegistry): void {
 }
 
 describe('account context resolver', () => {
+  it.each([
+    '../../outside',
+    '..\\outside',
+    '/absolute',
+    '\\absolute',
+    'C:\\absolute',
+    'C:/absolute',
+    'nested/account',
+    'nested\\account',
+    '.',
+    '..',
+    'bad\u0000name',
+    'Cafe\u0301',
+  ])('prevents account path helpers from accepting unsafe name %j', (name) => {
+    const dataDir = tempDir()
+
+    expect(() => accountSessionPath(dataDir, name)).toThrow('account_store_error: invalid account name')
+    expect(() => accountDbPath(dataDir, name)).toThrow('account_store_error: invalid account name')
+  })
+
+  it('keeps safe account paths contained under the resolved accounts directory', () => {
+    const dataDir = tempDir()
+    const accountRoot = resolve(dataDir, 'accounts', '研发 Team')
+
+    expect(accountSessionPath(dataDir, '研发 Team')).toBe(join(accountRoot, 'session'))
+    expect(accountDbPath(dataDir, '研发 Team')).toBe(join(accountRoot, 'messages.db'))
+  })
+
   it('uses explicit account name and ignores current account', () => {
     const dataDir = tempDir()
     const path = join(dataDir, REGISTRY_PATH)

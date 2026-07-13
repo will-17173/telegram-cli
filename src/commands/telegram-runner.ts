@@ -104,7 +104,7 @@ export function hideBenignUpdateWarnings(stream: NodeJS.WriteStream): () => void
 }
 
 function toAuthSessionError(error: unknown, accountName: string): HandlerResult<never> | null {
-  if (isAuthKeyUnregistered(error)) {
+  if (isTelegramAuthSessionError(error)) {
     return {
       ok: false,
       error: {
@@ -116,7 +116,7 @@ function toAuthSessionError(error: unknown, accountName: string): HandlerResult<
   return null
 }
 
-function isAuthKeyUnregistered(error: unknown): boolean {
+export function isTelegramAuthSessionError(error: unknown): boolean {
   if (error === null || typeof error !== 'object') return false
 
   const candidate = error as { text?: unknown; message?: unknown; code?: unknown }

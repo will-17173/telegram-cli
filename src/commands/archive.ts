@@ -7,7 +7,7 @@ import type { ArchiveCommandResult } from '../services/archive-types.js'
 import type { AccountContext } from '../account/account-presets.js'
 import type { AccountCommandOptions } from './account-options.js'
 import { parseTimeRange, type ParsedTimeRange } from './time-range.js'
-import { runTelegramCommand } from './telegram-runner.js'
+import { isTelegramAuthSessionError, runTelegramCommand } from './telegram-runner.js'
 import {
   outputFormatConflict,
   type HandlerResult,
@@ -63,9 +63,8 @@ export function registerArchiveCommand(app: Command): void {
           })
           return result.ok ? { ...result, human: archiveSummary(result.data) } : result
         } catch (error) {
-          const failure = archiveFailure(error)
-          if (failure != null) return failure
-          throw error
+          if (isTelegramAuthSessionError(error)) throw error
+          return archiveFailure(error)
         }
       }, command)
     })
@@ -123,12 +122,12 @@ function archiveOptionFailure(code: string, guidance: string): HandlerResult<nev
     ok: false,
     error: {
       code,
-      message: `${code}: ${guidance}`,
+      message: guidance,
     },
   }
 }
 
-function archiveFailure(error: unknown): HandlerResult<never> | null {
+function archiveFailure(error: unknown): HandlerResult<never> {
   const code = error instanceof Error ? error.message.split(':', 1)[0] : ''
   const messages: Record<string, string> = {
     archive_account_mismatch: 'Archive belongs to a different Telegram account.',
@@ -136,7 +135,15 @@ function archiveFailure(error: unknown): HandlerResult<never> | null {
     archive_schema_unsupported: 'Archive manifest schema is not supported.',
   }
   const message = messages[code]
-  return message == null ? null : { ok: false, error: { code, message } }
+  return message == null
+    ? {
+      ok: false,
+      error: {
+        code: 'archive_failed',
+        message: 'Archive could not be completed.',
+      },
+    }
+    : { ok: false, error: { code, message } }
 }
 
 function defaultArchiveOutput(context: AccountContext): string {

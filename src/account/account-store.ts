@@ -9,6 +9,7 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { isSafeAccountName } from './account-name.js'
 
 const DEFAULT_LOCK_TIMEOUT_MS = 200
 const DEFAULT_LOCK_RETRY_MS = 10
@@ -269,8 +270,7 @@ function isAccountMeta(value: unknown): value is AccountMeta {
   const authState = candidate.auth_state
 
   return (
-    typeof candidate.name === 'string'
-    && candidate.name.trim().length > 0
+    isSafeAccountName(candidate.name)
     && typeof userId === 'number'
     && Number.isSafeInteger(userId)
     && userId > 0
@@ -290,8 +290,7 @@ function isAccountMetaV1(value: unknown): value is LegacyAccountMeta {
   const userId = candidate.user_id
 
   return (
-    typeof candidate.name === 'string'
-    && candidate.name.trim().length > 0
+    isSafeAccountName(candidate.name)
     && typeof userId === 'number'
     && Number.isSafeInteger(userId)
     && userId > 0
@@ -310,7 +309,7 @@ function isAccountRegistry(value: unknown): value is AccountRegistry {
 
   return (
     candidate.version === 2
-    && (candidate.current_account === null || typeof candidate.current_account === 'string')
+    && (candidate.current_account === null || isSafeAccountName(candidate.current_account))
     && Array.isArray(candidate.accounts)
     && candidate.accounts.every((account: unknown) => isAccountMeta(account))
   )
@@ -332,7 +331,7 @@ function isLegacyAccountRegistry(value: unknown): value is LegacyAccountRegistry
 
   return (
     candidate.version === 1
-    && (candidate.current_account === null || typeof candidate.current_account === 'string')
+    && (candidate.current_account === null || isSafeAccountName(candidate.current_account))
     && Array.isArray(candidate.accounts)
     && candidate.accounts.every((account: unknown) => isAccountMetaV1(account))
   )

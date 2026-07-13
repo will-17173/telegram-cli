@@ -119,17 +119,25 @@ describe('archive command', () => {
   })
 
   it.each([
-    ['missing scope', ['archive'], 'archive_scope_required'],
-    ['chats with all', ['archive', '@team', '--all'], 'archive_scope_conflict'],
-    ['full with since', ['archive', '@team', '--full', '--since', '2026-07-01T00:00:00Z'], 'archive_full_range_conflict'],
-    ['reversed bounds', ['archive', '@team', '--since', '2026-07-02T00:00:00Z', '--until', '2026-07-01T00:00:00Z'], 'archive_invalid_time_range'],
-    ['invalid bound', ['archive', '@team', '--since', 'yesterday'], 'archive_invalid_time_range'],
-    ['output formats', ['archive', '@team', '--json', '--yaml'], 'invalid_output_format'],
-  ])('rejects %s before constructing a Telegram client', async (_label, args, code) => {
+    ['missing scope', ['archive', '--json'], 'archive_scope_required', 'Select one or more chats or use --all.'],
+    ['chats with all', ['archive', '@team', '--all', '--json'], 'archive_scope_conflict', 'Chat arguments cannot be combined with --all.'],
+    ['full with since', ['archive', '@team', '--full', '--since', '2026-07-01T00:00:00Z', '--json'], 'archive_full_range_conflict', '--full cannot be combined with --since.'],
+    ['reversed bounds', ['archive', '@team', '--since', '2026-07-02T00:00:00Z', '--until', '2026-07-01T00:00:00Z', '--json'], 'archive_invalid_time_range', 'Use positive relative durations or ISO timestamps with zones; --since must be earlier than --until.'],
+    ['invalid bound', ['archive', '@team', '--since', 'yesterday', '--json'], 'archive_invalid_time_range', 'Use positive relative durations or ISO timestamps with zones; --since must be earlier than --until.'],
+  ])('rejects %s before constructing a Telegram client', async (_label, args, code, message) => {
     const result = await run(args)
 
     expect(result).toMatchObject({ exitCode: 1 })
-    expect(`${result.stdout}${result.stderr}`).toContain(code)
+    expect(JSON.parse(result.stdout).error).toEqual({ code, message })
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(archive).not.toHaveBeenCalled()
+  })
+
+  it('rejects output format conflicts before constructing a Telegram client', async () => {
+    const result = await run(['archive', '@team', '--json', '--yaml'])
+
+    expect(result).toMatchObject({ exitCode: 1 })
+    expect(result.stdout).toContain('code: invalid_output_format')
     expect(createTelegramClient).not.toHaveBeenCalled()
     expect(archive).not.toHaveBeenCalled()
   })
@@ -191,6 +199,20 @@ describe('archive command', () => {
       message: 'Archive belongs to a different Telegram account.',
     })
     expect(result.stdout).not.toContain('/private')
+  })
+
+  it('sanitizes unexpected archive and local filesystem failures', async () => {
+    archive.mockRejectedValueOnce(new Error('EACCES: open /private/session/alice/archive.tmp'))
+
+    const result = await run(['archive', '@team', '--json'])
+
+    expect(result).toMatchObject({ exitCode: 1 })
+    expect(JSON.parse(result.stdout).error).toEqual({
+      code: 'archive_failed',
+      message: 'Archive could not be completed.',
+    })
+    expect(result.stdout).not.toContain('/private')
+    expect(result.stdout).not.toContain('EACCES')
   })
 
   it('returns nonzero structured output while preserving partial completion details', async () => {
