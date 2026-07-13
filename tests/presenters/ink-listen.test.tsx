@@ -187,6 +187,91 @@ describe('InteractiveListen slash commands', () => {
     app.unmount()
   })
 
+  it('requires an exact independently typed title before deleting a chat', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(50, 24, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/chat delete')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/chat delete'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Cancel'))
+    stdin.write('\u001b[A')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Confirm'))
+    stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Type the exact title'))
+    stdin.write('Test Groux'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Test Groux')); stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('does not match exactly'))
+    expect(client.groups.deleteGroup).not.toHaveBeenCalled()
+    stdin.write('\u001b'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Permanently delete the chat')); stdin.write('\u001b')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).not.toContain('Permanently delete the chat')); stdin.write('\r'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Cancel')); stdin.write('\u001b[A'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Confirm')); stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Type the exact title')); stdin.write('Test Group'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Test Group')); stdin.write('\r')
+    await vi.waitFor(() => expect(client.groups.deleteGroup).toHaveBeenCalledTimes(1))
+    controller.abort(); app.unmount()
+  })
+
+  it('returns from title verification to confirmation and then cancels without deleting', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(45, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/chat delete'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/chat delete')); stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Cancel')); stdin.write('\u001b[A'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Confirm')); stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Type the exact title')); stdin.write('isolated')
+    expect(lastTerminalFrame(stdout.output)).toContain('/chat delete')
+    stdin.write('\u001b'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Permanently delete the chat'))
+    stdin.write('\u001b'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/chat delete'))
+    expect(client.groups.deleteGroup).not.toHaveBeenCalled()
+    controller.abort(); app.unmount()
+  })
+
+  it('selects an exact admin-right subset before promotion confirmation', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(60, 30, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/admin promote 7'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/admin promote 7')); stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Administrator permissions'))
+    expect(lastTerminalFrame(stdout.output)).toContain('[ ] change_info')
+    stdin.write('\r'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Select at least one'))
+    stdin.write(' '); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('[x] change_info')); stdin.write('\u001b[B'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› [ ] delete_messages')); stdin.write(' '); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› [x] delete_messages')); stdin.write('\r')
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('permissions: change_info, delete_messages'))
+    stdin.write('\u001b[A'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Confirm')); stdin.write('\r')
+    await vi.waitFor(() => expect(client.groups.promoteAdmin).toHaveBeenCalledTimes(1))
+    expect(client.groups.promoteAdmin.mock.calls[0]?.[0].rights).toEqual({ change_info: true, delete_messages: true, ban_users: false, invite_users: false, pin_messages: false, add_admins: false, manage_call: false, anonymous: false, manage_topics: false })
+    controller.abort(); app.unmount()
+  })
+
+  it('renders known capability denial and blocks Tab and Enter without a Telegram call', async () => {
+    const controller = new AbortController()
+    const denied = { ...groupDetails(), forum: false, current_user_role: 'member' as const }
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(denied) })
+    const stdout = new MockStdout(70, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(client.groups.getGroup).toHaveBeenCalled())
+    stdin.write('/topic list'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('disabled: This command requires a'))
+    stdin.write('\t'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('This command requires a forum'))
+    stdin.write('\r'); await new Promise(resolve => setTimeout(resolve, 20))
+    expect(client.groups.listTopics).not.toHaveBeenCalled()
+    controller.abort(); app.unmount()
+  })
+
+  it('refreshes cached group details after a successful mutation', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    const stdout = new MockStdout(60, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(client.groups.getGroup).toHaveBeenCalledTimes(1))
+    stdin.write('/chat title Renamed'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/chat title Renamed')); stdin.write('\r')
+    await vi.waitFor(() => expect(client.groups.setTitle).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(client.groups.getGroup).toHaveBeenCalledTimes(2))
+    controller.abort(); app.unmount()
+  })
+
   it('owns the content and input until Esc after a successful command', async () => {
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
@@ -944,6 +1029,9 @@ function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
       ...groups,
       listTopics: vi.fn().mockResolvedValue([]),
       banMember: vi.fn(),
+      deleteGroup: vi.fn(),
+      promoteAdmin: vi.fn(),
+      setTitle: vi.fn(),
     },
     listen: vi.fn(async ({ onConnected, onMessage, signal }: { onConnected?: () => void; onMessage: (message: StoredMessageInput) => void; signal: AbortSignal }) => {
       onConnected?.()
@@ -954,7 +1042,7 @@ function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
     close: vi.fn(async () => undefined),
     getChatInfo: vi.fn(async () => null),
     sendMessage: vi.fn(),
-  } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter & { groups: { getGroup: ReturnType<typeof vi.fn>; listTopics: ReturnType<typeof vi.fn>; banMember: ReturnType<typeof vi.fn> }; sendMessage: ReturnType<typeof vi.fn> }
+  } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter & { groups: { getGroup: ReturnType<typeof vi.fn>; listTopics: ReturnType<typeof vi.fn>; banMember: ReturnType<typeof vi.fn>; deleteGroup: ReturnType<typeof vi.fn>; promoteAdmin: ReturnType<typeof vi.fn>; setTitle: ReturnType<typeof vi.fn> }; sendMessage: ReturnType<typeof vi.fn> }
 }
 
 function lastTerminalFrame(output: string): string {
