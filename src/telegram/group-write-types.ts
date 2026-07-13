@@ -11,9 +11,12 @@ export type TelegramGroupWriteOperation =
   | 'listInviteMembers' | 'approveJoinRequest' | 'declineJoinRequest' | 'approveAllJoinRequests' | 'declineAllJoinRequests'
   | 'listTopics' | 'createTopic' | 'editTopic' | 'setTopicClosed' | 'setTopicPinned' | 'reorderPinnedTopics'
   | 'deleteTopic' | 'setGeneralTopicHidden' | 'pinMessage' | 'unpinMessage' | 'unpinAllMessages' | 'deleteGroupMessages'
+export type TelegramGroupMutationOperation = Exclude<TelegramGroupWriteOperation,
+  | 'listInvites' | 'getInvite' | 'createInvite' | 'editInvite' | 'revokeInvite' | 'listInviteMembers'
+  | 'listTopics' | 'createTopic' | 'editTopic'>
 
 export type TelegramSerializable = null | boolean | number | string | readonly TelegramSerializable[] | { readonly [key: string]: TelegramSerializable }
-export interface TelegramGroupWriteResult { readonly operation: TelegramGroupWriteOperation; readonly chat_id: number; readonly target_id?: number | string; readonly effective_until?: string | null; readonly details?: Readonly<Record<string, TelegramSerializable>> }
+export interface TelegramGroupWriteResult<K extends TelegramGroupMutationOperation = TelegramGroupMutationOperation> { readonly operation: K; readonly chat_id: number; readonly target_id?: number | string; readonly effective_until?: string | null; readonly details?: Readonly<Record<string, TelegramSerializable>> }
 export interface TelegramGroupInviteRecord { readonly link: string; readonly title: string | null; readonly creator_id: number | null; readonly created_at: string | null; readonly expires_at: string | null; readonly usage_limit: number | null; readonly usage_count: number; readonly request_needed: boolean; readonly revoked: boolean }
 export interface TelegramGroupInvitePage { readonly chat_id: number; readonly invites: readonly TelegramGroupInviteRecord[]; readonly total: number | null }
 export interface TelegramGroupInviteMemberRecord { readonly user_id: number; readonly display_name: string; readonly username: string | null; readonly joined_at: string | null; readonly requested: boolean }
@@ -77,52 +80,52 @@ export interface TelegramUnpinMessageRequest extends MessageRequest {}
 export interface TelegramUnpinAllMessagesRequest extends ChatRequest {}
 export interface TelegramDeleteGroupMessagesRequest extends ChatRequest { readonly messageIds: readonly number[] }
 
-export type TelegramAddMembersResult = TelegramGroupWriteResult
-export type TelegramKickMemberResult = TelegramGroupWriteResult
-export type TelegramBanMemberResult = TelegramGroupWriteResult
-export type TelegramUnbanMemberResult = TelegramGroupWriteResult
-export type TelegramMuteMemberResult = TelegramGroupWriteResult
-export type TelegramUnmuteMemberResult = TelegramGroupWriteResult
-export type TelegramPurgeMemberResult = TelegramGroupWriteResult
-export type TelegramPromoteAdminResult = TelegramGroupWriteResult
-export type TelegramDemoteAdminResult = TelegramGroupWriteResult
-export type TelegramSetAdminRankResult = TelegramGroupWriteResult
-export type TelegramTransferOwnershipResult = TelegramGroupWriteResult
-export type TelegramSetTitleResult = TelegramGroupWriteResult
-export type TelegramSetDescriptionResult = TelegramGroupWriteResult
-export type TelegramSetUsernameResult = TelegramGroupWriteResult
-export type TelegramSetPhotoResult = TelegramGroupWriteResult
-export type TelegramSetSlowModeResult = TelegramGroupWriteResult
-export type TelegramSetTtlResult = TelegramGroupWriteResult
-export type TelegramSetContentProtectionResult = TelegramGroupWriteResult
-export type TelegramSetJoinRequestsResult = TelegramGroupWriteResult
-export type TelegramSetJoinToSendResult = TelegramGroupWriteResult
-export type TelegramSetDefaultPermissionsResult = TelegramGroupWriteResult
-export type TelegramSetStickerSetResult = TelegramGroupWriteResult
-export type TelegramLeaveGroupResult = TelegramGroupWriteResult
-export type TelegramDeleteGroupResult = TelegramGroupWriteResult
+export type TelegramAddMembersResult = TelegramGroupWriteResult<'addMembers'>
+export type TelegramKickMemberResult = TelegramGroupWriteResult<'kickMember'>
+export type TelegramBanMemberResult = TelegramGroupWriteResult<'banMember'>
+export type TelegramUnbanMemberResult = TelegramGroupWriteResult<'unbanMember'>
+export type TelegramMuteMemberResult = TelegramGroupWriteResult<'muteMember'>
+export type TelegramUnmuteMemberResult = TelegramGroupWriteResult<'unmuteMember'>
+export type TelegramPurgeMemberResult = TelegramGroupWriteResult<'purgeMember'>
+export type TelegramPromoteAdminResult = TelegramGroupWriteResult<'promoteAdmin'>
+export type TelegramDemoteAdminResult = TelegramGroupWriteResult<'demoteAdmin'>
+export type TelegramSetAdminRankResult = TelegramGroupWriteResult<'setAdminRank'>
+export type TelegramTransferOwnershipResult = TelegramGroupWriteResult<'transferOwnership'>
+export type TelegramSetTitleResult = TelegramGroupWriteResult<'setTitle'>
+export type TelegramSetDescriptionResult = TelegramGroupWriteResult<'setDescription'>
+export type TelegramSetUsernameResult = TelegramGroupWriteResult<'setUsername'>
+export type TelegramSetPhotoResult = TelegramGroupWriteResult<'setPhoto'>
+export type TelegramSetSlowModeResult = TelegramGroupWriteResult<'setSlowMode'>
+export type TelegramSetTtlResult = TelegramGroupWriteResult<'setTtl'>
+export type TelegramSetContentProtectionResult = TelegramGroupWriteResult<'setContentProtection'>
+export type TelegramSetJoinRequestsResult = TelegramGroupWriteResult<'setJoinRequests'>
+export type TelegramSetJoinToSendResult = TelegramGroupWriteResult<'setJoinToSend'>
+export type TelegramSetDefaultPermissionsResult = TelegramGroupWriteResult<'setDefaultPermissions'>
+export type TelegramSetStickerSetResult = TelegramGroupWriteResult<'setStickerSet'>
+export type TelegramLeaveGroupResult = TelegramGroupWriteResult<'leaveGroup'>
+export type TelegramDeleteGroupResult = TelegramGroupWriteResult<'deleteGroup'>
 export type TelegramListInvitesResult = TelegramGroupInvitePage
 export type TelegramGetInviteResult = TelegramGroupInviteResult
 export type TelegramCreateInviteResult = TelegramGroupInviteResult
 export type TelegramEditInviteResult = TelegramGroupInviteResult
 export type TelegramRevokeInviteResult = TelegramGroupInviteResult
 export type TelegramListInviteMembersResult = TelegramGroupInviteMemberPage
-export type TelegramApproveJoinRequestResult = TelegramGroupWriteResult
-export type TelegramDeclineJoinRequestResult = TelegramGroupWriteResult
-export type TelegramApproveAllJoinRequestsResult = TelegramGroupWriteResult
-export type TelegramDeclineAllJoinRequestsResult = TelegramGroupWriteResult
+export type TelegramApproveJoinRequestResult = TelegramGroupWriteResult<'approveJoinRequest'>
+export type TelegramDeclineJoinRequestResult = TelegramGroupWriteResult<'declineJoinRequest'>
+export type TelegramApproveAllJoinRequestsResult = TelegramGroupWriteResult<'approveAllJoinRequests'>
+export type TelegramDeclineAllJoinRequestsResult = TelegramGroupWriteResult<'declineAllJoinRequests'>
 export type TelegramListTopicsResult = TelegramGroupTopicPage
 export type TelegramCreateTopicResult = TelegramGroupTopicResult
 export type TelegramEditTopicResult = TelegramGroupTopicResult
-export type TelegramSetTopicClosedResult = TelegramGroupWriteResult
-export type TelegramSetTopicPinnedResult = TelegramGroupWriteResult
-export type TelegramReorderPinnedTopicsResult = TelegramGroupWriteResult
-export type TelegramDeleteTopicResult = TelegramGroupWriteResult
-export type TelegramSetGeneralTopicHiddenResult = TelegramGroupWriteResult
-export type TelegramPinMessageResult = TelegramGroupWriteResult
-export type TelegramUnpinMessageResult = TelegramGroupWriteResult
-export type TelegramUnpinAllMessagesResult = TelegramGroupWriteResult
-export type TelegramDeleteGroupMessagesResult = TelegramGroupWriteResult
+export type TelegramSetTopicClosedResult = TelegramGroupWriteResult<'setTopicClosed'>
+export type TelegramSetTopicPinnedResult = TelegramGroupWriteResult<'setTopicPinned'>
+export type TelegramReorderPinnedTopicsResult = TelegramGroupWriteResult<'reorderPinnedTopics'>
+export type TelegramDeleteTopicResult = TelegramGroupWriteResult<'deleteTopic'>
+export type TelegramSetGeneralTopicHiddenResult = TelegramGroupWriteResult<'setGeneralTopicHidden'>
+export type TelegramPinMessageResult = TelegramGroupWriteResult<'pinMessage'>
+export type TelegramUnpinMessageResult = TelegramGroupWriteResult<'unpinMessage'>
+export type TelegramUnpinAllMessagesResult = TelegramGroupWriteResult<'unpinAllMessages'>
+export type TelegramDeleteGroupMessagesResult = TelegramGroupWriteResult<'deleteGroupMessages'>
 
 export interface GroupWriteOperationRequestMap {
   addMembers: TelegramAddMembersRequest; kickMember: TelegramKickMemberRequest; banMember: TelegramBanMemberRequest; unbanMember: TelegramUnbanMemberRequest; muteMember: TelegramMuteMemberRequest; unmuteMember: TelegramUnmuteMemberRequest; purgeMember: TelegramPurgeMemberRequest
@@ -141,6 +144,8 @@ export interface GroupWriteOperationResultMap {
   listTopics: TelegramListTopicsResult; createTopic: TelegramCreateTopicResult; editTopic: TelegramEditTopicResult; setTopicClosed: TelegramSetTopicClosedResult; setTopicPinned: TelegramSetTopicPinnedResult; reorderPinnedTopics: TelegramReorderPinnedTopicsResult; deleteTopic: TelegramDeleteTopicResult; setGeneralTopicHidden: TelegramSetGeneralTopicHiddenResult
   pinMessage: TelegramPinMessageResult; unpinMessage: TelegramUnpinMessageResult; unpinAllMessages: TelegramUnpinAllMessagesResult; deleteGroupMessages: TelegramDeleteGroupMessagesResult
 }
+
+export type GroupWriteConfiguration = { [K in TelegramGroupWriteOperation]?: GroupWriteOperationResultMap[K] }
 
 export interface TelegramGroupWriteAdapter {
   addMembers(r: TelegramAddMembersRequest): Promise<TelegramAddMembersResult>; kickMember(r: TelegramKickMemberRequest): Promise<TelegramKickMemberResult>; banMember(r: TelegramBanMemberRequest): Promise<TelegramBanMemberResult>; unbanMember(r: TelegramUnbanMemberRequest): Promise<TelegramUnbanMemberResult>; muteMember(r: TelegramMuteMemberRequest): Promise<TelegramMuteMemberResult>; unmuteMember(r: TelegramUnmuteMemberRequest): Promise<TelegramUnmuteMemberResult>; purgeMember(r: TelegramPurgeMemberRequest): Promise<TelegramPurgeMemberResult>

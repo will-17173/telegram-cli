@@ -35,7 +35,7 @@ export type FakeTelegramGroupManagementOptions = {
   listMembersFailure?: Error
   getMemberFailure?: Error
   listAuditEventsFailure?: Error
-  writeResults?: { [K in W.TelegramGroupWriteOperation]?: W.GroupWriteOperationResultMap[K] }
+  writeResults?: W.GroupWriteConfiguration
   writeFailures?: Partial<Record<W.TelegramGroupWriteOperation, Error>>
 }
 
@@ -57,7 +57,7 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
   private readonly listMembersFailure?: Error
   private readonly getMemberFailure?: Error
   private readonly listAuditEventsFailure?: Error
-  private readonly writeResults: { [K in W.TelegramGroupWriteOperation]?: W.GroupWriteOperationResultMap[K] }
+  private readonly writeResults: W.GroupWriteConfiguration
   private readonly writeFailures: Partial<Record<W.TelegramGroupWriteOperation, Error>>
 
   constructor(options: FakeTelegramGroupManagementOptions = {}) {
@@ -193,11 +193,11 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
   unpinAllMessages = (r: W.TelegramUnpinAllMessagesRequest) => this.write('unpinAllMessages', r)
   deleteGroupMessages = (r: W.TelegramDeleteGroupMessagesRequest) => this.write('deleteGroupMessages', r)
 
-  private async write(operation: W.TelegramGroupWriteOperation, request: W.GroupWriteOperationRequestMap[W.TelegramGroupWriteOperation]): Promise<W.TelegramGroupWriteResult> {
+  private async write<K extends W.TelegramGroupMutationOperation>(operation: K, request: W.GroupWriteOperationRequestMap[K]): Promise<W.TelegramGroupWriteResult<K>> {
     this.recordWrite(operation, request)
     this.throwWriteFailure(operation)
     const configured = this.writeResults[operation]
-    if (configured != null) return cloneSerializable(configured) as W.TelegramGroupWriteResult
+    if (isMutationResultFor(configured, operation)) return cloneSerializable(configured)
     const source = request as { chat: W.GroupPeer; user?: W.GroupUser; topicId?: number; messageId?: number }
     return { operation, chat_id: numericPeer(source.chat), target_id: source.user ?? source.topicId ?? source.messageId }
   }
@@ -433,6 +433,13 @@ function defaultInvite(link?: string, options?: W.TelegramInviteOptions): W.Tele
 
 function cloneSerializable<T>(value: T): T {
   return structuredClone(value)
+}
+
+function isMutationResultFor<K extends W.TelegramGroupMutationOperation>(
+  result: W.TelegramGroupWriteResult | FakeGroupWriteResult | undefined,
+  operation: K,
+): result is W.TelegramGroupWriteResult<K> {
+  return result != null && 'operation' in result && result.operation === operation
 }
 
 function cloneGroup(group: TelegramGroupDetails): TelegramGroupDetails {

@@ -3,6 +3,7 @@ import { FakeTelegramGroupManagement } from '../../src/telegram/fake-group-manag
 import type {
   GroupWriteOperationRequestMap,
   GroupWriteOperationResultMap,
+  GroupWriteConfiguration,
   TelegramBanMemberRequest,
   TelegramGroupWriteResult,
   TelegramGroupWriteOperation,
@@ -12,6 +13,15 @@ const typedResults = {
   banMember: { operation: 'banMember', chat_id: 100 },
   listTopics: { chat_id: 100, topics: [], total: 0 },
 } satisfies Partial<GroupWriteOperationResultMap>
+
+const typedConfiguration = {
+  banMember: { operation: 'banMember', chat_id: 100 },
+} satisfies GroupWriteConfiguration
+
+const invalidConfiguration = {
+  // @ts-expect-error banMember configuration must retain its operation literal
+  banMember: { operation: 'setTitle', chat_id: 100 },
+} satisfies GroupWriteConfiguration
 
 const allOperations = [
   'addMembers', 'kickMember', 'banMember', 'unbanMember', 'muteMember', 'unmuteMember', 'purgeMember',
@@ -75,7 +85,7 @@ describe('FakeTelegramGroupManagement write operations', () => {
 
   it('returns a configured result and throws a configured failure', async () => {
     const request: TelegramBanMemberRequest = { chat: 100, user: 42, seconds: null }
-    const configured: TelegramGroupWriteResult = {
+    const configured: TelegramGroupWriteResult<'banMember'> = {
       operation: 'banMember',
       chat_id: 777,
       target_id: 42,
@@ -136,5 +146,7 @@ describe('FakeTelegramGroupManagement write operations', () => {
   it('provides an operation-to-request mapping for typed callers', () => {
     const request = { chat: 100, messageIds: [1, 2] } satisfies GroupWriteOperationRequestMap['deleteGroupMessages']
     expect(request.messageIds).toEqual([1, 2])
+    expect(typedConfiguration.banMember.operation).toBe('banMember')
+    expect(invalidConfiguration.banMember.operation).toBe('setTitle')
   })
 })
