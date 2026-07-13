@@ -17,6 +17,7 @@ import { createDialogsAdapter } from './mtcute-dialogs.js'
 import type { TelegramDialogAdapter } from './dialog-types.js'
 import type { TelegramFolderAdapter } from './folder-types.js'
 import type { TelegramNotificationAdapter } from './notification-types.js'
+import { createNotificationsAdapter } from './mtcute-notifications.js'
 
 type PeerShape = {
   type: string
@@ -40,7 +41,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     this.groups = new MtcuteGroupManagement(client, () => this.ensureReady())
     this.dialogs = createDialogsAdapter(client, () => this.ensureReady())
     this.contacts = createContactsAdapter(client, () => this.ensureReady())
-    this.notifications = unsupportedNotificationAdapter
+    this.notifications = createNotificationsAdapter(client, () => this.ensureReady())
     this.folders = unsupportedFolderAdapter
   }
 
@@ -317,11 +318,6 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
 
 }
 
-const unsupportedNotificationAdapter: TelegramNotificationAdapter = {
-  get: async () => settingsAdapterNotImplemented('notifications'),
-  setMuteUntil: async () => settingsAdapterNotImplemented('notifications'),
-}
-
 const unsupportedFolderAdapter: TelegramFolderAdapter = {
   list: async () => settingsAdapterNotImplemented('folders'),
   info: async () => settingsAdapterNotImplemented('folders'),
@@ -329,7 +325,7 @@ const unsupportedFolderAdapter: TelegramFolderAdapter = {
   removeChat: async () => settingsAdapterNotImplemented('folders'),
 }
 
-function settingsAdapterNotImplemented(adapter: 'notifications' | 'folders'): never {
+function settingsAdapterNotImplemented(adapter: 'folders'): never {
   throw new Error(`Telegram ${adapter} adapter is not implemented`)
 }
 
