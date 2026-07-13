@@ -133,11 +133,12 @@ export class MessageDB {
     const conditions = ['1=1']
     this.addFilters(conditions, params, options)
     if (options.before) {
-      conditions.push('(timestamp < ? OR (timestamp = ? AND id < ?))')
-      params.push(options.before.timestamp, options.before.timestamp, options.before.id)
+      conditions.push('(timestamp, id) < (?, ?)')
+      params.push(options.before.timestamp, options.before.id)
     }
+    const pagingIndex = options.chatId == null ? 'idx_messages_recent' : 'idx_messages_chat_recent'
     return this.db.prepare(`
-      SELECT * FROM messages
+      SELECT * FROM messages INDEXED BY ${pagingIndex}
       WHERE ${conditions.join(' AND ')}
       ORDER BY timestamp DESC, id DESC
       LIMIT ?

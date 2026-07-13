@@ -320,6 +320,50 @@ describe('MessageDB', () => {
     sqlite.close()
   })
 
+  it('uses range-seek indexes for global and chat-scoped cursor paging', () => {
+    const store = db()
+    const sqlite = (store as unknown as { db: Database.Database }).db
+    const originalPrepare = sqlite.prepare.bind(sqlite)
+    let recentSql = ''
+    sqlite.prepare = ((sql: string) => {
+      recentSql = sql
+      return originalPrepare(sql)
+    }) as typeof sqlite.prepare
+
+    store.getRecentPage({
+      before: { timestamp: '2026-03-09T12:00:00.000Z', id: 10 },
+      limit: 5,
+    })
+    sqlite.prepare = originalPrepare
+    const globalPlan = sqlite.prepare(`EXPLAIN QUERY PLAN ${recentSql}`).all(
+      '2026-03-09T12:00:00.000Z',
+      10,
+      5,
+    ) as Array<{ detail: string }>
+
+    recentSql = ''
+    sqlite.prepare = ((sql: string) => {
+      recentSql = sql
+      return originalPrepare(sql)
+    }) as typeof sqlite.prepare
+    store.getRecentPage({
+      chatId: 100,
+      before: { timestamp: '2026-03-09T12:00:00.000Z', id: 10 },
+      limit: 5,
+    })
+    sqlite.prepare = originalPrepare
+    const chatPlan = sqlite.prepare(`EXPLAIN QUERY PLAN ${recentSql}`).all(
+      100,
+      '2026-03-09T12:00:00.000Z',
+      10,
+      5,
+    ) as Array<{ detail: string }>
+
+    expect(globalPlan.some(({ detail }) => detail.includes('idx_messages_recent') && /timestamp[<]/.test(detail))).toBe(true)
+    expect(chatPlan.some(({ detail }) => detail.includes('idx_messages_chat_recent') && /chat_id=.*timestamp[<]/.test(detail))).toBe(true)
+    store.close()
+  })
+
   it('pages recent messages stably when timestamps are identical', () => {
     const store = db()
     store.insertBatch([
