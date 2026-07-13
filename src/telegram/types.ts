@@ -34,6 +34,20 @@ export type DownloadMessageMediaOptions = {
   onProgress?: (downloaded: number, total: number) => void
 }
 
+export type SendMediaOptions = {
+  chat: string | number
+  files: string[]
+  caption?: string
+  reply?: number
+}
+
+export type SendMediaResult = {
+  messages: Array<{
+    msg_id: number
+    sent_message?: StoredMessageInput
+  }>
+}
+
 export interface TelegramClientAdapter {
   readonly groups: TelegramGroupManagementAdapter
   close(): Promise<void>
@@ -46,6 +60,7 @@ export interface TelegramClientAdapter {
     msg_id: number
     sent_message?: StoredMessageInput
   }>
+  sendMedia(options: SendMediaOptions): Promise<SendMediaResult>
   editMessage(options: { chat: string | number; msgId: number; text: string; linkPreview: boolean }): Promise<void>
   deleteMessages(options: { chat: string | number; msgIds: number[] }): Promise<void>
   listen(options: {

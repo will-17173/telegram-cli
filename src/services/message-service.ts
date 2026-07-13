@@ -1,12 +1,23 @@
+import { accessSync, constants, statSync } from 'node:fs'
 import type { HandlerResult } from '../commands/types.js'
 import { actionDetail } from '../presenters/human.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
 
 type SendOptions = {
   chat: string
-  message: string
+  message?: string
+  files: string[]
   reply?: number
   linkPreview: boolean
+}
+
+type SendResult = {
+  sent: true
+  msg_id: number
+  msg_ids?: number[]
+  chat: string
+  files?: string[]
+  reply_to?: number
 }
 
 type EditOptions = {
@@ -24,16 +35,43 @@ type DeleteOptions = {
 export class MessageService {
   constructor(private readonly tg: TelegramClientAdapter) {}
 
-  async send(options: SendOptions): Promise<HandlerResult<{ sent: true; msg_id: number; chat: string; reply_to?: number }>> {
+  async send(options: SendOptions): Promise<HandlerResult<SendResult>> {
     const invalid = validateSend(options)
     if (invalid) return invalid
 
+    const message = options.message?.trim() ? options.message : undefined
     try {
-      const result = await this.tg.sendMessage(options)
-      const payload: { sent: true; msg_id: number; chat: string; reply_to?: number } = {
-        sent: true,
-        msg_id: result.msg_id,
+      if (options.files.length === 0) {
+        if (message == null) return invalidOption('Provide a message or at least one file.')
+        const result = await this.tg.sendMessage({
+          chat: options.chat,
+          message,
+          reply: options.reply,
+          linkPreview: options.linkPreview,
+        })
+        const payload: SendResult = {
+          sent: true,
+          msg_id: result.msg_id,
+          chat: options.chat,
+        }
+        if (options.reply != null) payload.reply_to = options.reply
+        return { ok: true, data: payload, human: actionDetail('Message Sent', payload) }
+      }
+
+      const result = await this.tg.sendMedia({
         chat: options.chat,
+        files: options.files,
+        ...(message == null ? {} : { caption: message }),
+        ...(options.reply == null ? {} : { reply: options.reply }),
+      })
+      const msgIds = result.messages.map((item) => item.msg_id)
+      if (msgIds.length === 0) throw new Error('Telegram returned no sent messages.')
+      const payload: SendResult = {
+        sent: true,
+        msg_id: msgIds[0],
+        msg_ids: msgIds,
+        chat: options.chat,
+        files: [...options.files],
       }
       if (options.reply != null) payload.reply_to = options.reply
       return { ok: true, data: payload, human: actionDetail('Message Sent', payload) }
@@ -71,8 +109,26 @@ export class MessageService {
 
 function validateSend(options: SendOptions): HandlerResult<never> | undefined {
   if (!options.chat.trim()) return invalidOption('chat must be a non-empty string.')
-  if (!options.message.trim()) return invalidOption('message must not be empty.')
   if (options.reply != null && !isPositiveInteger(options.reply)) return invalidOption('reply must be a positive integer.')
+  if (!options.message?.trim() && options.files.length === 0) {
+    return invalidOption('Provide a message or at least one file.')
+  }
+  for (const path of options.files) {
+    const invalid = validateFile(path)
+    if (invalid) return invalid
+  }
+  return undefined
+}
+
+function validateFile(path: string): HandlerResult<never> | undefined {
+  if (!path.trim()) return invalidOption('File path must be a non-empty string.')
+  try {
+    const stat = statSync(path)
+    if (!stat.isFile()) return invalidOption(`Path is not a file: ${path}`)
+    accessSync(path, constants.R_OK)
+  } catch {
+    return invalidOption(`File is not readable: ${path}`)
+  }
   return undefined
 }
 

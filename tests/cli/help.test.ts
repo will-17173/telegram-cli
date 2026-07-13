@@ -86,6 +86,19 @@ describe('cli help', () => {
     }
   })
 
+  it('documents send attachments and optional message text', () => {
+    const send = createApp().commands.find((command) => command.name() === 'send')
+    const help = send?.helpInformation() ?? ''
+
+    expect(send?.registeredArguments.map((argument) => ({ name: argument.name(), required: argument.required }))).toEqual([
+      { name: 'chat', required: true },
+      { name: 'message', required: false },
+    ])
+    expect(help).toContain('Usage: tg send [options] <chat> [message]')
+    expect(help).toContain('-f, --file <path>')
+    expect(help).toContain('File to attach (repeatable)')
+  })
+
   it('shows command purposes in top-level help', () => {
     const help = createApp().helpInformation()
 

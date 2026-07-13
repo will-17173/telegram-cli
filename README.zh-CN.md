@@ -130,6 +130,25 @@ tg listen <chat-or-id> --no-interactive --auto-download --no-media
 tg send <chat> "Hello from tg"
 ```
 
+## 发送消息和附件
+
+`send` 必须指定 `<chat>`。可以发送纯文本、一个或多个文件，或带说明文字的文件：
+
+```sh
+# 仅发送文本
+tg send <chat> "Text only"
+
+# 仅发送文件；重复使用 --file，并按指定顺序发送
+tg send <chat> --file ./photo.jpg --file ./clip.mp4
+
+# 发送说明文字和文件
+tg send <chat> "Group caption" --file ./photo.jpg --file ./clip.mp4
+```
+
+`--file` 可重复使用。多个文件会按指定顺序作为一个 Telegram 媒体组发送。只有提供至少一个文件时，消息文本才可省略。提供文件后，消息文本会成为媒体组的说明文字；CLI 不会另发一条纯文本消息。
+
+Telegram 决定可接受的文件组合和媒体组数量限制。如果 Telegram 拒绝所请求的组合或数量，命令会返回错误，不会静默拆分为多条消息或多个媒体组。
+
 ## 多账号
 
 每个 Telegram 账号都有独立持久化的身份验证会话和本地消息数据库。通过以下命令交互式登录并添加账号：
@@ -230,7 +249,7 @@ tg --help
 | `tg recent`, `tg today`, `tg stats`, `tg top`, `tg timeline` | 浏览本地消息数据。 |
 | `tg filter <keywords>` | 按关键词筛选本地消息（支持按聊天和时间范围过滤）。 |
 | `tg export <chat>` | 导出本地存储的消息。 |
-| `tg send <chat> "Hello from tg"` | 发送消息。 |
+| `tg send <chat> [message] [--file <path> ...]` | 发送文本、文件或带说明文字的媒体组。 |
 | `tg edit <chat> <msgId> <text>` | 编辑消息。 |
 | `tg delete <chat> <msgIds...>` | 删除一条或多条消息。 |
 | `tg purge <chat> --yes` | 移除某个聊天在本地存储的消息。 |

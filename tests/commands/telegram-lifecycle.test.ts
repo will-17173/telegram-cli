@@ -17,6 +17,9 @@ const client = vi.hoisted(() => ({
   ]),
   getChatInfo: vi.fn(async () => ({ id: '42', title: 'General' })),
   sendMessage: vi.fn(async () => ({ msg_id: 9 })),
+  sendMedia: vi.fn(async ({ files }: { files: string[] }) => ({
+    messages: files.map((_, index) => ({ msg_id: 10 + index })),
+  })),
   fetchHistory: vi.fn(async ({ chat }: { chat: string | number }) => [{
     platform: 'telegram', chat_id: Number(chat) || 42, chat_name: String(chat), msg_id: 1,
     sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
@@ -304,6 +307,66 @@ describe('Telegram command lifecycle', () => {
           { label: 'chat', value: 'General' },
         ],
       },
+    }, expect.any(Object))
+  })
+
+  it('sends text with repeatable files in command-line order', async () => {
+    const first = join(currentDataDir, 'first.jpg')
+    const second = join(currentDataDir, 'second.mp4')
+    writeFileSync(first, 'first')
+    writeFileSync(second, 'second')
+
+    await createApp().exitOverride().parseAsync([
+      'node', 'tg', 'send', 'General', 'caption', '--file', first, '-f', second, '--reply', '7', '--no-preview',
+    ])
+
+    expect(client.sendMedia).toHaveBeenCalledWith({
+      chat: 'General',
+      files: [first, second],
+      caption: 'caption',
+      reply: 7,
+    })
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: true,
+      data: { sent: true, msg_id: 10, msg_ids: [10, 11], chat: 'General', files: [first, second], reply_to: 7 },
+      human: {
+        kind: 'detail',
+        title: 'Message Sent',
+        fields: [
+          { label: 'sent', value: 'true', tone: 'success' },
+          { label: 'msg_id', value: '10' },
+          { label: 'msg_ids', value: '[10,11]' },
+          { label: 'chat', value: 'General' },
+          { label: 'files', value: `[\"${first}\",\"${second}\"]` },
+          { label: 'reply_to', value: '7' },
+        ],
+      },
+    }, expect.any(Object))
+  })
+
+  it('sends files without a message and does not leak files between app instances', async () => {
+    const file = join(currentDataDir, 'document.pdf')
+    writeFileSync(file, 'document')
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'send', 'General', '--file', file])
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'send', 'General'])
+
+    expect(client.sendMedia).toHaveBeenCalledOnce()
+    expect(client.sendMedia).toHaveBeenCalledWith({ chat: 'General', files: [file] })
+    expect(renderResult).toHaveBeenLastCalledWith({
+      ok: false,
+      error: { code: 'invalid_option', message: 'Provide a message or at least one file.' },
+    }, expect.any(Object))
+  })
+
+  it.each(['7junk', '1.5', '', '   '])('rejects malformed send reply value %j without sending', async (reply) => {
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'send', 'General', 'hello', '--reply', reply])
+
+    expect(client.sendMessage).not.toHaveBeenCalled()
+    expect(client.sendMedia).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: 'invalid_option', message: 'reply must be a positive integer.' },
     }, expect.any(Object))
   })
 

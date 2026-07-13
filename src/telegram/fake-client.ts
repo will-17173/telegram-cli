@@ -1,7 +1,7 @@
 import type { StoredMessageInput } from '../storage/message-db.js'
 import { FakeTelegramGroupManagement } from './fake-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
-import type { DownloadMessageMediaOptions, FetchHistoryOptions, TelegramChat, TelegramChatType, TelegramClientAdapter, TelegramUser } from './types.js'
+import type { DownloadMessageMediaOptions, FetchHistoryOptions, SendMediaOptions, SendMediaResult, TelegramChat, TelegramChatType, TelegramClientAdapter, TelegramUser } from './types.js'
 
 export type FakeTelegramClientOptions = {
   groupManagement?: TelegramGroupManagementAdapter
@@ -9,6 +9,7 @@ export type FakeTelegramClientOptions = {
   messagesByChat?: Record<string, StoredMessageInput[]>
   fetchFailures?: Record<string, Error>
   sendFailures?: Record<string, Error>
+  mediaSendFailures?: Record<string, Error>
   editFailures?: Record<string, Error>
   deleteFailures?: Record<string, Error>
   getCurrentUserFailure?: Error
@@ -23,6 +24,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   readonly fetchHistoryCalls: FetchHistoryOptions[] = []
   readonly downloadMessageMediaCalls: DownloadMessageMediaOptions[] = []
   readonly sendMessageCalls: Array<{ chat: string | number; message: string; reply?: number; linkPreview: boolean }> = []
+  readonly sendMediaCalls: SendMediaOptions[] = []
   readonly editMessageCalls: Array<{ chat: string | number; msgId: number; text: string; linkPreview: boolean }> = []
   readonly deleteMessagesCalls: Array<{ chat: string | number; msgIds: number[] }> = []
 
@@ -30,6 +32,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   private readonly messagesByChat: Record<string, StoredMessageInput[]>
   private readonly fetchFailures: Record<string, Error>
   private readonly sendFailures: Record<string, Error>
+  private readonly mediaSendFailures: Record<string, Error>
   private readonly editFailures: Record<string, Error>
   private readonly deleteFailures: Record<string, Error>
   private readonly getCurrentUserFailure?: Error
@@ -50,6 +53,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     }
     this.fetchFailures = options.fetchFailures ?? {}
     this.sendFailures = options.sendFailures ?? {}
+    this.mediaSendFailures = options.mediaSendFailures ?? {}
     this.editFailures = options.editFailures ?? {}
     this.deleteFailures = options.deleteFailures ?? {}
     this.getCurrentUserFailure = options.getCurrentUserFailure
@@ -103,6 +107,17 @@ export class FakeTelegramClient implements TelegramClientAdapter {
       ?? (chat == null ? undefined : this.sendFailures[chat.name])
     if (failure) throw failure
     return { msg_id: 99 }
+  }
+
+  async sendMedia(options: SendMediaOptions): Promise<SendMediaResult> {
+    this.sendMediaCalls.push({ ...options, files: [...options.files] })
+    const chat = this.findChat(options.chat)
+    const failure = this.mediaSendFailures[String(options.chat)]
+      ?? (chat == null ? undefined : this.mediaSendFailures[chat.name])
+    if (failure) throw failure
+    return {
+      messages: options.files.map((_, index) => ({ msg_id: 100 + index })),
+    }
   }
 
   async editMessage(options: { chat: string | number; msgId: number; text: string; linkPreview: boolean }): Promise<void> {
