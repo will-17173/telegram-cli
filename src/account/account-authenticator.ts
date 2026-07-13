@@ -100,7 +100,7 @@ function normalizeDisplayName(displayName: string): string {
 
 function throwAccountLoginError(cause: unknown): never {
   const message = cause instanceof Error ? cause.message : String(cause)
-  const error = new Error(`account_login_failed: ${message}`) as Error & { code?: string }
+  const error = new Error(message, { cause }) as Error & { code?: string }
   error.code = 'account_login_failed'
   throw error
 }

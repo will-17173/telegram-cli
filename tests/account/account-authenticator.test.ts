@@ -19,6 +19,8 @@ describe('authenticateAccountAt', () => {
     expect(createClient).toHaveBeenCalledWith(sessionPath)
     expect(result.user).toMatchObject({ id: 42, username: 'alice' })
     expect(result.close).toBeTypeOf('function')
+    await result.close()
+    expect(client.destroy).toHaveBeenCalledOnce()
   })
 
   it('destroys the client after start failure', async () => {
@@ -29,7 +31,27 @@ describe('authenticateAccountAt', () => {
     }
     const createClient = vi.fn(() => client)
 
-    await expect(authenticateAccountAt(sessionPath, createClient)).rejects.toThrow('account_login_failed')
+    await expect(authenticateAccountAt(sessionPath, createClient)).rejects.toMatchObject({
+      code: 'account_login_failed',
+      message: 'PHONE_CODE_INVALID',
+    })
     expect(client.destroy).toHaveBeenCalled()
+  })
+
+  it('destroys the client after getMe failure and preserves the coded error', async () => {
+    const failure = new Error('AUTH_KEY_UNREGISTERED')
+    const client = {
+      start: vi.fn(async () => undefined),
+      getMe: vi.fn().mockRejectedValue(failure),
+      destroy: vi.fn(async () => undefined),
+    }
+    const createClient = vi.fn(() => client)
+
+    await expect(authenticateAccountAt(sessionPath, createClient)).rejects.toMatchObject({
+      code: 'account_login_failed',
+      message: 'AUTH_KEY_UNREGISTERED',
+      cause: failure,
+    })
+    expect(client.destroy).toHaveBeenCalledOnce()
   })
 })
