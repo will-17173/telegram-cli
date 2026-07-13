@@ -3,12 +3,27 @@ import { describe, expect, it } from 'vitest'
 
 import {
   addPeerToFolder,
+  FolderOperationUnsupportedError,
   removePeerFromFolder,
 } from '../../src/telegram/mtcute-folders.js'
 
 const peer = { _: 'inputPeerUser', userId: 42, accessHash: Long.fromNumber(100) } as const
 const otherPeer = { _: 'inputPeerUser', userId: 7, accessHash: Long.fromNumber(200) } as const
 const channelPeer = { _: 'inputPeerChannel', channelId: 42, accessHash: Long.fromNumber(300) } as const
+const userFromMessagePeer = {
+  _: 'inputPeerUserFromMessage',
+  peer: channelPeer,
+  msgId: 10,
+  userId: 42,
+} as const
+const dummyUserPeer = { _: 'mtcute.dummyInputPeerMinUser', userId: 42 } as const
+const channelFromMessagePeer = {
+  _: 'inputPeerChannelFromMessage',
+  peer,
+  msgId: 11,
+  channelId: 42,
+} as const
+const dummyChannelPeer = { _: 'mtcute.dummyInputPeerMinChannel', channelId: 42 } as const
 
 describe('addPeerToFolder', () => {
   it('explicitly includes a peer', () => {
@@ -50,10 +65,50 @@ describe('addPeerToFolder', () => {
     })
   })
 
+  it('compares basic chat peers by chat ID', () => {
+    const existingChat = { _: 'inputPeerChat', chatId: 42 } as const
+    const equivalentChat = { _: 'inputPeerChat', chatId: 42 } as const
+
+    expect(addPeerToFolder(createFolder({ includePeers: [existingChat] }), equivalentChat))
+      .toEqual({ changed: false, modification: {} })
+  })
+
+  it('keeps self and empty peer identities distinct', () => {
+    const self = { _: 'inputPeerSelf' } as const
+    const empty = { _: 'inputPeerEmpty' } as const
+
+    expect(addPeerToFolder(createFolder({ includePeers: [self] }), empty)).toEqual({
+      changed: true,
+      modification: { includePeers: [self, empty], excludePeers: [] },
+    })
+  })
+
   it('reports unchanged when an equivalent peer is already included and not excluded', () => {
     const equivalentPeer = { ...peer, accessHash: Long.fromNumber(999) }
 
     expect(addPeerToFolder(createFolder({ includePeers: [equivalentPeer] }), peer))
+      .toEqual({ changed: false, modification: {} })
+  })
+
+  it('canonicalizes standard, from-message, and dummy user constructors', () => {
+    const folder = createFolder({
+      includePeers: [peer],
+      excludePeers: [dummyUserPeer],
+    })
+
+    expect(addPeerToFolder(folder, userFromMessagePeer)).toEqual({
+      changed: true,
+      modification: { includePeers: [peer], excludePeers: [] },
+    })
+  })
+
+  it('is unchanged after applying its returned modification', () => {
+    const folder = createFolder({ excludePeers: [dummyUserPeer] })
+    const first = addPeerToFolder(folder, userFromMessagePeer)
+    const modifiedFolder = { ...folder, ...first.modification }
+
+    expect(first.changed).toBe(true)
+    expect(addPeerToFolder(modifiedFolder, peer))
       .toEqual({ changed: false, modification: {} })
   })
 })
@@ -100,6 +155,40 @@ describe('removePeerFromFolder', () => {
       .toEqual({ changed: false, modification: {} })
   })
 
+  it('canonicalizes standard, from-message, and dummy channel constructors on removal', () => {
+    const folder = createFolder({
+      groups: true,
+      includePeers: [channelPeer],
+      pinnedPeers: [channelFromMessagePeer],
+    })
+
+    expect(removePeerFromFolder(folder, dummyChannelPeer, 'supergroup')).toEqual({
+      changed: true,
+      modification: {
+        includePeers: [],
+        pinnedPeers: [],
+        excludePeers: [dummyChannelPeer],
+      },
+    })
+  })
+
+  it('is immutable and unchanged after applying a dynamic removal modification', () => {
+    const folder = createFolder({ groups: true })
+    const snapshot = structuredClone(folder)
+    Object.freeze(folder.includePeers)
+    Object.freeze(folder.excludePeers)
+    Object.freeze(folder.pinnedPeers)
+    Object.freeze(folder)
+
+    const first = removePeerFromFolder(folder, channelFromMessagePeer, 'group')
+    const modifiedFolder = { ...folder, ...first.modification }
+
+    expect(first.changed).toBe(true)
+    expect(folder).toEqual(snapshot)
+    expect(removePeerFromFolder(modifiedFolder, dummyChannelPeer, 'group'))
+      .toEqual({ changed: false, modification: {} })
+  })
+
   it.each([
     ['contacts', 'contact'],
     ['nonContacts', 'non-contact'],
@@ -139,7 +228,15 @@ describe('removePeerFromFolder', () => {
     } as tl.RawDialogFilterChatlist & Pick<tl.RawDialogFilter, 'groups'>
 
     expect(() => removePeerFromFolder(folder, peer, 'group'))
-      .toThrow(/folder_operation_unsupported/)
+      .toThrow(FolderOperationUnsupportedError)
+    try {
+      removePeerFromFolder(folder, peer, 'group')
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: 'folder_operation_unsupported',
+        message: 'This folder type does not support exclusions.',
+      })
+    }
   })
 
   it('allows explicit include and pin removal from a chatlist without an exclusion', () => {

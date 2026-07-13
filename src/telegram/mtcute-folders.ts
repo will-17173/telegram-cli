@@ -22,6 +22,15 @@ export interface FolderTransformResult {
   modification: FolderPeerModification
 }
 
+export class FolderOperationUnsupportedError extends Error {
+  readonly code = 'folder_operation_unsupported'
+
+  constructor() {
+    super('This folder type does not support exclusions.')
+    this.name = 'FolderOperationUnsupportedError'
+  }
+}
+
 export function addPeerToFolder(
   folder: RawFolder,
   peer: tl.TypeInputPeer,
@@ -70,9 +79,7 @@ export function removePeerFromFolder(
 
   if (folder._ === 'dialogFilterChatlist') {
     if (dynamicallyIncluded) {
-      throw new Error(
-        'folder_operation_unsupported: chatlist folders cannot represent exclusions',
-      )
+      throw new FolderOperationUnsupportedError()
     }
     if (!includeChanged && !pinsChanged) return unchangedResult()
 
@@ -127,26 +134,34 @@ function peersAreEquivalent(
   left: tl.TypeInputPeer,
   right: tl.TypeInputPeer,
 ): boolean {
-  if (left._ !== right._) return false
+  const leftIdentity = peerIdentity(left)
+  const rightIdentity = peerIdentity(right)
 
-  return peerNumericId(left) === peerNumericId(right)
+  return leftIdentity.kind === rightIdentity.kind
+    && leftIdentity.id === rightIdentity.id
 }
 
-function peerNumericId(peer: tl.TypeInputPeer): number | null {
+interface PeerIdentity {
+  kind: 'user' | 'channel' | 'chat' | 'self' | 'empty'
+  id: number | null
+}
+
+function peerIdentity(peer: tl.TypeInputPeer): PeerIdentity {
   switch (peer._) {
     case 'inputPeerChat':
-      return peer.chatId
+      return { kind: 'chat', id: peer.chatId }
     case 'inputPeerUser':
     case 'inputPeerUserFromMessage':
     case 'mtcute.dummyInputPeerMinUser':
-      return peer.userId
+      return { kind: 'user', id: peer.userId }
     case 'inputPeerChannel':
     case 'inputPeerChannelFromMessage':
     case 'mtcute.dummyInputPeerMinChannel':
-      return peer.channelId
+      return { kind: 'channel', id: peer.channelId }
     case 'inputPeerEmpty':
+      return { kind: 'empty', id: null }
     case 'inputPeerSelf':
-      return null
+      return { kind: 'self', id: null }
   }
 }
 
