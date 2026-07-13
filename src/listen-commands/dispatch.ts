@@ -13,25 +13,18 @@ import {
 
 type ReplyCommand = Extract<ListenComposerCommand, { kind: 'reply' }>
 
-export type ListenCommandDispatchResult =
+export type ListenCommandParseResult =
   | { readonly kind: 'complete'; readonly input: string }
   | { readonly kind: 'reply'; readonly command: ReplyCommand }
   | { readonly kind: 'group'; readonly request: ParsedGroupCommandRequest }
   | { readonly kind: 'error'; readonly message: string; readonly usage?: string }
 
-export interface ListenCommandExecutionOutcome {
-  readonly status: string
-}
+export type ExecutableListenCommand = Extract<ListenCommandParseResult, { kind: 'reply' | 'group' }>
 
-export interface ListenCommandExecutors {
-  readonly executeReply: (command: ReplyCommand) => Promise<ListenCommandExecutionOutcome>
-  readonly executeGroup: (request: ParsedGroupCommandRequest) => Promise<ListenCommandExecutionOutcome>
-}
-
-export function dispatchListenCommand(
+export function parseSelectedListenCommand(
   input: string,
   selected: ListenCommandMatch,
-): ListenCommandDispatchResult {
+): ListenCommandParseResult {
   if (!LISTEN_COMMANDS.includes(selected.definition)) {
     return { kind: 'error', message: 'Selected command is not canonical' }
   }
@@ -70,11 +63,15 @@ export function dispatchListenCommand(
   return { kind: 'group', request: parsed.request }
 }
 
-export function executeSelectedListenCommand(
-  selected: ListenCommandDispatchResult,
-  executors: ListenCommandExecutors,
-): Promise<ListenCommandExecutionOutcome> {
-  if (selected.kind === 'reply') return executors.executeReply(selected.command)
-  if (selected.kind === 'group') return executors.executeGroup(selected.request)
-  return Promise.reject(new Error(`Cannot execute listen command result: ${selected.kind}`))
+export async function executeSelectedListenCommand<RReply, RGroup>(
+  selected: ExecutableListenCommand,
+  executors: {
+    readonly executeReply: (command: ReplyCommand) => Promise<RReply>
+    readonly executeGroup: (request: ParsedGroupCommandRequest) => Promise<RGroup>
+  },
+): Promise<{ readonly kind: 'reply'; readonly result: RReply } | { readonly kind: 'group'; readonly result: RGroup }> {
+  if (selected.kind === 'reply') {
+    return { kind: 'reply', result: await executors.executeReply(selected.command) }
+  }
+  return { kind: 'group', result: await executors.executeGroup(selected.request) }
 }
