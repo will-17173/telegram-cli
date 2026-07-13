@@ -16,6 +16,7 @@ import type { TelegramContactAdapter } from './contact-types.js'
 import { createDialogsAdapter } from './mtcute-dialogs.js'
 import type { TelegramDialogAdapter } from './dialog-types.js'
 import type { TelegramFolderAdapter } from './folder-types.js'
+import { createFoldersAdapter } from './mtcute-folders.js'
 import type { TelegramNotificationAdapter } from './notification-types.js'
 import { createNotificationsAdapter } from './mtcute-notifications.js'
 
@@ -42,7 +43,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     this.dialogs = createDialogsAdapter(client, () => this.ensureReady())
     this.contacts = createContactsAdapter(client, () => this.ensureReady())
     this.notifications = createNotificationsAdapter(client, () => this.ensureReady())
-    this.folders = unsupportedFolderAdapter
+    this.folders = createFoldersAdapter(client, () => this.ensureReady())
   }
 
   async close(): Promise<void> {
@@ -316,17 +317,6 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     }
   }
 
-}
-
-const unsupportedFolderAdapter: TelegramFolderAdapter = {
-  list: async () => settingsAdapterNotImplemented('folders'),
-  info: async () => settingsAdapterNotImplemented('folders'),
-  addChat: async () => settingsAdapterNotImplemented('folders'),
-  removeChat: async () => settingsAdapterNotImplemented('folders'),
-}
-
-function settingsAdapterNotImplemented(adapter: 'folders'): never {
-  throw new Error(`Telegram ${adapter} adapter is not implemented`)
 }
 
 function normalizeChatId(chat: string | number): string | number {

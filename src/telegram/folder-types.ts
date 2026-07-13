@@ -26,9 +26,37 @@ export type TelegramFolderChat = {
 
 export type TelegramFolderDetail = TelegramFolderSummary & {
   rules: TelegramFolderRules
+  /** Effective membership after Telegram applies dynamic include/exclude rules. */
+  chats?: TelegramFolderChat[]
   included_chats: TelegramFolderChat[]
   excluded_chats: TelegramFolderChat[]
   pinned_chats: TelegramFolderChat[]
+}
+
+export type TelegramFolderErrorCode =
+  | 'folder_not_found'
+  | 'ambiguous_folder'
+  | 'chat_not_found'
+  | 'folder_operation_unsupported'
+  | 'flood_wait'
+  | 'telegram_error'
+
+export class TelegramFolderError extends Error {
+  readonly code: TelegramFolderErrorCode
+  readonly candidate_ids?: number[]
+  readonly seconds?: number
+
+  constructor(
+    code: TelegramFolderErrorCode,
+    message: string,
+    details: { candidate_ids?: number[]; seconds?: number } = {},
+  ) {
+    super(message)
+    this.name = 'TelegramFolderError'
+    this.code = code
+    this.candidate_ids = details.candidate_ids
+    this.seconds = details.seconds
+  }
 }
 
 export type TelegramFolderChatResult = {
