@@ -100,12 +100,14 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
 
   async fetchHistory(options: FetchHistoryOptions): Promise<StoredMessageInput[]> {
     await this.ensureReady()
-    const history = await this.client.getHistory(normalizeChatId(options.chat), {
+    const rows: StoredMessageInput[] = []
+    for await (const message of this.client.iterHistory(normalizeChatId(options.chat), {
       limit: options.limit,
       minId: options.minId,
-    })
-    const rows = history.map((message) => toStoredMessage(message))
-    options.onProgress?.(rows.length)
+    })) {
+      rows.push(toStoredMessage(message))
+      options.onProgress?.(rows.length)
+    }
     return rows
   }
 
