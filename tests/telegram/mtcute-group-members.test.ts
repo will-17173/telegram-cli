@@ -187,6 +187,22 @@ describe('MtcuteGroupMembers', () => {
     expect(JSON.stringify(error)).not.toContain(password)
   })
 
+  it.each([
+    [new tl.RpcError(420, 'FLOOD_WAIT_14'), TelegramGroupFloodWaitError, { seconds: 14 }],
+    [new tl.RpcError(400, 'CHAT_ADMIN_REQUIRED'), TelegramGroupAdminRequiredError, undefined],
+    [new tl.RpcError(400, 'RIGHT_FORBIDDEN'), TelegramGroupAdminRequiredError, undefined],
+    [new tl.RpcError(400, 'PEER_ID_INVALID'), TelegramGroupMemberNotFoundError, undefined],
+  ])('preserves ordinary ownership write error %s for numeric targets', async (failure, ExpectedError, details) => {
+    const password = 'ownership-secret'
+    const client = mockClient({ transferChatOwnership: vi.fn().mockRejectedValue(failure) })
+    const error = await new MtcuteGroupMembers(client, vi.fn())
+      .transferOwnership({ chat: -100123, user: 7, password }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ExpectedError)
+    if (details !== undefined) expect(error).toMatchObject(details)
+    expect(JSON.stringify(error)).not.toContain(password)
+  })
+
   it('resolves username targets to real member IDs instead of fabricating them', async () => {
     const client = mockClient({ getChatMember: vi.fn().mockResolvedValue(member(42)) })
     const result = await new MtcuteGroupMembers(client, vi.fn()).kickMember({ chat: '@group', user: '@person' })

@@ -17,6 +17,7 @@ import { WriteAccessPolicy } from './write-access-policy.js'
 export type ParsedGroupWriteRequest = ParsedGroupCommandRequest & { readonly chat: string | number }
 export type GroupWriteExecutionSecrets = { readonly ownershipPassword?: string }
 export type GroupWriteServiceResult = GroupWriteOperationResultMap[TelegramGroupWriteOperation]
+export type TransferOwnershipGroupWriteRequest = Extract<ParsedGroupWriteRequest, { readonly key: 'admin transfer-owner' }>
 type HandlerContext<K extends GroupCommandKey> = { readonly chat: string | number; readonly values: GroupCommandValuesByKey[K] }
 type CommandHandler<K extends GroupCommandKey> = (context: HandlerContext<K>, groups: TelegramGroupManagementAdapter, secrets?: GroupWriteExecutionSecrets) => Promise<GroupWriteServiceResult>
 type CommandHandlers = { readonly [K in GroupCommandKey]: CommandHandler<K> }
@@ -96,6 +97,12 @@ export class GroupWriteService {
     private readonly writePolicy: WriteAccessPolicy = new WriteAccessPolicy(),
   ) {}
 
+  async execute<R extends ParsedGroupWriteRequest>(
+    request: R,
+    ...execution: R extends TransferOwnershipGroupWriteRequest
+      ? [secrets: GroupWriteExecutionSecrets & { readonly ownershipPassword: string }]
+      : [secrets?: never]
+  ): Promise<HandlerResult<GroupWriteServiceResult>>
   async execute(
     request: ParsedGroupWriteRequest,
     secrets: GroupWriteExecutionSecrets = {},
@@ -183,19 +190,49 @@ function dispatch(request: ParsedGroupWriteRequest, groups: TelegramGroupManagem
 function groupWriteFailure(error: unknown, secret?: string): HandlerResult<never> {
   if (error instanceof TelegramGroupNotFoundError) return failure('group_not_found', 'Telegram group not found.')
   if (error instanceof TelegramGroupMemberNotFoundError) return failure('member_not_found', 'Telegram group member not found.')
-  if (error instanceof TelegramGroupMembersNotAddedError) return failure('members_not_added', error.message, { chat: error.chat, missing: error.missing.map(item => ({ ...item })) })
+  if (error instanceof TelegramGroupMembersNotAddedError) {
+    return failure('members_not_added', 'Telegram group members were not added.', membersNotAddedDetails(error, secret))
+  }
   if (error instanceof TelegramGroupAdminRequiredError) return failure('admin_required', 'Telegram group administrator privileges are required.')
-  if (error instanceof TelegramGroupMissingPermissionError) return failure('permission_missing', error.message, { permission: error.permission })
-  if (error instanceof TelegramUnsupportedGroupTypeError) return failure('unsupported_group', error.message, { chat: error.chat })
-  if (error instanceof TelegramGroupFloodWaitError) return failure('flood_wait', error.message, { seconds: error.seconds })
-  if (error instanceof TelegramGroupPasswordRequiredError) return failure('password_required', error.message)
+  if (error instanceof TelegramGroupMissingPermissionError) {
+    return failure('permission_missing', 'Required Telegram group permission is missing.', isAdminRight(error.permission) ? { permission: error.permission } : undefined)
+  }
+  if (error instanceof TelegramUnsupportedGroupTypeError) {
+    return failure('unsupported_group', 'Unsupported Telegram group type.', safePeer(error.chat, secret) == null ? undefined : { chat: error.chat })
+  }
+  if (error instanceof TelegramGroupFloodWaitError) return failure('flood_wait', 'Telegram flood wait is required.', secondsDetails(error.seconds))
+  if (error instanceof TelegramGroupPasswordRequiredError) return failure('password_required', 'Telegram account password required.')
   if (error instanceof TelegramGroupPasswordInvalidError) {
     return failure('password_invalid', 'Telegram account password is invalid.')
   }
-  if (error instanceof TelegramGroupPasswordTooFreshError) return failure('password_too_fresh', error.message, { seconds: error.seconds })
-  if (error instanceof TelegramGroupSessionTooFreshError) return failure('session_too_fresh', error.message, { seconds: error.seconds })
-  if (error instanceof TelegramGroupOwnershipTransferError) return failure('telegram_error', error.message)
+  if (error instanceof TelegramGroupPasswordTooFreshError) return failure('password_too_fresh', 'Telegram account password is too fresh.', secondsDetails(error.seconds))
+  if (error instanceof TelegramGroupSessionTooFreshError) return failure('session_too_fresh', 'Telegram account session is too fresh.', secondsDetails(error.seconds))
+  if (error instanceof TelegramGroupOwnershipTransferError) return failure('telegram_error', 'Telegram group ownership transfer failed.')
+  if (secret != null) return failure('telegram_error', 'Telegram request failed.')
   const message = error instanceof Error && error.message.trim() ? error.message : 'Telegram request failed.'
-  return failure('telegram_error', secret && message.includes(secret) ? 'Telegram request failed.' : message)
+  return failure('telegram_error', message)
 }
 function failure(code: string, message: string, details?: unknown): HandlerResult<never> { return { ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } } }
+
+function secondsDetails(seconds: unknown): { readonly seconds: number } | undefined {
+  return typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0 ? { seconds } : undefined
+}
+
+function safePeer(peer: unknown, secret?: string): string | number | undefined {
+  if (typeof peer === 'number') return Number.isFinite(peer) ? peer : undefined
+  if (typeof peer !== 'string' || (secret != null && peer.includes(secret))) return undefined
+  return peer
+}
+
+function membersNotAddedDetails(error: TelegramGroupMembersNotAddedError, secret?: string): unknown {
+  const chat = safePeer(error.chat, secret)
+  if (chat == null || !Array.isArray(error.missing)) return undefined
+  const missing = error.missing.flatMap((item) => {
+    if (item == null || typeof item !== 'object') return []
+    const userId = safePeer(item.user_id, secret)
+    const reason = item.reason
+    if (userId == null || !['privacy', 'premium_would_allow_invite', 'premium_required_for_pm', 'peer_invalid'].includes(reason)) return []
+    return [{ user_id: userId, reason }]
+  })
+  return { chat, missing }
+}

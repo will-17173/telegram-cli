@@ -130,6 +130,8 @@ describe('FakeTelegramGroupManagement write operations', () => {
     expect(fake.writeCalls.slice(-4).map((call) => call.operation)).toEqual([
       'transferOwnership', 'leaveGroup', 'approveJoinRequest', 'deleteGroupMessages',
     ])
+    expect(fake.writeCalls[0]).toEqual({ operation: 'transferOwnership', request: { chat: 100, user: 1 } })
+    expect(JSON.stringify(fake.writeCalls)).not.toContain('secret')
   })
 
   it('deep clones configured results on construction and on every return', async () => {

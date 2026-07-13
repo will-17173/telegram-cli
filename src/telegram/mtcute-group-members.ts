@@ -3,6 +3,8 @@ import type { Chat, ChatMember, TelegramClient } from '@mtcute/node'
 
 import type { TelegramGroupRestrictions } from './group-types.js'
 import {
+  TelegramGroupAdminRequiredError,
+  TelegramGroupFloodWaitError,
   TelegramGroupMemberNotFoundError,
   TelegramGroupMembersNotAddedError,
   TelegramGroupNotFoundError,
@@ -104,7 +106,7 @@ export class MtcuteGroupMembers {
     try {
       await this.client.transferChatOwnership({ chatId, userId: targetId, password: request.password })
     } catch (error) {
-      throwOwnershipTransferError(error)
+      throwOwnershipTransferError(error, request.chat, request.user)
     }
     return { operation: 'transferOwnership', chat_id: group.id, target_id: targetId }
   }
@@ -155,7 +157,7 @@ function mapRestrictions(value: TelegramGroupRestrictions): Omit<tl.RawChatBanne
   }
 }
 
-function throwOwnershipTransferError(error: unknown): never {
+function throwOwnershipTransferError(error: unknown, chat: string | number, user: string | number): never {
   if (tl.RpcError.is(error, 'PASSWORD_HASH_INVALID')) throw new TelegramGroupPasswordInvalidError()
   if (tl.RpcError.is(error, 'PASSWORD_TOO_FRESH_%d')) throw new TelegramGroupPasswordTooFreshError(error.seconds)
   if (tl.RpcError.is(error, 'SESSION_TOO_FRESH_%d')) throw new TelegramGroupSessionTooFreshError(error.seconds)
@@ -165,5 +167,15 @@ function throwOwnershipTransferError(error: unknown): never {
     || tl.RpcError.is(error, 'PASSWORD_MISSING')
     || tl.RpcError.is(error, 'PASSWORD_REQUIRED')
   ) throw new TelegramGroupPasswordRequiredError()
+  try {
+    throwWriteError(error, chat, user)
+  } catch (mapped) {
+    if (
+      mapped instanceof TelegramGroupFloodWaitError
+      || mapped instanceof TelegramGroupAdminRequiredError
+      || mapped instanceof TelegramGroupMemberNotFoundError
+      || mapped instanceof TelegramGroupNotFoundError
+    ) throw mapped
+  }
   throw new TelegramGroupOwnershipTransferError()
 }
