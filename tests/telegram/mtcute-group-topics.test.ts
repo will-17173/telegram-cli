@@ -1,7 +1,7 @@
-import type { TelegramClient } from '@mtcute/node'
+import { Long, tl, type TelegramClient } from '@mtcute/node'
 import { describe, expect, it, vi } from 'vitest'
 import { MtcuteGroupTopics } from '../../src/telegram/mtcute-group-topics.js'
-import { TelegramUnsupportedGroupTypeError } from '../../src/telegram/group-types.js'
+import { TelegramGroupFloodWaitError, TelegramUnsupportedGroupTypeError } from '../../src/telegram/group-types.js'
 
 describe('MtcuteGroupTopics', () => {
   it('lists normalized forum topics with the requested bound', async () => {
@@ -9,7 +9,7 @@ describe('MtcuteGroupTopics', () => {
     const client = mock({ getForumTopics: vi.fn().mockResolvedValue(rows) })
     const result = await new MtcuteGroupTopics(client, vi.fn()).listTopics({ chat: -100123, limit: 2 })
     expect(client.getForumTopics).toHaveBeenCalledWith(-100123, { limit: 2 })
-    expect(result).toMatchObject({ total: 8, topics: [{ id: 4, icon_emoji_id: '99', closed: true, hidden: true }] })
+    expect(result).toEqual({ chat_id: -100123, total: 8, topics: [{ id: 4, title: 'News', icon_color: 1, icon_emoji_id: '99', closed: true, pinned: false, hidden: true }] })
   })
 
   it('uses exact topic mutation method parameters', async () => {
@@ -34,6 +34,28 @@ describe('MtcuteGroupTopics', () => {
     expect(client.getForumTopics).not.toHaveBeenCalled()
   })
 
+  it('passes exact create/edit icon variants and clearing semantics', async () => {
+    const topic = { id: 404, title: 'T', iconColor: 0x6fb9f0, iconCustomEmoji: Long.fromString('99'), isClosed: false, isPinned: true, raw: { hidden: false } }
+    const client = mock({ createForumTopic: vi.fn().mockResolvedValue({ id: 404 }), editForumTopic: vi.fn(), getForumTopicsById: vi.fn().mockResolvedValue([topic]) })
+    const adapter = new MtcuteGroupTopics(client, vi.fn())
+    const created = await adapter.createTopic({ chat: -100123, title: 'Color', iconColor: 0x6fb9f0 })
+    await adapter.createTopic({ chat: -100123, title: 'Emoji', iconEmojiId: '99' })
+    await adapter.editTopic({ chat: -100123, topicId: 404, title: 'Rename', iconEmojiId: null })
+    await adapter.editTopic({ chat: -100123, topicId: 404 })
+    expect(client.createForumTopic).toHaveBeenNthCalledWith(1, { chatId: -100123, title: 'Color', icon: 0x6fb9f0 })
+    expect(client.createForumTopic).toHaveBeenNthCalledWith(2, { chatId: -100123, title: 'Emoji', icon: Long.fromString('99') })
+    expect(client.editForumTopic).toHaveBeenNthCalledWith(1, { chatId: -100123, topicId: 404, title: 'Rename', icon: null })
+    expect(client.editForumTopic).toHaveBeenNthCalledWith(2, { chatId: -100123, topicId: 404, title: undefined, icon: undefined })
+    expect(client.getForumTopicsById).toHaveBeenCalledWith(-100123, [404])
+    expect(created.topic).toEqual({ id: 404, title: 'T', icon_color: 0x6fb9f0, icon_emoji_id: '99', closed: false, pinned: true, hidden: false })
+  })
+
+  it.each([undefined, -1, 1.5, Number.NaN])('normalizes invalid topic totals (%s)', async (total) => {
+    const rows = [] as unknown[] & { total?: number }; rows.total = total
+    const result = await new MtcuteGroupTopics(mock({ getForumTopics: vi.fn().mockResolvedValue(rows) }), vi.fn()).listTopics({ chat: -100123, limit: 2 })
+    expect(result.total).toBeNull()
+  })
+
   it('covers every remaining topic mutation with exact parameters', async () => {
     const client = mock({ toggleForumTopicPinned: vi.fn(), toggleGeneralTopicHidden: vi.fn() })
     const adapter = new MtcuteGroupTopics(client, vi.fn())
@@ -49,6 +71,12 @@ describe('MtcuteGroupTopics', () => {
     await expect(new MtcuteGroupTopics(client, async () => { order.push('ready') }).listTopics({ chat: -100123, limit: 2 })).rejects.toBeInstanceOf(TelegramUnsupportedGroupTypeError)
     expect(order).toEqual(['ready', 'chat'])
     expect(client.getForumTopics).not.toHaveBeenCalled()
+  })
+
+  it('maps topic flood errors and rethrows unknown errors', async () => {
+    await expect(new MtcuteGroupTopics(mock({ getForumTopics: vi.fn().mockRejectedValue(new tl.RpcError(420, 'FLOOD_WAIT_8')) }), vi.fn()).listTopics({ chat: -100123, limit: 1 })).rejects.toBeInstanceOf(TelegramGroupFloodWaitError)
+    const failure = new Error('topic unknown')
+    await expect(new MtcuteGroupTopics(mock({ getForumTopics: vi.fn().mockRejectedValue(failure) }), vi.fn()).listTopics({ chat: -100123, limit: 1 })).rejects.toBe(failure)
   })
 })
 function mock(overrides: Record<string, unknown> = {}): TelegramClient & Record<string, ReturnType<typeof vi.fn>> { return { getChat: vi.fn().mockResolvedValue({ type: 'chat', id: -100123, chatType: 'supergroup', title: 'G', isForum: true }), getForumTopics: vi.fn().mockResolvedValue([]), getForumTopicsById: vi.fn().mockResolvedValue([]), toggleForumTopicClosed: vi.fn(), reorderPinnedForumTopics: vi.fn(), deleteForumTopicHistory: vi.fn(), ...overrides } as never }

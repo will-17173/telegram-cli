@@ -34,6 +34,18 @@ describe('MtcuteGroupManagement write delegation', () => {
   it.each(settings)('delegates settings method %s', async (method, request) => assertDelegate(MtcuteGroupSettings, method, request))
   it.each(invites)('delegates invite method %s', async (method, request) => assertDelegate(MtcuteGroupInvites, method, request))
   it.each(topics)('delegates topic method %s', async (method, request) => assertDelegate(MtcuteGroupTopics, method, request))
+
+  it.each([
+    ...settings.map(([method, request]) => [MtcuteGroupSettings, method, request] as const),
+    ...invites.map(([method, request]) => [MtcuteGroupInvites, method, request] as const),
+    ...topics.map(([method, request]) => [MtcuteGroupTopics, method, request] as const),
+  ])('ensures readiness before lookup for helper method %#', async (klass, method, request) => {
+    const order: string[] = []
+    const client = { getChat: vi.fn(async () => { order.push('chat'); throw new Error('stop after lookup') }) } as unknown as TelegramClient
+    const helper = new klass(client, async () => { order.push('ready') })
+    await expect(Reflect.apply(Reflect.get(helper, method) as (...args: unknown[]) => unknown, helper, [request])).rejects.toThrow('stop after lookup')
+    expect(order).toEqual(['ready', 'chat'])
+  })
 })
 
 async function assertDelegate(klass: { prototype: object }, method: string, request: object) {

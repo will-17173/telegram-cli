@@ -11,7 +11,11 @@ describe('MtcuteGroupSettings', () => {
     await settings.setDefaultPermissions({ chat: -123, permissions: permissions() })
     await settings.deleteGroup({ chat: -123 })
     expect(order.slice(0, 2)).toEqual(['ready', 'chat'])
-    expect(client.setChatDefaultPermissions).toHaveBeenCalledWith(-123, expect.objectContaining({ sendMessages: true, sendMedia: false }))
+    expect(client.setChatDefaultPermissions).toHaveBeenCalledWith(-123, {
+      viewMessages: false, sendMessages: true, sendMedia: false, sendStickers: true,
+      sendGifs: false, sendGames: true, sendInline: false, embedLinks: true,
+      sendPolls: false, changeInfo: true, inviteUsers: false, pinMessages: true, manageTopics: false,
+    })
     expect(client.deleteGroup).toHaveBeenCalledWith(-123)
   })
 
