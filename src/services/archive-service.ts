@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { ParsedTimeRange } from '../commands/time-range.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../telegram/archive-types.js'
 import { archiveChatFile } from './archive-layout.js'
@@ -60,21 +60,69 @@ type ChatArchiveResult = {
   state: ArchiveChatState
   messages: number
   finalize: () => void
-  rollback: () => string | null
+  rollback: () => void
+}
+
+export type ArchiveTransactionOperations = {
+  backupDestination: (source: string, backup: string) => void
+  replaceDestination: (temporary: string, destination: string) => void
+  rollbackDestination: (destination: string, backup?: string) => void
+  cleanupBackup: (backup: string) => void
+  syncDirectory: (directory: string) => void
 }
 
 type ArchiveServiceDependencies = {
   writeManifest?: typeof writeArchiveManifest
+  restoreManifest?: (path: string, manifest: ArchiveManifest | null) => void
+  transaction?: Partial<ArchiveTransactionOperations>
+}
+
+class ArchiveOperationError extends Error {
+  constructor(message: string, readonly fatal = false) {
+    super(message)
+  }
 }
 
 export class ArchiveService {
   private readonly writeManifest: typeof writeArchiveManifest
+  private readonly restoreManifest: (path: string, manifest: ArchiveManifest | null) => void
+  private readonly transaction: ArchiveTransactionOperations
 
   constructor(
     private readonly source: TelegramArchiveAdapter,
     dependencies: ArchiveServiceDependencies = {},
   ) {
     this.writeManifest = dependencies.writeManifest ?? writeArchiveManifest
+    this.restoreManifest = dependencies.restoreManifest ?? restoreManifestSnapshot
+    const sync = dependencies.transaction?.syncDirectory ?? syncDirectory
+    this.transaction = {
+      backupDestination: dependencies.transaction?.backupDestination
+        ?? ((source, backup) => backupFile(source, backup, sync)),
+      replaceDestination: dependencies.transaction?.replaceDestination
+        ?? ((temporary, destination) => {
+          renameSync(temporary, destination)
+          sync(dirname(destination))
+        }),
+      rollbackDestination: dependencies.transaction?.rollbackDestination
+        ?? ((destination, backup) => {
+          if (backup == null) {
+            try {
+              unlinkSync(destination)
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+            }
+          } else {
+            renameSync(backup, destination)
+          }
+          sync(dirname(destination))
+        }),
+      cleanupBackup: dependencies.transaction?.cleanupBackup
+        ?? ((backup) => {
+          unlinkSync(backup)
+          sync(dirname(backup))
+        }),
+      syncDirectory: sync,
+    }
   }
 
   async archive(input: ArchiveServiceInput): Promise<ArchiveCommandResult> {
@@ -127,19 +175,31 @@ export class ArchiveService {
         }
         try {
           this.writeManifest(manifestPath, candidate)
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
+        } catch {
+          const failures = ['archive_manifest_commit_failed']
+          let fatal = false
           try {
-            restoreManifestSnapshot(manifestPath, manifestPersisted ? manifest : null)
+            this.restoreManifest(manifestPath, manifestPersisted ? manifest : null)
           } catch {
-            throw new Error(`${message}; archive_manifest_recovery_failed`)
+            failures.push('archive_manifest_recovery_failed')
+            fatal = true
           }
-          const rollbackFailure = archived.rollback()
-          throw new Error(rollbackFailure == null ? message : `${message}; ${rollbackFailure}`)
+          try {
+            archived.rollback()
+          } catch {
+            failures.push('archive_rollback_failed')
+            fatal = true
+          }
+          throw new ArchiveOperationError(failures.join(';'), fatal)
         }
         manifest = candidate
         manifestPersisted = true
-        archived.finalize()
+        let cleanupFailed = false
+        try {
+          archived.finalize()
+        } catch {
+          cleanupFailed = true
+        }
         result.completed.push({
           chat_id: chat.id,
           title: chat.title,
@@ -147,12 +207,21 @@ export class ArchiveService {
           messages_archived: archived.messages,
           media_archived: 0,
         })
+        if (cleanupFailed) {
+          result.warnings.push({
+            chat_id: chat.id,
+            code: 'archive_backup_cleanup_failed',
+            message: 'Archive committed, but recovery-backup cleanup could not be confirmed.',
+          })
+        }
       } catch (error) {
+        const failure = publicArchiveFailure(error)
         result.failed.push({
           chat_id: chat.id,
           title: chat.title,
-          error: error instanceof Error ? error.message : String(error),
+          error: failure.message,
         })
+        if (failure.fatal) break
       }
     }
 
@@ -171,6 +240,8 @@ export class ArchiveService {
     const token = `${process.pid}-${randomBytes(8).toString('hex')}`
     const ownedPaths: string[] = []
     const segments: string[] = []
+    let backup: string | undefined
+    let replacementAttempted = false
     let newest: ArchiveMessage | undefined
     let messages = 0
 
@@ -200,21 +271,21 @@ export class ArchiveService {
       ownedPaths.push(temporary)
       await writeArchiveFile(temporary, renderArchiveHeader(chat, now), segments.reverse())
       removeOwned(segments)
-      const backup = existsSync(destination)
+      backup = existsSync(destination)
         ? join(output, `.${basename(file)}.${token}.backup`)
         : undefined
       if (backup != null) {
-        ownedPaths.push(backup)
-        backupFile(destination, backup)
+        this.transaction.backupDestination(destination, backup)
       }
-      renameSync(temporary, destination)
+      replacementAttempted = true
+      this.transaction.replaceDestination(temporary, destination)
 
       return {
         messages,
         finalize: () => {
-          if (backup != null) removeOwnedQuietly([backup])
+          if (backup != null) this.transaction.cleanupBackup(backup)
         },
-        rollback: () => rollbackDestination(destination, backup),
+        rollback: () => this.transaction.rollbackDestination(destination, backup),
         state: {
           title: chat.title,
           file,
@@ -230,6 +301,24 @@ export class ArchiveService {
       }
     } catch (error) {
       removeOwnedQuietly(ownedPaths)
+      if (replacementAttempted) {
+        try {
+          this.transaction.rollbackDestination(destination, backup)
+        } catch {
+          throw new ArchiveOperationError(
+            'archive_persistence_failed;archive_rollback_failed',
+            true,
+          )
+        }
+        throw new ArchiveOperationError('archive_persistence_failed')
+      }
+      if (backup != null) {
+        try {
+          this.transaction.cleanupBackup(backup)
+        } catch {
+          throw new ArchiveOperationError('archive_backup_cleanup_failed')
+        }
+      }
       throw error
     }
   }
@@ -288,8 +377,15 @@ function validateEffectiveRange(range: EffectiveRange): void {
     || (range.since != null
       && range.until != null
       && range.since.getTime() >= range.until.getTime())) {
-    throw new Error('archive_invalid_time_range')
+    throw new ArchiveOperationError('archive_invalid_time_range')
   }
+}
+
+function publicArchiveFailure(error: unknown): { message: string; fatal: boolean } {
+  if (error instanceof ArchiveOperationError) {
+    return { message: error.message, fatal: error.fatal }
+  }
+  return { message: 'archive_chat_failed', fatal: false }
 }
 
 function writeExclusive(path: string, value: string): void {
@@ -303,7 +399,11 @@ function writeExclusive(path: string, value: string): void {
   }
 }
 
-function backupFile(source: string, backup: string): void {
+function backupFile(
+  source: string,
+  backup: string,
+  sync: (directory: string) => void,
+): void {
   try {
     linkSync(source, backup)
   } catch {
@@ -315,19 +415,7 @@ function backupFile(source: string, backup: string): void {
       closeSync(descriptor)
     }
   }
-}
-
-function rollbackDestination(destination: string, backup?: string): string | null {
-  try {
-    if (backup == null) {
-      unlinkSync(destination)
-    } else {
-      renameSync(backup, destination)
-    }
-    return null
-  } catch {
-    return 'archive_rollback_failed'
-  }
+  sync(dirname(backup))
 }
 
 function restoreManifestSnapshot(path: string, manifest: ArchiveManifest | null): void {
@@ -336,6 +424,7 @@ function restoreManifestSnapshot(path: string, manifest: ArchiveManifest | null)
     if (manifest == null) {
       try {
         unlinkSync(path)
+        syncDirectory(dirname(path))
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
@@ -353,6 +442,28 @@ function restoreManifestSnapshot(path: string, manifest: ArchiveManifest | null)
     // Report the recovery failure below without exposing filesystem paths.
   }
   throw failure ?? new Error('archive_manifest_recovery_failed')
+}
+
+const UNSUPPORTED_DIRECTORY_SYNC_CODES = new Set([
+  'EACCES',
+  'EINVAL',
+  'EISDIR',
+  'ENOSYS',
+  'ENOTSUP',
+  'EPERM',
+])
+
+function syncDirectory(path: string): void {
+  let descriptor: number | null = null
+  try {
+    descriptor = openSync(path, constants.O_RDONLY)
+    fsyncSync(descriptor)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (!code || !UNSUPPORTED_DIRECTORY_SYNC_CODES.has(code)) throw error
+  } finally {
+    if (descriptor != null) closeSync(descriptor)
+  }
 }
 
 async function writeArchiveFile(path: string, header: string, segments: string[]): Promise<void> {

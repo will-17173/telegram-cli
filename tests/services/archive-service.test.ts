@@ -269,7 +269,7 @@ describe('ArchiveService', () => {
     }))
 
     expect(result.completed).toEqual([expect.objectContaining({ chat_id: -100 })])
-    expect(result.failed).toEqual([{ chat_id: -200, title: 'Broken', error: 'network failed' }])
+    expect(result.failed).toEqual([{ chat_id: -200, title: 'Broken', error: 'archive_chat_failed' }])
     expect(readFileSync(join(output, '-200-broken.md'), 'utf8')).toBe(oldArchive)
     const manifest = readArchiveManifest(join(output, 'archive-manifest.json'))!
     expect(manifest.chats['-100']).toBeDefined()
@@ -301,7 +301,7 @@ describe('ArchiveService', () => {
     expect(result.failed).toEqual([{
       chat_id: -100,
       title: 'Team',
-      error: 'manifest unavailable',
+      error: 'archive_manifest_commit_failed',
     }])
     expect(result.completed).toEqual([expect.objectContaining({ chat_id: -200 })])
     expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats).toEqual({
@@ -329,7 +329,7 @@ describe('ArchiveService', () => {
     expect(result.failed).toEqual([{
       chat_id: -100,
       title: 'Team',
-      error: 'manifest unavailable',
+      error: 'archive_manifest_commit_failed',
     }])
     expect(readFileSync(join(output, '-100-team.md'))).toEqual(priorBytes)
     expect(readArchiveManifest(join(output, 'archive-manifest.json'))).toEqual(originalManifest)
@@ -355,10 +355,135 @@ describe('ArchiveService', () => {
     expect(result.failed).toEqual([{
       chat_id: -100,
       title: 'Team',
-      error: 'directory sync failed',
+      error: 'archive_manifest_commit_failed',
     }])
     expect(readFileSync(join(output, '-100-team.md'))).toEqual(priorBytes)
     expect(readArchiveManifest(join(output, 'archive-manifest.json'))).toEqual(originalManifest)
     expect(readdirSync(output).filter((file) => /\.(?:tmp|segment|backup)$/u.test(file))).toEqual([])
+  })
+
+  it('attempts rollback after manifest recovery failure and aborts later chats', async () => {
+    const output = outputDirectory()
+    const source = sourceFor([
+      { id: -100, title: 'Team', type: 'group' },
+      { id: -200, title: 'Second', type: 'group' },
+    ], { [-100]: [[message(1)]], [-200]: [[message(2, -200)]] })
+    const rollbackDestination = vi.fn(() => {
+      throw new Error('/secret/rollback path')
+    })
+    const service = new ArchiveService(source, {
+      writeManifest() {
+        throw new Error('/secret/manifest path')
+      },
+      restoreManifest() {
+        throw new Error('/secret/recovery path')
+      },
+      transaction: { rollbackDestination },
+    })
+
+    const result = await service.archive(input(output, { all: true, chats: [], full: true }))
+
+    expect(rollbackDestination).toHaveBeenCalledOnce()
+    expect(result.failed).toEqual([{
+      chat_id: -100,
+      title: 'Team',
+      error: 'archive_manifest_commit_failed;archive_manifest_recovery_failed;archive_rollback_failed',
+    }])
+    expect(source.iterHistoryPages).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(result)).not.toContain('/secret/')
+  })
+
+  it('aborts later chats when archive rollback alone fails', async () => {
+    const output = outputDirectory()
+    const source = sourceFor([
+      { id: -100, title: 'Team', type: 'group' },
+      { id: -200, title: 'Second', type: 'group' },
+    ], { [-100]: [[message(1)]], [-200]: [[message(2, -200)]] })
+    const service = new ArchiveService(source, {
+      writeManifest() {
+        throw new Error('commit failed')
+      },
+      transaction: {
+        rollbackDestination() {
+          throw new Error('rollback failed')
+        },
+      },
+    })
+
+    const result = await service.archive(input(output, { all: true, chats: [], full: true }))
+
+    expect(result.failed[0]?.error).toBe('archive_manifest_commit_failed;archive_rollback_failed')
+    expect(source.iterHistoryPages).toHaveBeenCalledTimes(1)
+  })
+
+  it('rolls back and reports a stable failure when destination directory sync fails', async () => {
+    const output = outputDirectory()
+    const source = sourceFor()
+    let syncs = 0
+    const service = new ArchiveService(source, {
+      transaction: {
+        syncDirectory() {
+          syncs += 1
+          if (syncs === 1) throw new Error(`/secret/${output}`)
+        },
+      },
+    })
+
+    const result = await service.archive(input(output))
+
+    expect(result.failed).toEqual([{ chat_id: -100, title: 'Team', error: 'archive_persistence_failed' }])
+    expect(existsSync(join(output, '-100-team.md'))).toBe(false)
+    expect(syncs).toBe(2)
+    expect(JSON.stringify(result)).not.toContain('/secret/')
+  })
+
+  it('warns with a stable message and retains a recognizable backup when cleanup fails', async () => {
+    const output = outputDirectory()
+    existingManifest(output)
+    writeFileSync(join(output, '-100-team.md'), 'old')
+    const service = new ArchiveService(sourceFor(), {
+      transaction: {
+        cleanupBackup() {
+          throw new Error('/secret/backup path')
+        },
+      },
+    })
+
+    const result = await service.archive(input(output, { rebuild: true }))
+
+    expect(result.completed).toEqual([expect.objectContaining({ chat_id: -100 })])
+    expect(result.warnings).toEqual([{
+      chat_id: -100,
+      code: 'archive_backup_cleanup_failed',
+      message: 'Archive committed, but recovery-backup cleanup could not be confirmed.',
+    }])
+    expect(readdirSync(output).filter((file) => file.endsWith('.backup'))).toHaveLength(1)
+    expect(JSON.stringify(result)).not.toContain('/secret/')
+  })
+
+  it('warns when directory sync fails after successful backup removal', async () => {
+    const output = outputDirectory()
+    existingManifest(output)
+    writeFileSync(join(output, '-100-team.md'), 'old')
+    let syncs = 0
+    const service = new ArchiveService(sourceFor(), {
+      transaction: {
+        syncDirectory() {
+          syncs += 1
+          if (syncs === 3) throw new Error('/secret/cleanup sync')
+        },
+      },
+    })
+
+    const result = await service.archive(input(output, { rebuild: true }))
+
+    expect(result.completed).toEqual([expect.objectContaining({ chat_id: -100 })])
+    expect(result.warnings).toEqual([{
+      chat_id: -100,
+      code: 'archive_backup_cleanup_failed',
+      message: 'Archive committed, but recovery-backup cleanup could not be confirmed.',
+    }])
+    expect(readdirSync(output).filter((file) => file.endsWith('.backup'))).toEqual([])
+    expect(JSON.stringify(result)).not.toContain('/secret/')
   })
 })
