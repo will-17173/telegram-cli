@@ -65,7 +65,9 @@ async function runGroupWrite(definition: typeof GROUP_COMMANDS[number], position
   let interruptedExitCode: number | undefined
   await runTelegram(options, async (client) => {
     let knownGroup: TelegramGroupDetails | undefined
-    if (definition.risk === 'confirm-title') knownGroup = await client.groups.getGroup(chat)
+    if (definition.risk === 'confirm-title' || parsed.request.key === 'admin transfer-owner') {
+      knownGroup = await client.groups.getGroup(chat)
+    }
     let result = await executeGroupCommand(parsed.request, {
       chat,
       groups: new GroupWriteService(client.groups),

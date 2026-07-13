@@ -35,6 +35,7 @@ beforeEach(() => {
   dataDir = mkdtempSync(join(tmpdir(), 'tg-group-write-'))
   writeFileSync(join(dataDir, 'accounts.json'), `${JSON.stringify({ version: 1, current_account: 'alice', accounts: [{ name: 'alice', user_id: 1, username: 'alice', phone: '10001', display_name: 'Alice' }] })}\n`)
   vi.stubEnv('DATA_DIR', dataDir)
+  groups.getGroup.mockReset()
   groups.getGroup.mockResolvedValue({ id: 42, title: 'General', username: null, type: 'supergroup', member_count: 1, current_user_role: 'creator', current_user_rank: null, permissions: null, default_restrictions: null, slow_mode_seconds: null, message_ttl_seconds: null, content_protected: false, forum: true })
 })
 afterEach(() => {
@@ -102,9 +103,40 @@ describe('group write commands', () => {
 
     expect(readSecret).toHaveBeenCalledOnce()
     expect(readSecret).toHaveBeenCalledWith('Telegram 2FA password: ')
+    expect(groups.getGroup).toHaveBeenCalledOnce()
+    expect(groups.getGroup).toHaveBeenCalledWith('General')
     expect(groups.transferOwnership).toHaveBeenCalledOnce()
     expect(groups.transferOwnership).toHaveBeenCalledWith({ chat: 'General', user: '@alice', password: 'secret' })
     expect(JSON.stringify(renderResult.mock.calls)).not.toContain('secret')
+  })
+
+  it('rejects a known non-creator before prompting for an ownership password', async () => {
+    groups.getGroup.mockResolvedValue({
+      id: 42,
+      title: 'General',
+      username: null,
+      type: 'supergroup',
+      member_count: 1,
+      current_user_role: 'admin',
+      current_user_rank: null,
+      permissions: null,
+      default_restrictions: null,
+      slow_mode_seconds: null,
+      message_ttl_seconds: null,
+      content_protected: false,
+      forum: true,
+    })
+
+    await run('group', 'admin', 'transfer-owner', 'General', '@alice', '--yes', '--json')
+
+    expect(groups.getGroup).toHaveBeenCalledOnce()
+    expect(groups.getGroup).toHaveBeenCalledWith('General')
+    expect(readSecret).not.toHaveBeenCalled()
+    expect(groups.transferOwnership).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ok: false, error: { code: 'permission_missing', message: 'This command requires the group creator.' } }),
+      expect.objectContaining({ json: true }),
+    )
   })
 
   it('never asks for an ownership password when confirmation is declined', async () => {

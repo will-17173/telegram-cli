@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { GroupCommandExecutionResult } from '../../group-commands/executor.js'
 import { completeGroupCommand, parseGroupCommand, type ParsedGroupCommandRequest } from '../../group-commands/parser.js'
@@ -49,7 +49,13 @@ function freezeRequest(request: ParsedGroupCommandRequest): ParsedGroupCommandRe
 export function useGroupCommand(execute: Parameters<typeof createGroupCommandController>[0]['execute']) {
   const [state, setState] = useState<GroupCommandState>({ kind: 'closed' })
   const generation = useRef(0)
+  const passwordGeneration = useRef(0)
   const executionLock = useRef(0)
+  const passwordToken = passwordGeneration.current
+  useEffect(() => () => {
+    generation.current++
+    passwordGeneration.current++
+  }, [])
   const controller = createGroupCommandController({ execute })
   const applyOutcome = useCallback((outcome: GroupCommandSubmitResult, selectedIndex: number) => {
     if (outcome.kind === 'error') setState(outcome)
@@ -67,6 +73,7 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
   }, [])
   const submit = useCallback(async (input: string, selectedIndex: number) => {
     if (executionLock.current !== 0) return { kind: 'error', message: 'Command is already running.', applied: false } as const
+    passwordGeneration.current++
     const owned = ++generation.current
     executionLock.current = owned
     setState({ kind: 'executing' })
@@ -81,6 +88,7 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
   }, [execute, applyOutcome])
   const submitParsed = useCallback(async (request: ParsedGroupCommandRequest, originalInput: string, selectedIndex = 0) => {
     if (executionLock.current !== 0) return { kind: 'error', message: 'Command is already running.', applied: false } as const
+    passwordGeneration.current++
     const owned = ++generation.current
     executionLock.current = owned
     setState({ kind: 'executing' })
@@ -101,9 +109,14 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
       if (executionLock.current === owned) executionLock.current = 0
     }
   }, [execute, applyOutcome])
-  const close = useCallback(() => { generation.current++; setState({ kind: 'closed' }) }, [])
+  const close = useCallback(() => { generation.current++; passwordGeneration.current++; setState({ kind: 'closed' }) }, [])
+  const replaceState = useCallback((next: GroupCommandState) => {
+    passwordGeneration.current++
+    setState(next)
+  }, [])
   const runConfirmed = useCallback(async (request: ParsedGroupCommandRequest, confirmationTitle?: string) => {
     if (executionLock.current !== 0) return
+    passwordGeneration.current++
     const owned = ++generation.current
     executionLock.current = owned
     setState({ kind: 'executing' })
@@ -122,8 +135,12 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
     }
   }, [execute])
   const runWithOwnershipPassword = useCallback(async (ownershipPassword: string) => {
-    if (state.kind !== 'password' || executionLock.current !== 0) return
+    if (state.kind !== 'password' || passwordToken !== passwordGeneration.current || executionLock.current !== 0) {
+      ownershipPassword = ''
+      return
+    }
     const { request } = state
+    passwordGeneration.current++
     const owned = ++generation.current
     executionLock.current = owned
     setState({ kind: 'executing' })
@@ -141,6 +158,6 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
       ownershipPassword = ''
       if (executionLock.current === owned) executionLock.current = 0
     }
-  }, [execute, state])
-  return { state, setState, submit, submitParsed, close, runConfirmed, runWithOwnershipPassword }
+  }, [execute, state, passwordToken])
+  return { state, setState: replaceState, submit, submitParsed, close, runConfirmed, runWithOwnershipPassword }
 }

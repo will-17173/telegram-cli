@@ -80,6 +80,77 @@ describe('useGroupCommand ownership password flow', () => {
     expect(JSON.stringify(command!.state)).not.toContain('secret')
     app.unmount()
   })
+
+  it('invalidates a captured password callback when Escape/cancel closes the prompt', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ ok: false, confirmation: { risk: 'confirm', chat: 1, summary: 'Transfer ownership' } })
+      .mockResolvedValueOnce({ ok: false, secretRequired: { kind: 'ownership_password' } })
+    let command: ReturnType<typeof useGroupCommand> | undefined
+    const app = render(React.createElement(HookHarness, { execute, onChange: next => { command = next } }), {
+      stdout: new PassThrough() as unknown as NodeJS.WriteStream,
+      patchConsole: false,
+    })
+
+    await act(async () => { await command!.submit('/admin transfer-owner 7', 0) })
+    const current = command!
+    const request = (current.state as Extract<typeof current.state, { kind: 'confirm' }>).request
+    await act(async () => { await command!.runConfirmed(request) })
+    const staleSubmit = command!.runWithOwnershipPassword
+    act(() => { command!.close() })
+
+    await act(async () => { await staleSubmit('secret') })
+
+    expect(command!.state).toEqual({ kind: 'closed' })
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(command!.state)).not.toContain('secret')
+    app.unmount()
+  })
+
+  it('invalidates a captured password callback when the hook unmounts', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ ok: false, confirmation: { risk: 'confirm', chat: 1, summary: 'Transfer ownership' } })
+      .mockResolvedValueOnce({ ok: false, secretRequired: { kind: 'ownership_password' } })
+    let command: ReturnType<typeof useGroupCommand> | undefined
+    const app = render(React.createElement(HookHarness, { execute, onChange: next => { command = next } }), {
+      stdout: new PassThrough() as unknown as NodeJS.WriteStream,
+      patchConsole: false,
+    })
+
+    await act(async () => { await command!.submit('/admin transfer-owner 7', 0) })
+    const current = command!
+    const request = (current.state as Extract<typeof current.state, { kind: 'confirm' }>).request
+    await act(async () => { await command!.runConfirmed(request) })
+    const staleSubmit = command!.runWithOwnershipPassword
+    app.unmount()
+
+    await staleSubmit('secret')
+
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+
+  it('invalidates a captured password callback when an external error replaces the prompt', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ ok: false, confirmation: { risk: 'confirm', chat: 1, summary: 'Transfer ownership' } })
+      .mockResolvedValueOnce({ ok: false, secretRequired: { kind: 'ownership_password' } })
+    let command: ReturnType<typeof useGroupCommand> | undefined
+    const app = render(React.createElement(HookHarness, { execute, onChange: next => { command = next } }), {
+      stdout: new PassThrough() as unknown as NodeJS.WriteStream,
+      patchConsole: false,
+    })
+
+    await act(async () => { await command!.submit('/admin transfer-owner 7', 0) })
+    const current = command!
+    const request = (current.state as Extract<typeof current.state, { kind: 'confirm' }>).request
+    await act(async () => { await command!.runConfirmed(request) })
+    const staleSubmit = command!.runWithOwnershipPassword
+    act(() => { command!.setState({ kind: 'error', message: 'connection closed' }) })
+
+    await act(async () => { await staleSubmit('secret') })
+
+    expect(command!.state).toEqual({ kind: 'error', message: 'connection closed' })
+    expect(execute).toHaveBeenCalledTimes(2)
+    app.unmount()
+  })
 })
 
 function HookHarness({ execute, onChange }: {
