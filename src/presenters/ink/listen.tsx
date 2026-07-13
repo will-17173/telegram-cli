@@ -430,7 +430,9 @@ export function ListenStatus({ status, unseenCount }: { status: string; unseenCo
 export function formatInteractiveListenSender(
   message: Pick<ListenMessageRow, 'sender' | 'senderId' | 'chatName'>,
 ): string {
-  const sender = message.senderId == null ? message.sender : `${message.sender} (${message.senderId})`
+  const sender = message.senderId == null || message.sender === String(message.senderId)
+    ? message.sender
+    : `${message.sender} (${message.senderId})`
   return message.chatName == null ? sender : `${message.chatName} | ${sender}`
 }
 

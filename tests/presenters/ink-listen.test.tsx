@@ -127,6 +127,11 @@ describe('interactive listen sender formatting', () => {
     expect(formatInteractiveListenSender({ sender: 'Alice', senderId: null }))
       .toBe('Alice')
   })
+
+  it('does not repeat the id when it is already the sender fallback', () => {
+    expect(formatInteractiveListenSender({ sender: '123', senderId: 123 }))
+      .toBe('123')
+  })
 })
 
 describe('ListenAttachmentLine', () => {
