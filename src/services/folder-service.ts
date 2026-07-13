@@ -63,7 +63,7 @@ export class FolderService {
   ): Promise<HandlerResult<TelegramFolderChatResult>> {
     const validFolder = validateFolder(folder)
     if (!validFolder.ok) return validFolder
-    const validChat = validateChat(chat)
+    const validChat = parseFolderChatInput(chat)
     if (!validChat.ok) return validChat
 
     const access = this.writePolicy.check()
@@ -97,16 +97,21 @@ function validateFolder(folder: TelegramFolderInput): HandlerResult<TelegramFold
     : failure('invalid_folder', INVALID_FOLDER_MESSAGE)
 }
 
-function validateChat(chat: string | number): HandlerResult<string | number> {
+export function parseFolderChatInput(chat: string | number): HandlerResult<string | number> {
   if (typeof chat === 'number') {
     return Number.isSafeInteger(chat)
       ? { ok: true, data: chat }
       : failure('invalid_chat', INVALID_CHAT_MESSAGE)
   }
   const normalized = chat.trim()
-  return normalized.length > 0
-    ? { ok: true, data: normalized }
-    : failure('invalid_chat', INVALID_CHAT_MESSAGE)
+  if (normalized.length === 0) return failure('invalid_chat', INVALID_CHAT_MESSAGE)
+  if (/^[+-]?\d+$/.test(normalized)) {
+    const value = Number(normalized)
+    return Number.isSafeInteger(value)
+      ? { ok: true, data: value }
+      : failure('invalid_chat', INVALID_CHAT_MESSAGE)
+  }
+  return { ok: true, data: normalized }
 }
 
 function folderTable(folders: TelegramFolderSummary[]): HumanOutput {

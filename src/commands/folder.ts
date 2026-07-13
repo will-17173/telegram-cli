@@ -1,7 +1,7 @@
 import type { Command } from 'commander'
 
 import { renderResult } from '../cli/output.js'
-import { FolderService } from '../services/folder-service.js'
+import { FolderService, parseFolderChatInput } from '../services/folder-service.js'
 import type { TelegramFolderInput } from '../telegram/folder-types.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
 import type { AccountCommandOptions } from './account-options.js'
@@ -59,12 +59,12 @@ function registerChatMutation(parent: Command, operation: 'add' | 'remove'): voi
     .option('--json')
     .option('--yaml')
     .action(async (folderToken: string, chatToken: string, _options: FolderOptions, command: Command) => {
-      await runFolderInputAction(folderToken, command, (client, parsedFolder) => {
+      await runFolderChatAction(folderToken, chatToken, command, (client, parsedFolder, parsedChat) => {
         const service = new FolderService(client.folders)
         return operation === 'add'
-          ? service.addChat(parsedFolder, chatToken)
-          : service.removeChat(parsedFolder, chatToken)
-      }, true)
+          ? service.addChat(parsedFolder, parsedChat)
+          : service.removeChat(parsedFolder, parsedChat)
+      })
     })
 }
 
@@ -72,23 +72,55 @@ async function runFolderInputAction(
   folderToken: string,
   command: Command,
   handler: (client: TelegramClientAdapter, folder: TelegramFolderInput) => Promise<HandlerResult>,
-  write = false,
 ): Promise<void> {
   const options = optionsWithGlobals(command)
-  const conflict = outputFormatConflict(options)
-  if (conflict) {
-    await renderResult(conflict, { yaml: true })
-    return
-  }
-
   const parsed = parseFolderInput(folderToken)
   if (!parsed.ok) {
     await renderResult(parsed, options)
     return
   }
 
-  const runner = write ? runTelegramWriteCommand : runTelegramCommand
-  await runner(options, client => handler(client, parsed.data), command)
+  const conflict = outputFormatConflict(options)
+  if (conflict) {
+    await renderResult(conflict, { yaml: true })
+    return
+  }
+
+  await runTelegramCommand(options, client => handler(client, parsed.data), command)
+}
+
+async function runFolderChatAction(
+  folderToken: string,
+  chatToken: string,
+  command: Command,
+  handler: (
+    client: TelegramClientAdapter,
+    folder: TelegramFolderInput,
+    chat: string | number,
+  ) => Promise<HandlerResult>,
+): Promise<void> {
+  const options = optionsWithGlobals(command)
+  const parsedFolder = parseFolderInput(folderToken)
+  if (!parsedFolder.ok) {
+    await renderResult(parsedFolder, options)
+    return
+  }
+  const parsedChat = parseFolderChatInput(chatToken)
+  if (!parsedChat.ok) {
+    await renderResult(parsedChat, options)
+    return
+  }
+
+  const conflict = outputFormatConflict(options)
+  if (conflict) {
+    await renderResult(conflict, { yaml: true })
+    return
+  }
+  await runTelegramWriteCommand(
+    options,
+    client => handler(client, parsedFolder.data, parsedChat.data),
+    command,
+  )
 }
 
 async function runFolderAction(input: {

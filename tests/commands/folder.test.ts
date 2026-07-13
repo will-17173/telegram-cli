@@ -97,6 +97,18 @@ describe('folder commands', () => {
     }), { markdown: true })
   })
 
+  it('normalizes a safe marked numeric chat ID before calling the adapter', async () => {
+    await run(['folder', 'chat', 'add', 'Work', '-100123'])
+
+    expect(folders.addChat).toHaveBeenCalledWith({ folder: 'Work', chat: -100123 })
+  })
+
+  it('trims and preserves a nonnumeric chat title', async () => {
+    await run(['folder', 'chat', 'add', 'Work', ' Planning 2 '])
+
+    expect(folders.addChat).toHaveBeenCalledWith({ folder: 'Work', chat: 'Planning 2' })
+  })
+
   it('removes a chat and preserves changed false', async () => {
     await run(['folder', 'chat', 'remove', 'Work', '@team', '--yaml'])
     expect(folders.removeChat).toHaveBeenCalledWith({ folder: 'Work', chat: '@team' })
@@ -114,6 +126,45 @@ describe('folder commands', () => {
     await run(args)
     expect(createTelegramClient).not.toHaveBeenCalled()
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: expect.objectContaining({ code }) }), {})
+  })
+
+  it.each([
+    ['whitespace', '   '],
+    ['unsafe numeric', '9007199254740992'],
+  ])('rejects %s chat before account resolution and client construction with writes enabled', async (_name, chat) => {
+    vi.unstubAllEnvs()
+
+    await run(['folder', 'chat', 'add', 'Work', chat])
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(folders.addChat).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: {
+        code: 'invalid_chat',
+        message: 'Chat must be a non-empty reference or safe integer ID.',
+      },
+    }, {})
+  })
+
+  it.each([
+    ['whitespace', '   '],
+    ['unsafe numeric', '9007199254740992'],
+  ])('rejects %s chat before write policy and client construction with writes disabled', async (_name, chat) => {
+    vi.unstubAllEnvs()
+    seedAccount(false)
+
+    await run(['folder', 'chat', 'remove', 'Work', chat])
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(folders.removeChat).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: {
+        code: 'invalid_chat',
+        message: 'Chat must be a non-empty reference or safe integer ID.',
+      },
+    }, {})
   })
 
   it.each([

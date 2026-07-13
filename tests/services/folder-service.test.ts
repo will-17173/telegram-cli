@@ -135,6 +135,41 @@ describe('FolderService', () => {
     expect(calls).toEqual(['policy', 'adapter:Work:@team'])
   })
 
+  it('normalizes a safe marked numeric chat token to a number', async () => {
+    const folders = adapter()
+
+    await new FolderService(folders).addChat('Work', '  -100123  ')
+
+    expect(folders.addChat).toHaveBeenCalledWith({ folder: 'Work', chat: -100123 })
+  })
+
+  it.each([
+    ['unsafe integer string', '9007199254740992'],
+    ['unsafe numeric input', Number.MAX_SAFE_INTEGER + 1],
+  ])('rejects %s before policy and adapter mutation', async (_name, chat) => {
+    const folders = adapter()
+    const policy = vi.fn(() => true)
+
+    await expect(new FolderService(folders, new WriteAccessPolicy(policy)).addChat('Work', chat))
+      .resolves.toEqual({
+        ok: false,
+        error: {
+          code: 'invalid_chat',
+          message: 'Chat must be a non-empty reference or safe integer ID.',
+        },
+      })
+    expect(policy).not.toHaveBeenCalled()
+    expect(folders.addChat).not.toHaveBeenCalled()
+  })
+
+  it.each([' Planning 2 ', ' 1.5 ', ' 1e3 '])('trims and preserves non-integer chat title %j', async (chat) => {
+    const folders = adapter()
+
+    await new FolderService(folders).addChat('Work', chat)
+
+    expect(folders.addChat).toHaveBeenCalledWith({ folder: 'Work', chat: chat.trim() })
+  })
+
   it('preserves and visibly presents idempotent changed false', async () => {
     await expect(new FolderService(adapter()).removeChat('Work', '@team')).resolves.toMatchObject({
       ok: true,
