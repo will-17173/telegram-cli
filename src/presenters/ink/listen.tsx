@@ -67,6 +67,7 @@ export type ListenRuntimeOptions = {
 }
 
 const MESSAGE_SEPARATOR = '────────────────────────────────────────────'
+const OWNERSHIP_SHUTDOWN_GRACE_MS = 250
 /** Maximum number of grouped messages retained by a long-running interactive listener. */
 export const LISTEN_HISTORY_LIMIT = 500
 const LISTEN_IMAGE_PREVIEWS_ENABLED = false
@@ -639,9 +640,9 @@ export function InteractiveListen({
   const inputGenerationRef = useRef(0)
   const commandSelectionRef = useRef(0)
   const knownGroupRef = useRef<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
-  const groupLookupGenerationRef = useRef(0)
+  const groupLookupGenerationRef = useRef<object>({})
   useEffect(() => {
-    groupLookupGenerationRef.current++
+    groupLookupGenerationRef.current = {}
     knownGroupRef.current = undefined
     setKnownGroup(undefined)
   }, [sendTo])
@@ -654,7 +655,8 @@ export function InteractiveListen({
       && options?.confirmed === true
       && options.ownershipPassword == null
     if (knownGroup == null || refreshOwnershipCapability) {
-      const lookup = ++groupLookupGenerationRef.current
+      const lookup = {}
+      groupLookupGenerationRef.current = lookup
       knownGroup = await client.groups.getGroup(sendTo)
       if (lookup !== groupLookupGenerationRef.current || clientRef.current !== client) {
         return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection changed during group verification.' } }
@@ -676,7 +678,8 @@ export function InteractiveListen({
         knownGroupRef.current = undefined
         setKnownGroup(undefined)
         if (request.key === 'chat delete' || request.key === 'chat leave') return
-        const lookup = ++groupLookupGenerationRef.current
+        const lookup = {}
+        groupLookupGenerationRef.current = lookup
         try {
           const refreshed = await client.groups.getGroup(sendTo)
           if (lookup === groupLookupGenerationRef.current && clientRef.current === client) {
@@ -716,6 +719,10 @@ export function InteractiveListen({
   const operationControllerRef = useRef<InteractiveOperationController | null>(null)
   if (operationControllerRef.current == null) operationControllerRef.current = createInteractiveOperationController()
   const stoppingRef = useRef(false)
+  const lifecycleStopRef = useRef<AbortController | null>(null)
+  const deferredStopRef = useRef(false)
+  const shutdownRequestedRef = useRef(false)
+  const shutdownGraceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const seenRef = useRef<Set<string>>(new Set())
   const seenOrderRef = useRef<string[]>([])
   const downloadableAttachments = collectDownloadableAttachments(visibleMessages)
@@ -753,7 +760,10 @@ export function InteractiveListen({
     if (isMouseInput(inputText)) return
     const modal = groupCommand.state
     if (modal.kind === 'executing' && modal.irreversible === true) {
-      if (key.escape || (key.ctrl && (inputText === 'c' || inputText === 'C' || inputText === '\u0003'))) {
+      if (key.ctrl && (inputText === 'c' || inputText === 'C' || inputText === '\u0003')) {
+        deferredStopRef.current = true
+        setNote('Group write is already running; wait for its outcome.')
+      } else if (key.escape) {
         setNote('Group write is already running; wait for its outcome.')
       }
       return
@@ -789,7 +799,8 @@ export function InteractiveListen({
           groupCommand.setState({ kind: 'error', message: 'Telegram connection is not ready.' })
         } else {
           const submittedTitle = modal.confirmText
-          const lookup = ++groupLookupGenerationRef.current
+          const lookup = {}
+          groupLookupGenerationRef.current = lookup
           void client.groups.getGroup(sendTo).then((fresh) => {
             if (lookup !== groupLookupGenerationRef.current || clientRef.current !== client) return
             knownGroupRef.current = fresh
@@ -983,6 +994,8 @@ export function InteractiveListen({
   useEffect(() => {
     const generation = operationControllerRef.current!.beginGeneration()
     const isActive = generation.isActive
+    const lifecycleStop = new AbortController()
+    lifecycleStopRef.current = lifecycleStop
     if (stopSignal.aborted) {
       exit()
       return
@@ -990,10 +1003,23 @@ export function InteractiveListen({
 
     const stopFromSignal = () => {
       if (irreversibleGroupWriteRef.current) {
-        groupCommand.setState({
-          kind: 'error',
-          message: 'Ownership transfer outcome is indeterminate because shutdown interrupted the connection.',
-        })
+        if (shutdownRequestedRef.current) {
+          if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
+          shutdownGraceTimerRef.current = null
+          groupCommand.setState({ kind: 'error', message: 'Ownership transfer outcome is indeterminate after forced shutdown.' })
+          setTimeout(stopListening, 0)
+          return
+        }
+        shutdownRequestedRef.current = true
+        setNote('Shutdown requested; waiting briefly for the ownership transfer outcome.')
+        shutdownGraceTimerRef.current = setTimeout(() => {
+          shutdownGraceTimerRef.current = null
+          groupCommand.setState({
+            kind: 'error',
+            message: 'Ownership transfer outcome is indeterminate because shutdown grace expired.',
+          })
+          setTimeout(stopListening, 0)
+        }, OWNERSHIP_SHUTDOWN_GRACE_MS)
         return
       }
       stopListening()
@@ -1038,7 +1064,7 @@ export function InteractiveListen({
       chats,
       persist,
       retrySeconds,
-      signal: stopSignal,
+      signal: lifecycleStop.signal,
       createClient,
       createCoordinator: () => autoDownloader!,
       onCoordinator: (coordinator) => {
@@ -1046,12 +1072,13 @@ export function InteractiveListen({
       },
       onClient: (client) => {
         if (!isActive()) return
-        groupLookupGenerationRef.current++
+        groupLookupGenerationRef.current = {}
         knownGroupRef.current = undefined
         setKnownGroup(undefined)
         clientRef.current = client
         if (client != null && sendTo != null) {
-          const lookup = ++groupLookupGenerationRef.current
+          const lookup = {}
+          groupLookupGenerationRef.current = lookup
           void client.groups.getGroup(sendTo).then((group) => {
             if (isActive() && lookup === groupLookupGenerationRef.current && clientRef.current === client) { knownGroupRef.current = group; setKnownGroup(group) }
           }).catch(() => undefined)
@@ -1093,14 +1120,14 @@ export function InteractiveListen({
         if (isActive()) albumAggregator.flush()
       },
     }).finally(() => {
-      if (isActive() && !stopSignal.aborted) {
+      if (isActive() && !stopSignal.aborted && !stoppingRef.current) {
         onRequestStop()
         exit()
       }
     })
 
     return () => {
-      groupLookupGenerationRef.current += 1
+      groupLookupGenerationRef.current = {}
       knownGroupRef.current = undefined
       stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.flush()
@@ -1108,11 +1135,15 @@ export function InteractiveListen({
       albumAggregator.dispose()
       void groupQueue.close()
       if (albumAggregatorRef.current === albumAggregator) albumAggregatorRef.current = null
-      void clientRef.current?.close().catch(() => undefined)
+      if (!stoppingRef.current) void clientRef.current?.close().catch(() => undefined)
       clientRef.current = null
       autoDownloader?.stop()
       void autoDownloader?.waitForActive()
       if (autoDownloaderRef.current === autoDownloader) autoDownloaderRef.current = null
+      lifecycleStop.abort()
+      if (lifecycleStopRef.current === lifecycleStop) lifecycleStopRef.current = null
+      if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
+      shutdownGraceTimerRef.current = null
     }
   }, [autoDownload, chats, createClient, createReplyResolver, dbPath, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, onRequestStop])
 
@@ -1205,8 +1236,19 @@ export function InteractiveListen({
     else setTimeout(exit, 0)
     onRequestStop()
     autoDownloaderRef.current?.stop()
-    clientRef.current?.close().catch(() => undefined)
+    lifecycleStopRef.current?.abort()
   }
+
+  useEffect(() => {
+    if (groupCommand.state.kind !== 'result' && groupCommand.state.kind !== 'error') return
+    if (!deferredStopRef.current && !shutdownRequestedRef.current) return
+    deferredStopRef.current = false
+    shutdownRequestedRef.current = false
+    if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
+    shutdownGraceTimerRef.current = null
+    const pending = setTimeout(stopListening, 0)
+    return () => clearTimeout(pending)
+  }, [groupCommand.state])
 
   const permissionState = groupCommand.state.kind === 'select-permissions' ? groupCommand.state : null
 

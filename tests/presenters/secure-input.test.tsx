@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream'
 import { render } from 'ink'
 import { describe, expect, it, vi } from 'vitest'
 
-import { SecureInput } from '../../src/presenters/ink/secure-input.js'
+import { MAX_SECURE_INPUT_LENGTH, SecureInput } from '../../src/presenters/ink/secure-input.js'
 
 describe('SecureInput', () => {
   it('renders bullets instead of printable characters and submits the transient value', async () => {
@@ -113,6 +113,21 @@ describe('SecureInput', () => {
     await act(async () => { stdin.write('👩‍👧‍👦') })
     await vi.waitFor(() => expect(frames.at(-1)).toContain('› ••'))
     expect(frames.at(-1)).not.toContain('› •••')
+    app.unmount()
+  })
+
+  it('caps huge pasted secrets', async () => {
+    const stdin = new MockStdin()
+    const onSubmit = vi.fn()
+    const app = render(<SecureInput label="Password" onSubmit={onSubmit} onCancel={vi.fn()} />, {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: new PassThrough() as unknown as NodeJS.WriteStream,
+      patchConsole: false,
+    })
+    await act(async () => { stdin.write('x'.repeat(MAX_SECURE_INPUT_LENGTH + 500)) })
+    await act(async () => { stdin.write('\r') })
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
+    expect(onSubmit.mock.calls[0]?.[0]).toHaveLength(MAX_SECURE_INPUT_LENGTH)
     app.unmount()
   })
 })

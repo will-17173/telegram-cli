@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+export const MAX_SECURE_INPUT_LENGTH = 4096
 
 export function SecureInput({ label, onSubmit, onCancel }: {
   label: string
@@ -43,10 +44,10 @@ export function SecureInput({ label, onSubmit, onCancel }: {
         const code = character.codePointAt(0)
         return code != null && code >= 32 && (code < 127 || code > 159)
       }).join('')
-      const combined = secret.current.join('') + printable
+      const combined = (secret.current.join('') + printable).slice(0, MAX_SECURE_INPUT_LENGTH)
       secret.current.fill('')
       secret.current.length = 0
-      secret.current.push(...Array.from(graphemeSegmenter.segment(combined), part => part.segment))
+      secret.current.push(...Array.from(graphemeSegmenter.segment(combined), part => part.segment).slice(0, MAX_SECURE_INPUT_LENGTH))
       setGraphemeCount(secret.current.length)
     }
   })

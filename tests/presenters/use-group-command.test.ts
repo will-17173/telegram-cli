@@ -152,11 +152,15 @@ describe('useGroupCommand ownership password flow', () => {
     app.unmount()
   })
 
-  it('does not expose a submitted password from a malicious rejected error', async () => {
+  it.each([
+    'malicious failure includes secret',
+    'malicious failure includes sec-ret',
+    'malicious failure includes s%65cret',
+  ])('maps unexpected ownership rejection to a generic error: %s', async (message) => {
     const execute = vi.fn()
       .mockResolvedValueOnce({ ok: false, confirmation: { risk: 'confirm', chat: 1, summary: 'Transfer ownership' } })
       .mockResolvedValueOnce({ ok: false, secretRequired: { kind: 'ownership_password' } })
-      .mockRejectedValueOnce(new Error('malicious failure includes secret'))
+      .mockRejectedValueOnce(new Error(message))
     let command: ReturnType<typeof useGroupCommand> | undefined
     const app = render(React.createElement(HookHarness, { execute, onChange: next => { command = next } }), {
       stdout: new PassThrough() as unknown as NodeJS.WriteStream,
@@ -170,6 +174,7 @@ describe('useGroupCommand ownership password flow', () => {
     await act(async () => { await command!.runWithOwnershipPassword('secret') })
 
     expect(command!.state).toMatchObject({ kind: 'error' })
+    expect(command!.state).toEqual({ kind: 'error', message: 'Telegram ownership transfer failed.' })
     expect(JSON.stringify(command!.state)).not.toContain('secret')
     app.unmount()
   })
