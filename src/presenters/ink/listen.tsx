@@ -635,6 +635,7 @@ export function InteractiveListen({
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const replyExecutionLockRef = useRef(false)
   const inputGenerationRef = useRef(0)
+  const commandSelectionRef = useRef(0)
   const knownGroupRef = useRef<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const groupLookupGenerationRef = useRef(0)
   useEffect(() => {
@@ -826,17 +827,19 @@ export function InteractiveListen({
     }
     if (slashMode && (key.upArrow || key.downArrow)) {
       const count = visibleListenCommandMatches(input).length
-      const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
       const disabled = listenCommandMenuAvailability(input, knownGroup).map(Boolean)
-      groupCommand.setState({ kind: 'menu', selectedIndex: moveListenCommandSelectionEnabled(selected, key.upArrow ? -1 : 1, disabled.slice(0, count)) })
+      const selectedIndex = moveListenCommandSelectionEnabled(commandSelectionRef.current, key.upArrow ? -1 : 1, disabled.slice(0, count))
+      commandSelectionRef.current = selectedIndex
+      groupCommand.setState({ kind: 'menu', selectedIndex })
       return
     }
     if (slashMode && key.tab) {
-      const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+      const selected = commandSelectionRef.current
       const failure = listenCommandMenuAvailability(input, knownGroup)[selected]
       if (failure && 'error' in failure) { setNote(failure.error.message); return }
       inputGenerationRef.current++
       setInput(completeListenCommand(input, selected))
+      commandSelectionRef.current = 0
       groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
       setFocus('input')
       return
@@ -874,7 +877,7 @@ export function InteractiveListen({
     if (sending || groupCommand.state.kind === 'executing') return
     if (key.return) {
       if (slashMode) {
-        const selected = groupCommand.state.kind === 'menu' ? groupCommand.state.selectedIndex : 0
+        const selected = commandSelectionRef.current
         const failure = listenCommandMenuAvailability(input, knownGroup)[selected]
         if (failure && 'error' in failure) { setNote(failure.error.message); return }
         const match = visibleListenCommandMatches(input)[selected]
@@ -883,6 +886,7 @@ export function InteractiveListen({
         if (parsed.kind === 'complete') {
           inputGenerationRef.current++
           setInput(parsed.input)
+          commandSelectionRef.current = 0
           groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
           return
         }
@@ -943,6 +947,7 @@ export function InteractiveListen({
         const next = current + inputText
         if (next.trimStart().startsWith('/')) {
           setFocus('input')
+          commandSelectionRef.current = 0
           groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
         }
         return next
