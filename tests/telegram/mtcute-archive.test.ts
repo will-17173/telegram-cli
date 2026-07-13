@@ -1,5 +1,5 @@
 import { mkdtemp, readFile, readdir, readlink, rm, stat, writeFile } from 'node:fs/promises'
-import { symlinkSync, unlinkSync } from 'node:fs'
+import { constants, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -94,6 +94,8 @@ describe('MtcuteArchive', () => {
   })
 
   it('rejects a staging path swapped to a symlink without truncating or retaining the target', async () => {
+    if (typeof constants.O_NOFOLLOW !== 'number' || constants.O_NOFOLLOW === 0) return
+
     const location = new FileLocation(new Uint8Array([1, 2, 3]), 3)
     const directory = await mkdtemp(join(tmpdir(), 'tg-mtcute-archive-symlink-'))
     const destination = join(directory, 'photo.stage')
@@ -115,7 +117,39 @@ describe('MtcuteArchive', () => {
       })).rejects.toMatchObject({ code: expect.stringMatching(/^(?:ELOOP|EFTYPE)$/u) })
 
       expect(await readFile(outside, 'utf8')).toBe('sentinel')
-      expect(await openDescriptorTargets()).not.toContain(outside)
+      const descriptorTargets = await openDescriptorTargets()
+      if (descriptorTargets != null) expect(descriptorTargets).not.toContain(outside)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['undefined', undefined],
+    ['zero', 0],
+  ])('fails closed without opening the destination when no-follow is %s', async (_description, noFollow) => {
+    const location = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+    const directory = await mkdtemp(join(tmpdir(), 'tg-mtcute-archive-no-nofollow-'))
+    const destination = join(directory, 'photo.stage')
+    await writeFile(destination, 'sentinel')
+    const open = vi.fn()
+    const source = Readable.from([Buffer.from('hostile bytes')])
+    const client = mockClient({
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      downloadAsNodeStream: vi.fn(() => source),
+    })
+    const adapter = new MtcuteArchive(client, async () => undefined, 100, {
+      noFollow,
+      open,
+    })
+
+    try {
+      await expect(adapter.downloadMedia({ chat: '@team', messageId: 3, destination }))
+        .rejects.toThrow('archive_no_follow_unavailable')
+
+      expect(open).not.toHaveBeenCalled()
+      expect(await readFile(destination, 'utf8')).toBe('sentinel')
+      expect(source.destroyed).toBe(true)
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
@@ -235,9 +269,16 @@ describe('MtcuteArchive', () => {
   })
 })
 
-async function openDescriptorTargets(): Promise<string[]> {
+async function openDescriptorTargets(): Promise<string[] | null> {
   const directory = process.platform === 'linux' ? '/proc/self/fd' : '/dev/fd'
-  const descriptors = await readdir(directory)
+  let descriptors: string[]
+  try {
+    descriptors = await readdir(directory)
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES') return null
+    throw error
+  }
   const targets = await Promise.all(descriptors.map(async (descriptor) => {
     try {
       return await readlink(join(directory, descriptor))

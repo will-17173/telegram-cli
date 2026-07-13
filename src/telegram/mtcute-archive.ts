@@ -1,6 +1,6 @@
 import { FileLocation } from '@mtcute/node'
 import type { Message, TelegramClient } from '@mtcute/node'
-import { closeSync, constants, createWriteStream, lstatSync, openSync } from 'node:fs'
+import { closeSync, constants, createWriteStream, openSync } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from './archive-types.js'
@@ -18,11 +18,20 @@ type ArchiveClient = Pick<
   'iterDialogs' | 'getPeer' | 'iterHistory' | 'getMessages' | 'downloadAsNodeStream'
 >
 
+type ArchiveStagingOpen = {
+  noFollow: number | undefined
+  open: (path: string, flags: number) => number
+}
+
 export class MtcuteArchive implements TelegramArchiveAdapter {
   constructor(
     private readonly client: ArchiveClient,
     private readonly ensureReady: () => Promise<void>,
     private readonly pageSize = 100,
+    private readonly stagingOpen: ArchiveStagingOpen = {
+      noFollow: constants.O_NOFOLLOW,
+      open: openSync,
+    },
   ) {}
 
   async resolveChats(input: { chats?: Array<string | number>; all: boolean }): Promise<ArchiveChat[]> {
@@ -95,7 +104,7 @@ export class MtcuteArchive implements TelegramArchiveAdapter {
     })
     let fileDescriptor: number | null = null
     try {
-      fileDescriptor = openExistingNoFollow(input.destination)
+      fileDescriptor = openExistingNoFollow(input.destination, this.stagingOpen)
       const destination = createWriteStream(input.destination, {
         fd: fileDescriptor,
         autoClose: true,
@@ -111,16 +120,15 @@ export class MtcuteArchive implements TelegramArchiveAdapter {
   }
 }
 
-function openExistingNoFollow(path: string): number {
-  const noFollow = constants.O_NOFOLLOW
-  if (typeof noFollow === 'number' && noFollow !== 0) {
-    return openSync(path, constants.O_WRONLY | constants.O_TRUNC | noFollow)
+function openExistingNoFollow(path: string, stagingOpen: ArchiveStagingOpen): number {
+  if (typeof stagingOpen.noFollow !== 'number' || stagingOpen.noFollow === 0) {
+    throw new Error('archive_no_follow_unavailable')
   }
 
-  if (lstatSync(path).isSymbolicLink()) {
-    throw Object.assign(new Error('Refusing to follow a symbolic link'), { code: 'ELOOP' })
-  }
-  return openSync(path, constants.O_WRONLY | constants.O_TRUNC)
+  return stagingOpen.open(
+    path,
+    constants.O_WRONLY | constants.O_TRUNC | stagingOpen.noFollow,
+  )
 }
 
 function newestFirst(messages: ArchiveMessage[]): ArchiveMessage[] {
