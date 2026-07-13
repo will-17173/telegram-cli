@@ -6,7 +6,7 @@ import { completeGroupCommand, parseGroupCommand, type ParsedGroupCommandRequest
 export type GroupCommandState =
   | { kind: 'closed' }
   | { kind: 'menu'; selectedIndex: number }
-  | { kind: 'executing' }
+  | { kind: 'executing'; irreversible?: boolean }
   | { kind: 'result'; result: GroupCommandExecutionResult }
   | { kind: 'error'; message: string; usage?: string }
   | { kind: 'password'; request: ParsedGroupCommandRequest }
@@ -49,12 +49,12 @@ function freezeRequest(request: ParsedGroupCommandRequest): ParsedGroupCommandRe
 export function useGroupCommand(execute: Parameters<typeof createGroupCommandController>[0]['execute']) {
   const [state, setState] = useState<GroupCommandState>({ kind: 'closed' })
   const generation = useRef(0)
-  const passwordGeneration = useRef(0)
+  const passwordGeneration = useRef<object>({})
   const executionLock = useRef(0)
   const passwordToken = passwordGeneration.current
   useEffect(() => () => {
     generation.current++
-    passwordGeneration.current++
+    passwordGeneration.current = {}
   }, [])
   const controller = createGroupCommandController({ execute })
   const applyOutcome = useCallback((outcome: GroupCommandSubmitResult, selectedIndex: number) => {
@@ -73,7 +73,7 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
   }, [])
   const submit = useCallback(async (input: string, selectedIndex: number) => {
     if (executionLock.current !== 0) return { kind: 'error', message: 'Command is already running.', applied: false } as const
-    passwordGeneration.current++
+    passwordGeneration.current = {}
     const owned = ++generation.current
     executionLock.current = owned
     setState({ kind: 'executing' })
@@ -88,7 +88,7 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
   }, [execute, applyOutcome])
   const submitParsed = useCallback(async (request: ParsedGroupCommandRequest, originalInput: string, selectedIndex = 0) => {
     if (executionLock.current !== 0) return { kind: 'error', message: 'Command is already running.', applied: false } as const
-    passwordGeneration.current++
+    passwordGeneration.current = {}
     const owned = ++generation.current
     executionLock.current = owned
     setState({ kind: 'executing' })
@@ -109,14 +109,15 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
       if (executionLock.current === owned) executionLock.current = 0
     }
   }, [execute, applyOutcome])
-  const close = useCallback(() => { generation.current++; passwordGeneration.current++; setState({ kind: 'closed' }) }, [])
+  const close = useCallback(() => { generation.current++; passwordGeneration.current = {}; setState({ kind: 'closed' }) }, [])
   const replaceState = useCallback((next: GroupCommandState) => {
-    passwordGeneration.current++
+    generation.current++
+    passwordGeneration.current = {}
     setState(next)
   }, [])
   const runConfirmed = useCallback(async (request: ParsedGroupCommandRequest, confirmationTitle?: string) => {
     if (executionLock.current !== 0) return
-    passwordGeneration.current++
+    passwordGeneration.current = {}
     const owned = ++generation.current
     executionLock.current = owned
     setState({ kind: 'executing' })
@@ -140,10 +141,10 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
       return
     }
     const { request } = state
-    passwordGeneration.current++
+    passwordGeneration.current = {}
     const owned = ++generation.current
     executionLock.current = owned
-    setState({ kind: 'executing' })
+    setState({ kind: 'executing', irreversible: true })
     try {
       const result = await execute(request, { confirmed: true, ownershipPassword })
       ownershipPassword = ''
@@ -152,12 +153,20 @@ export function useGroupCommand(execute: Parameters<typeof createGroupCommandCon
         ? { kind: 'error', message: result.error.message }
         : { kind: 'error', message: 'Telegram did not accept the password.' })
     } catch (error) {
+      const message = safeOwnershipErrorMessage(error, ownershipPassword)
       ownershipPassword = ''
-      if (owned === generation.current) setState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+      if (owned === generation.current) setState({ kind: 'error', message })
     } finally {
       ownershipPassword = ''
       if (executionLock.current === owned) executionLock.current = 0
     }
   }, [execute, state, passwordToken])
   return { state, setState: replaceState, submit, submitParsed, close, runConfirmed, runWithOwnershipPassword }
+}
+
+function safeOwnershipErrorMessage(error: unknown, ownershipPassword: string): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return ownershipPassword.length > 0 && message.includes(ownershipPassword)
+    ? 'Telegram ownership transfer failed.'
+    : message
 }

@@ -364,6 +364,98 @@ describe('InteractiveListen slash commands', () => {
     app.unmount()
   })
 
+  it.each([
+    ['Escape', '\u001b'],
+    ['Ctrl-C', '\u0003'],
+  ])('keeps an in-flight ownership transfer visible through %s and renders its outcome', async (_name, keypress) => {
+    let resolveTransfer!: (value: { operation: 'transferOwnership'; chat_id: number; target_id: number }) => void
+    const transfer = new Promise<{ operation: 'transferOwnership'; chat_id: number; target_id: number }>(resolve => { resolveTransfer = resolve })
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    client.groups.transferOwnership.mockImplementation(() => transfer)
+    const onRequestStop = vi.fn()
+    const stdout = new MockStdout(60, 24, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={onRequestStop} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false, exitOnCtrlC: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    await act(async () => { stdin.write('/admin transfer-owner 7') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/admin transfer-owner 7'))
+    await act(async () => { stdin.write('\r') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Cancel'))
+    await act(async () => { stdin.write('\u001b[A') })
+    await act(async () => { stdin.write('\r') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Telegram 2FA password'))
+    expect(client.groups.getGroup).toHaveBeenCalledTimes(2)
+    await act(async () => { stdin.write('secret') })
+    await act(async () => { stdin.write('\r') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Running group command'))
+
+    await act(async () => { stdin.write(keypress) })
+    expect(lastTerminalFrame(stdout.output)).toContain('Running group command')
+    expect(client.groups.transferOwnership).toHaveBeenCalledTimes(1)
+    expect(onRequestStop).not.toHaveBeenCalled()
+    resolveTransfer({ operation: 'transferOwnership', chat_id: 100, target_id: 7 })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Done'))
+    expect(stdout.output).not.toContain('secret')
+
+    controller.abort()
+    app.unmount()
+  })
+
+  it('reports an indeterminate ownership outcome when external shutdown aborts an in-flight transfer', async () => {
+    let resolveTransfer!: (value: { operation: 'transferOwnership'; chat_id: number; target_id: number }) => void
+    const transfer = new Promise<{ operation: 'transferOwnership'; chat_id: number; target_id: number }>(resolve => { resolveTransfer = resolve })
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    client.groups.transferOwnership.mockImplementation(() => transfer)
+    const stdout = new MockStdout(70, 24, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false, exitOnCtrlC: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    await act(async () => { stdin.write('/admin transfer-owner 7') })
+    await act(async () => { stdin.write('\r') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Cancel'))
+    await act(async () => { stdin.write('\u001b[A') })
+    await act(async () => { stdin.write('\r') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Telegram 2FA password'))
+    await act(async () => { stdin.write('secret') })
+    await act(async () => { stdin.write('\r') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Running group command'))
+
+    controller.abort()
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('outcome is indeterminate'))
+    resolveTransfer({ operation: 'transferOwnership', chat_id: 100, target_id: 7 })
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    expect(lastTerminalFrame(stdout.output)).not.toContain('Done')
+    expect(client.groups.transferOwnership).toHaveBeenCalledTimes(1)
+    expect(stdout.output).not.toContain('secret')
+    app.unmount()
+  })
+
+  it('refreshes creator capability immediately before requesting an ownership password', async () => {
+    const freshNonCreator = { ...groupDetails(), current_user_role: 'admin' as const }
+    const getGroup = vi.fn().mockResolvedValueOnce(groupDetails()).mockResolvedValueOnce(freshNonCreator)
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup })
+    const stdout = new MockStdout(60, 24, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(getGroup).toHaveBeenCalledTimes(1))
+    await act(async () => { stdin.write('/admin transfer-owner 7') })
+    await act(async () => { stdin.write('\r') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› Cancel'))
+    await act(async () => { stdin.write('\u001b[A') })
+    await act(async () => { stdin.write('\r') })
+
+    await vi.waitFor(() => expect(getGroup).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('requires the group creator'))
+    expect(lastTerminalFrame(stdout.output)).not.toContain('Telegram 2FA password')
+    expect(client.groups.transferOwnership).not.toHaveBeenCalled()
+    controller.abort()
+    app.unmount()
+  })
+
   it('requires an exact independently typed title before deleting a chat', async () => {
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
@@ -1491,6 +1583,7 @@ function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
       deleteGroup: vi.fn(),
       promoteAdmin: vi.fn(),
       setTitle: vi.fn(),
+      transferOwnership: vi.fn(),
     },
     listen: vi.fn(async ({ onConnected, onMessage, signal }: { onConnected?: () => void; onMessage: (message: StoredMessageInput) => void; signal: AbortSignal }) => {
       onConnected?.()
@@ -1501,7 +1594,7 @@ function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
     close: vi.fn(async () => undefined),
     getChatInfo: vi.fn(async () => null),
     sendMessage: vi.fn(),
-  } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter & { groups: { getGroup: ReturnType<typeof vi.fn>; listTopics: ReturnType<typeof vi.fn>; banMember: ReturnType<typeof vi.fn>; deleteGroup: ReturnType<typeof vi.fn>; promoteAdmin: ReturnType<typeof vi.fn>; setTitle: ReturnType<typeof vi.fn> }; sendMessage: ReturnType<typeof vi.fn> }
+  } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter & { groups: { getGroup: ReturnType<typeof vi.fn>; listTopics: ReturnType<typeof vi.fn>; banMember: ReturnType<typeof vi.fn>; deleteGroup: ReturnType<typeof vi.fn>; promoteAdmin: ReturnType<typeof vi.fn>; setTitle: ReturnType<typeof vi.fn>; transferOwnership: ReturnType<typeof vi.fn> }; sendMessage: ReturnType<typeof vi.fn> }
 }
 
 function lastTerminalFrame(output: string): string {

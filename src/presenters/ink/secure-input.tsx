@@ -1,42 +1,60 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 export function SecureInput({ label, onSubmit, onCancel }: {
   label: string
   onSubmit: (value: string) => void
   onCancel: () => void
 }): React.JSX.Element {
-  const [value, setValue] = useState('')
+  const secret = useRef<string[]>([])
+  const [graphemeCount, setGraphemeCount] = useState(0)
+  const clear = (): void => {
+    secret.current.fill('')
+    secret.current.length = 0
+    setGraphemeCount(0)
+  }
+  useEffect(() => () => {
+    secret.current.fill('')
+    secret.current.length = 0
+  }, [])
 
   useInput((input, key) => {
     if (key.escape) {
-      setValue('')
+      clear()
       onCancel()
       return
     }
     if (key.return) {
-      if (value.length === 0) return
-      const submitted = value
-      setValue('')
+      if (secret.current.length === 0) return
+      const submitted = secret.current.join('')
+      clear()
       onSubmit(submitted)
       return
     }
     if (key.backspace || key.delete) {
-      setValue(current => Array.from(current).slice(0, -1).join(''))
+      const removed = secret.current.pop()
+      if (removed != null) setGraphemeCount(secret.current.length)
       return
     }
     if (!key.ctrl && !key.meta && input.length > 0) {
-      setValue(current => current + Array.from(input).filter(character => {
+      const printable = Array.from(input).filter(character => {
         const code = character.codePointAt(0)
         return code != null && code >= 32 && (code < 127 || code > 159)
-      }).join(''))
+      }).join('')
+      const combined = secret.current.join('') + printable
+      secret.current.fill('')
+      secret.current.length = 0
+      secret.current.push(...Array.from(graphemeSegmenter.segment(combined), part => part.segment))
+      setGraphemeCount(secret.current.length)
     }
   })
 
   return (
     <Box flexDirection="column">
       <Text color="yellow">{label}</Text>
-      <Text color="#8ecbff">› {'•'.repeat(Array.from(value).length)}</Text>
+      <Text color="#8ecbff">› {'•'.repeat(graphemeCount)}</Text>
       <Text dimColor>Enter submit · Esc cancel</Text>
     </Box>
   )

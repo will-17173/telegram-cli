@@ -650,13 +650,17 @@ export function InteractiveListen({
     if (client == null) return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection is not ready.' } }
     if (sendTo == null) return { ok: false, error: { code: 'ambiguous_chat', message: 'Select exactly one target chat with --send-to.' } }
     let knownGroup = knownGroupRef.current
-    if (knownGroup == null) {
+    const refreshOwnershipCapability = request.key === 'admin transfer-owner'
+      && options?.confirmed === true
+      && options.ownershipPassword == null
+    if (knownGroup == null || refreshOwnershipCapability) {
       const lookup = ++groupLookupGenerationRef.current
       knownGroup = await client.groups.getGroup(sendTo)
-      if (lookup === groupLookupGenerationRef.current && clientRef.current === client) {
-        knownGroupRef.current = knownGroup
-        setKnownGroup(knownGroup)
+      if (lookup !== groupLookupGenerationRef.current || clientRef.current !== client) {
+        return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection changed during group verification.' } }
       }
+      knownGroupRef.current = knownGroup
+      setKnownGroup(knownGroup)
     }
     return executeGroupCommand(request, {
       chat: sendTo,
@@ -685,6 +689,8 @@ export function InteractiveListen({
       },
     })
   }, [sendTo]))
+  const irreversibleGroupWriteRef = useRef(false)
+  irreversibleGroupWriteRef.current = groupCommand.state.kind === 'executing' && groupCommand.state.irreversible === true
   const terminalWidth = terminalMetrics.columns
   const terminalHeight = terminalMetrics.rows
   const previewColorDepth = interactiveListenPreviewColorDepth(terminalMetrics.colorDepth)
@@ -745,11 +751,17 @@ export function InteractiveListen({
 
   useInput((inputText, key) => {
     if (isMouseInput(inputText)) return
+    const modal = groupCommand.state
+    if (modal.kind === 'executing' && modal.irreversible === true) {
+      if (key.escape || (key.ctrl && (inputText === 'c' || inputText === 'C' || inputText === '\u0003'))) {
+        setNote('Group write is already running; wait for its outcome.')
+      }
+      return
+    }
     if (key.ctrl && (inputText === 'c' || inputText === 'C' || inputText === '\u0003')) {
       stopListening()
       return
     }
-    const modal = groupCommand.state
     if (modal.kind === 'password') return
     if (modal.kind === 'confirm') {
       if (key.escape) { closeGroupCommand(); return }
@@ -977,6 +989,13 @@ export function InteractiveListen({
     }
 
     const stopFromSignal = () => {
+      if (irreversibleGroupWriteRef.current) {
+        groupCommand.setState({
+          kind: 'error',
+          message: 'Ownership transfer outcome is indeterminate because shutdown interrupted the connection.',
+        })
+        return
+      }
       stopListening()
     }
     stopSignal.addEventListener('abort', stopFromSignal)

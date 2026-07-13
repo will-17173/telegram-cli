@@ -151,6 +151,28 @@ describe('useGroupCommand ownership password flow', () => {
     expect(execute).toHaveBeenCalledTimes(2)
     app.unmount()
   })
+
+  it('does not expose a submitted password from a malicious rejected error', async () => {
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ ok: false, confirmation: { risk: 'confirm', chat: 1, summary: 'Transfer ownership' } })
+      .mockResolvedValueOnce({ ok: false, secretRequired: { kind: 'ownership_password' } })
+      .mockRejectedValueOnce(new Error('malicious failure includes secret'))
+    let command: ReturnType<typeof useGroupCommand> | undefined
+    const app = render(React.createElement(HookHarness, { execute, onChange: next => { command = next } }), {
+      stdout: new PassThrough() as unknown as NodeJS.WriteStream,
+      patchConsole: false,
+    })
+
+    await act(async () => { await command!.submit('/admin transfer-owner 7', 0) })
+    const current = command!
+    const request = (current.state as Extract<typeof current.state, { kind: 'confirm' }>).request
+    await act(async () => { await command!.runConfirmed(request) })
+    await act(async () => { await command!.runWithOwnershipPassword('secret') })
+
+    expect(command!.state).toMatchObject({ kind: 'error' })
+    expect(JSON.stringify(command!.state)).not.toContain('secret')
+    app.unmount()
+  })
 })
 
 function HookHarness({ execute, onChange }: {
