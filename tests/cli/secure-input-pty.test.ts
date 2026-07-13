@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const fixture = join(process.cwd(), 'tests', 'fixtures', 'secure-input-pty.ts')
+const node = process.execPath
 const tempDirs: string[] = []
 
 afterEach(() => {
@@ -15,7 +16,7 @@ afterEach(() => {
 describe.runIf(process.platform !== 'win32' && existsSync('/usr/bin/expect'))('secure input PTY behavior', () => {
   it('does not echo the secret and restores the real terminal state', () => {
     const result = runExpect(`
-      spawn -noecho sh -c {before=$(stty -g); pnpm exec tsx ${fixture} secret; status=$?; after=$(stty -g); echo TERMINAL_BEFORE:$before; echo TERMINAL_AFTER:$after; exit $status}
+      spawn -noecho sh -c {before=$(stty -g); ${node} --import tsx ${fixture} secret; status=$?; after=$(stty -g); echo TERMINAL_BEFORE:$before; echo TERMINAL_AFTER:$after; exit $status}
       expect -exact {2FA password: }
       send -- "super-secret-value\r"
       expect eof
@@ -36,7 +37,7 @@ describe.runIf(process.platform !== 'win32' && existsSync('/usr/bin/expect'))('s
     ['SIGTERM', 'signal-term', 143],
   ])('restores the terminal and exits conventionally on %s', (_signal, mode, exitCode) => {
     const result = runExpect(`
-      spawn -noecho sh -c {before=$(stty -g); pnpm exec tsx ${fixture} ${mode}; status=$?; after=$(stty -g); echo TERMINAL_BEFORE:$before; echo TERMINAL_AFTER:$after; exit $status}
+      spawn -noecho sh -c {before=$(stty -g); ${node} --import tsx ${fixture} ${mode}; status=$?; after=$(stty -g); echo TERMINAL_BEFORE:$before; echo TERMINAL_AFTER:$after; exit $status}
       expect -exact {2FA password: }
       expect eof
       set child [wait]
@@ -50,13 +51,28 @@ describe.runIf(process.platform !== 'win32' && existsSync('/usr/bin/expect'))('s
   })
 
   it.each([
+    ['SIGHUP', 'stubborn-hup', 129],
+    ['SIGTERM', 'stubborn-term', 143],
+  ])('forces conventional %s termination when an operation ignores abort', (_signal, mode, exitCode) => {
+    const result = runExpect(`
+      spawn -noecho ${node} --import tsx ${fixture} ${mode}
+      expect eof
+      set child [wait]
+      if {[lindex $child 4] eq "CHILDKILLED"} { exit ${exitCode} }
+      exit [lindex $child 3]
+    `)
+
+    expect(result.status).toBe(exitCode)
+  })
+
+  it.each([
     ['phone', 'auth-phone', []],
     ['code', 'auth-code', ['+8613800138000']],
     ['password', 'auth-password', ['+8613800138000', '12345']],
   ])('exits 130 on Ctrl-C during the %s authentication prompt', (_label, mode, answers) => {
     const interactions = answers.map(answer => `expect -re {Phone number: |Login code: }; send -- "${answer}\\r"`).join('\n')
     const result = runExpect(`
-      spawn -noecho pnpm exec tsx ${fixture} ${mode}
+      spawn -noecho ${node} --import tsx ${fixture} ${mode}
       ${interactions}
       expect -re {Phone number: |Login code: |2FA password: }
       send -- "\\003"

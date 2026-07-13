@@ -7,6 +7,12 @@ try {
   if (mode === 'secret') {
     const value = await readSecret('2FA password: ')
     process.stdout.write(`secret-length:${value.length}\n`)
+  } else if (mode === 'stubborn-hup' || mode === 'stubborn-term') {
+    createInterruptScope()
+    const signal = mode === 'stubborn-hup' ? 'SIGHUP' : 'SIGTERM'
+    setTimeout(() => process.kill(process.pid, signal), 25)
+    setInterval(() => undefined, 1_000)
+    await new Promise(() => undefined)
   } else if (mode === 'signal-hup' || mode === 'signal-term') {
     const interrupt = createInterruptScope()
     try {

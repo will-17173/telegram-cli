@@ -37,7 +37,160 @@ describe('createInterruptScope', () => {
   })
 })
 
+describe('readVisibleInput', () => {
+  it('rejects a destroyed input without retaining ownership', async () => {
+    const input = new FakeTtyInput()
+    input.destroy()
+    const streams = {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    }
+
+    await expect(readVisibleInput('Phone: ', streams)).rejects.toMatchObject({ code: 'interrupted' })
+    await expect(readVisibleInput('Phone: ', streams)).rejects.toMatchObject({ code: 'interrupted' })
+  })
+
+  it('settles and releases ownership when the input closes during setup', async () => {
+    const input = new FakeTtyInput()
+    const resume = input.resume.bind(input)
+    input.resume = () => {
+      const resumed = resume()
+      input.emit('close')
+      return resumed
+    }
+    const streams = {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    }
+
+    const outcome = await settlesPromptly(readVisibleInput('Phone: ', streams))
+
+    expect(outcome).toMatchObject({ status: 'rejected', error: { code: 'interrupted' } })
+    expect(input.listenerCount('data')).toBe(0)
+    expect(input.listenerCount('close')).toBe(0)
+  })
+
+  it('settles and cleans listeners when the input errors during setup', async () => {
+    const input = new FakeTtyInput()
+    const failure = new Error('input failed')
+    const resume = input.resume.bind(input)
+    input.resume = () => {
+      const resumed = resume()
+      input.emit('error', failure)
+      return resumed
+    }
+
+    await expect(readVisibleInput('Phone: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    })).rejects.toBe(failure)
+    expect(input.listenerCount('data')).toBe(0)
+    expect(input.listenerCount('error')).toBe(0)
+  })
+
+  it('does not miss an abort triggered while visible input resumes', async () => {
+    const input = new FakeTtyInput()
+    const controller = new AbortController()
+    const interruption = new CliInterruptedError()
+    const resume = input.resume.bind(input)
+    input.resume = () => {
+      const resumed = resume()
+      controller.abort(interruption)
+      return resumed
+    }
+
+    await expect(readVisibleInput('Phone: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+      signal: controller.signal,
+    })).rejects.toBe(interruption)
+    expect(input.listenerCount('data')).toBe(0)
+  })
+
+  it('settles on scoped SIGINT and releases the terminal', async () => {
+    const input = new FakeTtyInput()
+    const scope = createInterruptScope()
+    try {
+      const reading = readVisibleInput('Phone: ', {
+        input: input as unknown as NodeJS.ReadStream,
+        output: new PassThrough() as unknown as NodeJS.WriteStream,
+        signal: scope.signal,
+      })
+      process.emit('SIGINT')
+
+      await expect(reading).rejects.toMatchObject({ code: 'interrupted', exitCode: 130 })
+      expect(input.listenerCount('data')).toBe(0)
+    } finally {
+      scope.dispose()
+    }
+  })
+
+  it('rejects an unmanaged existing data listener before writing a prompt', async () => {
+    const input = new FakeTtyInput()
+    const existingListener = () => undefined
+    input.on('data', existingListener)
+    const output = new PassThrough()
+    const writes: string[] = []
+    output.on('data', chunk => writes.push(String(chunk)))
+
+    await expect(readVisibleInput('Phone: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    })).rejects.toMatchObject({ code: 'input_busy' })
+    expect(input.listeners('data')).toEqual([existingListener])
+    expect(writes).toEqual([])
+  })
+
+  it('does not misclassify a data listener injected by newListener', async () => {
+    const input = new FakeTtyInput()
+    const injectedListener = () => undefined
+    let injected = false
+    const injectListener = (event: string | symbol) => {
+      if (event === 'data' && !injected) {
+        injected = true
+        input.on('data', injectedListener)
+      }
+    }
+    input.on('newListener', injectListener)
+
+    const outcome = await settlesPromptly(readVisibleInput('Phone: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    }))
+
+    input.removeListener('newListener', injectListener)
+    expect(outcome).toMatchObject({ status: 'rejected', error: { code: 'input_busy' } })
+    expect(input.listeners('data')).toEqual([injectedListener])
+  })
+})
+
 describe('readSecret', () => {
+  it('supports sequential phone, code, password, and visible retry prompts', async () => {
+    const input = new FakeTtyInput()
+    const streams = {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    }
+
+    const phone = readVisibleInput('Phone: ', streams)
+    input.write('+8613800138000\r')
+    await expect(phone).resolves.toBe('+8613800138000')
+
+    const code = readVisibleInput('Code: ', streams)
+    input.write('12345\r')
+    await expect(code).resolves.toBe('12345')
+
+    const password = readSecret('Password: ', streams)
+    input.write('hunter2\r')
+    await expect(password).resolves.toBe('hunter2')
+
+    const retry = readVisibleInput('Code: ', streams)
+    input.write('54321\r')
+    await expect(retry).resolves.toBe('54321')
+    expect(input.rawModes).toEqual([true, false])
+    expect(input.listenerCount('data')).toBe(0)
+  })
+
   it('cannot overlap an active visible prompt on the same terminal', async () => {
     const input = new FakeTtyInput()
     const output = new PassThrough()
@@ -59,27 +212,6 @@ describe('readSecret', () => {
     if (outcome.status === 'pending') await secret
 
     expect(outcome).toMatchObject({ status: 'rejected', error: { code: 'input_busy' } })
-  })
-
-  it('does not restore a managed readline listener that was already detached', async () => {
-    const input = new FakeTtyInput()
-    const output = new PassThrough()
-    const streams = {
-      input: input as unknown as NodeJS.ReadStream,
-      output: output as unknown as NodeJS.WriteStream,
-    }
-    const visible = readVisibleInput('Phone: ', streams)
-    input.write('13800138000\r')
-    await visible
-    const managedListener = input.listeners('data')[0] as ((...args: any[]) => void) | undefined
-    expect(managedListener).toBeDefined()
-    input.removeListener('data', managedListener!)
-
-    const secret = readSecret('Password: ', streams)
-    input.write('hunter2\r')
-    await secret
-
-    expect(input.listenerCount('data')).toBe(0)
   })
 
   it('rejects a concurrent read on the same terminal without mutating it', async () => {
@@ -412,10 +544,11 @@ describe('readSecret', () => {
     expect(input.listenerCount('data')).toBe(0)
     expect(input.listenerCount('error')).toBe(0)
     expect(input.listenerCount('end')).toBe(0)
+    await new Promise(resolve => setTimeout(resolve, 120))
     expect(output.listeners('error')).toEqual([preserveProcess])
   })
 
-  it('waits for a delayed prompt write error before releasing output listeners', async () => {
+  it('contains a delayed prompt write error after releasing terminal ownership', async () => {
     const input = new FakeTtyInput()
     const failure = Object.assign(new Error('broken pipe'), { code: 'EPIPE' })
     const output = new Writable({
@@ -433,9 +566,47 @@ describe('readSecret', () => {
     })
     input.write('hunter2\r')
 
-    await expect(reading).rejects.toBe(failure)
+    await expect(reading).resolves.toBe('hunter2')
+    await new Promise(resolve => setTimeout(resolve, 20))
     expect(observed).toEqual([failure])
     expect(input.rawModes).toEqual([true, false])
+    await new Promise(resolve => setTimeout(resolve, 100))
     expect(output.listeners('error')).toEqual([preserveProcess])
   })
+
+  it('restores raw mode and releases ownership when output never invokes callbacks', async () => {
+    const input = new FakeTtyInput()
+    const output = new PassThrough()
+    output.write = ((_chunk: Uint8Array | string, _encoding?: BufferEncoding, _callback?: (error?: Error | null) => void) => true) as typeof output.write
+    const streams = {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    }
+
+    const first = readSecret('Password: ', streams)
+    input.write('hunter2\r')
+    const firstOutcome = await settlesPromptly(first)
+
+    expect(firstOutcome).toEqual({ status: 'resolved', value: 'hunter2' })
+    expect(input.rawModes).toEqual([true, false])
+
+    const second = readSecret('Again: ', streams)
+    input.write('second\r')
+    await expect(second).resolves.toBe('second')
+    expect(input.rawModes).toEqual([true, false, true, false])
+  })
 })
+
+async function settlesPromptly<T>(promise: Promise<T>): Promise<
+  { status: 'resolved'; value: T }
+  | { status: 'rejected'; error: unknown }
+  | { status: 'pending' }
+> {
+  return Promise.race([
+    promise.then(
+      value => ({ status: 'resolved' as const, value }),
+      error => ({ status: 'rejected' as const, error }),
+    ),
+    new Promise<{ status: 'pending' }>(resolve => setTimeout(() => resolve({ status: 'pending' }), 25)),
+  ])
+}

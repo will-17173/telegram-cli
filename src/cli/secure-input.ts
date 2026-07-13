@@ -1,5 +1,4 @@
 import { StringDecoder } from 'node:string_decoder'
-import { createInterface } from 'node:readline/promises'
 
 export type SecureInputOptions = {
   input?: NodeJS.ReadStream
@@ -7,12 +6,14 @@ export type SecureInputOptions = {
   signal?: AbortSignal
 }
 
+type InterruptSignal = 'SIGINT' | 'SIGHUP' | 'SIGTERM'
+
 export class CliInterruptedError extends Error {
   readonly code = 'interrupted'
   readonly exitCode: number
-  readonly signal: 'SIGINT' | 'SIGHUP' | 'SIGTERM'
+  readonly signal: InterruptSignal
 
-  constructor(signal: 'SIGINT' | 'SIGHUP' | 'SIGTERM' = 'SIGINT') {
+  constructor(signal: InterruptSignal = 'SIGINT') {
     super('Operation interrupted.')
     this.name = 'CliInterruptedError'
     this.signal = signal
@@ -48,109 +49,82 @@ export class InputBusyError extends Error {
 }
 
 const activeTerminalInputs = new WeakSet<NodeJS.ReadStream>()
-type DataListener = (...args: any[]) => void
-const managedReadlineDataListeners = new WeakMap<NodeJS.ReadStream, Set<DataListener>>()
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+const SIGNAL_CLEANUP_GRACE_MS = 100
+const OUTPUT_ERROR_GRACE_MS = 100
 
 export function createInterruptScope(): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController()
-  // SIGKILL cannot be observed by a process, so the OS terminal driver is the only cleanup boundary for it.
-  const handlers = {
-    SIGINT: () => controller.abort(new CliInterruptedError('SIGINT')),
-    SIGHUP: () => controller.abort(new CliInterruptedError('SIGHUP')),
-    SIGTERM: () => controller.abort(new CliInterruptedError('SIGTERM')),
-  } satisfies Record<'SIGINT' | 'SIGHUP' | 'SIGTERM', () => void>
-  for (const [signal, handler] of Object.entries(handlers)) {
-    process.once(signal as keyof typeof handlers, handler)
+  let fallback: NodeJS.Timeout | undefined
+  // SIGKILL cannot be observed; for catchable signals, re-raise after a short cooperative cleanup window.
+  const handlers = Object.fromEntries((['SIGINT', 'SIGHUP', 'SIGTERM'] as const).map(processSignal => [
+    processSignal,
+    () => {
+      if (controller.signal.aborted) return
+      controller.abort(new CliInterruptedError(processSignal))
+      fallback = setTimeout(() => {
+        removeHandlers()
+        process.kill(process.pid, processSignal)
+      }, SIGNAL_CLEANUP_GRACE_MS)
+      fallback.unref()
+    },
+  ])) as Record<InterruptSignal, () => void>
+  const removeHandlers = (): void => {
+    for (const processSignal of Object.keys(handlers) as InterruptSignal[]) {
+      process.removeListener(processSignal, handlers[processSignal])
+    }
   }
+  for (const processSignal of Object.keys(handlers) as InterruptSignal[]) {
+    process.once(processSignal, handlers[processSignal])
+  }
+
   return {
     signal: controller.signal,
     dispose: () => {
-      for (const [signal, handler] of Object.entries(handlers)) {
-        process.removeListener(signal as keyof typeof handlers, handler)
-      }
+      if (fallback) clearTimeout(fallback)
+      removeHandlers()
     },
   }
 }
 
-export async function readVisibleInput(promptText: string, options: SecureInputOptions = {}): Promise<string> {
-  const input = options.input ?? process.stdin
-  const output = options.output ?? process.stderr
-  if (input.isTTY !== true) throw new InteractionRequiredError()
-  throwIfAborted(options.signal)
-  if (activeTerminalInputs.has(input)) throw new InputBusyError()
-
-  activeTerminalInputs.add(input)
-  let readline: ReturnType<typeof createInterface> | undefined
-  let onSigint: (() => void) | undefined
-  try {
-    const existingDataListeners = input.rawListeners('data')
-    readline = createInterface({ input, output, terminal: true })
-    const managedListeners = managedReadlineDataListeners.get(input) ?? new Set()
-    for (const listener of input.rawListeners('data') as DataListener[]) {
-      if (!existingDataListeners.includes(listener)) managedListeners.add(listener)
-    }
-    managedReadlineDataListeners.set(input, managedListeners)
-    let rejectInterrupt: ((error: CliInterruptedError) => void) | undefined
-    const interrupted = new Promise<never>((_resolve, reject) => {
-      rejectInterrupt = reject
-    })
-    onSigint = () => rejectInterrupt?.(new CliInterruptedError())
-    readline.once('SIGINT', onSigint)
-    return await Promise.race([
-      readline.question(promptText, { signal: options.signal }).catch(error => {
-        if (options.signal?.aborted) throw abortReason(options.signal)
-        throw error
-      }),
-      interrupted,
-    ])
-  } finally {
-    if (readline && onSigint) readline.removeListener('SIGINT', onSigint)
-    readline?.close()
-    activeTerminalInputs.delete(input)
-  }
+export async function readVisibleInput(
+  prompt: string,
+  streams: { input?: NodeJS.ReadStream; output?: NodeJS.WriteStream; signal?: AbortSignal } = {},
+): Promise<string> {
+  return readTerminalInput(prompt, streams, false)
 }
 
-export async function readSecret(promptText: string, options: SecureInputOptions = {}): Promise<string> {
-  const input = options.input ?? process.stdin
-  const output = options.output ?? process.stderr
-  if (input.isTTY !== true || typeof input.setRawMode !== 'function') throw new InteractionRequiredError()
-  throwIfAborted(options.signal)
+export async function readSecret(
+  prompt: string,
+  streams: { input?: NodeJS.ReadStream; output?: NodeJS.WriteStream; signal?: AbortSignal } = {},
+): Promise<string> {
+  return readTerminalInput(prompt, streams, true)
+}
+
+async function readTerminalInput(prompt: string, streams: SecureInputOptions, hidden: boolean): Promise<string> {
+  const input = streams.input ?? process.stdin
+  const output = streams.output ?? process.stderr
+  if (input.isTTY !== true || (hidden && typeof input.setRawMode !== 'function')) {
+    throw new InteractionRequiredError()
+  }
+  throwIfAborted(streams.signal)
   if (input.readableEnded || input.destroyed) throw new CliInterruptedError()
-  const managedListeners = managedReadlineDataListeners.get(input) ?? new Set()
-  const currentDataListeners = input.rawListeners('data') as DataListener[]
-  const unmanagedListeners = currentDataListeners
-    .filter(listener => !managedListeners.has(listener))
-  if (activeTerminalInputs.has(input) || unmanagedListeners.length > 0) throw new InputBusyError()
+  if (activeTerminalInputs.has(input) || input.listenerCount('data') > 0) throw new InputBusyError()
 
-  const suspendedManagedListeners = currentDataListeners.filter(listener => managedListeners.has(listener))
   activeTerminalInputs.add(input)
-  let operationFailed = false
   try {
-    for (const listener of suspendedManagedListeners) input.removeListener('data', listener)
-    return await readSecretFromTerminal(promptText, input, output, options.signal)
-  } catch (error) {
-    operationFailed = true
-    throw error
+    return await readOwnedTerminalInput(prompt, input, output, streams.signal, hidden)
   } finally {
-    let restoreError: unknown
-    for (const listener of suspendedManagedListeners) {
-      try {
-        if (!(input.rawListeners('data') as DataListener[]).includes(listener)) input.on('data', listener)
-      } catch (error) {
-        restoreError ??= error
-      }
-    }
     activeTerminalInputs.delete(input)
-    if (!operationFailed && restoreError !== undefined) throw restoreError
   }
 }
 
-async function readSecretFromTerminal(
-  promptText: string,
+async function readOwnedTerminalInput(
+  prompt: string,
   input: NodeJS.ReadStream,
   output: NodeJS.WriteStream,
   signal: AbortSignal | undefined,
+  hidden: boolean,
 ): Promise<string> {
   const originalRawMode = input.isRaw === true
   const wasFlowing = input.readableFlowing === true
@@ -158,18 +132,18 @@ async function readSecretFromTerminal(
   let value = ''
   let settled = false
   let rawModeTouched = false
-  let promptWritten = false
-  let promptWrite: Promise<unknown> | undefined
+  let promptStarted = false
+  let operationFailed = false
   let resolveInput: ((value: string) => void) | undefined
   let rejectInput: ((error: unknown) => void) | undefined
   const result = new Promise<string>((resolve, reject) => {
     resolveInput = resolve
     rejectInput = reject
   })
-  const settleValue = (secret: string): void => {
+  const settleValue = (line: string): void => {
     if (settled) return
     settled = true
-    resolveInput?.(secret)
+    resolveInput?.(line)
   }
   const settleError = (error: unknown): void => {
     if (settled) return
@@ -185,52 +159,45 @@ async function readSecretFromTerminal(
         return
       }
       if (character === '\r' || character === '\n') {
-        if (value.length === 0) settleError(new InvalidInputError('Secret input cannot be empty.'))
+        if (hidden && value.length === 0) settleError(new InvalidInputError('Secret input cannot be empty.'))
         else settleValue(value)
         return
       }
       if (code === 8 || code === 127) {
-        value = Array.from(graphemeSegmenter.segment(value), part => part.segment).slice(0, -1).join('')
+        value = removeFinalGrapheme(value)
         continue
       }
-      if (code != null && code >= 32) value += character
+      if (!hidden || (code != null && code >= 32)) value += character
     }
   }
-  const onError = (error: Error): void => settleError(error)
+  const onInputError = (error: Error): void => settleError(error)
   const onOutputError = (error: Error): void => settleError(error)
-  const onEnd = (): void => settleError(new CliInterruptedError())
-  const onClose = (): void => settleError(new CliInterruptedError())
+  const onInputUnavailable = (): void => settleError(new CliInterruptedError())
   const onAbort = (): void => settleError(abortReason(signal!))
 
-  let operationFailed = false
   signal?.addEventListener('abort', onAbort, { once: true })
+  output.on('error', onOutputError)
+  input.once('error', onInputError)
+  input.once('end', onInputUnavailable)
+  input.once('close', onInputUnavailable)
   try {
-    output.once('error', onOutputError)
-    input.once('error', onError)
-    input.once('end', onEnd)
-    input.once('close', onClose)
     if (signal?.aborted) settleError(abortReason(signal))
     if (input.readableEnded || input.destroyed) settleError(new CliInterruptedError())
-    if (!settled) {
+    if (!settled && hidden) {
       rawModeTouched = true
       input.setRawMode(true)
     }
     if (!settled) {
       input.on('data', onData)
-      input.resume()
-      promptWritten = true
-      promptWrite = writeTerminalOutput(output, promptText).then(
-        () => undefined,
-        error => {
-          settleError(error)
-          return error
-        },
-      )
+      const unexpectedDataListeners = input.listeners('data').filter(listener => listener !== onData)
+      if (unexpectedDataListeners.length > 0) settleError(new InputBusyError())
     }
-    const secret = await result
-    const promptError = await promptWrite
-    if (promptError !== undefined) throw promptError
-    return secret
+    if (!settled) input.resume()
+    if (!settled) {
+      promptStarted = true
+      startOutputWrite(output, prompt, settleError)
+    }
+    return await result
   } catch (error) {
     operationFailed = true
     throw error
@@ -244,9 +211,9 @@ async function readSecretFromTerminal(
       }
     }
     cleanup(() => input.removeListener('data', onData))
-    cleanup(() => input.removeListener('error', onError))
-    cleanup(() => input.removeListener('end', onEnd))
-    cleanup(() => input.removeListener('close', onClose))
+    cleanup(() => input.removeListener('error', onInputError))
+    cleanup(() => input.removeListener('end', onInputUnavailable))
+    cleanup(() => input.removeListener('close', onInputUnavailable))
     cleanup(() => signal?.removeEventListener('abort', onAbort))
     cleanup(() => {
       if (rawModeTouched) input.setRawMode(originalRawMode)
@@ -254,43 +221,39 @@ async function readSecretFromTerminal(
     cleanup(() => {
       if (!wasFlowing) input.pause()
     })
-    if (promptWrite) await promptWrite
-    if (promptWritten) {
-      try {
-        await writeTerminalOutput(output, '\n')
-      } catch (error) {
-        cleanupError ??= error
-      }
-    }
+    cleanup(() => installLateOutputErrorGuard(output))
     cleanup(() => output.removeListener('error', onOutputError))
+    cleanup(() => {
+      if (promptStarted && hidden) startOutputWrite(output, '\n')
+    })
     value = ''
     if (!operationFailed && cleanupError !== undefined) throw cleanupError
   }
 }
 
-function writeTerminalOutput(output: NodeJS.WriteStream, text: string): Promise<void> {
-  if (output.write.length < 2) {
-    output.write(text)
-    return Promise.resolve()
+function startOutputWrite(
+  output: NodeJS.WriteStream,
+  text: string,
+  onError: (error: Error) => void = () => undefined,
+): void {
+  try {
+    output.write(text, error => {
+      if (error) onError(error)
+    })
+  } catch (error) {
+    throw error instanceof Error ? error : new Error(String(error))
   }
+}
 
-  return new Promise<void>((resolve, reject) => {
-    let settled = false
-    const finish = (error?: Error | null): void => {
-      if (settled) return
-      settled = true
-      output.removeListener('error', onError)
-      if (error) reject(error)
-      else resolve()
-    }
-    const onError = (error: Error): void => finish(error)
-    output.once('error', onError)
-    try {
-      output.write(text, finish)
-    } catch (error) {
-      finish(error instanceof Error ? error : new Error(String(error)))
-    }
-  })
+function installLateOutputErrorGuard(output: NodeJS.WriteStream): void {
+  const onLateError = (): void => undefined
+  output.on('error', onLateError)
+  const timer = setTimeout(() => output.removeListener('error', onLateError), OUTPUT_ERROR_GRACE_MS)
+  timer.unref()
+}
+
+function removeFinalGrapheme(value: string): string {
+  return Array.from(graphemeSegmenter.segment(value), part => part.segment).slice(0, -1).join('')
 }
 
 export function isCliInterruptedError(error: unknown): error is CliInterruptedError {
