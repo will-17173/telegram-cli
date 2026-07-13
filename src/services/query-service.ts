@@ -1,6 +1,6 @@
 import type { HandlerResult } from '../commands/types.js'
 import { logicalMessageTable, messageTable, statsSummary, timelineView, topTable } from '../presenters/human.js'
-import { groupLogicalMessages, type LogicalMessage } from '../presenters/logical-message.js'
+import { groupLogicalMessages, logicalMessageKey, type LogicalMessage } from '../presenters/logical-message.js'
 import { MessageDB } from '../storage/message-db.js'
 import type { StoredMessage } from '../storage/message-db.js'
 import { buildReplyContext } from './reply-context.js'
@@ -127,48 +127,63 @@ export class QueryService {
   }
 
   private recentLogicalMessages(options: { chatId?: number; sender?: string; hours: number; limit: number }): LogicalMessage[] {
-    const pageSize = Math.max(options.limit * 2, 100)
-    const rows: StoredMessage[] = []
-    let before: { timestamp: string; id: number } | undefined
-
-    while (true) {
-      const page = this.db.getRecentPage({ ...options, limit: pageSize, before })
-      rows.push(...page)
-      const grouped = groupLogicalMessages(rows)
-      if (page.length < pageSize || grouped.length >= options.limit + 1) {
-        return grouped.slice(-options.limit)
-      }
-      const oldest = page[page.length - 1]
-      if (oldest == null) return []
-      before = { timestamp: oldest.timestamp, id: oldest.id }
-    }
+    const pageSize = Math.min(Math.max(options.limit, 100), 1000)
+    return collectRecentLogicalMessages({
+      target: options.limit,
+      pageSize,
+      getPage: (before) => this.db.getRecentPage({ ...options, limit: pageSize, before }),
+    })
   }
 
   private attachReplyContexts(messages: LogicalMessage[]): void {
     const keys = new Map<string, { chatId: number; msgId: number }>()
     for (const message of messages) {
       if (message.replyToMessageId == null) continue
+      if (message.first.platform !== 'telegram') continue
       const key = { chatId: message.first.chat_id, msgId: message.replyToMessageId }
-      keys.set(messageKey(key.chatId, key.msgId), key)
+      keys.set(messageKey('telegram', key.chatId, key.msgId), key)
     }
     const targets = new Map(this.db.getMessagesByKeys([...keys.values()])
-      .map((target) => [messageKey(target.chat_id, target.msg_id), target]))
+      .map((target) => [messageKey(target.platform, target.chat_id, target.msg_id), target]))
     for (const message of messages) {
       if (message.replyToMessageId == null) continue
       message.replyContext = buildReplyContext(
         message.replyToMessageId,
-        targets.get(messageKey(message.first.chat_id, message.replyToMessageId)),
+        targets.get(messageKey(message.first.platform, message.first.chat_id, message.replyToMessageId)),
       )
     }
   }
 }
 
-function messageKey(chatId: number, messageId: number): string {
-  return `${chatId}:${messageId}`
+function messageKey(platform: string, chatId: number, messageId: number): string {
+  return `${platform}:${chatId}:${messageId}`
+}
+
+export function collectRecentLogicalMessages(options: {
+  target: number
+  pageSize: number
+  getPage: (before?: { timestamp: string; id: number }) => StoredMessage[]
+  group?: (rows: StoredMessage[]) => LogicalMessage[]
+}): LogicalMessage[] {
+  const rows: StoredMessage[] = []
+  const keys = new Set<string>()
+  let before: { timestamp: string; id: number } | undefined
+
+  while (true) {
+    const page = options.getPage(before)
+    rows.push(...page)
+    for (const row of page) keys.add(logicalMessageKey(row))
+    if (page.length < options.pageSize || keys.size >= options.target + 1) break
+    const oldest = page[page.length - 1]
+    if (oldest == null) break
+    before = { timestamp: oldest.timestamp, id: oldest.id }
+  }
+
+  return (options.group ?? groupLogicalMessages)(rows).slice(-options.target)
 }
 
 function validateQueryOptions(options: { hours?: number; limit?: number }): HandlerResult<undefined> {
-  if (options.limit != null && (!Number.isInteger(options.limit) || options.limit <= 0)) {
+  if (options.limit != null && (!Number.isSafeInteger(options.limit) || options.limit <= 0)) {
     return invalidOption('limit', 'Limit must be a positive integer.')
   }
   if (options.hours != null && (!Number.isFinite(options.hours) || options.hours <= 0)) {

@@ -123,8 +123,8 @@ export class MessageDB {
     const limit = options.limit ?? 500
     return this.db.prepare(`
       SELECT * FROM (
-        SELECT * FROM messages WHERE ${conditions.join(' AND ')} ORDER BY timestamp DESC LIMIT ?
-      ) ORDER BY timestamp ASC
+        SELECT * FROM messages WHERE ${conditions.join(' AND ')} ORDER BY timestamp DESC, id DESC LIMIT ?
+      ) ORDER BY timestamp ASC, id ASC
     `).all(...params, limit) as StoredMessage[]
   }
 

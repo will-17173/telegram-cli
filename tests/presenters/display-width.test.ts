@@ -58,6 +58,20 @@ describe('formatTable', () => {
 })
 
 describe('formatGridTable', () => {
+  it('expands multiline cells into aligned physical grid rows without semantic separators', () => {
+    const lines = formatGridTable(['ID', 'MESSAGE'], [['1', 'reply\ncontent\nmedia']], 30)
+    expect(lines.map((line) => line.kind)).toEqual([
+      'border', 'header', 'separator', 'row', 'row', 'row', 'border',
+    ])
+    const rows = lines.filter((line) => line.kind === 'row')
+    expect(rows.map((line) => line.text)).toEqual([
+      '│ 1  │ reply   │',
+      '│    │ content │',
+      '│    │ media   │',
+    ])
+    expect(new Set(lines.map((line) => line.width).filter(Boolean)).size).toBe(1)
+  })
+
   it('uses rounded borders and junctions with a separator between every data row', () => {
     const lines = formatGridTable(['ID', 'NAME'], [['1', 'Ada'], ['2', 'Lin']], 30)
 

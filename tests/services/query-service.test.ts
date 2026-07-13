@@ -2,8 +2,8 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { QueryService } from '../../src/services/query-service.js'
-import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
+import { collectRecentLogicalMessages, QueryService } from '../../src/services/query-service.js'
+import { MessageDB, type StoredMessage, type StoredMessageInput } from '../../src/storage/message-db.js'
 
 function setup(messages: StoredMessageInput[] = []): { db: MessageDB; service: QueryService } {
   const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-query-')), 'messages.db'))
@@ -155,6 +155,43 @@ describe('QueryService human views', () => {
     service.close()
   })
 
+  it('keeps reply resolution isolated by platform', () => {
+    const now = Date.now()
+    const { db, service } = setup([
+      message({ platform: 'telegram', msg_id: 7, sender_name: 'Telegram Bob', content: 'telegram target', timestamp: new Date(now - 3_000).toISOString() }),
+      message({ platform: 'slack', msg_id: 8, content: 'slack reply', timestamp: new Date(now - 1_000).toISOString(), raw_json: { reply_to: { reply_to_msg_id: 7 } } }),
+    ])
+    const lookup = vi.spyOn(db, 'getMessagesByKeys')
+    const result = service.recent({ limit: 1 })
+
+    if (!result.ok || result.human?.kind !== 'table') throw new Error('expected table')
+    expect(result.human.rows[0]?.[3]).toBe('↳ Reply to message #7 (not found locally)\nslack reply')
+    expect(lookup).toHaveBeenCalledWith([])
+    service.close()
+  })
+
+  it('groups accumulated recent pages only once after incremental key collection', () => {
+    const pages = [
+      [message({ msg_id: 3, timestamp: '2026-07-10T03:00:00Z' }), message({ msg_id: 2, timestamp: '2026-07-10T02:00:00Z' })],
+      [message({ msg_id: 1, timestamp: '2026-07-10T01:00:00Z' })],
+    ]
+    let pageIndex = 0
+    const group = vi.fn((rows: StoredMessage[]) => rows.map((row) => ({
+      key: String(row.msg_id), messages: [row], first: row, content: row.content, replyToMessageId: null,
+    })))
+
+    const logical = collectRecentLogicalMessages({
+      target: 2,
+      pageSize: 2,
+      getPage: () => (pages[pageIndex++] ?? []) as StoredMessage[],
+      group,
+    })
+
+    expect(group).toHaveBeenCalledTimes(1)
+    expect(group.mock.calls[0]?.[0]).toHaveLength(3)
+    expect(logical).toHaveLength(2)
+  })
+
   it('reads through a page boundary to keep the oldest selected album complete', () => {
     const now = Date.now()
     const rows: StoredMessageInput[] = [message({ msg_id: 1, timestamp: new Date(now - 200_000).toISOString() })]
@@ -178,6 +215,30 @@ describe('QueryService human views', () => {
     if (human?.kind !== 'table') throw new Error('expected table')
     expect(human.rows).toHaveLength(50)
     expect(human.rows[0]?.[3]).toBe('large album\n📎 52 Photos')
+    service.close()
+  })
+
+  it('rejects unsafe integer limits', () => {
+    const { service } = setup()
+    expect(service.recent({ limit: Number.MAX_SAFE_INTEGER + 1 })).toEqual({
+      ok: false,
+      error: { code: 'invalid_option', message: 'Limit must be a positive integer.', details: { option: 'limit' } },
+    })
+    service.close()
+  })
+
+  it('selects the same stable rows for structured and human recent output when timestamps tie', () => {
+    const timestamp = new Date().toISOString()
+    const { service } = setup([
+      message({ msg_id: 30, content: 'first inserted', timestamp }),
+      message({ msg_id: 10, content: 'second inserted', timestamp }),
+      message({ msg_id: 20, content: 'third inserted', timestamp }),
+    ])
+    const result = service.recent({ limit: 2 })
+
+    if (!result.ok || result.human?.kind !== 'table') throw new Error('expected table')
+    expect((result.data as StoredMessage[]).map((row) => row.content)).toEqual(['second inserted', 'third inserted'])
+    expect(result.human.rows.map((row) => row[3])).toEqual(['second inserted', 'third inserted'])
     service.close()
   })
 

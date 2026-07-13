@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   groupLogicalMessages,
+  logicalMessageKey,
   summarizeLogicalMedia,
 } from '../../src/presenters/logical-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
@@ -15,7 +16,7 @@ describe('logical messages', () => {
 
     expect(grouped).toHaveLength(1)
     expect(grouped[0]).toMatchObject({
-      key: '100:77',
+      key: 'telegram:100:77',
       first: { msg_id: 11 },
       content: '  Album caption  ',
       replyToMessageId: 41,
@@ -30,6 +31,21 @@ describe('logical messages', () => {
     ])
 
     expect(grouped.map((item) => item.messages.map((row) => row.chat_id))).toEqual([[100], [200]])
+  })
+
+  it('does not merge identical albums or ordinary IDs across platforms', () => {
+    const grouped = groupLogicalMessages([
+      message({ platform: 'telegram', msg_id: 1, raw_json: { grouped_id: 77 } }),
+      message({ platform: 'slack', msg_id: 1, raw_json: { grouped_id: 77 } }),
+      message({ platform: 'telegram', msg_id: 2 }),
+      message({ platform: 'slack', msg_id: 2 }),
+    ])
+    expect(grouped).toHaveLength(4)
+    expect(grouped.map((item) => item.key)).toEqual([
+      'telegram:100:77', 'slack:100:77',
+      'telegram:100:message:2', 'slack:100:message:2',
+    ])
+    expect(logicalMessageKey(message({ platform: 'slack', msg_id: 9 }))).toBe('slack:100:message:9')
   })
 
   it('keeps ordinary messages independent and orders logical messages by timestamp then ID', () => {

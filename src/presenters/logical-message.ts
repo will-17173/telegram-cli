@@ -16,10 +16,7 @@ export function groupLogicalMessages<T extends StoredMessageInput>(rows: T[]): L
   const groups = new Map<string, T[]>()
 
   for (const row of rows) {
-    const groupedId = extractGroupedId(row.raw_json)
-    const key = groupedId == null
-      ? `${row.chat_id}:message:${row.msg_id}`
-      : `${row.chat_id}:${groupedId}`
+    const key = logicalMessageKey(row)
     const messages = groups.get(key)
     if (messages == null) groups.set(key, [row])
     else messages.push(row)
@@ -28,6 +25,13 @@ export function groupLogicalMessages<T extends StoredMessageInput>(rows: T[]): L
   return [...groups.entries()]
     .map(([key, messages]) => toLogicalMessage(key, messages))
     .sort(compareLogicalMessages)
+}
+
+export function logicalMessageKey(row: StoredMessageInput): string {
+  const groupedId = extractGroupedId(row.raw_json)
+  return groupedId == null
+    ? `${row.platform}:${row.chat_id}:message:${row.msg_id}`
+    : `${row.platform}:${row.chat_id}:${groupedId}`
 }
 
 export function summarizeLogicalMedia<T extends StoredMessageInput>(message: LogicalMessage<T>): string | null {
@@ -66,7 +70,14 @@ function firstReplyId(messages: StoredMessageInput[]): number | null {
 
 function compareLogicalMessages<T extends StoredMessageInput>(left: LogicalMessage<T>, right: LogicalMessage<T>): number {
   const timestampOrder = left.first.timestamp.localeCompare(right.first.timestamp)
-  return timestampOrder !== 0 ? timestampOrder : left.first.msg_id - right.first.msg_id
+  if (timestampOrder !== 0) return timestampOrder
+  const leftId = storedId(left.first)
+  const rightId = storedId(right.first)
+  return leftId != null && rightId != null ? leftId - rightId : left.first.msg_id - right.first.msg_id
+}
+
+function storedId(message: StoredMessageInput): number | null {
+  return 'id' in message && typeof message.id === 'number' ? message.id : null
 }
 
 function pluralizeKind(kind: string): string {

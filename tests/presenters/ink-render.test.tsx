@@ -16,6 +16,28 @@ function renderResult(result: HandlerResult, columns = 80): string {
 }
 
 describe('InkRenderer', () => {
+  it('keeps every physical line of a multiline cell inside aligned grid borders', () => {
+    const output = renderResult({
+      ok: true,
+      data: {},
+      human: {
+        kind: 'table',
+        title: 'Recent',
+        columns: ['TIME', 'MESSAGE'],
+        rows: [['10:30', '↳ Reply to Bob\ncaption\n📎 2 Photos']],
+      },
+    }, 50)
+    const lines = output.split('\n')
+    const physicalRows = lines.filter((line) => line.startsWith('│') && line.endsWith('│'))
+
+    expect(physicalRows).toHaveLength(4)
+    expect(physicalRows.slice(1).map((line) => line.split('│').length)).toEqual([4, 4, 4])
+    expect(new Set(lines.slice(1).map((line) => stringWidth(line))).size).toBe(1)
+    expect(physicalRows.slice(1).every((line) => stringWidth(line) <= 50)).toBe(true)
+    expect(lines).not.toContain('caption')
+    expect(lines).not.toContain('📎 2 Photos')
+  })
+
   it('renders a bordered table with display-width aligned Chinese cells', () => {
     const output = renderResult({
       ok: true,

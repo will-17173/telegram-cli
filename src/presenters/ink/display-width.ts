@@ -89,7 +89,7 @@ export function formatGridTable(
   } else {
     rows.forEach((row, index) => {
       if (index > 0) lines.push(gridBorder(widths, '├', '┼', '┤', 'separator'))
-      lines.push(gridRow(row, widths, 'row'))
+      lines.push(...expandGridRow(row).map((physicalRow) => gridRow(physicalRow, widths, 'row')))
     })
   }
 
@@ -145,11 +145,23 @@ function measureNaturalWidths(columns: string[], rows: string[][]): number[] {
   for (const row of rows) {
     const columnCount = Math.min(row.length, widths.length)
     for (let index = 0; index < columnCount; index++) {
-      widths[index] = Math.max(widths[index]!, stringWidth(row[index] ?? ''))
+      for (const line of splitCell(row[index] ?? '')) {
+        widths[index] = Math.max(widths[index]!, stringWidth(line))
+      }
     }
   }
 
   return widths
+}
+
+function expandGridRow(row: string[]): string[][] {
+  const cells = row.map(splitCell)
+  const height = Math.max(1, ...cells.map((cell) => cell.length))
+  return Array.from({ length: height }, (_, line) => cells.map((cell) => cell[line] ?? ''))
+}
+
+function splitCell(value: string): string[] {
+  return value.split(/\r?\n/)
 }
 
 function allocateWidths(naturalWidths: number[], availableWidth: number): number[] {

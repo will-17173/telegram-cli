@@ -20,6 +20,18 @@ describe('MessageDB', () => {
     store.close()
   })
 
+  it('uses insertion id as a stable recent limit tie-breaker', () => {
+    const store = db()
+    const timestamp = new Date().toISOString()
+    store.insertBatch([
+      message({ msg_id: 1, timestamp }),
+      message({ msg_id: 2, timestamp }),
+      message({ msg_id: 3, timestamp }),
+    ])
+    expect(store.getRecent({ limit: 2 }).map((row) => row.msg_id)).toEqual([2, 3])
+    store.close()
+  })
+
   it('inserts single messages with canonical chat ids and reports duplicates', () => {
     const store = db()
     const input = message({
