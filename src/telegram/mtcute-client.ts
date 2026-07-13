@@ -117,12 +117,12 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
           page = await this.client.getHistory(normalizeChatId(options.chat), pageOptions)
           break
         } catch (error) {
-          const floodMatch = tl.RpcError.is(error, 'FLOOD_WAIT_%d')
-            ? /_(\d+)$/.exec(error.text)
-            : tl.RpcError.is(error) ? /^FLOOD_WAIT_(\d+)$/.exec(error.text) : null
-          if (floodMatch == null || floodRetries >= 5) throw error
+          const floodSeconds = tl.RpcError.is(error, 'FLOOD_WAIT_%d')
+            ? error.seconds
+            : tl.RpcError.is(error) ? Number(/^FLOOD_WAIT_(\d+)$/.exec(error.text)?.[1]) : Number.NaN
+          if (!Number.isFinite(floodSeconds) || floodRetries >= 5) throw error
           floodRetries += 1
-          await setTimeout((Number(floodMatch[1]) + 1) * 1000)
+          await setTimeout((floodSeconds + 1) * 1000)
         }
       }
       for (const message of page) {
