@@ -1,3 +1,4 @@
+import { createInterface } from 'node:readline/promises'
 import { TelegramClient } from '@mtcute/node'
 
 import { getTelegramCredentials, getTelegramProxy } from '../config/env.js'
@@ -13,10 +14,12 @@ export type AuthUser = {
 }
 
 type AuthClient = {
-  start: () => Promise<unknown>
+  start: (options: AuthStartOptions) => Promise<unknown>
   getMe: () => Promise<AuthUser>
   destroy: () => Promise<void>
 }
+
+type AuthStartOptions = NonNullable<Parameters<TelegramClient['start']>[0]>
 
 export type AuthenticatedSession = {
   user: AuthUser
@@ -30,9 +33,10 @@ export async function authenticateAccountAt(
   createClient: AccountAuthClientFactory = createAccountAuthClient,
 ): Promise<AuthenticatedSession> {
   const client = createClient(sessionPath)
+  const input = createAuthenticationInput()
 
   try {
-    await client.start()
+    await client.start(input.options)
     const user = await client.getMe()
     return {
       user,
@@ -41,6 +45,45 @@ export async function authenticateAccountAt(
   } catch (error) {
     await client.destroy().catch(() => undefined)
     throwAccountLoginError(error)
+  } finally {
+    input.close()
+  }
+}
+
+function createAuthenticationInput(): { options: AuthStartOptions; close: () => void } {
+  const abortController = new AbortController()
+  const prompt = createInterface({
+    input: process.stdin,
+    output: process.stderr,
+    terminal: false,
+  })
+  const onSigint = (): void => abortController.abort()
+  process.once('SIGINT', onSigint)
+
+  const question = (text: string): Promise<string> => prompt.question(text, {
+    signal: abortController.signal,
+  })
+
+  return {
+    options: {
+      phone: () => question('Phone number: '),
+      code: () => question('Login code: '),
+      password: () => question('2FA password: '),
+      codeSentCallback: () => {
+        process.stderr.write('Login code sent.\n')
+      },
+      invalidCodeCallback: (type) => {
+        process.stderr.write(type === 'code'
+          ? 'Invalid login code. Please try again.\n'
+          : 'Invalid 2FA password. Please try again.\n')
+      },
+      abortSignal: abortController.signal,
+    },
+    close: () => {
+      process.removeListener('SIGINT', onSigint)
+      abortController.abort()
+      prompt.close()
+    },
   }
 }
 

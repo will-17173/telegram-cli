@@ -16,9 +16,27 @@ const AUTH_USER = {
   phoneNumber: '+86 138 0013 8000',
 }
 
+type AuthStartOptions = {
+  phone?: () => Promise<string>
+  code?: () => Promise<string>
+  password?: () => Promise<string>
+  codeSentCallback?: () => Promise<void> | void
+}
+
+let simulateInteractiveAuth = false
+
 const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient(this: { storage: string }, options: { storage: string }) {
   const client = {
-    start: vi.fn(async () => {
+    start: vi.fn(async (startOptions?: AuthStartOptions) => {
+      if (simulateInteractiveAuth) {
+        if (!startOptions?.phone || !startOptions.code || !startOptions.password || !startOptions.codeSentCallback) {
+          throw new Error('missing interactive authentication callbacks')
+        }
+        await startOptions.phone()
+        await startOptions.codeSentCallback()
+        await startOptions.code()
+        await startOptions.password()
+      }
       mkdirSync(dirname(options.storage), { recursive: true })
       writeFileSync(options.storage, 'uncommitted-session')
     }),
@@ -47,6 +65,7 @@ afterEach(() => {
   vi.unstubAllEnvs()
   vi.clearAllMocks()
   proxyTransportFromUrl.mockReset()
+  simulateInteractiveAuth = false
   process.exitCode = 0
 })
 
@@ -75,7 +94,7 @@ async function run(
   args: string[],
   dataDir: string,
   stdinIsTty = false,
-  stdinInput?: string,
+  stdinInput?: string | string[],
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   const originalStdoutWrite = process.stdout.write
   const originalStderrWrite = process.stderr.write
@@ -99,7 +118,15 @@ async function run(
   try {
     const parsing = createApp().exitOverride().parseAsync(['node', 'tg', ...args])
     if (stdinInput != null) {
-      setImmediate(() => process.stdin.emit('data', `${stdinInput}\n`))
+      const inputs = Array.isArray(stdinInput) ? stdinInput : [stdinInput]
+      const sendInput = (index: number): void => {
+        if (index >= inputs.length) return
+        setImmediate(() => {
+          process.stdin.emit('data', `${inputs[index]}\n`)
+          sendInput(index + 1)
+        })
+      }
+      sendInput(0)
     }
     await parsing
   } finally {
@@ -507,6 +534,62 @@ describe('account commands', () => {
       data: { account: { name: 'alice', auth_state: 'authenticated' } },
     })
     expect(result.stdout).not.toContain('Log in')
+  })
+
+  it('writes mtcute login prompts to stderr and keeps JSON stdout structured', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+    simulateInteractiveAuth = true
+
+    const result = await run(
+      ['account', 'login', 'alice', '--json'],
+      dataDir,
+      true,
+      ['+8613800138000', '12345', 'secret-password'],
+    )
+
+    expect(result.code).toBe(0)
+    expect(() => JSON.parse(result.stdout)).not.toThrow()
+    expect(result.stdout.trimStart().startsWith('{')).toBe(true)
+    expect(result.stdout).not.toContain('Phone')
+    expect(result.stdout).not.toContain('code')
+    expect(result.stdout).not.toContain('password')
+    expect(result.stderr).toContain('Phone number: ')
+    expect(result.stderr).toContain('Login code: ')
+    expect(result.stderr).toContain('2FA password: ')
+  })
+
+  it('keeps structured account add stdout clean while authenticating interactively', async () => {
+    const dataDir = createDataDir()
+    simulateInteractiveAuth = true
+
+    const result = await run(
+      ['account', 'add', '--yaml'],
+      dataDir,
+      true,
+      ['+8613800138000', '12345', 'secret-password'],
+    )
+    const payload = YAML.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload).toMatchObject({ ok: true, data: { account: { name: 'aliceuser' } } })
+    expect(result.stdout).not.toContain('Phone number')
+    expect(result.stdout).not.toContain('Login code')
+    expect(result.stdout).not.toContain('2FA password')
+    expect(result.stderr).toContain('Phone number: ')
+    expect(result.stderr).toContain('Login code: ')
+    expect(result.stderr).toContain('2FA password: ')
   })
 
   it('requires an interactive terminal before starting account login', async () => {
