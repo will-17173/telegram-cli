@@ -1,0 +1,4 @@
+interface:
+  display_name: "Using Telegram CLI"
+  short_description: "Use Telegram safely from agents and scripts"
+  default_prompt: "Use $using-telegram-cli to sync and query Telegram messages safely."
