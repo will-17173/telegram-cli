@@ -15,6 +15,8 @@ import { createContactsAdapter } from './mtcute-contacts.js'
 import type { TelegramContactAdapter } from './contact-types.js'
 import { createDialogsAdapter } from './mtcute-dialogs.js'
 import type { TelegramDialogAdapter } from './dialog-types.js'
+import type { TelegramFolderAdapter } from './folder-types.js'
+import type { TelegramNotificationAdapter } from './notification-types.js'
 
 type PeerShape = {
   type: string
@@ -29,6 +31,8 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   readonly groups: TelegramGroupManagementAdapter
   readonly dialogs: TelegramDialogAdapter
   readonly contacts: TelegramContactAdapter
+  readonly notifications: TelegramNotificationAdapter
+  readonly folders: TelegramFolderAdapter
   private isReady = false
   private readonly listenedMedia = new Map<string, FileLocation>()
 
@@ -36,6 +40,8 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     this.groups = new MtcuteGroupManagement(client, () => this.ensureReady())
     this.dialogs = createDialogsAdapter(client, () => this.ensureReady())
     this.contacts = createContactsAdapter(client, () => this.ensureReady())
+    this.notifications = unsupportedNotificationAdapter
+    this.folders = unsupportedFolderAdapter
   }
 
   async close(): Promise<void> {
@@ -309,6 +315,22 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     }
   }
 
+}
+
+const unsupportedNotificationAdapter: TelegramNotificationAdapter = {
+  get: async () => settingsAdapterNotImplemented('notifications'),
+  setMuteUntil: async () => settingsAdapterNotImplemented('notifications'),
+}
+
+const unsupportedFolderAdapter: TelegramFolderAdapter = {
+  list: async () => settingsAdapterNotImplemented('folders'),
+  info: async () => settingsAdapterNotImplemented('folders'),
+  addChat: async () => settingsAdapterNotImplemented('folders'),
+  removeChat: async () => settingsAdapterNotImplemented('folders'),
+}
+
+function settingsAdapterNotImplemented(adapter: 'notifications' | 'folders'): never {
+  throw new Error(`Telegram ${adapter} adapter is not implemented`)
 }
 
 function normalizeChatId(chat: string | number): string | number {

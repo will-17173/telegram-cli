@@ -13,6 +13,13 @@ import type {
 } from './types.js'
 import type { TelegramContact, TelegramContactAdapter } from './contact-types.js'
 import type { InboxDialog, OnlineMessage, TelegramDialogAdapter, TelegramManagedChat } from './dialog-types.js'
+import type {
+  TelegramFolderAdapter,
+  TelegramFolderChatResult,
+  TelegramFolderDetail,
+  TelegramFolderSummary,
+} from './folder-types.js'
+import type { TelegramNotificationAdapter, TelegramNotificationState } from './notification-types.js'
 
 type FakeTelegramCall =
   | {
@@ -35,6 +42,14 @@ type FakeTelegramCall =
     operation: 'listGroups'
     request: { adminOnly: boolean; limit: number }
   }
+  | {
+    operation: 'setMuteUntil'
+    request: { chat: string | number; until: string | null }
+  }
+  | {
+    operation: 'addFolderChat' | 'removeFolderChat'
+    request: { folder: string | number; chat: string | number }
+  }
 
 export type FakeTelegramClientOptions = {
   groupManagement?: TelegramGroupManagementAdapter
@@ -56,12 +71,20 @@ export type FakeTelegramClientOptions = {
   getChatInfoFailures?: Record<string, Error>
   listenFailure?: Error
   listChatsFailure?: Error
+  notificationStates?: Record<string, TelegramNotificationState>
+  setMuteUntilResult?: TelegramNotificationState
+  folderSummaries?: TelegramFolderSummary[]
+  folderDetails?: Record<string, TelegramFolderDetail>
+  addFolderChatResult?: TelegramFolderChatResult
+  removeFolderChatResult?: TelegramFolderChatResult
 }
 
 export class FakeTelegramClient implements TelegramClientAdapter {
   readonly dialogs: TelegramDialogAdapter
   readonly contacts: TelegramContactAdapter
   readonly groups: TelegramGroupManagementAdapter
+  readonly notifications: TelegramNotificationAdapter
+  readonly folders: TelegramFolderAdapter
   closeCalls = 0
   readonly calls: FakeTelegramCall[] = []
   readonly fetchHistoryCalls: FetchHistoryOptions[] = []
@@ -88,6 +111,12 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   private readonly getChatInfoFailures: Record<string, Error>
   private readonly listenFailure?: Error
   private readonly listChatsFailure?: Error
+  private readonly notificationStates: Record<string, TelegramNotificationState>
+  private readonly setMuteUntilResult?: TelegramNotificationState
+  private readonly folderSummaries: TelegramFolderSummary[]
+  private readonly folderDetails: Record<string, TelegramFolderDetail>
+  private readonly addFolderChatResult?: TelegramFolderChatResult
+  private readonly removeFolderChatResult?: TelegramFolderChatResult
 
   constructor(options: FakeTelegramClientOptions = {}) {
     this.groups = options.groupManagement ?? new FakeTelegramGroupManagement()
@@ -125,9 +154,17 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     this.getChatInfoFailures = options.getChatInfoFailures ?? {}
     this.listenFailure = options.listenFailure
     this.listChatsFailure = options.listChatsFailure
+    this.notificationStates = cloneNotificationStateMap(options.notificationStates ?? {})
+    this.setMuteUntilResult = cloneNotificationStateOrUndefined(options.setMuteUntilResult)
+    this.folderSummaries = (options.folderSummaries ?? []).map(cloneFolderSummary)
+    this.folderDetails = cloneFolderDetailMap(options.folderDetails ?? {})
+    this.addFolderChatResult = cloneFolderChatResultOrUndefined(options.addFolderChatResult)
+    this.removeFolderChatResult = cloneFolderChatResultOrUndefined(options.removeFolderChatResult)
 
     this.dialogs = this.createDialogsAdapter()
     this.contacts = this.createContactsAdapter()
+    this.notifications = this.createNotificationsAdapter()
+    this.folders = this.createFoldersAdapter()
   }
 
   async close(): Promise<void> {
@@ -277,6 +314,44 @@ export class FakeTelegramClient implements TelegramClientAdapter {
         const phoneMatch = this.contactsByPhone[phoneLookupKey(idKey)] ?? this.contactsByPhone[phoneLookupKey(String(idKey))]
         if (phoneMatch != null) return cloneContact(phoneMatch)
         return this.contactsByUsername[idKey] ? cloneContact(this.contactsByUsername[idKey]!) : null
+      },
+    }
+  }
+
+  private createNotificationsAdapter(): TelegramNotificationAdapter {
+    return {
+      get: async (chat) => cloneNotificationState(
+        this.notificationStates[String(chat)] ?? defaultNotificationState(chat, null),
+      ),
+      setMuteUntil: async (chat, until) => {
+        this.recordCall({
+          operation: 'setMuteUntil',
+          request: { chat, until: until?.toISOString() ?? null },
+        })
+        return cloneNotificationState(
+          this.setMuteUntilResult ?? this.notificationStates[String(chat)] ?? defaultNotificationState(chat, until),
+        )
+      },
+    }
+  }
+
+  private createFoldersAdapter(): TelegramFolderAdapter {
+    return {
+      list: async () => this.folderSummaries.map(cloneFolderSummary),
+      info: async (folder) => cloneFolderDetail(
+        this.folderDetails[String(folder)] ?? defaultFolderDetail(folder),
+      ),
+      addChat: async (request) => {
+        this.recordCall({ operation: 'addFolderChat', request: { ...request } })
+        return cloneFolderChatResult(
+          this.addFolderChatResult ?? defaultFolderChatResult(request.folder, request.chat),
+        )
+      },
+      removeChat: async (request) => {
+        this.recordCall({ operation: 'removeFolderChat', request: { ...request } })
+        return cloneFolderChatResult(
+          this.removeFolderChatResult ?? defaultFolderChatResult(request.folder, request.chat),
+        )
       },
     }
   }
@@ -484,8 +559,111 @@ function cloneCall(call: FakeTelegramCall): FakeTelegramCall {
       },
     }
   }
+  if (call.operation === 'setMuteUntil') {
+    return {
+      operation: 'setMuteUntil',
+      request: { chat: call.request.chat, until: call.request.until },
+    }
+  }
+  if (call.operation === 'addFolderChat' || call.operation === 'removeFolderChat') {
+    return {
+      operation: call.operation,
+      request: { folder: call.request.folder, chat: call.request.chat },
+    }
+  }
   return {
     operation: 'listContacts',
     request: {},
+  }
+}
+
+function cloneNotificationStateMap(
+  states: Record<string, TelegramNotificationState>,
+): Record<string, TelegramNotificationState> {
+  return Object.fromEntries(
+    Object.entries(states).map(([key, state]) => [key, cloneNotificationState(state)]),
+  )
+}
+
+function cloneNotificationState(state: TelegramNotificationState): TelegramNotificationState {
+  return { ...state }
+}
+
+function cloneNotificationStateOrUndefined(
+  state: TelegramNotificationState | undefined,
+): TelegramNotificationState | undefined {
+  return state == null ? undefined : cloneNotificationState(state)
+}
+
+function defaultNotificationState(chat: string | number, until: Date | null): TelegramNotificationState {
+  return {
+    chat_id: typeof chat === 'number' ? chat : 0,
+    chat_name: String(chat),
+    explicit_muted: until == null ? false : true,
+    mute_until: until?.toISOString() ?? null,
+    effective_muted: until != null,
+  }
+}
+
+function cloneFolderSummary(folder: TelegramFolderSummary): TelegramFolderSummary {
+  return { ...folder }
+}
+
+function cloneFolderDetailMap(
+  folders: Record<string, TelegramFolderDetail>,
+): Record<string, TelegramFolderDetail> {
+  return Object.fromEntries(
+    Object.entries(folders).map(([key, folder]) => [key, cloneFolderDetail(folder)]),
+  )
+}
+
+function cloneFolderDetail(folder: TelegramFolderDetail): TelegramFolderDetail {
+  return {
+    ...folder,
+    rules: { ...folder.rules },
+    included_chats: folder.included_chats.map((chat) => ({ ...chat })),
+    excluded_chats: folder.excluded_chats.map((chat) => ({ ...chat })),
+    pinned_chats: folder.pinned_chats.map((chat) => ({ ...chat })),
+  }
+}
+
+function defaultFolderDetail(folder: string | number): TelegramFolderDetail {
+  return {
+    folder_id: typeof folder === 'number' ? folder : 0,
+    folder_name: String(folder),
+    emoticon: null,
+    color: null,
+    chat_count: 0,
+    rules: {
+      include_contacts: false,
+      include_non_contacts: false,
+      include_groups: false,
+      include_channels: false,
+      include_bots: false,
+      exclude_muted: false,
+      exclude_read: false,
+      exclude_archived: false,
+    },
+    included_chats: [],
+    excluded_chats: [],
+    pinned_chats: [],
+  }
+}
+
+function cloneFolderChatResult(result: TelegramFolderChatResult): TelegramFolderChatResult {
+  return { ...result }
+}
+
+function cloneFolderChatResultOrUndefined(
+  result: TelegramFolderChatResult | undefined,
+): TelegramFolderChatResult | undefined {
+  return result == null ? undefined : cloneFolderChatResult(result)
+}
+
+function defaultFolderChatResult(folder: string | number, chat: string | number): TelegramFolderChatResult {
+  return {
+    folder_id: typeof folder === 'number' ? folder : 0,
+    chat_id: typeof chat === 'number' ? chat : 0,
+    changed: true,
   }
 }
