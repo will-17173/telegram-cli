@@ -1,14 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { tl } from '@mtcute/node'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AuthenticatedSession, AuthUser } from '../../src/account/account-authenticator.js'
 import { AccountStore } from '../../src/account/account-store.js'
 import { accountSessionPath } from '../../src/account/account-presets.js'
 import { AccountSessionService } from '../../src/services/account-session-service.js'
-import type { TelegramClientAdapter } from '../../src/telegram/types.js'
+import { TelegramSessionTerminatedError, type TelegramClientAdapter } from '../../src/telegram/types.js'
 
 describe('AccountSessionService', () => {
   let dataDir: string
@@ -82,7 +81,7 @@ describe('AccountSessionService', () => {
   })
 
   it('marks an expired remote session logged out', async () => {
-    const expired = new tl.RpcError(401, 'AUTH_KEY_UNREGISTERED')
+    const expired = new TelegramSessionTerminatedError(new Error('Telegram session expired'))
     vi.mocked(client.logOut).mockRejectedValue(expired)
 
     const result = await service.logout({ name: 'alice' })

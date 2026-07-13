@@ -1,14 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
-import { tl } from '@mtcute/node'
 
 import { authenticateAccountAt, type AuthenticatedSession } from '../account/account-authenticator.js'
 import { AccountStore, type AccountMeta, type AccountRegistry } from '../account/account-store.js'
 import { accountSessionPath } from '../account/account-presets.js'
 import type { HandlerResult } from '../commands/types.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
-import type { TelegramClientAdapter } from '../telegram/types.js'
+import { TelegramSessionTerminatedError, type TelegramClientAdapter } from '../telegram/types.js'
 
 export type AccountSessionInput = {
   name: string
@@ -234,15 +233,7 @@ function rollbackInstalledSession(options: {
 }
 
 function isTerminalSessionError(error: unknown): boolean {
-  const terminal = [
-    'AUTH_KEY_INVALID',
-    'AUTH_KEY_UNREGISTERED',
-    'SESSION_EXPIRED',
-    'SESSION_REVOKED',
-    'USER_DEACTIVATED',
-    'USER_DEACTIVATED_BAN',
-  ] as const
-  return terminal.some((text) => tl.RpcError.is(error, text))
+  return error instanceof TelegramSessionTerminatedError
 }
 
 function errorCode(error: unknown, fallback: string): string {

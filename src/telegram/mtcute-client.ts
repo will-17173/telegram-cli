@@ -7,7 +7,7 @@ import type {
   Photo,
 } from '@mtcute/node'
 import { FileLocation, MtPeerNotFoundError } from '@mtcute/node'
-import type { DownloadMessageMediaOptions, TelegramChat, TelegramClientAdapter, TelegramUser, FetchHistoryOptions, SendMediaOptions, SendMediaResult } from './types.js'
+import { TelegramSessionTerminatedError, type DownloadMessageMediaOptions, type TelegramChat, type TelegramClientAdapter, type TelegramUser, type FetchHistoryOptions, type SendMediaOptions, type SendMediaResult } from './types.js'
 import type { StoredMessageInput } from '../storage/message-db.js'
 import { MtcuteGroupManagement } from './mtcute-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
@@ -51,7 +51,12 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   }
 
   async logOut(): Promise<void> {
-    await this.client.logOut()
+    try {
+      await this.client.logOut()
+    } catch (error) {
+      if (isTerminalSessionRpcError(error)) throw new TelegramSessionTerminatedError(error)
+      throw error
+    }
   }
 
   async getCurrentUser(): Promise<TelegramUser> {
@@ -313,6 +318,18 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     }
   }
 
+}
+
+function isTerminalSessionRpcError(error: unknown): boolean {
+  const terminal = [
+    'AUTH_KEY_INVALID',
+    'AUTH_KEY_UNREGISTERED',
+    'SESSION_EXPIRED',
+    'SESSION_REVOKED',
+    'USER_DEACTIVATED',
+    'USER_DEACTIVATED_BAN',
+  ] as const
+  return terminal.some((text) => tl.RpcError.is(error, text))
 }
 
 function normalizeChatId(chat: string | number): string | number {

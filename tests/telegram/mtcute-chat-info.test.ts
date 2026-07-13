@@ -1,7 +1,8 @@
-import type { TelegramClient } from '@mtcute/node'
+import { tl, type TelegramClient } from '@mtcute/node'
 import { describe, expect, it, vi } from 'vitest'
 
 import { MtcuteTelegramClient } from '../../src/telegram/mtcute-client.js'
+import { TelegramSessionTerminatedError } from '../../src/telegram/types.js'
 
 describe('MtcuteTelegramClient chat info', () => {
   it('logs out through mtcute and closes cleanly', async () => {
@@ -16,6 +17,23 @@ describe('MtcuteTelegramClient chat info', () => {
 
     expect(client.logOut).toHaveBeenCalledOnce()
     expect(client.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('maps an exact terminal logout RPC error to an application session error', async () => {
+    const client = {
+      logOut: vi.fn().mockRejectedValue(new tl.RpcError(401, 'AUTH_KEY_UNREGISTERED')),
+    } as unknown as TelegramClient
+
+    await expect(new MtcuteTelegramClient(client).logOut()).rejects.toBeInstanceOf(TelegramSessionTerminatedError)
+  })
+
+  it('does not map an arbitrary error that only mentions a terminal token', async () => {
+    const networkError = new Error('ECONNRESET while proxy mentioned SESSION_REVOKED')
+    const client = {
+      logOut: vi.fn().mockRejectedValue(networkError),
+    } as unknown as TelegramClient
+
+    await expect(new MtcuteTelegramClient(client).logOut()).rejects.toBe(networkError)
   })
 
   it('resolves a private user target through the generic peer lookup', async () => {

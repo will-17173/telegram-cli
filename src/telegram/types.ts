@@ -50,6 +50,13 @@ export type SendMediaResult = {
   }>
 }
 
+export class TelegramSessionTerminatedError extends Error {
+  constructor(cause?: unknown) {
+    super(cause instanceof Error ? cause.message : 'Telegram session is no longer authorized.', { cause })
+    this.name = 'TelegramSessionTerminatedError'
+  }
+}
+
 export interface TelegramClientAdapter {
   readonly dialogs: TelegramDialogAdapter
   readonly contacts: TelegramContactAdapter
