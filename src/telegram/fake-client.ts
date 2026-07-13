@@ -31,6 +31,10 @@ type FakeTelegramCall =
     operation: 'contactInfo'
     request: { userOrPhone: string | number }
   }
+  | {
+    operation: 'listGroups'
+    request: { adminOnly: boolean; limit: number }
+  }
 
 export type FakeTelegramClientOptions = {
   groupManagement?: TelegramGroupManagementAdapter
@@ -101,16 +105,16 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     this.dialogList = options.dialogs ?? []
     const contacts = options.contacts ?? [telegramContact(42, 'alice', 'Alice')]
     this.contactsById = normalizeContactMap({
-      ...(options.contactById ?? {}),
       ...toContactMapById(contacts),
+      ...options.contactById,
     })
     this.contactsByUsername = normalizeContactMap({
-      ...(options.contactByUsername ?? {}),
       ...toContactMapByUsername(contacts),
+      ...options.contactByUsername,
     })
     this.contactsByPhone = normalizeContactMap({
-      ...(options.contactByPhone ?? {}),
       ...toContactMapByPhone(contacts),
+      ...options.contactByPhone,
     })
     this.fetchFailures = options.fetchFailures ?? {}
     this.sendFailures = options.sendFailures ?? {}
@@ -242,6 +246,13 @@ export class FakeTelegramClient implements TelegramClientAdapter {
           .slice(0, request.limit)
       },
       listGroups: async (request) => {
+        this.recordCall({
+          operation: 'listGroups',
+          request: {
+            adminOnly: request.adminOnly,
+            limit: request.limit,
+          },
+        })
         const source = request.adminOnly
           ? this.managedChats.filter((item) => item.is_admin || item.is_creator)
           : this.managedChats
@@ -423,7 +434,9 @@ function allContacts(
   for (const contact of [...Object.values(byId), ...Object.values(byUsername), ...Object.values(byPhone)]) {
     unique.set(contact.id, contact)
   }
-  return Array.from(unique.values()).map(cloneContact)
+  return Array.from(unique.values())
+    .sort((a, b) => a.id - b.id)
+    .map(cloneContact)
 }
 
 function cloneContact(contact: TelegramContact): TelegramContact {
@@ -437,8 +450,8 @@ function cloneCall(call: FakeTelegramCall): FakeTelegramCall {
       request: {
         chat: call.request.chat,
         limit: call.request.limit,
-        since: call.request.since,
-        until: call.request.until,
+        since: call.request.since == null ? undefined : new Date(call.request.since),
+        until: call.request.until == null ? undefined : new Date(call.request.until),
       },
     }
   }
@@ -449,8 +462,8 @@ function cloneCall(call: FakeTelegramCall): FakeTelegramCall {
         query: call.request.query,
         chat: call.request.chat,
         limit: call.request.limit,
-        since: call.request.since,
-        until: call.request.until,
+        since: call.request.since == null ? undefined : new Date(call.request.since),
+        until: call.request.until == null ? undefined : new Date(call.request.until),
       },
     }
   }
@@ -459,6 +472,15 @@ function cloneCall(call: FakeTelegramCall): FakeTelegramCall {
       operation: 'contactInfo',
       request: {
         userOrPhone: call.request.userOrPhone,
+      },
+    }
+  }
+  if (call.operation === 'listGroups') {
+    return {
+      operation: 'listGroups',
+      request: {
+        adminOnly: call.request.adminOnly,
+        limit: call.request.limit,
       },
     }
   }

@@ -11,7 +11,9 @@ import type { DownloadMessageMediaOptions, TelegramChat, TelegramClientAdapter, 
 import type { StoredMessageInput } from '../storage/message-db.js'
 import { MtcuteGroupManagement } from './mtcute-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
+import { createContactsAdapter } from './mtcute-contacts.js'
 import type { TelegramContactAdapter } from './contact-types.js'
+import { createDialogsAdapter } from './mtcute-dialogs.js'
 import type { TelegramDialogAdapter } from './dialog-types.js'
 
 type PeerShape = {
@@ -28,11 +30,12 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   readonly dialogs: TelegramDialogAdapter
   readonly contacts: TelegramContactAdapter
   private isReady = false
+  private readonly listenedMedia = new Map<string, FileLocation>()
 
   constructor(private readonly client: TelegramClient) {
     this.groups = new MtcuteGroupManagement(client, () => this.ensureReady())
-    this.dialogs = this.createDialogsAdapter()
-    this.contacts = this.createContactsAdapter()
+    this.dialogs = createDialogsAdapter(client, () => this.ensureReady())
+    this.contacts = createContactsAdapter(client, () => this.ensureReady())
   }
 
   async close(): Promise<void> {
@@ -43,6 +46,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       throw error
     } finally {
       this.isReady = false
+      this.listenedMedia.clear()
     }
   }
 
@@ -149,9 +153,13 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
 
   async downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void> {
     await this.ensureReady()
-    const [message] = await this.client.getMessages(normalizeChatId(options.chat), options.msgId)
-    if (message == null) throw new Error(`Message ${options.msgId} was not found`)
-    const media = message.media
+    const chat = normalizeChatId(options.chat)
+    let media = this.listenedMedia.get(messageMediaKey(chat, options.msgId))
+    if (media == null) {
+      const [message] = await this.client.getMessages(chat, options.msgId)
+      if (message == null) throw new Error(`Message ${options.msgId} was not found`)
+      media = message.media instanceof FileLocation ? message.media : undefined
+    }
     if (!(media instanceof FileLocation)) throw new Error('This attachment cannot be downloaded')
     await this.client.downloadToFile(options.destination, media, {
       progressCallback: options.onProgress,
@@ -237,6 +245,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       const handleMessage = async (message: Message): Promise<void> => {
         if (settled || options.signal.aborted) return
         if (!matchesChatFilter(options.chats, message)) return
+        this.rememberListenedMedia(message)
         options.onMessage(toStoredMessage(message))
       }
 
@@ -281,6 +290,17 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     this.isReady = true
   }
 
+  private rememberListenedMedia(message: Message): void {
+    if (!(message.media instanceof FileLocation)) return
+    const key = messageMediaKey(message.chat.id, message.id)
+    this.listenedMedia.delete(key)
+    this.listenedMedia.set(key, message.media)
+    if (this.listenedMedia.size > 5000) {
+      const oldest = this.listenedMedia.keys().next().value
+      if (oldest != null) this.listenedMedia.delete(oldest)
+    }
+  }
+
   private async fetchFullChat(chat: string | number): Promise<FullChat | null> {
     try {
       return await this.client.getFullChat(normalizeChatId(chat))
@@ -289,21 +309,6 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     }
   }
 
-  private createDialogsAdapter(): TelegramDialogAdapter {
-    return {
-      inbox: async () => [],
-      read: async (_request) => [],
-      search: async (_request) => [],
-      listGroups: async (_request) => [],
-    }
-  }
-
-  private createContactsAdapter(): TelegramContactAdapter {
-    return {
-      list: async () => [],
-      info: async (_userOrPhone) => null,
-    }
-  }
 }
 
 function normalizeChatId(chat: string | number): string | number {
@@ -312,6 +317,10 @@ function normalizeChatId(chat: string | number): string | number {
   if (trimmed === '') return chat
   const numeric = Number.parseInt(trimmed, 10)
   return Number.isNaN(numeric) ? chat : String(numeric) === trimmed ? numeric : chat
+}
+
+function messageMediaKey(chat: string | number, msgId: number): string {
+  return `${chat}:${msgId}`
 }
 
 function inputMediaForFile(file: string, caption?: string) {
