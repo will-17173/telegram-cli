@@ -20,7 +20,17 @@ describe('group command controller', () => {
   it('executes complete commands and preserves pending executor results', async () => {
     const pending = { ok: false as const, confirmation: { risk: 'confirm' as const, chat: 1, summary: 'Kick' } }
     const controller = createGroupCommandController({ execute: vi.fn().mockResolvedValue(pending) })
-    expect(await controller.submit('/member kick 7', 0)).toEqual({ kind: 'pending', pending })
+    expect(await controller.submit('/member kick 7', 0)).toMatchObject({
+      kind: 'pending', pending, request: { key: 'member kick', values: { user: 7 } }, input: '/member kick 7',
+    })
+  })
+
+  it('snapshots mutable parsed values before confirmation', async () => {
+    const pending = { ok: false as const, confirmation: { risk: 'confirm' as const, chat: 1, summary: 'Delete' } }
+    const controller = createGroupCommandController({ execute: vi.fn().mockResolvedValue(pending) })
+    const outcome = await controller.submit('/message delete 1 2', 0)
+    expect(outcome).toMatchObject({ kind: 'pending', request: { values: { ids: [1, 2] } } })
+    if (outcome.kind === 'pending') expect(Object.isFrozen((outcome.request.values as { ids: readonly number[] }).ids)).toBe(true)
   })
 
   it('turns rejected execution into an editable error outcome', async () => {
