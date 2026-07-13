@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -12,7 +12,7 @@ afterEach(() => {
   tempDirs.length = 0
 })
 
-describe('secure input PTY behavior', () => {
+describe.runIf(process.platform !== 'win32' && existsSync('/usr/bin/expect'))('secure input PTY behavior', () => {
   it('does not echo the secret and restores the real terminal state', () => {
     const result = runExpect(`
       spawn -noecho sh -c {before=$(stty -g); pnpm exec tsx ${fixture} secret; status=$?; after=$(stty -g); echo TERMINAL_BEFORE:$before; echo TERMINAL_AFTER:$after; exit $status}
@@ -26,6 +26,24 @@ describe('secure input PTY behavior', () => {
     expect(result.status).toBe(0)
     expect(result.output).not.toContain('super-secret-value')
     expect(result.output).toContain('secret-length:18')
+    const before = /TERMINAL_BEFORE:([^\r\n]+)/.exec(result.output)?.[1]
+    const after = /TERMINAL_AFTER:([^\r\n]+)/.exec(result.output)?.[1]
+    expect(before).toBe(after)
+  })
+
+  it.each([
+    ['SIGHUP', 'signal-hup', 129],
+    ['SIGTERM', 'signal-term', 143],
+  ])('restores the terminal and exits conventionally on %s', (_signal, mode, exitCode) => {
+    const result = runExpect(`
+      spawn -noecho sh -c {before=$(stty -g); pnpm exec tsx ${fixture} ${mode}; status=$?; after=$(stty -g); echo TERMINAL_BEFORE:$before; echo TERMINAL_AFTER:$after; exit $status}
+      expect -exact {2FA password: }
+      expect eof
+      set child [wait]
+      exit [lindex $child 3]
+    `)
+
+    expect(result.status).toBe(exitCode)
     const before = /TERMINAL_BEFORE:([^\r\n]+)/.exec(result.output)?.[1]
     const after = /TERMINAL_AFTER:([^\r\n]+)/.exec(result.output)?.[1]
     expect(before).toBe(after)

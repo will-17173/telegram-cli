@@ -1,5 +1,5 @@
 import { authenticateAccountAt } from '../../src/account/account-authenticator.js'
-import { CliInterruptedError, readSecret } from '../../src/cli/secure-input.js'
+import { CliInterruptedError, createInterruptScope, readSecret } from '../../src/cli/secure-input.js'
 
 const mode = process.argv[2]
 
@@ -7,6 +7,15 @@ try {
   if (mode === 'secret') {
     const value = await readSecret('2FA password: ')
     process.stdout.write(`secret-length:${value.length}\n`)
+  } else if (mode === 'signal-hup' || mode === 'signal-term') {
+    const interrupt = createInterruptScope()
+    try {
+      const signal = mode === 'signal-hup' ? 'SIGHUP' : 'SIGTERM'
+      setTimeout(() => process.kill(process.pid, signal), 25)
+      await readSecret('2FA password: ', { signal: interrupt.signal })
+    } finally {
+      interrupt.dispose()
+    }
   } else {
     await authenticateAccountAt('/tmp/tg-secure-input-pty-session', () => ({
       start: async (options) => {
@@ -22,7 +31,7 @@ try {
   }
 } catch (error) {
   if (error instanceof CliInterruptedError) {
-    process.exitCode = 130
+    process.exitCode = error.exitCode
   } else {
     throw error
   }
