@@ -7,7 +7,7 @@ export function GroupCommandResult({ state, width }: { state: GroupCommandState;
   if (state.kind === 'closed' || state.kind === 'menu') return null
   if (state.kind === 'executing') return <Text color="#8ecbff">Running group command…</Text>
   if (state.kind === 'error') return <Box flexDirection="column"><Text color="red">{truncateCell(state.message, width)}</Text>{state.usage ? <Text dimColor>{truncateCell(`Usage: ${state.usage}`, width)}</Text> : null}</Box>
-  if (state.kind === 'confirm' || state.kind === 'confirm-title' || state.kind === 'select-permissions') return null
+  if (state.kind === 'confirm' || state.kind === 'confirm-title' || state.kind === 'select-permissions') return <Text dimColor>Command is waiting for confirmation · Esc to return</Text>
   const result = state.result
   if (!result.ok) return 'error' in result ? <Text color="red">{truncateCell(result.error.message, width)}</Text> : null
   const data = result.data

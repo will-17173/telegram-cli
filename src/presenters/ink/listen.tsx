@@ -593,7 +593,11 @@ export function InteractiveListen({
       stopListening()
       return
     }
-    if (key.escape && (groupCommand.state.kind === 'result' || groupCommand.state.kind === 'error')) {
+    if (groupCommand.state.kind === 'result') {
+      if (key.escape) groupCommand.close()
+      return
+    }
+    if (key.escape && groupCommand.state.kind === 'error') {
       groupCommand.close()
       return
     }
@@ -898,7 +902,8 @@ export function InteractiveListen({
           ))}
         </Box>
         </Box>}
-        {sendTo == null ? <Text dimColor>Set --send-to &lt;chat&gt; (or pass one chat to listen) before sending messages.</Text> : null}
+        {groupCommand.state.kind !== 'result' ? <Box flexDirection="column">
+          {sendTo == null ? <Text dimColor>Set --send-to &lt;chat&gt; (or pass one chat to listen) before sending messages.</Text> : null}
           <Box marginTop={1} flexDirection="column" flexShrink={0}>
             {input.trimStart().startsWith('/') && groupCommand.state.kind === 'menu' ? <GroupCommandMenu input={input} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} /> : null}
             <ListenComposer
@@ -909,6 +914,7 @@ export function InteractiveListen({
               hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Enter to send · Tab attachments · Ctrl+C exit'}
             />
           </Box>
+        </Box> : null}
       </Box>
       <ListenScrollbar height={terminalHeight} visible={scrollbarVisible} geometry={scrollbarGeometry} />
     </Box>
