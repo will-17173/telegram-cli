@@ -29,9 +29,11 @@ const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient
   }
   return client
 }))
+const proxyTransportFromUrl = vi.hoisted(() => vi.fn())
 
 vi.mock('@mtcute/node', () => ({
   TelegramClient: telegramClientFactory,
+  proxyTransportFromUrl,
 }))
 
 let tempDirs: string[] = []
@@ -43,6 +45,7 @@ afterEach(() => {
   tempDirs = []
   vi.unstubAllEnvs()
   vi.clearAllMocks()
+  proxyTransportFromUrl.mockReset()
   process.exitCode = 0
 })
 
@@ -121,6 +124,20 @@ describe('account commands', () => {
     expect(registry.accounts).toHaveLength(1)
     expect(registry.accounts[0]?.name).toBe('aliceuser')
     expect(readFileSync(join(dataDir, 'accounts', 'aliceuser', 'session'), 'utf8')).toBe('committed-session')
+  })
+
+  it('uses configured proxy transport while authenticating an added account', async () => {
+    const dataDir = createDataDir()
+    const transport = { kind: 'proxy-transport' }
+    vi.stubEnv('TG_PROXY', 'socks5://127.0.0.1:1080')
+    proxyTransportFromUrl.mockReturnValue(transport)
+
+    const result = await run(['account', 'add', '--json'], dataDir)
+
+    expect(result.code).toBe(0)
+    expect(proxyTransportFromUrl).toHaveBeenCalledOnce()
+    expect(proxyTransportFromUrl).toHaveBeenCalledWith('socks5://127.0.0.1:1080')
+    expect(telegramClientFactory).toHaveBeenCalledWith(expect.objectContaining({ transport }))
   })
 
   it('returns current account information when current exists', async () => {

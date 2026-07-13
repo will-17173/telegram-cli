@@ -1,7 +1,10 @@
 import type { StoredMessageInput } from '../storage/message-db.js'
+import { FakeTelegramGroupManagement } from './fake-group-management.js'
+import type { TelegramGroupManagementAdapter } from './group-types.js'
 import type { DownloadMessageMediaOptions, FetchHistoryOptions, TelegramChat, TelegramChatType, TelegramClientAdapter, TelegramUser } from './types.js'
 
-type FakeTelegramClientOptions = {
+export type FakeTelegramClientOptions = {
+  groupManagement?: TelegramGroupManagementAdapter
   chats?: TelegramChat[]
   messagesByChat?: Record<string, StoredMessageInput[]>
   fetchFailures?: Record<string, Error>
@@ -15,6 +18,7 @@ type FakeTelegramClientOptions = {
 }
 
 export class FakeTelegramClient implements TelegramClientAdapter {
+  readonly groups: TelegramGroupManagementAdapter
   closeCalls = 0
   readonly fetchHistoryCalls: FetchHistoryOptions[] = []
   readonly downloadMessageMediaCalls: DownloadMessageMediaOptions[] = []
@@ -34,6 +38,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   private readonly listChatsFailure?: Error
 
   constructor(options: FakeTelegramClientOptions = {}) {
+    this.groups = options.groupManagement ?? new FakeTelegramGroupManagement()
     this.chats = options.chats ?? [
       { id: 100, name: 'TestGroup', type: 'supergroup', unread: 0 },
     ]

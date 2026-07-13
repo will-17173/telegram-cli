@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-一个 TypeScript 命令行客户端，用于同步 Telegram 聊天记录、监听实时消息、搜索本地存储的消息，并在终端中管理 Telegram 任务。
+一个 TypeScript 命令行客户端，用于同步 Telegram 聊天记录、监听实时消息、搜索本地存储的消息，并在终端中查看群组信息。
 
 ## 功能
 
@@ -14,6 +14,7 @@
 - 从限制下载的频道中下载附件。
 - 搜索、筛选、汇总和导出本地存储的消息。
 - 通过命令行发送、编辑和删除消息。
+- 在不更改群组的前提下查看群组详情、成员和管理员审计事件。
 - 在支持的场景下使用人类可读输出，或结构化的 JSON/YAML 输出。
 
 ## 为 AI Agent 设计
@@ -60,6 +61,35 @@ warning: using default Telegram API credentials. Run tg config set --api-id <id>
 这表示 CLI 正在使用默认凭据；如需配置自己的凭据，请运行 `tg config set --api-id <id> --api-hash <hash>`。只设置 `TG_API_ID` 或 `TG_API_HASH` 其中之一会导致错误。已保存的配置文件格式错误或无法读取也会导致错误；这两种情况下 CLI 都不会改用内置凭据。
 
 个人凭据会作为敏感配置存储在本地，切勿与他人分享。所有已添加账号共用一套 API 凭据，但每个账号都有独立的身份验证会话。
+
+如需为 Telegram 连接持久化配置代理，请运行：
+
+```sh
+tg config set --proxy socks5://127.0.0.1:1080
+```
+
+如需仅覆盖单次命令，可在该命令的环境中设置 `TG_PROXY`：
+
+```sh
+TG_PROXY=http://127.0.0.1:8080 tg status
+```
+
+支持的代理形式包括 `socks4://`、`socks5://`、`http://` 和 `https://` 代理 URL，以及 `tg://proxy?...` 和 `https://t.me/proxy?...` 形式的 MTProxy 链接。去除首尾空白后，非空的 `TG_PROXY` 值会覆盖持久化代理；如果 `TG_PROXY` 为空或未设置，CLI 会回退到已保存的代理；如果两者均未配置，则直接连接。
+
+所选代理会应用于账号登录和所有需要连接 Telegram 的命令，并非只应用于示例中的单个命令。代理 URL 可能包含用户名和密码或 MTProxy secret，因此应视为敏感信息。CLI 输出不会打印已配置的代理 URL。在命令行中直接输入包含凭据的代理 URL，可能会使其留在 shell 历史记录中，或通过进程检查被看到。请通过受到适当保护的环境或 secret 加载机制提供 `TG_PROXY`，或以其他方式避免将明文 secret 写入共享的 shell 历史记录和脚本。
+
+如需以人类可读、JSON 或 YAML 格式查看生效配置，请运行：
+
+```sh
+tg config list
+tg config list --json
+tg config list --yaml
+tg config list --show-secrets
+```
+
+该命令报告的是生效配置，而非 `config.json` 的原始内容。API 凭据会依次从环境变量、已保存配置和内置默认值中解析。代理则独立解析，依次使用 `TG_PROXY` 和已保存配置；两者均未配置时，代理保持缺省状态。
+
+输出恰好报告五个字段：生效的 API ID、API hash、凭据来源、代理 URL 以及代理来源。API hash 默认脱敏；使用 `--show-secrets` 可显示完整值。代理 URL 始终完整输出，并可能包含凭据或 MTProxy secret，因此请勿将 `config list` 输出写入日志或与他人分享。`tg config list` 不会创建 Telegram 客户端，也不会发起网络连接。
 
 运行 `tg account add` 完成身份验证并创建本地会话。其他命令不会启动交互式登录流程。
 
@@ -136,9 +166,33 @@ tg search "keyword" --account <name>
 
 Telegram API 凭据对所有已添加账号生效，添加其他账号时无需单独配置 API 凭据。
 
+## 只读群组管理
+
+`group` 命令通过四个只读操作查看普通群组和超级群组：
+
+```sh
+# 群组详情
+tg group info <chat> --account alice --json
+
+# 成员列表：按类型、姓名/用户名查询和结果数量筛选
+tg group members <chat> --type admins --query alice --limit 50 --yaml
+
+# 单个成员的角色、管理员权限和限制
+tg group member <chat> <user>
+
+# 管理员审计日志；--user 和 --type 均可重复指定
+tg group audit <chat> --query invite --user <user> --type member_invited --type invite_changed --limit 100 --account alice --json
+```
+
+`group members` 的 `--type` 恰好支持以下七种筛选器：`recent`、`all`、`admins`、`banned`、`restricted`、`bots` 和 `contacts`。默认使用 `recent` 并返回 100 条结果；`--limit` 可设为 1 到 200。Telegram 可能返回少于其报告总数的成员，因此单页结果不保证包含整个群组的全部成员。
+
+`group audit` 要求当前账号具有群组管理员权限。`--limit` 的范围是 1 到 500，默认返回 100 条事件。可重复的 `--user` 用于筛选操作发起者。可重复的 `--type` 恰好接受以下 17 种稳定的分组事件类型：`info_changed`、`settings_changed`、`member_joined`、`member_left`、`member_invited`、`member_banned`、`member_unbanned`、`member_restricted`、`member_unrestricted`、`admin_promoted`、`admin_demoted`、`message_deleted`、`message_edited`、`message_pinned`、`invite_changed`、`topic_changed` 和 `other`。
+
+四个命令默认输出人类可读内容，并支持 `--json` 或 `--yaml`。它们默认使用 current 账号；`--account <name>` 可仅为本次调用选择另一个已添加账号，且不会改变 current 账号。这些命令严格只读：不会踢出、封禁、限制或提升成员，不会编辑设置，也不会以其他方式更改群组。
+
 ## 在线命令与本地命令
 
-在线命令会连接 Telegram，因此需要有效的账号会话。这类命令包括 `status`、`whoami`、`chats`、`history`、`sync`、`sync-all`、`refresh`、`info`、`send`、`edit`、`delete` 和 `listen`。
+在线命令会连接 Telegram，因此需要有效的账号会话。这类命令包括 `status`、`whoami`、`chats`、`history`、`sync`、`sync-all`、`refresh`、`info`、`group info`、`group members`、`group member`、`group audit`、`send`、`edit`、`delete` 和 `listen`。
 
 本地命令只读取或修改所选账号的消息数据库，不会连接 Telegram。这类命令包括 `search`、`recent`、`stats`、`top`、`timeline`、`today`、`filter`、`export` 和 `purge`。
 
@@ -161,6 +215,8 @@ tg --help
 | `tg account remove <name> --force` | 删除账号及其本地会话和数据。 |
 | `tg whoami` | 显示当前登录账号的基本信息。 |
 | `tg config set --api-id <id> --api-hash <hash>` | 持久化保存 Telegram API 凭据。 |
+| `tg config set --proxy <url>` | 为账号登录及所有需要连接 Telegram 的命令保存可选代理。 |
+| `tg config list [--show-secrets]` | 显示生效配置值及其来源；代理 URL 始终可见。 |
 | `tg status` | 检查 Telegram 账户是否已完成身份验证。 |
 | `tg chats` | 列出可用聊天。 |
 | `tg history <chat> -n <limit>` | 获取并保存完整聊天历史（默认最多 1000 条）。 |
@@ -179,6 +235,10 @@ tg --help
 | `tg delete <chat> <msgIds...>` | 删除一条或多条消息。 |
 | `tg purge <chat> --yes` | 移除某个聊天在本地存储的消息。 |
 | `tg info <chat>` | 查看聊天元信息。 |
+| `tg group info <chat>` | 查看普通群组或超级群组的只读详情。 |
+| `tg group members <chat> [--type <type>] [--query <text>] [--limit <count>]` | 列出并筛选成员（默认 `recent`、100 条；最大 200 条）。 |
+| `tg group member <chat> <user>` | 查看单个成员的角色、权限和限制。 |
+| `tg group audit <chat> [--query <text>] [--user <user>] [--type <type>] [--limit <count>]` | 查询管理员审计日志（默认 100 条；最大 500 条）。 |
 
 所有同步类命令都会写入本地 SQLite 数据库。`sync-all` 和 `refresh` 根据本地已保存的消息 ID 增量处理多个聊天。
 
@@ -245,6 +305,8 @@ accounts/<name>/messages.db
 
 请将持久化配置、`.env`、Telegram 凭据、会话文件和 SQLite 数据视为敏感信息，切勿与他人分享或将它们提交到版本控制中。
 
+除 API 凭据外，`config.json` 文件还可能包含可选的 `proxy` 设置。CLI 的成功和错误输出不会打印已保存的代理 URL，但代理 URL 可能包含凭据或 MTProxy secret，因此仍须保护 `config.json`、环境和 shell 历史记录。
+
 ## 开发
 
 本项目使用 pnpm：
@@ -255,6 +317,20 @@ pnpm dev --help
 pnpm test
 pnpm typecheck
 ```
+
+开发时，可以将当前源码目录设置为全局 `tg` 命令，并直接运行 TypeScript 源码。在项目根目录执行：
+
+```sh
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/tg <<EOF
+#!/bin/sh
+exec "$(pwd)/node_modules/.bin/tsx" "$(pwd)/src/dev.ts" "\$@"
+EOF
+chmod +x ~/.local/bin/tg
+rehash
+```
+
+请确保 `~/.local/bin` 已加入 `PATH`。之后执行 `tg` 时会加载最新的源码修改。
 
 在本地进行源码开发时，请在项目根目录创建 `.env` 文件：
 

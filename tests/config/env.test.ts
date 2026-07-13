@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { writeCredentials } from '../../src/config/credential-store.js'
+import {
+  writeConfiguration,
+  writeCredentials,
+} from '../../src/config/credential-store.js'
 import {
   getConfigPath,
   getDataDir,
@@ -10,12 +13,15 @@ import {
   getSessionName,
   getSessionPath,
   getTelegramCredentials,
+  getTelegramProxy,
+  getTelegramProxyConfiguration,
 } from '../../src/config/env.js'
 
 let tempDirs: string[] = []
 const APP_ENV_KEYS = [
   'TG_API_ID',
   'TG_API_HASH',
+  'TG_PROXY',
   'TG_SESSION_NAME',
   'DATA_DIR',
   'DB_PATH',
@@ -82,6 +88,74 @@ describe('env config', () => {
   })
 
   it('uses Telegram defaults when neither environment nor stored credentials exist', () => {
+    expect(getTelegramCredentials()).toEqual({
+      apiId: 2040,
+      apiHash: 'b18441a1ff607e10a989891a5462e627',
+      source: 'default',
+    })
+  })
+
+  it('prefers a trimmed environment proxy over the stored proxy', () => {
+    writeConfiguration(getConfigPath(), { proxy: 'socks5://stored-proxy' })
+    vi.stubEnv('TG_PROXY', ' socks5://environment-proxy ')
+
+    expect(getTelegramProxy()).toBe('socks5://environment-proxy')
+  })
+
+  it('falls back to the stored proxy when the environment proxy is empty', () => {
+    writeConfiguration(getConfigPath(), { proxy: 'socks5://stored-proxy' })
+    vi.stubEnv('TG_PROXY', '   ')
+
+    expect(getTelegramProxy()).toBe('socks5://stored-proxy')
+  })
+
+  it('returns undefined when neither environment nor stored proxy exists', () => {
+    expect(getTelegramProxy()).toBeUndefined()
+  })
+
+  it('propagates malformed stored configuration when no environment proxy exists', () => {
+    writeFileSync(getConfigPath(), '{not json')
+
+    expect(() => getTelegramProxy()).toThrow(
+      'Stored Telegram API configuration is invalid.',
+    )
+  })
+
+  it('reports a trimmed environment proxy and its source', () => {
+    writeConfiguration(getConfigPath(), { proxy: 'socks5://stored-proxy' })
+    vi.stubEnv('TG_PROXY', ' socks5://environment-proxy ')
+
+    expect(getTelegramProxyConfiguration()).toEqual({
+      url: 'socks5://environment-proxy',
+      source: 'environment',
+    })
+  })
+
+  it('reports the stored proxy and its source when the environment proxy is empty', () => {
+    writeConfiguration(getConfigPath(), { proxy: 'socks5://stored-proxy' })
+    vi.stubEnv('TG_PROXY', '   ')
+
+    expect(getTelegramProxyConfiguration()).toEqual({
+      url: 'socks5://stored-proxy',
+      source: 'stored',
+    })
+  })
+
+  it('returns no proxy configuration when neither source exists', () => {
+    expect(getTelegramProxyConfiguration()).toBeUndefined()
+  })
+
+  it('propagates malformed stored configuration through the source-aware resolver', () => {
+    writeFileSync(getConfigPath(), '{not json')
+
+    expect(() => getTelegramProxyConfiguration()).toThrow(
+      'Stored Telegram API configuration is invalid.',
+    )
+  })
+
+  it('uses default API credentials with a proxy-only stored configuration', () => {
+    writeConfiguration(getConfigPath(), { proxy: 'socks5://stored-proxy' })
+
     expect(getTelegramCredentials()).toEqual({
       apiId: 2040,
       apiHash: 'b18441a1ff607e10a989891a5462e627',

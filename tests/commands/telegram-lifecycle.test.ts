@@ -25,9 +25,10 @@ const client = vi.hoisted(() => ({
 }))
 
 const renderResult = vi.hoisted(() => vi.fn(async () => undefined))
+const createTelegramClient = vi.hoisted(() => vi.fn(() => client))
 
 vi.mock('../../src/telegram/client-factory.js', () => ({
-  createTelegramClient: () => client,
+  createTelegramClient,
 }))
 
 vi.mock('../../src/cli/output.js', () => ({ renderResult }))
@@ -63,12 +64,98 @@ afterEach(() => {
   vi.clearAllMocks()
   process.exitCode = 0
   if (currentDataDir) rmSync(currentDataDir, { force: true, recursive: true })
-  delete process.env.DATA_DIR
-  delete process.env.DB_PATH
+  vi.unstubAllEnvs()
   currentDataDir = ''
 })
 
 describe('Telegram command lifecycle', () => {
+  it('exports the shared Telegram command runner', async () => {
+    await expect(import('../../src/commands/telegram-runner.js')).resolves.toMatchObject({
+      runTelegramCommand: expect.any(Function),
+      hideBenignUpdateWarnings: expect.any(Function),
+    })
+  })
+
+  it('does not construct a client when JSON and YAML are both requested', async () => {
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'chats', '--json', '--yaml'])
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+  })
+
+  it('does not construct a client when no account can be resolved', async () => {
+    writeFileSync(join(currentDataDir, 'accounts.json'), `${JSON.stringify({
+      version: 1,
+      current_account: null,
+      accounts: [],
+    }, null, 2)}\n`)
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'chats'])
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+  })
+
+  it('constructs the client with the resolved account session path', async () => {
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'chats'])
+
+    expect(createTelegramClient).toHaveBeenCalledWith(join(currentDataDir, 'accounts', 'alice', 'session'))
+  })
+
+  it('renders a config error without closing when client construction fails', async () => {
+    createTelegramClient.mockImplementationOnce(() => {
+      throw new Error('TG_API_ID is required')
+    })
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'chats'])
+
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: 'config_error', message: 'TG_API_ID is required' },
+    }, expect.any(Object))
+    expect(client.close).not.toHaveBeenCalled()
+  })
+
+  it('maps an unregistered auth key from the current-user handler and closes once', async () => {
+    const rpcError = new Error('Telegram API error 401: AUTH_KEY_UNREGISTERED') as Error & { code: number; text: string }
+    rpcError.code = 401
+    rpcError.text = 'AUTH_KEY_UNREGISTERED'
+    client.getCurrentUser.mockRejectedValueOnce(rpcError)
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'whoami', '--json'])
+
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: {
+        code: 'telegram_account_session_expired',
+        message: 'Session for account "alice" is no longer valid. Re-add the account: tg account remove alice --force && tg account add.',
+      },
+    }, expect.any(Object))
+    expect(client.close).toHaveBeenCalledOnce()
+  })
+
+  it('maps a generic current-user handler failure and closes once', async () => {
+    client.getCurrentUser.mockRejectedValueOnce(new Error('network unavailable'))
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'whoami', '--json'])
+
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: 'telegram_error', message: 'network unavailable' },
+    }, expect.any(Object))
+    expect(client.close).toHaveBeenCalledOnce()
+  })
+
+  it('maps a null current-user rejection to a stable generic error and closes once', async () => {
+    client.getCurrentUser.mockRejectedValueOnce(null)
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'whoami', '--json'])
+
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: { code: 'telegram_error', message: 'null' },
+    }, expect.any(Object))
+    expect(client.close).toHaveBeenCalledOnce()
+  })
+
   it('closes the client after whoami completes', async () => {
     await createApp().exitOverride().parseAsync(['node', 'tg', 'whoami', '--yaml'])
 
@@ -140,6 +227,66 @@ describe('Telegram command lifecycle', () => {
     const output = writes.join('')
     expect(output).not.toContain('error fetching common difference')
     expect(output).not.toContain('Session is reset')
+  })
+
+  it('restores stdout and stderr warning handling after a command', async () => {
+    const stdoutWrite = process.stdout.write
+    const stderrWrite = process.stderr.write
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'chats'])
+
+    expect(process.stdout.write).toBe(stdoutWrite)
+    expect(process.stderr.write).toBe(stderrWrite)
+  })
+
+  it('suppresses benign stderr warnings only while the command is running', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: Parameters<typeof process.stderr.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+    const warning = '[WRN] [updates] error fetching difference for channel: 400 CHANNEL_INVALID\n'
+    client.listChats.mockImplementationOnce(async () => {
+      process.stderr.write(warning)
+      return [{ id: 42, name: 'General', type: 'group', unread: 3 }]
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'chats'])
+      process.stderr.write(warning)
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(writes).toEqual([warning])
+  })
+
+  it('keeps the handler result when closing the client fails', async () => {
+    client.close.mockRejectedValueOnce(new Error('close failed'))
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'chats'])
+
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: true,
+      data: [{ id: 42, name: 'General', type: 'group', unread: 3 }],
+      human: {
+        kind: 'table',
+        title: 'Chats',
+        columns: ['ID', 'NAME', 'TYPE', 'UNREAD'],
+        rows: [['42', 'General', 'group', '3']],
+        emptyText: 'No chats found.',
+      },
+    }, expect.any(Object))
+  })
+
+  it('closes the client before a rendering failure is surfaced', async () => {
+    renderResult.mockImplementationOnce(async () => {
+      expect(client.close).toHaveBeenCalledOnce()
+      throw new Error('render failed')
+    })
+
+    await expect(createApp().exitOverride().parseAsync(['node', 'tg', 'chats']))
+      .rejects.toThrow('render failed')
   })
 
   it('attaches action detail without changing send data', async () => {
