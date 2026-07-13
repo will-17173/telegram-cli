@@ -10,7 +10,7 @@ import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../services/aut
 import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '../presenters/human.js'
 import { formatListenLine } from '../presenters/listen-message.js'
 import { renderInteractiveListen } from '../presenters/ink/listen.js'
-import { runWithAccountContext, type AccountCommandOptions } from './account-options.js'
+import { runWithAuthenticatedAccountContext, type AccountCommandOptions } from './account-options.js'
 import { hideBenignUpdateWarnings, runTelegramCommand } from './telegram-runner.js'
 import { createListenReplyResolver } from '../services/listen-reply-resolver.js'
 
@@ -260,7 +260,7 @@ export function registerTelegramCommands(app: Command): void {
       process.on('SIGTERM', stopListening)
 
       try {
-        await runWithAccountContext(options, async (context) => {
+        await runWithAuthenticatedAccountContext(options, async (context) => {
           const createClient = () => createTelegramClient(context.sessionPath)
 
           if (useInteractive) {

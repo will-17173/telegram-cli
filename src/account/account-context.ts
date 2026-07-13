@@ -26,6 +26,15 @@ export function resolveAccountContext(input: AccountResolutionInput = {}): Accou
   return toAccountContext(dataDir, account)
 }
 
+export function resolveAuthenticatedAccountContext(input: AccountResolutionInput = {}): AccountContext {
+  const context = resolveAccountContext(input)
+  if (context.account.auth_state === 'logged_out') {
+    throw new Error(`account_logged_out: account "${context.account.name}" is logged out`)
+  }
+
+  return context
+}
+
 function explicitOrCurrent(explicitName: string | undefined, currentAccount: string | null): string | undefined {
   const explicit = explicitName?.trim()
   return explicit ? explicit : currentAccount ?? undefined

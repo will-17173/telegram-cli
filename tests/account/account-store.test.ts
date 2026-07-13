@@ -6,6 +6,7 @@ import {
   statSync,
   utimesSync,
   writeFileSync,
+  readFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -42,11 +43,12 @@ function account(name: string, userId: number): AccountMeta {
     username: `${name}_user`,
     phone: `123-45-${name}`,
     display_name: `${name} Display`,
+    auth_state: 'authenticated',
   }
 }
 
 describe('account store', () => {
-  it('reads and returns a valid v1 registry document', () => {
+  it('migrates and returns a valid legacy v1 registry document', () => {
     const path = join(tempDir(), REGISTRY_PATH)
     writeFileSync(
       path,
@@ -72,26 +74,46 @@ describe('account store', () => {
     const store = new AccountStore(path)
     const registry = store.read()
 
+    expect(registry.version).toBe(2)
     expect(registry.current_account).toBe('alice')
     expect(store.list().map((item) => item.name)).toEqual(['alice'])
     expect(store.current()?.user_id).toBe(100)
     expect(store.get('alice')?.display_name).toBe('Alice')
     expect(store.hasUser(100)).toBe(true)
     expect(store.hasUser(101)).toBe(false)
+    expect(registry.accounts[0]).toMatchObject({
+      auth_state: 'authenticated',
+    })
+
+    const normalized = JSON.parse(readFileSync(path, 'utf8')) as { version: number; accounts: Array<{ auth_state: string }> }
+    expect(normalized.version).toBe(2)
+    expect(normalized.accounts[0]?.auth_state).toBe('authenticated')
   })
 
   it('returns the default empty registry when file is missing', () => {
     const store = new AccountStore(join(tempDir(), REGISTRY_PATH))
 
-    expect(store.read()).toEqual({ version: 1, current_account: null, accounts: [] })
+    expect(store.read()).toEqual({ version: 2, current_account: null, accounts: [] })
   })
 
   it('throws account_store_error for malformed registry versions', () => {
     const path = join(tempDir(), REGISTRY_PATH)
-    writeFileSync(path, JSON.stringify({ version: 2, current_account: null, accounts: [] }, null, 2))
+    writeFileSync(path, JSON.stringify({ version: 3, current_account: null, accounts: [] }, null, 2))
     const store = new AccountStore(path)
 
     expect(() => store.read()).toThrow(/account_store_error/)
+  })
+
+  it('throws account_store_error for write attempts with legacy version', () => {
+    const path = join(tempDir(), REGISTRY_PATH)
+    const store = new AccountStore(path)
+    const legacy = {
+      version: 1,
+      current_account: null,
+      accounts: [],
+    }
+
+    expect(() => store.write(legacy as Parameters<AccountStore['write']>[0])).toThrow(/unsupported registry version/)
   })
 
   it('writes with restrictive permissions and keeps parent directories', async () => {

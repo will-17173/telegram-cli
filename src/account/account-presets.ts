@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import type { AccountMeta } from './account-store.js'
+import type { AccountAuthState, AccountMeta } from './account-store.js'
 
 export type AccountContext = {
   account: {
@@ -9,6 +9,7 @@ export type AccountContext = {
     username: string
     phone: string
     display_name: string
+    auth_state: AccountAuthState
   }
   sessionPath: string
   dbPath: string
@@ -21,6 +22,7 @@ export function toAccountContext(dataDir: string, account: AccountMeta): Account
     username: account.username,
     phone: account.phone,
     display_name: account.display_name,
+    auth_state: account.auth_state,
   })
 
   return Object.freeze({

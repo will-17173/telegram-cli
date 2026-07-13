@@ -20,12 +20,29 @@ export type AccountMeta = {
   username: string
   phone: string
   display_name: string
+  auth_state: AccountAuthState
+}
+
+export type AccountAuthState = 'authenticated' | 'logged_out'
+
+type LegacyAccountMeta = {
+  name: string
+  user_id: number
+  username: string
+  phone: string
+  display_name: string
 }
 
 export type AccountRegistry = {
-  version: 1
+  version: 2
   current_account: string | null
   accounts: AccountMeta[]
+}
+
+type LegacyAccountRegistry = {
+  version: 1
+  current_account: string | null
+  accounts: LegacyAccountMeta[]
 }
 
 export class AccountStoreError extends Error {
@@ -38,7 +55,7 @@ export class AccountStoreError extends Error {
 }
 
 const EMPTY_REGISTRY: AccountRegistry = {
-  version: 1,
+  version: 2,
   current_account: null,
   accounts: [],
 }
@@ -68,24 +85,40 @@ export class AccountStore {
       throw new AccountStoreError('account_store_error: malformed registry file')
     }
 
-    if (!isAccountRegistry(parsed)) {
-      throw new AccountStoreError('account_store_error: malformed registry file')
+    if (isLegacyAccountRegistry(parsed)) {
+      const normalized = normalizeLegacyRegistry(parsed)
+      try {
+        this.write(normalized)
+      } catch (error) {
+        throw new AccountStoreError(`account_store_error: unable to migrate registry: ${errorMessage(error)}`)
+      }
+      return normalized
     }
 
-    if (parsed.version !== 1) {
-      throw new AccountStoreError(`account_store_error: unsupported registry version: ${String(parsed.version)}`)
+    if (isAccountRegistry(parsed)) {
+      return parsed
     }
 
-    return parsed
+    if (isUnsupportedVersionObject(parsed)) {
+      const version = (parsed as { version: unknown }).version
+      if (version === 1 || version === 2) {
+        throw new AccountStoreError('account_store_error: malformed registry file')
+      }
+
+      throw new AccountStoreError(`account_store_error: unsupported registry version: ${String(version)}`)
+    }
+
+    throw new AccountStoreError('account_store_error: malformed registry file')
   }
 
   write(registry: AccountRegistry): void {
-    if (!isAccountRegistry(registry)) {
-      throw new AccountStoreError('account_store_error: malformed registry file')
+    const version = (registry as { version?: number }).version
+    if (version !== 2) {
+      throw new AccountStoreError(`account_store_error: unsupported registry version: ${String(version)}`)
     }
 
-    if (registry.version !== 1) {
-      throw new AccountStoreError(`account_store_error: unsupported registry version: ${String(registry.version)}`)
+    if (!isAccountRegistry(registry)) {
+      throw new AccountStoreError('account_store_error: malformed registry file')
     }
 
     const parent = dirname(this.path)
@@ -233,6 +266,28 @@ function isAccountMeta(value: unknown): value is AccountMeta {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const candidate = value as Record<string, unknown>
   const userId = candidate.user_id
+  const authState = candidate.auth_state
+
+  return (
+    typeof candidate.name === 'string'
+    && candidate.name.trim().length > 0
+    && typeof userId === 'number'
+    && Number.isSafeInteger(userId)
+    && userId > 0
+    && typeof candidate.username === 'string'
+    && candidate.username.trim().length > 0
+    && typeof candidate.phone === 'string'
+    && candidate.phone.trim().length > 0
+    && typeof candidate.display_name === 'string'
+    && candidate.display_name.trim().length > 0
+    && (authState === 'authenticated' || authState === 'logged_out')
+  )
+}
+
+function isAccountMetaV1(value: unknown): value is LegacyAccountMeta {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  const userId = candidate.user_id
 
   return (
     typeof candidate.name === 'string'
@@ -254,20 +309,52 @@ function isAccountRegistry(value: unknown): value is AccountRegistry {
   const candidate = value as Record<string, unknown>
 
   return (
-    candidate.version === 1
+    candidate.version === 2
     && (candidate.current_account === null || typeof candidate.current_account === 'string')
     && Array.isArray(candidate.accounts)
     && candidate.accounts.every((account: unknown) => isAccountMeta(account))
   )
 }
 
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && 'code' in error
+function isUnsupportedVersionObject(value: unknown): value is { version: unknown } {
+  return (
+    value !== null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && 'version' in (value as Record<string, unknown>)
+    && typeof (value as Record<string, unknown>).version === 'number'
+  )
+}
+
+function isLegacyAccountRegistry(value: unknown): value is LegacyAccountRegistry {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+
+  return (
+    candidate.version === 1
+    && (candidate.current_account === null || typeof candidate.current_account === 'string')
+    && Array.isArray(candidate.accounts)
+    && candidate.accounts.every((account: unknown) => isAccountMetaV1(account))
+  )
+}
+
+function normalizeLegacyRegistry(value: LegacyAccountRegistry): AccountRegistry {
+  return {
+    version: 2,
+    current_account: value.current_account,
+    accounts: value.accounts.map((account) => ({
+      ...account,
+      auth_state: 'authenticated' as const,
+    })),
+  }
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message
-  return String(error)
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error
 }
 
 function sleep(ms: number): Promise<void> {

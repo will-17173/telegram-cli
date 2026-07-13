@@ -2,7 +2,7 @@ import type { AccountContext } from '../account/account-presets.js'
 import type { Command } from 'commander'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
-import { runWithAccountContext, type AccountCommandOptions } from './account-options.js'
+import { runWithAuthenticatedAccountContext, type AccountCommandOptions } from './account-options.js'
 import type { HandlerResult } from './types.js'
 
 type StreamWrite = typeof process.stdout.write
@@ -21,7 +21,7 @@ export async function runTelegramCommand(
   handler: (client: TelegramClientAdapter, context: AccountContext) => Promise<HandlerResult>,
   command?: Command,
 ): Promise<void> {
-  await runWithAccountContext(options, async (context) => {
+  await runWithAuthenticatedAccountContext(options, async (context) => {
     const restoreStdoutWarnings = hideBenignUpdateWarnings(process.stdout)
     const restoreStderrWarnings = hideBenignUpdateWarnings(process.stderr)
 

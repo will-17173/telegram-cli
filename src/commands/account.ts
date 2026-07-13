@@ -63,6 +63,7 @@ export function registerAccountCommands(app: Command): void {
           display_name: normalizeDisplayName(account.display_name),
           username: account.username,
           phone: account.phone,
+          auth_state: account.auth_state,
           current: account.name === registry.current_account,
         }))
 
@@ -420,6 +421,7 @@ async function addAccount(): Promise<{
 
       const account: AccountMeta = {
         ...mapped,
+        auth_state: 'authenticated',
         name,
       }
       const accounts = registry.accounts.concat([account])

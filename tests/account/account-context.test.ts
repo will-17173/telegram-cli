@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { AccountStore, type AccountMeta } from '../../src/account/account-store.js'
 import { getAccountRegistryPath } from '../../src/config/env.js'
-import { resolveAccountContext } from '../../src/account/account-context.js'
+import { resolveAccountContext, resolveAuthenticatedAccountContext } from '../../src/account/account-context.js'
 
 const REGISTRY_PATH = 'accounts.json'
 
@@ -31,10 +31,23 @@ function account(name: string, userId: number): AccountMeta {
     username: `${name}_user`,
     phone: `10086-${name}`,
     display_name: `${name} Display`,
+    auth_state: 'authenticated',
   }
 }
 
-function writeRegistry(path: string, registry: Parameters<AccountStore['write']>[0]): void {
+type SeedRegistry = {
+  version: 1 | 2
+  current_account: string | null
+  accounts: Array<AccountMeta | {
+    name: string
+    user_id: number
+    username: string
+    phone: string
+    display_name: string
+  }>
+}
+
+function writeRegistry(path: string, registry: SeedRegistry): void {
   writeFileSync(path, `${JSON.stringify(registry, null, 2)}\n`)
 }
 
@@ -50,12 +63,13 @@ describe('account context resolver', () => {
       dataDir,
     })
 
-    expect(context.account).toEqual({
+    expect(context.account).toMatchObject({
       name: 'alice',
       user_id: 100,
       username: 'alice_user',
       phone: '10086-alice',
       display_name: 'alice Display',
+      auth_state: 'authenticated',
     })
     expect(context.sessionPath).toBe(join(dataDir, 'accounts', 'alice', 'session'))
     expect(context.dbPath).toBe(join(dataDir, 'accounts', 'alice', 'messages.db'))
@@ -69,6 +83,46 @@ describe('account context resolver', () => {
     const context = resolveAccountContext({ dataDir })
     expect(context.account.name).toBe('bob')
     expect(context.account.user_id).toBe(200)
+  })
+
+  it('resolves a logged-out account for local-only usage', () => {
+    const dataDir = tempDir()
+    const path = getAccountRegistryPath(dataDir)
+    writeRegistry(path, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 100,
+        username: 'alice_user',
+        phone: '10086-alice',
+        display_name: 'Alice Display',
+        auth_state: 'logged_out',
+      }],
+    })
+
+    const context = resolveAccountContext({ dataDir })
+
+    expect(context.account.auth_state).toBe('logged_out')
+  })
+
+  it('throws account_logged_out for authenticated-required resolver', () => {
+    const dataDir = tempDir()
+    const path = getAccountRegistryPath(dataDir)
+    writeRegistry(path, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 100,
+        username: 'alice_user',
+        phone: '10086-alice',
+        display_name: 'Alice Display',
+        auth_state: 'logged_out',
+      }],
+    })
+
+    expect(() => resolveAuthenticatedAccountContext({ dataDir })).toThrow('account_logged_out')
   })
 
   it('throws account_required when no explicit or current account exists', () => {

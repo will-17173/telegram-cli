@@ -123,6 +123,7 @@ describe('account commands', () => {
     expect(payload.data.current).toBe(true)
     expect(payload.data.account.user_id).toBe(1001)
     expect(payload.data.account.name).toBe('aliceuser')
+    expect(payload.data.account.auth_state).toBe('authenticated')
 
     const registry = JSON.parse(readFileSync(getAccountRegistryPath(dataDir), 'utf8')) as { current_account: string | null; accounts: Array<{ name: string; user_id: number }> }
     expect(registry.current_account).toBe('aliceuser')
@@ -323,12 +324,14 @@ describe('account commands', () => {
     expect(jsonPayload.data.accounts[0]).toMatchObject({
       name: 'alice',
       current: true,
+      auth_state: 'authenticated',
     })
 
     expect(yamlPayload.ok).toBe(true)
     expect(yamlPayload.data.current_account).toBe('alice')
     expect(yamlPayload.data.accounts).toHaveLength(2)
     expect(yamlPayload.data.accounts.find((account: { name: string }) => account.name === 'bob')).toBeDefined()
+    expect(jsonPayload.data.accounts.find((account: { name: string }) => account.name === 'bob')?.auth_state).toBe('authenticated')
   })
 
   it('normalizes duplicated display names when listing accounts', async () => {
