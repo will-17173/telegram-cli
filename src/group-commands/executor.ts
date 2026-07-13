@@ -1,4 +1,5 @@
 import type { HandlerResult } from '../commands/types.js'
+import { isReadOnlyGroupCommand } from './catalog.js'
 import type { ParsedGroupCommandRequest } from './parser.js'
 import type { TelegramGroupDetails } from '../telegram/group-types.js'
 import { ADMIN_RIGHT_KEYS, canonicalCommandKey, GroupWriteService, type GroupWriteServiceResult } from '../services/group-write-service.js'
@@ -23,8 +24,6 @@ export type GroupCommandExecutionResult = HandlerResult<GroupWriteServiceResult>
   readonly selectionRequired: { readonly kind: 'admin_permissions'; readonly chat: string | number; readonly target: string; readonly available: typeof ADMIN_RIGHT_KEYS }
 }
 
-const queries = new Set(['invite list', 'invite show', 'invite members', 'topic list'])
-
 export async function executeGroupCommand(request: ParsedGroupCommandRequest, context: GroupCommandExecutorContext): Promise<GroupCommandExecutionResult> {
   const key = canonicalCommandKey(request)
   if (!key) return error('invalid_command', 'Invalid or noncanonical group command.')
@@ -42,7 +41,7 @@ export async function executeGroupCommand(request: ParsedGroupCommandRequest, co
     return { ok: false, confirmation: { risk: request.definition.risk, chat: context.chat, summary: request.definition.summary, ...confirmation, ...(request.definition.risk === 'confirm-title' && context.knownGroup ? { title: context.knownGroup.title } : {}) } }
   }
   const result = await context.groups.execute({ ...request, chat: context.chat })
-  if (result.ok && !queries.has(key) && context.invalidateGroup) {
+  if (result.ok && !isReadOnlyGroupCommand(key) && context.invalidateGroup) {
     await Promise.resolve(context.invalidateGroup(context.chat)).catch(() => undefined)
   }
   return result

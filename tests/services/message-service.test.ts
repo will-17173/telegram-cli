@@ -262,6 +262,17 @@ describe('MessageService', () => {
     expect(fake.deleteMessagesCalls).toHaveLength(0)
   })
 
+  it('validates message options before checking write access', async () => {
+    const fake = new FakeTelegramClient()
+    const service = new MessageService(fake, new WriteAccessPolicy(() => false))
+
+    await expect(service.edit({ chat: 'TestGroup', msgId: 0, text: 'updated', linkPreview: false })).resolves.toEqual({
+      ok: false,
+      error: { code: 'invalid_option', message: 'msg_id must be a positive integer.' },
+    })
+    expect(fake.editMessageCalls).toHaveLength(0)
+  })
+
   it('rejects an empty send before contacting Telegram', async () => {
     const fake = new FakeTelegramClient()
 

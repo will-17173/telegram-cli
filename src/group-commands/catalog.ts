@@ -80,3 +80,16 @@ export const GROUP_COMMAND_CATALOG = {
 type CatalogCommand = typeof GROUP_COMMANDS[number]
 type CommandKeyOf<T> = T extends { readonly path: readonly [infer A extends string, infer B extends string] } ? `${A} ${B}` : never
 export type GroupCommandKey = CommandKeyOf<CatalogCommand>
+
+export const READ_ONLY_GROUP_COMMANDS = [
+  'invite list',
+  'invite show',
+  'invite members',
+  'topic list',
+] as const satisfies readonly GroupCommandKey[]
+
+const readOnlyGroupCommands = new Set<string>(READ_ONLY_GROUP_COMMANDS)
+
+export function isReadOnlyGroupCommand(key: GroupCommandKey): boolean {
+  return readOnlyGroupCommands.has(key)
+}

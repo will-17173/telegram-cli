@@ -45,11 +45,11 @@ export class MessageService {
   }
 
   async send(options: SendOptions): Promise<HandlerResult<SendResult>> {
-    const access = this.withWriteAccess<SendResult>()
-    if (access) return access
-
     const invalid = validateSend(options)
     if (invalid) return invalid
+
+    const access = this.withWriteAccess<SendResult>()
+    if (access) return access
 
     const message = options.message?.trim() ? options.message : undefined
     try {
@@ -93,11 +93,11 @@ export class MessageService {
   }
 
   async edit(options: EditOptions): Promise<HandlerResult<{ edited: true; msg_id: number; chat: string }>> {
-    const access = this.withWriteAccess<{ edited: true; msg_id: number; chat: string }>()
-    if (access) return access
-
     const invalid = validateEdit(options)
     if (invalid) return invalid
+
+    const access = this.withWriteAccess<{ edited: true; msg_id: number; chat: string }>()
+    if (access) return access
 
     try {
       await this.tg.editMessage({ chat: options.chat, msgId: options.msgId, text: options.text, linkPreview: options.linkPreview })
@@ -109,11 +109,11 @@ export class MessageService {
   }
 
   async delete(options: DeleteOptions): Promise<HandlerResult<{ deleted: true; msg_ids: number[]; chat: string }>> {
-    const access = this.withWriteAccess<{ deleted: true; msg_ids: number[]; chat: string }>()
-    if (access) return access
-
     const invalid = validateDelete(options)
     if (invalid) return invalid
+
+    const access = this.withWriteAccess<{ deleted: true; msg_ids: number[]; chat: string }>()
+    if (access) return access
 
     try {
       await this.tg.deleteMessages({ chat: options.chat, msgIds: options.msgIds })

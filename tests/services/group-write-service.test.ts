@@ -164,6 +164,15 @@ describe('GroupWriteService', () => {
     expect(groups.writeCalls).toHaveLength(0)
   })
 
+  it('validates group mutations before checking write access', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await new GroupWriteService(groups, new WriteAccessPolicy(() => false))
+      .execute(request('admin promote 7 ban_users,bogus'))
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'invalid_option' } })
+    expect(groups.writeCalls).toHaveLength(0)
+  })
+
   it.each([
     'invite list',
     'invite show link',

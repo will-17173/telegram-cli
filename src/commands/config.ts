@@ -190,7 +190,7 @@ export function registerConfigCommands(app: Command): void {
       await renderResult(result, effectiveOptions)
     })
 
-  config.command('write-access [action]')
+  config.command('write-access [status|on|off]')
     .description('Show or update Telegram remote write permission')
     .option('--json')
     .option('--yaml')

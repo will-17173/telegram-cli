@@ -9,6 +9,7 @@ const groups = vi.hoisted(() => ({
   promoteAdmin: vi.fn(async () => ({ operation: 'promoteAdmin', chat_id: 42 })),
   deleteGroup: vi.fn(async () => ({ operation: 'deleteGroup', chat_id: 42 })),
   createInvite: vi.fn(async () => ({ chat_id: 42, invite: { link: 'https://t.me/+x', title: null, creator_id: 1, created_at: null, expires_at: null, usage_limit: null, usage_count: 0, request_needed: false, revoked: false } })),
+  listInvites: vi.fn(async () => ({ chat_id: 42, invites: [], total: 0 })),
   deleteTopic: vi.fn(async (request) => ({ operation: 'deleteTopic', chat_id: 42, target_id: request.topicId })),
   deleteGroupMessages: vi.fn(async () => ({ operation: 'deleteGroupMessages', chat_id: 42 })),
   getGroup: vi.fn(),
@@ -110,6 +111,16 @@ describe('group write commands', () => {
       }),
       expect.anything(),
     )
+  })
+
+  it('allows a read-only nested group command when write access is disabled', async () => {
+    writeFileSync(join(dataDir, 'config.json'), `${JSON.stringify({ write_access: false })}\n`)
+
+    await run('group', 'invite', 'list', 'General')
+
+    expect(createTelegramClient).toHaveBeenCalledTimes(1)
+    expect(groups.listInvites).toHaveBeenCalledWith({ chat: 'General', limit: 100 })
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: true }), expect.anything())
   })
 
   it('requires the exact fetched title before deleting a chat', async () => {

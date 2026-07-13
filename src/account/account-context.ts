@@ -28,8 +28,8 @@ export function resolveAccountContext(input: AccountResolutionInput = {}): Accou
 
 export function resolveAuthenticatedAccountContext(input: AccountResolutionInput = {}): AccountContext {
   const context = resolveAccountContext(input)
-  if (context.account.auth_state === 'logged_out') {
-    throw new Error(`account_logged_out: account "${context.account.name}" is logged out`)
+  if (context.authState === 'logged_out') {
+    throw new Error(`account_logged_out: account "${context.name}" is logged out`)
   }
 
   return context

@@ -1,5 +1,5 @@
 import type { HandlerResult } from '../commands/types.js'
-import { GROUP_COMMAND_CATALOG, type GroupCommandKey } from '../group-commands/catalog.js'
+import { GROUP_COMMAND_CATALOG, isReadOnlyGroupCommand, type GroupCommandKey } from '../group-commands/catalog.js'
 import type { GroupCommandValuesByKey, ParsedGroupCommandRequest } from '../group-commands/parser.js'
 import {
   TelegramGroupAdminRequiredError, TelegramGroupFloodWaitError, TelegramGroupMemberNotFoundError,
@@ -9,10 +9,6 @@ import {
 } from '../telegram/group-types.js'
 import type { GroupWriteOperationResultMap, TelegramGroupWriteOperation } from '../telegram/group-write-types.js'
 import { WriteAccessPolicy } from './write-access-policy.js'
-
-const READ_ONLY_GROUP_COMMANDS = ['invite list', 'invite show', 'invite members', 'topic list'] as const satisfies readonly GroupCommandKey[]
-const readOnlyGroupCommands = new Set<string>(READ_ONLY_GROUP_COMMANDS)
-const isReadOnlyGroupCommand = (key: GroupCommandKey): boolean => readOnlyGroupCommands.has(key)
 
 export type ParsedGroupWriteRequest = ParsedGroupCommandRequest & { readonly chat: string | number }
 export type GroupWriteServiceResult = GroupWriteOperationResultMap[TelegramGroupWriteOperation]
@@ -93,10 +89,6 @@ export class GroupWriteService {
   async execute(request: ParsedGroupWriteRequest): Promise<HandlerResult<GroupWriteServiceResult>> {
     const key = canonicalCommandKey(request)
     if (!key) return failure('invalid_command', 'Invalid or noncanonical group command.')
-    if (!isReadOnlyGroupCommand(key)) {
-      const access = this.writePolicy.check()
-      if (!access.ok) return access
-    }
 
     if (request.key === 'admin promote' && (!request.values.permissions || request.values.permissions.length === 0)) {
       return failure('permissions_required', 'Select at least one administrator permission.')
@@ -109,6 +101,10 @@ export class GroupWriteService {
     }
     if ((request.key === 'invite create' || request.key === 'invite edit') && request.values.requestNeeded === true && request.values.limit != null) {
       return failure('invalid_option', 'Approval-required invite links cannot have a usage limit.')
+    }
+    if (!isReadOnlyGroupCommand(key)) {
+      const access = this.writePolicy.check()
+      if (!access.ok) return access
     }
     try { return { ok: true, data: await dispatch(request, this.groups) } }
     catch (error) { return groupWriteFailure(error) }

@@ -16,13 +16,13 @@ describe('markdown presenter', () => {
 
     const rendered = renderHumanMarkdown(output)
     expect(rendered).toBe(
-      '# Inbox\n\n- **Unread:** 3\n\n| CHAT | LAST |\n| --- | --- |\nTeam \\| Ops | line 1<br>line 2',
+      '# Inbox\n\n- **Unread:** 3\n\n| CHAT | LAST |\n| --- | --- |\n| Team \\| Ops | line 1<br>line 2 |',
     )
   })
 
   it('renders stable markdown error blocks', () => {
     expect(renderMarkdownError('invalid_output_format', 'Use only one of --json, --yaml, or --markdown.'))
-      .toBe('# Error\n\n- **Code:** invalid_output_format\n- **Message:** Use only one of --json, --yaml, or --markdown.')
+      .toBe('# Error\n\n- **Code:** `invalid_output_format`\n- **Message:** Use only one of --json, --yaml, or --markdown.')
   })
 
   it('renders timeline output as markdown table style', () => {
@@ -36,7 +36,12 @@ describe('markdown presenter', () => {
     }
 
     expect(renderHumanMarkdown(output)).toBe(
-      '# Hourly timeline\n\n| PERIOD | COUNT |\n| --- | --- |\n2026-03-09T10 | 3\n2026-03-09T11 | 1',
+      '# Hourly timeline\n\n| PERIOD | COUNT |\n| --- | --- |\n| 2026-03-09T10 | 3 |\n| 2026-03-09T11 | 1 |',
     )
+  })
+
+  it('preserves paragraphs in text output', () => {
+    expect(renderHumanMarkdown({ kind: 'text', text: 'Use `tg` | safely\r\n\r\nNext paragraph.' }))
+      .toBe('Use `tg` | safely\n\nNext paragraph.')
   })
 })

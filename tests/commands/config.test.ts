@@ -398,6 +398,13 @@ describe('config command', () => {
     })
   })
 
+  it('documents the supported write-access actions in help', async () => {
+    const config = createApp().commands.find(command => command.name() === 'config')
+    const writeAccess = config?.commands.find(command => command.name() === 'write-access')
+
+    expect(writeAccess?.helpInformation()).toContain('[status|on|off]')
+  })
+
   it('lists stored values with a masked API hash and complete proxy URL', async () => {
     const dataDir = tempDir()
     const apiHash = 'stored-api-hash-secret'

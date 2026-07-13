@@ -648,9 +648,6 @@ export function InteractiveListen({
     const client = clientRef.current
     if (client == null) return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection is not ready.' } }
     if (sendTo == null) return { ok: false, error: { code: 'ambiguous_chat', message: 'Select exactly one target chat with --send-to.' } }
-    const access = new WriteAccessPolicy().check()
-    if (!access.ok) return access
-
     let knownGroup = knownGroupRef.current
     if (knownGroup == null) {
       const lookup = ++groupLookupGenerationRef.current

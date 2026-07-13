@@ -103,6 +103,7 @@ describe('account context resolver', () => {
 
     const context = resolveAccountContext({ dataDir })
 
+    expect(context).toMatchObject({ name: 'alice', authState: 'logged_out' })
     expect(context.account.auth_state).toBe('logged_out')
   })
 

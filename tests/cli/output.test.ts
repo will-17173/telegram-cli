@@ -239,7 +239,7 @@ describe('cli output rendering', () => {
 
     await renderResult(result, { markdown: true })
 
-    expect(stderr).toHaveBeenCalledWith('# Error\n\n- **Code:** invalid_output_format\n- **Message:** Use only one of --json, --yaml, or --markdown.\n')
+    expect(stderr).toHaveBeenCalledWith('# Error\n\n- **Code:** `invalid_output_format`\n- **Message:** Use only one of --json, --yaml, or --markdown.\n')
     expect(process.exitCode).toBe(1)
     expect(renderInkResult).not.toHaveBeenCalled()
   })
