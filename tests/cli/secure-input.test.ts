@@ -38,6 +38,41 @@ describe('createInterruptScope', () => {
 })
 
 describe('readVisibleInput', () => {
+  it('forces cooked mode for visible input and restores the prior raw state', async () => {
+    const input = new FakeTtyInput()
+    input.isRaw = true
+    const reading = readVisibleInput('Phone: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    })
+    input.write('13800138000\r')
+
+    await expect(reading).resolves.toBe('13800138000')
+    expect(input.rawModes).toEqual([false, true])
+  })
+
+  it('ignores terminal escape and control sequences', async () => {
+    const input = new FakeTtyInput()
+    const reading = readVisibleInput('Code: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    })
+    input.write('12\x1b[A\t34\r')
+
+    await expect(reading).resolves.toBe('1234')
+  })
+
+  it('uses only the first line of pasted input', async () => {
+    const input = new FakeTtyInput()
+    const reading = readVisibleInput('Code: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: new PassThrough() as unknown as NodeJS.WriteStream,
+    })
+    input.write('12345\n67890\n')
+
+    await expect(reading).resolves.toBe('12345')
+  })
+
   it('rejects a destroyed input without retaining ownership', async () => {
     const input = new FakeTtyInput()
     input.destroy()
@@ -594,6 +629,44 @@ describe('readSecret', () => {
     input.write('second\r')
     await expect(second).resolves.toBe('second')
     expect(input.rawModes).toEqual([true, false, true, false])
+  })
+
+  it('guards an output error that arrives more than 100ms after input settles', async () => {
+    const input = new FakeTtyInput()
+    const failure = Object.assign(new Error('late broken pipe'), { code: 'EPIPE' })
+    const output = new Writable({
+      write(_chunk, _encoding, callback) {
+        setTimeout(() => callback(failure), 150)
+      },
+    })
+
+    const reading = readSecret('Password: ', {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    })
+    input.write('hunter2\r')
+
+    await expect(reading).resolves.toBe('hunter2')
+    expect(output.listenerCount('error')).toBe(1)
+    await new Promise(resolve => setTimeout(resolve, 180))
+    expect(output.listenerCount('error')).toBe(0)
+  })
+
+  it('shares one output guard across rapid prompts with pending writes', async () => {
+    const input = new FakeTtyInput()
+    const output = new PassThrough()
+    output.write = ((_chunk: Uint8Array | string, _encoding?: BufferEncoding, _callback?: (error?: Error | null) => void) => true) as typeof output.write
+    const streams = {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    }
+
+    for (const value of ['one', 'two', 'three']) {
+      const reading = readSecret('Password: ', streams)
+      input.write(`${value}\r`)
+      await expect(reading).resolves.toBe(value)
+      expect(output.listenerCount('error')).toBe(1)
+    }
   })
 })
 

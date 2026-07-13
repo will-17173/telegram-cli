@@ -65,6 +65,18 @@ describe.runIf(process.platform !== 'win32' && existsSync('/usr/bin/expect'))('s
     expect(result.status).toBe(exitCode)
   })
 
+  it('sets a conventional exit status when SIGTERM is the last active event', () => {
+    const result = runExpect(`
+      spawn -noecho ${node} --import tsx ${fixture} handle-free-term
+      expect eof
+      set child [wait]
+      if {[lindex $child 4] eq "CHILDKILLED"} { exit 1 }
+      exit [lindex $child 3]
+    `)
+
+    expect(result.status).toBe(143)
+  })
+
   it.each([
     ['phone', 'auth-phone', []],
     ['code', 'auth-code', ['+8613800138000']],

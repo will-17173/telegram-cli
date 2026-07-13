@@ -51,17 +51,36 @@ export class InputBusyError extends Error {
 const activeTerminalInputs = new WeakSet<NodeJS.ReadStream>()
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 const SIGNAL_CLEANUP_GRACE_MS = 100
-const OUTPUT_ERROR_GRACE_MS = 100
+
+type PendingOutputWrite = { onError: (error: Error) => void }
+type OutputWriteState = {
+  pending: Set<PendingOutputWrite>
+  failed: boolean
+  guard: (error: Error) => void
+  onClose: () => void
+}
+
+const pendingOutputWrites = new WeakMap<NodeJS.WriteStream, OutputWriteState>()
 
 export function createInterruptScope(): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController()
+  const previousExitCode = process.exitCode
   let fallback: NodeJS.Timeout | undefined
+  let assignedExitCode: number | undefined
+  let disposed = false
+  const keepAlive = setTimeout(() => undefined, 2_147_483_647)
   // SIGKILL cannot be observed; for catchable signals, re-raise after a short cooperative cleanup window.
+  // Signal exit-status behavior is Unix-tested; Windows signal delivery is limited by Node and the host console.
   const handlers = Object.fromEntries((['SIGINT', 'SIGHUP', 'SIGTERM'] as const).map(processSignal => [
     processSignal,
     () => {
-      if (controller.signal.aborted) return
-      controller.abort(new CliInterruptedError(processSignal))
+      if (controller.signal.aborted || disposed) return
+      const interruption = new CliInterruptedError(processSignal)
+      assignedExitCode = interruption.exitCode
+      process.exitCode = interruption.exitCode
+      clearTimeout(keepAlive)
+      controller.abort(interruption)
+      if (disposed) return
       fallback = setTimeout(() => {
         removeHandlers()
         process.kill(process.pid, processSignal)
@@ -81,8 +100,13 @@ export function createInterruptScope(): { signal: AbortSignal; dispose: () => vo
   return {
     signal: controller.signal,
     dispose: () => {
+      disposed = true
+      clearTimeout(keepAlive)
       if (fallback) clearTimeout(fallback)
       removeHandlers()
+      if (assignedExitCode !== undefined && process.exitCode === assignedExitCode) {
+        process.exitCode = previousExitCode
+      }
     },
   }
 }
@@ -104,7 +128,7 @@ export async function readSecret(
 async function readTerminalInput(prompt: string, streams: SecureInputOptions, hidden: boolean): Promise<string> {
   const input = streams.input ?? process.stdin
   const output = streams.output ?? process.stderr
-  if (input.isTTY !== true || (hidden && typeof input.setRawMode !== 'function')) {
+  if (input.isTTY !== true || ((hidden || input.isRaw === true) && typeof input.setRawMode !== 'function')) {
     throw new InteractionRequiredError()
   }
   throwIfAborted(streams.signal)
@@ -134,6 +158,7 @@ async function readOwnedTerminalInput(
   let rawModeTouched = false
   let promptStarted = false
   let operationFailed = false
+  let escapeState: 'none' | 'start' | 'sequence' | 'osc' = 'none'
   let resolveInput: ((value: string) => void) | undefined
   let rejectInput: ((error: unknown) => void) | undefined
   const result = new Promise<string>((resolve, reject) => {
@@ -151,6 +176,7 @@ async function readOwnedTerminalInput(
     rejectInput?.(error)
   }
   const onData = (chunk: Buffer | string): void => {
+    if (settled) return
     const text = typeof chunk === 'string' ? chunk : decoder.write(chunk)
     for (const character of text) {
       const code = character.codePointAt(0)
@@ -163,11 +189,29 @@ async function readOwnedTerminalInput(
         else settleValue(value)
         return
       }
+      if (code === 27) {
+        escapeState = 'start'
+        continue
+      }
+      if (escapeState === 'start') {
+        escapeState = character === ']'
+          ? 'osc'
+          : character === '[' || character === 'O' ? 'sequence' : 'none'
+        continue
+      }
+      if (escapeState === 'sequence') {
+        if (code != null && code >= 0x40 && code <= 0x7e) escapeState = 'none'
+        continue
+      }
+      if (escapeState === 'osc') {
+        if (code === 7) escapeState = 'none'
+        continue
+      }
       if (code === 8 || code === 127) {
         value = removeFinalGrapheme(value)
         continue
       }
-      if (!hidden || (code != null && code >= 32)) value += character
+      if (code != null && code >= 32 && (code < 127 || code > 159)) value += character
     }
   }
   const onInputError = (error: Error): void => settleError(error)
@@ -183,9 +227,9 @@ async function readOwnedTerminalInput(
   try {
     if (signal?.aborted) settleError(abortReason(signal))
     if (input.readableEnded || input.destroyed) settleError(new CliInterruptedError())
-    if (!settled && hidden) {
+    if (!settled && (hidden || originalRawMode)) {
       rawModeTouched = true
-      input.setRawMode(true)
+      input.setRawMode(hidden)
     }
     if (!settled) {
       input.on('data', onData)
@@ -221,7 +265,6 @@ async function readOwnedTerminalInput(
     cleanup(() => {
       if (!wasFlowing) input.pause()
     })
-    cleanup(() => installLateOutputErrorGuard(output))
     cleanup(() => output.removeListener('error', onOutputError))
     cleanup(() => {
       if (promptStarted && hidden) startOutputWrite(output, '\n')
@@ -236,20 +279,49 @@ function startOutputWrite(
   text: string,
   onError: (error: Error) => void = () => undefined,
 ): void {
+  const state = getOutputWriteState(output)
+  const pendingWrite = { onError }
+  state.pending.add(pendingWrite)
   try {
     output.write(text, error => {
-      if (error) onError(error)
+      state.pending.delete(pendingWrite)
+      if (error) {
+        state.failed = true
+        pendingWrite.onError(error)
+      } else if (state.pending.size === 0 && !state.failed) {
+        releaseOutputWriteState(output, state)
+      }
     })
   } catch (error) {
+    state.pending.delete(pendingWrite)
+    if (state.pending.size === 0 && !state.failed) releaseOutputWriteState(output, state)
     throw error instanceof Error ? error : new Error(String(error))
   }
 }
 
-function installLateOutputErrorGuard(output: NodeJS.WriteStream): void {
-  const onLateError = (): void => undefined
-  output.on('error', onLateError)
-  const timer = setTimeout(() => output.removeListener('error', onLateError), OUTPUT_ERROR_GRACE_MS)
-  timer.unref()
+function getOutputWriteState(output: NodeJS.WriteStream): OutputWriteState {
+  const existing = pendingOutputWrites.get(output)
+  if (existing) return existing
+
+  const state = {} as OutputWriteState
+  state.pending = new Set()
+  state.failed = false
+  state.guard = error => {
+    for (const pendingWrite of state.pending) pendingWrite.onError(error)
+  }
+  state.onClose = () => releaseOutputWriteState(output, state)
+  pendingOutputWrites.set(output, state)
+  output.on('error', state.guard)
+  output.once('close', state.onClose)
+  return state
+}
+
+function releaseOutputWriteState(output: NodeJS.WriteStream, state: OutputWriteState): void {
+  if (pendingOutputWrites.get(output) !== state) return
+  pendingOutputWrites.delete(output)
+  state.pending.clear()
+  output.removeListener('error', state.guard)
+  output.removeListener('close', state.onClose)
 }
 
 function removeFinalGrapheme(value: string): string {
