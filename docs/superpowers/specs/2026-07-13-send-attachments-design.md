@@ -32,7 +32,7 @@ The command selects one of three adapter operations:
 
 For attachment sends, an optional message is used as the caption. For a media group, the caption is attached only to its first media item, as required by mtcute. No separate text message is sent.
 
-Files are passed to mtcute as local paths so mtcute can infer whether each item is a photo, video, or document. Unsupported media-group combinations or Telegram-side limits are returned as normal `telegram_error` failures; the CLI does not silently split a requested group into separate messages.
+The adapter classifies common image and video extensions and constructs mtcute photo or video media explicitly; all other files are sent as documents. This is necessary because mtcute's automatic factory treats newly uploaded photos as documents. Unsupported media-group combinations or Telegram-side limits are returned as normal `telegram_error` failures; the CLI does not silently split a requested group into separate messages.
 
 ## Validation and Errors
 
