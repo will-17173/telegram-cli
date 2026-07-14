@@ -1,4 +1,5 @@
 import type { Command } from 'commander'
+import { startWebServer } from '../web/server.js'
 
 export type WebCommandOptions = {
   port?: string
@@ -21,8 +22,35 @@ export function registerWebCommand(app: Command): void {
         return `${baseFormatHelp.call(helper, command, helper)}\n${localWebHelp}`
       },
     })
-    .action(async (_options: WebCommandOptions, command: Command) => {
-      const errorCommand = command.parent ?? command
-      errorCommand.error('tg web server is not implemented yet')
+    .action(async (options: WebCommandOptions) => {
+      const port = parsePort(options.port)
+      const server = await startWebServer({ port })
+      process.stdout.write(`Telegram CLI web UI: ${server.url}\n`)
+      await waitForShutdown(server.close)
     })
+}
+
+function parsePort(raw: string | undefined): number | undefined {
+  if (raw == null) return undefined
+  if (!/^\d+$/.test(raw)) throw new Error('--port must be a positive integer')
+  const port = Number(raw)
+  if (!Number.isSafeInteger(port) || port <= 0) throw new Error('--port must be a positive integer')
+  return port
+}
+
+function waitForShutdown(close: () => Promise<void>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const stop = async () => {
+      process.off('SIGINT', stop)
+      process.off('SIGTERM', stop)
+      try {
+        await close()
+        resolve()
+      } catch (error) {
+        reject(error)
+      }
+    }
+    process.once('SIGINT', stop)
+    process.once('SIGTERM', stop)
+  })
 }

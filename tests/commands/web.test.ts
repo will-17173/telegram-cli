@@ -1,6 +1,21 @@
-import { CommanderError } from 'commander'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../../src/cli/app.js'
+
+const startWebServer = vi.hoisted(() => vi.fn(async () => ({
+  host: '127.0.0.1',
+  port: 8734,
+  url: 'http://127.0.0.1:8734/',
+  close: vi.fn(async () => undefined),
+})))
+
+vi.mock('../../src/web/server.js', () => ({
+  startWebServer,
+}))
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  startWebServer.mockClear()
+})
 
 describe('web command', () => {
   it('registers local web management help', () => {
@@ -15,24 +30,31 @@ describe('web command', () => {
     expect(help).toContain('read-only Telegram sync')
   })
 
-  it('reports the unimplemented server through Commander', async () => {
-    const app = createApp()
-      .configureOutput({ writeErr: () => undefined })
-      .exitOverride()
-
-    let error: unknown
-    try {
-      await app.parseAsync(['node', 'tg', 'web'])
-    } catch (caught) {
-      error = caught
-    }
-
-    expect(error).toBeInstanceOf(CommanderError)
-    expect(error?.constructor).toBe(CommanderError)
-    expect(error).toMatchObject({
-      code: 'commander.error',
-      exitCode: 1,
-      message: expect.stringContaining('tg web server is not implemented yet'),
+  it('starts the web server and closes it on SIGINT', async () => {
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const close = vi.fn(async () => undefined)
+    startWebServer.mockResolvedValueOnce({
+      host: '127.0.0.1',
+      port: 9000,
+      url: 'http://127.0.0.1:9000/',
+      close,
     })
+    const app = createApp()
+
+    const running = app.parseAsync(['node', 'tg', 'web', '--port', '9000'])
+    await vi.waitFor(() => expect(write).toHaveBeenCalledWith('Telegram CLI web UI: http://127.0.0.1:9000/\n'))
+    process.emit('SIGINT')
+    await running
+
+    expect(startWebServer).toHaveBeenCalledWith({ port: 9000 })
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it('rejects invalid web ports', async () => {
+    const app = createApp()
+
+    await expect(app.parseAsync(['node', 'tg', 'web', '--port', 'abc']))
+      .rejects.toThrow('--port must be a positive integer')
+    expect(startWebServer).not.toHaveBeenCalled()
   })
 })
