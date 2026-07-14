@@ -137,8 +137,42 @@ function accountDbPath(dataDir: string): string {
 }
 
 function expectNoSecretSentinels(observable: unknown): void {
-  const serialized = typeof observable === 'string' ? observable : JSON.stringify(observable)
-  for (const secret of Object.values(secrets)) expect(serialized).not.toContain(secret)
+  if (containsSecretSentinel(observable, new WeakSet<object>())) {
+    throw new Error('Secret sentinel appeared in collected observables.')
+  }
+}
+
+function containsSecretSentinel(value: unknown, seen: WeakSet<object>): boolean {
+  if (typeof value === 'string') {
+    return Object.values(secrets).some(secret => value.includes(secret))
+  }
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return false
+  if (seen.has(value)) return false
+  seen.add(value)
+
+  if (value instanceof Error && (
+    containsSecretSentinel(value.name, seen)
+    || containsSecretSentinel(value.message, seen)
+    || containsSecretSentinel(value.cause, seen)
+  )) return true
+
+  if (value instanceof Map) {
+    for (const [key, item] of value) {
+      if (containsSecretSentinel(key, seen) || containsSecretSentinel(item, seen)) return true
+    }
+  }
+  if (value instanceof Set) {
+    for (const item of value) {
+      if (containsSecretSentinel(item, seen)) return true
+    }
+  }
+
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor != null && 'value' in descriptor
+      && containsSecretSentinel(descriptor.value, seen)) return true
+  }
+  return false
 }
 
 async function observeLogs<T>(action: () => Promise<T>): Promise<{ value: T; logs: unknown[] }> {
@@ -221,6 +255,22 @@ afterEach(() => {
 })
 
 describe('v0.4.0 capability matrix', () => {
+  it('detects secret sentinels in Error messages and nested causes', () => {
+    const nested = new Error('outer failure', {
+      cause: new Error(`inner failure: ${secrets.sessionPathContents}`),
+    })
+
+    expect(() => expectNoSecretSentinels(nested))
+      .toThrow('Secret sentinel appeared in collected observables.')
+  })
+
+  it('audits cyclic observables without treating serialization errors as leaks', () => {
+    const cyclic: { label: string; self?: unknown } = { label: 'safe observable' }
+    cyclic.self = cyclic
+
+    expect(() => expectNoSecretSentinels(cyclic)).not.toThrow()
+  })
+
   it.each(routes)('registers the approved %s route', (route) => {
     expect(findCommand(createApp(), route)).toBeDefined()
   })
