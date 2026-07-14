@@ -94,6 +94,49 @@ describe('WebQueryService', () => {
     })
   })
 
+  it('filters chats by display name', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    expect(service.chats({ account: 'work', q: 'ops' })).toEqual({
+      items: [
+        { chat_id: 20, chat_name: 'Ops', msg_count: 1, first_msg: '2026-07-14T10:00:00.000Z', last_msg: '2026-07-14T10:00:00.000Z' },
+      ],
+      total: 1,
+    })
+  })
+
+  it('filters chats by chat id string', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    expect(service.chats({ account: 'work', q: '10' })).toEqual({
+      items: [
+        { chat_id: 10, chat_name: 'General', msg_count: 2, first_msg: '2026-07-14T08:00:00.000Z', last_msg: '2026-07-14T09:00:00.000Z' },
+      ],
+      total: 1,
+    })
+  })
+
+  it('uses the default chat limit and offset', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    expect(service.chats({ account: 'work' })).toEqual({
+      items: [
+        { chat_id: 10, chat_name: 'General', msg_count: 2, first_msg: '2026-07-14T08:00:00.000Z', last_msg: '2026-07-14T09:00:00.000Z' },
+        { chat_id: 20, chat_name: 'Ops', msg_count: 1, first_msg: '2026-07-14T10:00:00.000Z', last_msg: '2026-07-14T10:00:00.000Z' },
+      ],
+      total: 2,
+    })
+  })
+
   it('returns a stable filtered message page', () => {
     const root = makeRoot()
     seedAccount(root)
