@@ -80,6 +80,28 @@ describe('handleApiRequest', () => {
     expect(await json(response)).toEqual({ ok: true, data: { status: 'ok' } })
   })
 
+  it('returns JSON without CORS headers for successful API responses', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/health')
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('application/json')
+    expect(response.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('returns not_found for unsupported methods on existing routes', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/health', { method: 'POST' })
+
+    expect(response.status).toBe(404)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'not_found' },
+    })
+  })
+
   it('returns chats for an account', async () => {
     const root = makeRoot()
     seedAccount(root)
@@ -139,6 +161,34 @@ describe('handleApiRequest', () => {
     seedMessage(root)
 
     const response = await api(root, '/api/messages?account=work&chatId=10&cursor=not-json')
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
+  it('maps missing message chatId to invalid_request', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessage(root)
+
+    const response = await api(root, '/api/messages?account=work')
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
+  it('maps invalid message limits to invalid_request', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessage(root)
+
+    const response = await api(root, '/api/messages?account=work&chatId=10&limit=abc')
 
     expect(response.status).toBe(400)
     expect(await json(response)).toMatchObject({

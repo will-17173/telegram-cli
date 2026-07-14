@@ -21,7 +21,6 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
   if (!security.ok) return failure(security.status, security.code, security.message)
 
   const url = new URL(request.url)
-  if (request.method !== 'GET') return failure(404, 'not_found', 'API route not found.')
 
   try {
     const dataDir = context.dataDir ?? getDataDir()
@@ -29,10 +28,13 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
 
     switch (url.pathname) {
       case '/api/health':
+        if (request.method !== 'GET') return notFound()
         return success({ status: 'ok' })
       case '/api/accounts':
+        if (request.method !== 'GET') return notFound()
         return success(query.accounts())
       case '/api/chats':
+        if (request.method !== 'GET') return notFound()
         return success(query.chats({
           account: stringParam(url, 'account'),
           q: stringParam(url, 'q'),
@@ -40,6 +42,7 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
           offset: optionalNonNegativeIntParam(url, 'offset') ?? 0,
         }))
       case '/api/messages':
+        if (request.method !== 'GET') return notFound()
         return success(query.messages({
           account: stringParam(url, 'account'),
           chatId: requiredPositiveIntParam(url, 'chatId'),
@@ -50,9 +53,10 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
           cursor: stringParam(url, 'cursor'),
         }))
       case '/api/sync-task':
+        if (request.method !== 'GET') return notFound()
         return success(context.syncTask.getState())
       default:
-        return failure(404, 'not_found', 'API route not found.')
+        return notFound()
     }
   } catch (error) {
     return errorResponse(error)
@@ -65,6 +69,10 @@ function success<T>(data: T): Response {
 
 function failure(status: number, code: string, message: string, details?: unknown): Response {
   return jsonResponse(status, { ok: false, error: { code, message, details } })
+}
+
+function notFound(): Response {
+  return failure(404, 'not_found', 'API route not found.')
 }
 
 function jsonResponse<T>(status: number, body: ApiSuccess<T> | ApiFailure): Response {
