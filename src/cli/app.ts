@@ -10,6 +10,7 @@ import { registerFolderCommands } from '../commands/folder.js'
 import { registerNotificationCommands } from '../commands/notification.js'
 import { registerQueryCommands } from '../commands/query.js'
 import { registerTelegramCommands } from '../commands/telegram.js'
+import { registerWebCommand } from '../commands/web.js'
 
 export function createApp(): Command {
   const app = new Command()
@@ -31,6 +32,7 @@ export function createApp(): Command {
   registerNotificationCommands(app)
   registerAccountCommands(app)
   registerConfigCommands(app)
+  registerWebCommand(app)
 
   return app
 }
