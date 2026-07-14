@@ -76,6 +76,29 @@ tg listen <chat-or-id> --auto-download
 tg send <chat> "Hello from tg"
 ```
 
+## 在线读取与管理 Telegram
+
+`history`、`sync` 和 `sync-all` 会从 Telegram 获取消息，并持久化到本地 SQLite 数据库。相比之下，`read`、`search-online` 和 `inbox` 直接查询 Telegram，只返回临时结果，不会写入本地消息数据库。`inbox` 只列出有未读消息的聊天，不会把任何消息标记为已读。
+
+```sh
+tg inbox --markdown
+tg read @team --since 7d --until 2d
+tg search-online release --chat @team --json
+```
+
+时间边界支持以 `s`、`m`、`h`、`d` 或 `w` 结尾的相对时长（如 `7d`），也支持包含时区的 ISO 时间戳（如 `2026-07-13T00:00:00Z` 或 `2026-07-13T08:00:00+08:00`）。相对值表示命令启动前的对应时长；`--since` 必须早于 `--until`。
+
+联系人、通知设置、文件夹，以及普通群组、超级群组或频道对话框也可以通过在线命令操作：
+
+```sh
+tg contact info +8613800000000
+tg notification mute @team 8h
+tg folder chat add Work @team
+tg group list --admin
+```
+
+文件夹命令接受标题或数字文件夹 ID。标题不一定唯一：请先运行 `tg folder list`，然后在 `folder info` 和 `folder chat add/remove` 中优先使用返回的文件夹 ID，脚本中尤其如此。
+
 ## 配置
 
 配置个人 Telegram API 凭据是可选的。如需使用自己的凭据，请先在 [my.telegram.org](https://my.telegram.org) 创建，然后通过以下命令保存：
@@ -151,8 +174,8 @@ Telegram 决定可接受的文件组合和媒体组数量限制。如果 Telegra
 `archive` 必须指定范围：传入一个或多个聊天 ID/用户名，或使用 `--all`，两者不能同时使用。命令默认使用当前账号，并写入该账号数据目录下的 `archive`；可用 `--account <name>` 临时选择账号，用 `--output <路径>` 修改输出目录。
 
 ```sh
-# 首次归档：此前七天
-tg archive @team
+# 首次归档并下载附件：此前七天
+tg archive @team --download-media
 
 # 自定义范围（相对时长或带时区的 ISO 时间）
 tg archive @team --since 30d --until 2026-07-13T00:00:00Z
@@ -164,6 +187,8 @@ tg archive --all --full --download-media
 首次运行默认归档此前恰好七天。`--since` 和 `--until` 用于自定义范围；`--full` 取消起始时间限制，不能与 `--since` 同时使用。后续运行采用增量模式：清单和 Markdown 中的消息标记会共同恢复已归档的最大消息 ID，即使两者游标不一致也可继续。`--rebuild` 会替换 Markdown 文件；未指定新范围或 `--full` 时，会复用清单记录的初始范围。`--download-media` 将可下载附件保存到归档目录的 `media/` 下，并在增量恢复时重试标记中引用但缺失的附件。
 
 任一聊天或附件失败时，命令返回 `archive_partial_failure`，保留其他聊天的成功结果，并以状态码 1 退出。自动化场景建议使用 `--json` 或 `--yaml`，检查 `completed`、`failed` 和 `warnings`。
+
+归档可能发起大量 Telegram 历史和媒体请求，因此可能遇到 flood wait 或其他速率限制。媒体下载可独立失败：已成功归档的消息和聊天仍保留在磁盘上，警告会指出失败的附件，任何部分失败仍会导致非零退出码。
 
 ## 多账号
 
@@ -190,6 +215,13 @@ tg account switch <name>
 
 # 删除账号及其本地会话和数据
 tg account remove <name> --force
+```
+
+如需结束远端会话但保留已添加账号、账号设置和本地消息，可显式登出；`--yes` 可在非交互环境中确认登出。登录已登出的账号是需要 TTY 的交互式重新认证流程，会创建或替换其本地 Telegram 会话；脚本和非交互智能体会收到稳定错误码 `interaction_required`。
+
+```sh
+tg account logout work --yes
+tg account login work
 ```
 
 在交互式终端中，`tg account switch` 会列出已添加账号、标记当前账号，并接受账号序号。编写脚本或使用 `--json`、`--yaml`、非交互式输入时，请传入 `<name>`。
@@ -225,9 +257,12 @@ tg group audit <chat> --query invite --user <user> --type member_invited --type 
 
 # 管理示例（chat 参数位于操作参数之前）
 tg group member ban @team @alice --yes
+tg group admin transfer-owner @team @newowner --yes
 tg group chat slowmode @team 30s
 tg group topic --help
 ```
+
+转移所有权会在确认后通过交互式 TTY 安全提示输入 Telegram 2FA 密码。密码绝不会来自 CLI 参数、stdin 输入或环境变量等自动化来源，用户和智能体也绝不能自动操作该提示。
 
 `group members` 的 `--type` 恰好支持以下七种筛选器：`recent`、`all`、`admins`、`banned`、`restricted`、`bots` 和 `contacts`。默认使用 `recent` 并返回 100 条结果；`--limit` 可设为 1 到 200。Telegram 可能返回少于其报告总数的成员，因此单页结果不保证包含整个群组的全部成员。
 
@@ -244,7 +279,7 @@ tg group topic --help
 
 管理操作分为 `member`、`admin`、`chat`、`invite`、`topic` 和 `message` 六个命令组。成员目标必须显式使用 `@username` 或 Telegram 数字用户 ID。时长支持 `s`、`m`、`h`、`d` 后缀；支持关闭的设置还可使用 `off`。例如 `tg group member mute @team @alice 2h --yes` 会临时禁言，`tg group chat slowmode @team off` 会关闭慢速模式。
 
-有破坏风险的 CLI 操作在缺少 `--yes` 时会直接拒绝，且不会连接 Telegram。永久删除群组还必须用 `--confirm-title` 提供完全一致的当前群名；交互式 `listen` 模式则通过 Ink 弹窗确认。管理操作需要对应的管理员权限，部分操作还要求超级群组、论坛或群主身份。转移所有权时，如果 Telegram 要求密码，本版本只返回 `password_required`，尚不接收密码。
+有破坏风险的 CLI 操作在缺少 `--yes` 时会直接拒绝，且不会连接 Telegram。永久删除群组还必须用 `--confirm-title` 提供完全一致的当前群名；交互式 `listen` 模式则通过 Ink 弹窗确认。管理操作需要对应的管理员权限，部分操作还要求超级群组、论坛或群主身份。
 
 查询成员详情请优先使用规范路由 `tg group member info <chat> <user>`。旧形式 `tg group member <chat> <user>` 仍保留，但当群名等于 `ban`、`mute`、`info` 等保留操作名时会产生歧义，必须使用规范路由。
 
@@ -263,7 +298,7 @@ tg group topic --help
 
 ## 在线命令与本地命令
 
-在线命令会连接 Telegram，因此需要有效的账号会话。这类命令包括 `status`、`whoami`、`chats`、`history`、`sync`、`sync-all`、`refresh`、`info`、全部 `group` 查询与管理命令组、`send`、`edit`、`delete` 和 `listen`。
+在线命令会连接 Telegram，因此需要有效的账号会话。`read`、`search-online` 和 `inbox` 返回临时结果；`inbox` 不会把消息标记为已读。`history`、`sync`、`sync-all` 和 `refresh` 会持久化获取到的消息。其他在线命令包括 `status`、`whoami`、`chats`、`contact`、`notification`、`folder`、`archive`、`info`、全部 `group` 查询与管理命令组、`send`、`edit`、`delete` 和 `listen`。全局在线搜索和大规模归档可能触发 Telegram flood wait 或其他速率限制。
 
 本地命令只读取或修改所选账号的消息数据库，不会连接 Telegram。这类命令包括 `search`、`recent`、`stats`、`top`、`timeline`、`today`、`filter`、`export` 和 `purge`。
 
@@ -296,12 +331,20 @@ tg --help
 | `tg account current` | 查看当前账号。 |
 | `tg account switch [name]` | 交互式选择默认账号，或按名称设置账号。 |
 | `tg account remove <name> --force` | 删除账号及其本地会话和数据。 |
+| `tg account logout <name> --yes` / `tg account login <name>` | 非交互确认登出，或交互式重新认证并创建新的本地会话；本地消息会保留。 |
 | `tg whoami` | 显示当前登录账号的基本信息。 |
 | `tg config set --api-id <id> --api-hash <hash>` | 持久化保存 Telegram API 凭据。 |
 | `tg config set --proxy <url>` | 为账号登录及所有需要连接 Telegram 的命令保存可选代理。 |
-| `tg config list [--show-secrets]` | 显示生效配置值及其来源；代理 URL 始终可见。 |
+| `tg config list [--show-secrets]` | 显示生效配置值及其来源。安全的代理端点详情仍然可见，但代理用户名、密码和凭据查询参数始终会被脱敏，即使使用 `--show-secrets`；`--show-secrets` 只会显示完整的 API hash。 |
+| `tg config write-access [status\|on\|off]` | 查看或控制远端 Telegram 写操作权限。 |
 | `tg status` | 检查 Telegram 账户是否已完成身份验证。 |
 | `tg chats` | 列出可用聊天。 |
+| `tg inbox` | 在线列出未读聊天，且不把消息标记为已读。 |
+| `tg read <chat> [--since <time>] [--until <time>]` | 读取 Telegram 最近消息，不持久化到本地。 |
+| `tg search-online <query> [--chat <chat>]` | 在 Telegram 全局或单个聊天内搜索，不持久化结果。 |
+| `tg contact list` / `tg contact info <user_or_phone>` | 列出联系人，或按 ID、用户名、手机号查询联系人。 |
+| `tg notification info/mute/unmute <chat>` | 查看或修改 Telegram 通知设置。 |
+| `tg folder list/info/chat --help` | 查找文件夹，并查看或修改其中显式包含的聊天。 |
 | `tg history <chat> -n <limit>` | 获取并保存完整聊天历史（默认最多 1000 条）。 |
 | `tg sync <chat>` | 将聊天消息同步到本地存储。 |
 | `tg sync-all` | 从全部聊天同步消息，按本地已同步进度做增量更新。 |
@@ -320,24 +363,41 @@ tg --help
 | `tg purge <chat> --yes` | 移除某个聊天在本地存储的消息。 |
 | `tg info <chat>` | 查看聊天元信息。 |
 | `tg group info <chat>` | 查看普通群组或超级群组的只读详情。 |
+| `tg group list [--admin]` | 列出普通群组、超级群组和频道对话框；`--admin` 仅保留自己管理或拥有的聊天。 |
 | `tg group members <chat> [--type <type>] [--query <text>] [--limit <count>]` | 列出并筛选成员（默认 `recent`、100 条；最大 200 条）。 |
 | `tg group member <chat> <user>` | 查看单个成员的角色、权限和限制。 |
 | `tg group audit <chat> [--query <text>] [--user <user>] [--type <type>] [--limit <count>]` | 查询管理员审计日志（默认 100 条；最大 500 条）。 |
+| `tg group member/admin/chat/invite/topic/message --help` | 按类别查找群组管理操作。 |
 
 所有同步类命令都会写入本地 SQLite 数据库。`sync-all` 和 `refresh` 根据本地已保存的消息 ID 增量处理多个聊天。
 
-许多命令支持通过 `--json` 或 `--yaml` 输出结构化数据。命令失败时会返回非零退出码，脚本无需解析人类可读文本即可判断执行结果。
+有限结果命令明确支持 `--json`、`--yaml` 和 `--markdown` 输出。未明确指定格式时，输出到非 TTY 仍默认使用 YAML；交互式终端使用富文本人类可读输出。有限结果命令成功时写入 stdout。JSON/YAML 结构化失败按请求的格式写入 stdout，便于自动化程序解析稳定的错误信封。输出格式冲突同样写入 stdout，并使用稳定的 YAML 信封。人类可读和 Markdown 失败信息写入 stderr。非零退出状态仍是判断失败的依据。`listen` 是无界数据流，不适用这些有限结果的渲染和流位置规则。
 
 常用选项：
 
 | 选项 | 用途 |
 | --- | --- |
 | `--account <name>` | 临时使用已添加的账号，不改变当前账号。 |
-| `--json` / `--yaml` | 在命令支持时输出结构化数据。 |
+| `--json` / `--yaml` / `--markdown` | 为有限结果命令选择 JSON、YAML 或 Markdown 输出。 |
 | `-v`, `--verbose` | 启用调试日志。 |
 | `-V`, `--version` | 输出当前安装版本。 |
 
 使用 `tg <command> --help` 查看命令专用选项。例如，`listen` 支持自动重连和纯文本模式，`search` 支持发送者、时间、正则表达式和结果数量筛选。
+
+### 错误码
+
+结构化输出会在 `error.code` 中提供稳定的顶层命令错误码，并在可用时附带操作相关详情：
+
+- **账号：** `account_logged_out`、`account_identity_mismatch`、`interaction_required`
+- **联系人：** `contact_not_found`
+- **通知和文件夹：** `invalid_notification_duration`、`folder_not_found`、`ambiguous_folder`、`folder_operation_unsupported`
+- **群组所有权：** `password_required`、`password_invalid`
+- **归档：** `archive_account_mismatch`、`archive_failed`、`archive_partial_failure`。附件失败但归档保留部分结果时，顶层错误码为 `archive_partial_failure`，命令以非零状态退出；每条媒体警告的 `archive_media_failed` 位于 `error.details.warnings[].code`。
+- **写操作安全和速率限制：** `write_access_disabled`、`flood_wait`
+
+### 远端写操作安全
+
+运行 `tg config write-access off` 可阻止 `send`、`edit`、`delete`、通知修改、文件夹修改和群组管理等命令对 Telegram 执行变更。该开关只限制远端 Telegram 写操作；本地数据库操作、配置修改（包括重新开启写权限）和 Telegram 读取操作仍可使用。
 
 ### 同步与监听行为
 

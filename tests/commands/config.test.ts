@@ -405,7 +405,7 @@ describe('config command', () => {
     expect(writeAccess?.helpInformation()).toContain('[status|on|off]')
   })
 
-  it('lists stored values with a masked API hash and complete proxy URL', async () => {
+  it('lists stored values with masked API hash and proxy credentials', async () => {
     const dataDir = tempDir()
     const apiHash = 'stored-api-hash-secret'
     const proxy = 'socks5://proxy-user:proxy-password@127.0.0.1:1080'
@@ -424,15 +424,75 @@ describe('config command', () => {
         api_id: 12345,
         api_hash: `${'*'.repeat(apiHash.length - 4)}${apiHash.slice(-4)}`,
         credentials_source: 'stored',
-        proxy,
+        proxy: 'socks5://***:***@127.0.0.1:1080',
         proxy_source: 'stored',
         write_access: true,
       },
     })
     expect(result).toMatchObject({ stderr: '', code: 0 })
     expect(`${result.stdout}${result.stderr}`).not.toContain(apiHash)
-    expect(result.stdout).toContain(proxy)
-    expect(result.stdout).toContain('proxy-password')
+    expect(result.stdout).not.toContain('proxy-user')
+    expect(result.stdout).not.toContain('proxy-password')
+  })
+
+  it.each([
+    {
+      label: 'SOCKS userinfo',
+      proxy: 'socks5://proxy-user-a:proxy-password-a@127.0.0.1:1080',
+      expected: 'socks5://***:***@127.0.0.1:1080',
+      sentinels: ['proxy-user-a', 'proxy-password-a'],
+    },
+    {
+      label: 'MTProxy secret',
+      proxy: 'mtproxy://127.0.0.1:443?secret=mtproxy-secret-b&mode=compact',
+      expected: 'mtproxy://127.0.0.1:443?secret=***&mode=compact',
+      sentinels: ['mtproxy-secret-b'],
+    },
+    {
+      label: 'Telegram proxy secret',
+      proxy: 'tg://proxy?server=127.0.0.1&port=443&secret=tg-secret-c',
+      expected: 'tg://proxy?server=127.0.0.1&port=443&secret=***',
+      sentinels: ['tg-secret-c'],
+    },
+    {
+      label: 'encoded userinfo',
+      proxy: 'socks5://encoded%20user:encoded%2Fpassword@127.0.0.1:1080',
+      expected: 'socks5://***:***@127.0.0.1:1080',
+      sentinels: ['encoded%20user', 'encoded%2Fpassword'],
+    },
+    {
+      label: 'encoded query credentials',
+      proxy: 'tg://socks?server=127.0.0.1&port=1080&user=query%20user&pass=query%2Fpassword',
+      expected: 'tg://socks?server=127.0.0.1&port=1080&user=***&pass=***',
+      sentinels: ['query%20user', 'query%2Fpassword'],
+    },
+    {
+      label: 'credential-free endpoint',
+      proxy: 'socks5://127.0.0.1:1080?timeout=30',
+      expected: 'socks5://127.0.0.1:1080?timeout=30',
+      sentinels: [],
+    },
+    {
+      label: 'malformed credential-bearing input',
+      proxy: 'not a proxy?secret=malformed-secret-d&server=127.0.0.1',
+      expected: '[invalid proxy URL]',
+      sentinels: ['malformed-secret-d'],
+    },
+  ])('redacts $label without changing safe endpoint details', async ({ proxy, expected, sentinels }) => {
+    const dataDir = tempDir()
+    writeFileSync(join(dataDir, 'config.json'), JSON.stringify({
+      api_id: 12345,
+      api_hash: 'safe-test-api-hash',
+      proxy,
+    }))
+
+    const result = await run(['config', 'list', '--json'], dataDir)
+    const actual = JSON.parse(result.stdout).data.proxy
+
+    if (actual !== expected) throw new Error('Proxy redaction output did not match the expected safe shape.')
+    if (sentinels.some(sentinel => `${result.stdout}${result.stderr}`.includes(sentinel))) {
+      throw new Error('Proxy redaction output contained a credential sentinel.')
+    }
   })
 
   it('uses environment credentials and proxy instead of stored values', async () => {
@@ -455,13 +515,13 @@ describe('config command', () => {
         api_id: 22222,
         api_hash: `${'*'.repeat('environment-secret'.length - 4)}cret`,
         credentials_source: 'environment',
-        proxy: 'socks5://environment-secret@127.0.0.1:1081',
+        proxy: 'socks5://***@127.0.0.1:1081',
         proxy_source: 'environment',
         write_access: true,
       },
     })
     expect(`${result.stdout}${result.stderr}`).not.toContain('stored-secret')
-    expect(result.stdout).toContain('socks5://environment-secret@127.0.0.1:1081')
+    expect(result.stdout).not.toContain('environment-secret@')
   })
 
   it('lists default credentials and no proxy when neither is configured', async () => {
@@ -560,7 +620,7 @@ describe('config command', () => {
     { flags: ['--json'], format: 'json' },
     { flags: ['--yaml'], format: 'yaml' },
     { flags: [], format: 'human' },
-  ])('shows the complete API hash with --show-secrets in $format output', async ({ flags, format }) => {
+  ])('shows the complete API hash but keeps proxy credentials masked in $format output', async ({ flags, format }) => {
     const dataDir = tempDir()
     const apiHash = 'complete-api-hash-secret'
     const proxy = 'socks5://proxy-user:proxy-secret@127.0.0.1:1080'
@@ -574,7 +634,9 @@ describe('config command', () => {
 
     expect(result).toMatchObject({ stderr: '', code: 0 })
     expect(result.stdout).toContain(apiHash)
-    expect(result.stdout).toContain(proxy)
+    expect(result.stdout).toContain('socks5://***:***@127.0.0.1:1080')
+    expect(result.stdout).not.toContain('proxy-user')
+    expect(result.stdout).not.toContain('proxy-secret')
   })
 
   it('fully masks API hashes with four or fewer characters', async () => {

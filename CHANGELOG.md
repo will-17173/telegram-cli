@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-13
+
+### Added
+
+- Add online reading workflows with `tg inbox`, `tg read`, and `tg search-online`, including reliable attachment downloads.
+- Add `tg contact list` and `tg contact info` for contact discovery and inspection.
+- Add `tg notification info`, `tg notification mute`, and `tg notification unmute` for per-chat notification settings.
+- Add `tg folder list`, `tg folder info`, `tg folder chat add`, and `tg folder chat remove` for inspecting and changing Telegram chat folders.
+- Add `tg group list` and group administrator discovery to the read-only group workflows.
+- Add account logout and login flows that retain local data, preserve recoverable sessions, and support secure TTY reauthentication.
+- Add Markdown chat archives with explicit chat scope; default and bounded time ranges; incremental and rebuild modes; resumable media downloads; and non-zero exit status when an archive completes with partial failures.
+- Add the `tg group admin transfer-owner` flow with secure Telegram 2FA password entry.
+- Add Markdown output for finite commands alongside the existing human-readable, JSON, and YAML formats.
+
+### Changed
+
+- Migrate the account registry and authentication state to distinguish authorized, logged-out, and recoverable accounts while keeping existing local account data usable.
+- Make incremental archives append newly available messages and recover pending media; they do not reconcile edits or deletions, so use rebuild mode when a fresh archive is required.
+
+### Fixed
+
+- Allow logged-out account-management and authentication commands to reach their intended handlers while preserving normal preflight checks for Telegram-dependent commands.
+- Preserve actionable Telegram errors through online reads, account sessions, archives, and ownership transfer instead of replacing them with generic failures.
+- Improve folder membership transforms for overlapping rules, chat-list mutations, and validated peer identities.
+- Complete terminal cleanup and interruption handling for account authentication, archive operations, and ownership-transfer prompts.
+
+### Security
+
+- Add a global write-access setting that blocks remote Telegram mutations while continuing to permit read-only commands and local-only writes.
+- Redact proxy credentials and other secrets from configuration, preflight, archive, session, and ownership-transfer errors and audit-visible output.
+- Keep ownership-transfer 2FA input off normal output, limit secret lifetime, and coordinate cancellation and shutdown without replaying stale credentials.
+- Contain archive paths and staging files, reject unsafe account and media paths, and protect archive integrity during recovery and failure handling.
+
 ## [0.3.0] - 2026-07-13
 
 ### Added
