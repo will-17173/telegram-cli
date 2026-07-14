@@ -31,6 +31,7 @@ import {
   ListenImagePreview,
   LISTEN_HISTORY_LIMIT,
   type ListenMessage,
+  ListenMessageHeader,
   ListenMessageViewCache,
   ListenMessageBody,
   ListenStatus,
@@ -1551,6 +1552,23 @@ describe('calculateListenMessagePaneHeight', () => {
 })
 
 describe('interactive album messages', () => {
+  it('uses distinct colors for listen message hierarchy', () => {
+    const row = toListenMessage([storedText(11, 'current')], {
+      showMedia: true,
+      previewWidth: 24,
+      colorDepth: 1,
+      replyContext: { messageId: 7, resolved: true, timestamp: '2026-07-10T07:20:00.000Z', senderId: 2, senderName: 'Bob', content: 'earlier' },
+    })
+    const message = { ...row, key: '100:11', chatId: 100, msgId: 11 }
+    const header = ListenMessageHeader({ message })
+    const body = ListenMessageBody({ message })
+    const bodyRows = React.Children.toArray(body.props.children) as React.ReactElement<Record<string, unknown>>[]
+
+    expect(header.props).toMatchObject({ color: '#8ecbff', dimColor: false })
+    expect(bodyRows[0]!.props).toMatchObject({ color: '#f0d38a' })
+    expect(bodyRows[1]!.props).toMatchObject({ color: '#f2f4f8' })
+  })
+
   it('preserves line breaks in text message content', () => {
     const row = toListenMessage([storedText(11, 'first line\nsecond line')], false)
 

@@ -78,6 +78,13 @@ export type ListenRuntimeOptions = {
 }
 
 const MESSAGE_SEPARATOR = '────────────────────────────────────────────'
+const LISTEN_MESSAGE_COLORS = {
+  metadata: '#8ecbff',
+  reply: '#f0d38a',
+  content: '#f2f4f8',
+  media: '#9bdca8',
+  separator: '#56606b',
+} as const
 const OWNERSHIP_SHUTDOWN_GRACE_MS = 250
 /** Maximum number of grouped messages retained by a long-running interactive listener. */
 export const LISTEN_HISTORY_LIMIT = 500
@@ -466,23 +473,46 @@ export function ListenAttachmentWithPreview({
   )
 }
 
-export function ListenMessageBody({ message }: { message: ListenMessage }): React.JSX.Element {
+export function ListenMessageHeader({ message }: { message: ListenMessage }): React.JSX.Element {
   return (
-    <Box flexDirection="column">
-      {message.replyContext == null ? null : <Text wrap="truncate-end">{formatReplyContext(message.replyContext)}</Text>}
-      {message.content == null ? null : <Text wrap="truncate-end">{message.content}</Text>}
-      {message.mediaSummary == null ? null : <Text wrap="truncate-end">{message.mediaSummary}</Text>}
-      {message.media.map((item, mediaIndex) => (
-        <ListenAttachmentWithPreview
-          key={attachmentDownloadKeyAt(message.media, mediaIndex)}
-          label={item.label}
-          downloadable={item.downloadable}
-          selected={false}
-          state={{ status: 'idle' }}
-          previewCells={item.previewCells}
-        />
-      ))}
-    </Box>
+    <Text color={LISTEN_MESSAGE_COLORS.metadata} dimColor={false} wrap="truncate-end">
+      {formatInteractiveListenHeader(message)}
+    </Text>
+  )
+}
+
+export function ListenMessageSeparator(): React.JSX.Element {
+  return <Text color={LISTEN_MESSAGE_COLORS.separator}>{MESSAGE_SEPARATOR}</Text>
+}
+
+export function ListenMessageBody({
+  message,
+  selectedAttachmentKey = null,
+  attachmentStates = {},
+}: {
+  message: ListenMessage
+  selectedAttachmentKey?: string | null
+  attachmentStates?: Record<string, AttachmentDownloadState>
+}): React.JSX.Element {
+  return (
+    <>
+      {message.replyContext == null ? null : <Text color={LISTEN_MESSAGE_COLORS.reply} wrap="truncate-end">{formatReplyContext(message.replyContext)}</Text>}
+      {message.content == null ? null : <Text color={LISTEN_MESSAGE_COLORS.content} wrap="truncate-end">{message.content}</Text>}
+      {message.mediaSummary == null ? null : <Text color={LISTEN_MESSAGE_COLORS.media} wrap="truncate-end">{message.mediaSummary}</Text>}
+      {message.media.map((item, mediaIndex) => {
+        const attachmentKey = attachmentDownloadKeyAt(message.media, mediaIndex)
+        return (
+          <ListenAttachmentWithPreview
+            key={attachmentKey}
+            label={item.label}
+            downloadable={item.downloadable}
+            selected={selectedAttachmentKey === attachmentKey}
+            state={attachmentStates[attachmentKey] ?? { status: 'idle' }}
+            previewCells={item.previewCells}
+          />
+        )
+      })}
+    </>
   )
 }
 
@@ -1398,24 +1428,13 @@ export function InteractiveListen({
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}
           {visibleMessages.map((message) => (
             <Box key={message.key} flexDirection="column">
-              <Text dimColor wrap="truncate-end">{formatInteractiveListenHeader(message)}</Text>
-              {message.replyContext == null ? null : <Text wrap="truncate-end">{formatReplyContext(message.replyContext)}</Text>}
-              {message.content == null ? null : <Text wrap="truncate-end">{message.content}</Text>}
-              {message.mediaSummary == null ? null : <Text wrap="truncate-end">{message.mediaSummary}</Text>}
-              {message.media.map((item, mediaIndex) => {
-                const attachmentKey = attachmentDownloadKeyAt(message.media, mediaIndex)
-                return (
-                  <ListenAttachmentWithPreview
-                    key={attachmentKey}
-                    label={item.label}
-                    downloadable={item.downloadable}
-                    selected={focus === 'attachments' && selectedAttachment?.key === attachmentKey}
-                    state={downloadStates[attachmentKey] ?? { status: 'idle' }}
-                    previewCells={item.previewCells}
-                  />
-                )
-              })}
-              <Text dimColor>{MESSAGE_SEPARATOR}</Text>
+              <ListenMessageHeader message={message} />
+              <ListenMessageBody
+                message={message}
+                selectedAttachmentKey={focus === 'attachments' ? selectedAttachment?.key ?? null : null}
+                attachmentStates={downloadStates}
+              />
+              <ListenMessageSeparator />
             </Box>
           ))}
         </Box>
