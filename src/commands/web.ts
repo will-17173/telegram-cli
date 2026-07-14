@@ -21,7 +21,8 @@ export function registerWebCommand(app: Command): void {
         return `${baseFormatHelp.call(helper, command, helper)}\n${localWebHelp}`
       },
     })
-    .action(async (_options: WebCommandOptions) => {
-      throw new Error('tg web server is not implemented yet')
+    .action(async (_options: WebCommandOptions, command: Command) => {
+      const errorCommand = command.parent ?? command
+      errorCommand.error('tg web server is not implemented yet')
     })
 }
