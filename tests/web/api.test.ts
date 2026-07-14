@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MessageDB } from '../../src/storage/message-db.js'
 import { handleApiRequest } from '../../src/web/api.js'
 import { SyncTaskRunner } from '../../src/web/sync-task.js'
@@ -48,7 +48,12 @@ function seedMessage(root: string): void {
   db.close()
 }
 
-async function api(root: string, path: string, init: RequestInit & { host?: string } = {}): Promise<Response> {
+async function api(
+  root: string,
+  path: string,
+  init: RequestInit & { host?: string } = {},
+  syncTask: SyncTaskRunner = new SyncTaskRunner({ dataDir: root }),
+): Promise<Response> {
   const headers = new Headers(init.headers)
   headers.set('host', init.host ?? `127.0.0.1:${port}`)
   const request = new Request(`http://127.0.0.1:${port}${path}`, {
@@ -58,7 +63,7 @@ async function api(root: string, path: string, init: RequestInit & { host?: stri
   return handleApiRequest(request, {
     dataDir: root,
     port,
-    syncTask: new SyncTaskRunner({ dataDir: root }),
+    syncTask,
   })
 }
 
@@ -117,6 +122,77 @@ describe('handleApiRequest', () => {
         total: 1,
       },
     })
+  })
+
+  it('returns the sync task state', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/sync-task')
+
+    expect(response.status).toBe(200)
+    expect(await json(response)).toEqual({ ok: true, data: { status: 'idle' } })
+  })
+
+  it('rejects sync task POST requests without JSON content type', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/sync-task', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: 'not json',
+    })
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
+  it('rejects malformed sync task POST JSON', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/sync-task', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{',
+    })
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
+  it('starts a sync task from a valid POST request', async () => {
+    const root = makeRoot()
+    const result = {
+      ok: true as const,
+      data: {
+        status: 'done' as const,
+        account: 'work',
+        chat_id: 10,
+        limit: 500,
+        started_at: '2026-07-14T08:00:00.000Z',
+        finished_at: '2026-07-14T08:00:01.000Z',
+        synced: 2,
+      },
+    }
+    const syncTask = {
+      getState: vi.fn(() => ({ status: 'idle' })),
+      start: vi.fn(async () => result),
+    } as unknown as SyncTaskRunner
+
+    const response = await api(root, '/api/sync-task', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'work', chatId: 10 }),
+    }, syncTask)
+
+    expect(response.status).toBe(200)
+    expect(syncTask.start).toHaveBeenCalledWith({ account: 'work', chatId: 10, limit: 500 })
+    expect(await json(response)).toEqual(result)
   })
 
   it('rejects non-local Host headers', async () => {

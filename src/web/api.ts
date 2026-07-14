@@ -53,6 +53,7 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
           cursor: stringParam(url, 'cursor'),
         }))
       case '/api/sync-task':
+        if (request.method === 'POST') return syncTaskPost(request, context)
         if (request.method !== 'GET') return notFound()
         return success(context.syncTask.getState())
       default:
@@ -80,6 +81,61 @@ function jsonResponse<T>(status: number, body: ApiSuccess<T> | ApiFailure): Resp
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   })
+}
+
+async function syncTaskPost(request: Request, context: ApiContext): Promise<Response> {
+  if (!isJsonRequest(request)) {
+    return failure(400, 'invalid_request', 'Content-Type must include application/json.')
+  }
+
+  const body = await parseJsonBody(request)
+  if (!isRecord(body)) {
+    return failure(400, 'invalid_request', 'Request body must be a JSON object.')
+  }
+
+  const account = typeof body.account === 'string' ? body.account.trim() : ''
+  if (account === '') {
+    return failure(400, 'invalid_request', 'account must be a non-empty string.')
+  }
+
+  if (!isSafePositiveInteger(body.chatId)) {
+    return failure(400, 'invalid_request', 'chatId must be a positive integer.')
+  }
+
+  let limit = 500
+  if (body.limit != null) {
+    if (!isSafePositiveInteger(body.limit)) {
+      return failure(400, 'invalid_request', 'limit must be a positive integer.')
+    }
+    limit = body.limit
+  }
+
+  const result = await context.syncTask.start({ account, chatId: body.chatId, limit })
+  if (result.ok) return jsonResponse(200, result)
+
+  if (result.error.code === 'sync_task_running') return jsonResponse(409, result)
+  if (result.error.code === 'invalid_request') return jsonResponse(400, result)
+  return jsonResponse(500, result)
+}
+
+function isJsonRequest(request: Request): boolean {
+  return request.headers.get('content-type')?.toLowerCase().includes('application/json') ?? false
+}
+
+async function parseJsonBody(request: Request): Promise<unknown> {
+  try {
+    return await request.json()
+  } catch {
+    return undefined
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isSafePositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
 function stringParam(url: URL, name: string): string | undefined {
