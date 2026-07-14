@@ -49,7 +49,19 @@ describe('LISTEN_COMMANDS', () => {
     })
   })
 
-  it('follows reply with every group command in stable catalog order', () => {
+  it('includes sync as a general command before group commands', () => {
+    expect(LISTEN_COMMANDS[1]).toEqual({
+      id: 'sync',
+      kind: 'sync',
+      category: 'general',
+      path: ['sync'],
+      summary: 'Sync this chat',
+      usage: 'sync',
+      keywords: ['sync', 'history', 'messages', 'chat'],
+    })
+  })
+
+  it('follows general commands with every group command in stable catalog order', () => {
     const groupCommands = LISTEN_COMMANDS.filter(command => command.kind === 'group')
 
     expect(groupCommands).toHaveLength(GROUP_COMMANDS.length)

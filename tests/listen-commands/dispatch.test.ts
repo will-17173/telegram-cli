@@ -12,11 +12,15 @@ import type { StoredMessageInput } from '../../src/storage/message-db.js'
 const selected = (input: string, index = 0) => matchListenCommands(input)[index]!
 
 const executable = (result: ListenCommandParseResult) => {
-  if (result.kind !== 'reply' && result.kind !== 'group') throw new Error(`Expected executable result, received ${result.kind}`)
+  if (result.kind !== 'reply' && result.kind !== 'group' && result.kind !== 'sync') throw new Error(`Expected executable result, received ${result.kind}`)
   return result
 }
 
 describe('parseSelectedListenCommand', () => {
+  it('parses sync as a standalone listen command', () => {
+    expect(parseSelectedListenCommand('/sync', selected('/sync'))).toEqual({ kind: 'sync' })
+  })
+
   it('parses text and file replies', () => {
     expect(parseSelectedListenCommand('/reply 42 hello', selected('/reply 42 hello'))).toEqual({
       kind: 'reply',
@@ -94,7 +98,7 @@ describe('executeSelectedListenCommand', () => {
     }))
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/reply 42 hi', selected('/reply 42 hi'))),
-      { executeReply, executeGroup },
+      { executeReply, executeSync: vi.fn(), executeGroup },
     )).resolves.toEqual({ kind: 'reply', result: outcome })
     expect(executeReply).toHaveBeenCalledOnce()
     expect(executeGroup).not.toHaveBeenCalled()
@@ -106,10 +110,25 @@ describe('executeSelectedListenCommand', () => {
     const executeGroup = vi.fn(async () => groupOutcome)
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/invite list', selected('/invite list'))),
-      { executeReply, executeGroup },
+      { executeReply, executeSync: vi.fn(), executeGroup },
     )).resolves.toEqual({ kind: 'group', result: groupOutcome })
     expect(executeGroup).toHaveBeenCalledOnce()
     expect(executeReply).not.toHaveBeenCalled()
+  })
+
+  it('calls only the sync executor for sync commands', async () => {
+    const executeReply = vi.fn(async (): Promise<StoredMessageInput[]> => [])
+    const executeGroup = vi.fn(async (): Promise<GroupCommandExecutionResult> => ({
+      ok: true, data: { chat_id: -1001, invites: [], total: 0 },
+    }))
+    const executeSync = vi.fn(async () => ({ synced: 2 }))
+    await expect(executeSelectedListenCommand(
+      executable(parseSelectedListenCommand('/sync', selected('/sync'))),
+      { executeReply, executeGroup, executeSync },
+    )).resolves.toEqual({ kind: 'sync', result: { synced: 2 } })
+    expect(executeSync).toHaveBeenCalledOnce()
+    expect(executeReply).not.toHaveBeenCalled()
+    expect(executeGroup).not.toHaveBeenCalled()
   })
 
   it('propagates executor exceptions for the Ink boundary to catch', async () => {
@@ -118,6 +137,7 @@ describe('executeSelectedListenCommand', () => {
       executable(parseSelectedListenCommand('/reply 42 hi', selected('/reply 42 hi'))),
       {
         executeReply: async () => { throw failure },
+        executeSync: async () => undefined,
         executeGroup: async (): Promise<GroupCommandExecutionResult> => ({
           ok: true, data: { chat_id: -1001, invites: [], total: 0 },
         }),

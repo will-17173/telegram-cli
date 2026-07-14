@@ -48,6 +48,7 @@ import {
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
 import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
+import { MessageDB } from '../../src/storage/message-db.js'
 import type { ListenMessageRow } from '../../src/presenters/listen-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
 
@@ -440,7 +441,7 @@ describe('InteractiveListen slash commands', () => {
     const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
     await vi.waitFor(() => expect(stdout.output).toContain('connected'))
     stdin.write('/'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› reply'))
-    stdin.write('\u001b[B'); stdin.write('\t')
+    stdin.write('\u001b[B'); stdin.write('\u001b[B'); stdin.write('\t')
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /member add'))
     stdin.write('\r'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Missing argument: users'))
     expect(lastTerminalFrame(stdout.output)).not.toContain('No matching command')
@@ -454,7 +455,7 @@ describe('InteractiveListen slash commands', () => {
     const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
     await vi.waitFor(() => expect(stdout.output).toContain('connected'))
     stdin.write('/'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› reply'))
-    stdin.write('\u001b[B'); stdin.write('\r')
+    stdin.write('\u001b[B'); stdin.write('\u001b[B'); stdin.write('\r')
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /member add'))
     stdin.write('\r'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Missing argument: users'))
     expect(lastTerminalFrame(stdout.output)).not.toContain('No matching command')
@@ -556,6 +557,32 @@ describe('InteractiveListen slash commands', () => {
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('set --send-to before replying'))
     expect(client.sendMessage).not.toHaveBeenCalled()
     controller.abort(); app.unmount()
+  })
+
+  it('syncs the current single-chat target from /sync without sending a message', async () => {
+    let resolveFetch!: (messages: StoredMessageInput[]) => void
+    const pendingFetch = new Promise<StoredMessageInput[]>((resolve) => { resolveFetch = resolve })
+    const dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-listen-sync-'))
+    const dbPath = join(dataDir, 'messages.db')
+    const db = new MessageDB(dbPath)
+    db.insertBatch([storedText(88, 'already stored')])
+    db.close()
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    client.fetchHistory.mockReturnValue(pendingFetch)
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath={dbPath} chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+    stdin.write('/sync'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/sync')); stdin.write('\r')
+    await vi.waitFor(() => expect(client.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({ chat: 100, limit: 5000, minId: 88, pageDelay: 1 })))
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/sync (syncing...)'))
+    expect(lastTerminalFrame(stdout.output)).not.toContain('/sync (sending...)')
+    resolveFetch([storedText(89, 'synced message')])
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('synced 1'))
+    expect(lastTerminalFrame(stdout.output)).not.toContain('› /sync')
+    expect(client.sendMessage).not.toHaveBeenCalled()
+    controller.abort(); app.unmount()
+    rmSync(dataDir, { recursive: true, force: true })
   })
 
   it('reports an ambiguous multi-chat target without writing', async () => {
@@ -2053,8 +2080,9 @@ function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
     }),
     close: vi.fn(async () => undefined),
     getChatInfo: vi.fn(async () => null),
+    fetchHistory: vi.fn(async () => []),
     sendMessage: vi.fn(),
-  } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter & { groups: { getGroup: ReturnType<typeof vi.fn>; listTopics: ReturnType<typeof vi.fn>; banMember: ReturnType<typeof vi.fn>; deleteGroup: ReturnType<typeof vi.fn>; promoteAdmin: ReturnType<typeof vi.fn>; setTitle: ReturnType<typeof vi.fn>; transferOwnership: ReturnType<typeof vi.fn> }; sendMessage: ReturnType<typeof vi.fn> }
+  } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter & { groups: { getGroup: ReturnType<typeof vi.fn>; listTopics: ReturnType<typeof vi.fn>; banMember: ReturnType<typeof vi.fn>; deleteGroup: ReturnType<typeof vi.fn>; promoteAdmin: ReturnType<typeof vi.fn>; setTitle: ReturnType<typeof vi.fn>; transferOwnership: ReturnType<typeof vi.fn> }; fetchHistory: ReturnType<typeof vi.fn>; sendMessage: ReturnType<typeof vi.fn> }
 }
 
 function lastTerminalFrame(output: string): string {

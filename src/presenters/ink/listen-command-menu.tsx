@@ -7,7 +7,7 @@ import type { TelegramGroupDetails } from '../../telegram/group-types.js'
 import { truncateCell } from './display-width.js'
 
 export function listenCommandMenuAvailability(input: string, knownGroup?: TelegramGroupDetails) {
-  return visibleListenCommandMatches(input).map(match => match.definition.kind === 'reply'
+  return visibleListenCommandMatches(input).map(match => match.definition.kind !== 'group'
     ? undefined
     : evaluateGroupCommandAvailability(match.definition.groupDefinition, knownGroup))
 }

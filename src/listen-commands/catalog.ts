@@ -17,6 +17,16 @@ export interface ReplyListenCommandDefinition {
   readonly keywords: readonly ['reply', 'respond', 'message', 'file']
 }
 
+export interface SyncListenCommandDefinition {
+  readonly id: 'sync'
+  readonly kind: 'sync'
+  readonly category: 'general'
+  readonly path: readonly ['sync']
+  readonly summary: 'Sync this chat'
+  readonly usage: 'sync'
+  readonly keywords: readonly ['sync', 'history', 'messages', 'chat']
+}
+
 type GroupListenCommandDefinitionByKey = {
   [K in GroupCommandKey]: {
     readonly id: `group:${K}`
@@ -41,6 +51,7 @@ export type GroupListenCommandDefinition =
 
 export type ListenCommandDefinition =
   | ReplyListenCommandDefinition
+  | SyncListenCommandDefinition
   | GroupListenCommandDefinition
 
 const replyCommand = freezeDefinition({
@@ -51,6 +62,16 @@ const replyCommand = freezeDefinition({
   summary: 'Reply to a message',
   usage: REPLY_COMMAND_USAGE,
   keywords: ['reply', 'respond', 'message', 'file'],
+} as const)
+
+const syncCommand = freezeDefinition({
+  id: 'sync',
+  kind: 'sync',
+  category: 'general',
+  path: ['sync'],
+  summary: 'Sync this chat',
+  usage: 'sync',
+  keywords: ['sync', 'history', 'messages', 'chat'],
 } as const)
 
 const groupCommands: readonly GroupListenCommandDefinition[] =
@@ -87,6 +108,7 @@ function isGroupCommandKey(value: string): value is GroupCommandKey {
 
 const listenCommands: readonly ListenCommandDefinition[] = [
   replyCommand,
+  syncCommand,
   ...groupCommands,
 ]
 

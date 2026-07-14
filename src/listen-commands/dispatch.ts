@@ -16,10 +16,11 @@ type ReplyCommand = Extract<ListenComposerCommand, { kind: 'reply' }>
 export type ListenCommandParseResult =
   | { readonly kind: 'complete'; readonly input: string }
   | { readonly kind: 'reply'; readonly command: ReplyCommand }
+  | { readonly kind: 'sync' }
   | { readonly kind: 'group'; readonly request: ParsedGroupCommandRequest }
   | { readonly kind: 'error'; readonly message: string; readonly usage?: string }
 
-export type ExecutableListenCommand = Extract<ListenCommandParseResult, { kind: 'reply' | 'group' }>
+export type ExecutableListenCommand = Extract<ListenCommandParseResult, { kind: 'reply' | 'sync' | 'group' }>
 
 export function parseSelectedListenCommand(
   input: string,
@@ -49,6 +50,8 @@ export function parseSelectedListenCommand(
     return { kind: 'reply', command: parsed }
   }
 
+  if (selected.definition.kind === 'sync') return { kind: 'sync' }
+
   const parsed = parseGroupCommand(input)
   if (!parsed.ok) {
     return {
@@ -63,15 +66,19 @@ export function parseSelectedListenCommand(
   return { kind: 'group', request: parsed.request }
 }
 
-export async function executeSelectedListenCommand<RReply, RGroup>(
+export async function executeSelectedListenCommand<RReply, RSync, RGroup>(
   selected: ExecutableListenCommand,
   executors: {
     readonly executeReply: (command: ReplyCommand) => Promise<RReply>
+    readonly executeSync: () => Promise<RSync>
     readonly executeGroup: (request: ParsedGroupCommandRequest) => Promise<RGroup>
   },
-): Promise<{ readonly kind: 'reply'; readonly result: RReply } | { readonly kind: 'group'; readonly result: RGroup }> {
+): Promise<{ readonly kind: 'reply'; readonly result: RReply } | { readonly kind: 'sync'; readonly result: RSync } | { readonly kind: 'group'; readonly result: RGroup }> {
   if (selected.kind === 'reply') {
     return { kind: 'reply', result: await executors.executeReply(selected.command) }
+  }
+  if (selected.kind === 'sync') {
+    return { kind: 'sync', result: await executors.executeSync() }
   }
   return { kind: 'group', result: await executors.executeGroup(selected.request) }
 }

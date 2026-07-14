@@ -46,11 +46,11 @@ describe('ListenCommandMenu', () => {
     expect(renderToString(<ListenCommandMenu input="/ban" selectedIndex={0} width={64} />)).toContain('member ban')
   })
 
-  it('keeps reply enabled without evaluating group availability', () => {
+  it('keeps general commands enabled without evaluating group availability', () => {
     const evaluate = vi.spyOn(groupExecutor, 'evaluateGroupCommandAvailability')
-    const matches = visibleListenCommandMatches('/rep')
-    const availability = listenCommandMenuAvailability('/rep', undefined)
-    expect(availability[matches.findIndex(match => match.definition.kind === 'reply')]).toBeUndefined()
+    const matches = visibleListenCommandMatches('/sync')
+    const availability = listenCommandMenuAvailability('/sync', undefined)
+    expect(availability[matches.findIndex(match => match.definition.kind === 'sync')]).toBeUndefined()
     expect(evaluate).toHaveBeenCalledTimes(matches.filter(match => match.definition.kind === 'group').length)
     evaluate.mockRestore()
   })

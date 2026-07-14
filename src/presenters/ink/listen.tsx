@@ -41,6 +41,9 @@ import { WriteAccessPolicy } from '../../services/write-access-policy.js'
 import { GroupCommandConfirm } from './group-command-confirm.js'
 import { truncateCell } from './display-width.js'
 import { SecureInput } from './secure-input.js'
+import { SyncService } from '../../services/sync-service.js'
+import { MessageDB } from '../../storage/message-db.js'
+import type { HandlerResult } from '../../commands/types.js'
 
 export type ListenMessage = ListenMessageRow & {
   key: string
@@ -141,6 +144,7 @@ type ListenComposerProps = {
   sendTargetLabel: string
   terminalWidth: number
   sending?: boolean
+  activity?: 'sending' | 'syncing'
   hint?: string
   cursorVisible?: boolean
 }
@@ -154,10 +158,12 @@ export function ListenComposer({
   sendTargetLabel,
   terminalWidth,
   sending = false,
+  activity,
   hint = 'Enter to send · Ctrl+C to exit',
   cursorVisible = true,
 }: ListenComposerProps): React.JSX.Element {
-  const inputText = `› ${input}${sending ? ' (sending...)' : ''}`
+  const activeLabel = activity ?? (sending ? 'sending' : undefined)
+  const inputText = `› ${input}${activeLabel == null ? '' : ` (${activeLabel}...)`}`
   const blankRow = ' '.repeat(Math.max(0, terminalWidth))
   const inputRowFill = ' '.repeat(Math.max(0, terminalWidth - stringWidth(inputText) - 1))
 
@@ -684,6 +690,7 @@ export function InteractiveListen({
   const [input, setInput] = useState('')
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
+  const [composerActivity, setComposerActivity] = useState<'sending' | 'syncing' | undefined>(undefined)
   const [focus, setFocus] = useState<'input' | 'attachments'>('input')
   const [selectedAttachmentKey, setSelectedAttachmentKey] = useState<string | null>(null)
   const [downloadStates, setDownloadStates] = useState<Record<string, AttachmentDownloadState>>({})
@@ -1129,6 +1136,32 @@ export function InteractiveListen({
           })
           return
         }
+        if (parsed.kind === 'sync') {
+          if (sendTo == null) { setNote('set --send-to before syncing'); return }
+          const client = clientRef.current
+          if (client == null) { setNote('connection is not ready'); return }
+          const ownedGeneration = inputGenerationRef.current
+          setSending(true)
+          setComposerActivity('syncing')
+          setNote('syncing...')
+          void syncListenChat(client, dbPath, sendTo).then((result) => {
+            if (ownedGeneration !== inputGenerationRef.current) return
+            if (!result.ok) {
+              setNote(`sync failed: ${result.error.message}`)
+              return
+            }
+            setInput('')
+            setNote(`synced ${result.data.synced}`)
+          }).catch((error) => {
+            if (ownedGeneration === inputGenerationRef.current) setNote(`sync failed: ${messageFromError(error)}`)
+          }).finally(() => {
+            if (ownedGeneration === inputGenerationRef.current) {
+              setSending(false)
+              setComposerActivity(undefined)
+            }
+          })
+          return
+        }
         void groupCommand.submitParsed(parsed.request, input, selected).then((outcome) => {
           if (!outcome.applied) return
           if (outcome.kind === 'result' && outcome.result.ok) setInput('')
@@ -1448,6 +1481,7 @@ export function InteractiveListen({
               sendTargetLabel={sendTo == null ? '(not selected)' : sendTargetLabel}
               terminalWidth={contentWidth}
               sending={sending}
+              activity={composerActivity}
               cursorVisible={focus === 'input'}
               hint={focus === 'attachments' ? 'Wheel · ↑/↓ select · Enter download · Tab input' : 'Wheel/↑/↓/PgUp/PgDn scroll · Drag select · Ctrl+C exit'}
             />
@@ -1564,6 +1598,20 @@ export function toListenMessage(
     msgId: message.msg_id,
     ...formatted,
     media,
+  }
+}
+
+async function syncListenChat(
+  client: TelegramClientAdapter,
+  dbPath: string,
+  chat: string | number,
+): Promise<HandlerResult<{ synced: number; chat: string }>> {
+  const service = new SyncService(client, new MessageDB(dbPath))
+  try {
+    const result = await service.sync({ chat: String(chat), limit: 5000, pageDelay: 1 })
+    return result as HandlerResult<{ synced: number; chat: string }>
+  } finally {
+    service.close()
   }
 }
 
