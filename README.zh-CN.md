@@ -88,7 +88,7 @@ tg search-online release --chat @team --json
 
 时间边界支持以 `s`、`m`、`h`、`d` 或 `w` 结尾的相对时长（如 `7d`），也支持包含时区的 ISO 时间戳（如 `2026-07-13T00:00:00Z` 或 `2026-07-13T08:00:00+08:00`）。相对值表示命令启动前的对应时长；`--since` 必须早于 `--until`。
 
-联系人、通知设置、文件夹和管理中的群组也可以通过在线命令操作：
+联系人、通知设置、文件夹，以及普通群组、超级群组或频道对话框也可以通过在线命令操作：
 
 ```sh
 tg contact info +8613800000000
@@ -217,7 +217,7 @@ tg account switch <name>
 tg account remove <name> --force
 ```
 
-如需结束远端会话但保留已添加账号、账号设置和本地消息，可显式登出。再次登录会为同一个已添加账号恢复身份验证和 Telegram 会话：
+如需结束远端会话但保留已添加账号、账号设置和本地消息，可显式登出；`--yes` 可在非交互环境中确认登出。登录已登出的账号是需要 TTY 的交互式重新认证流程，会创建或替换其本地 Telegram 会话；脚本和非交互智能体会收到稳定错误码 `interaction_required`。
 
 ```sh
 tg account logout work --yes
@@ -328,7 +328,7 @@ tg --help
 | `tg account current` | 查看当前账号。 |
 | `tg account switch [name]` | 交互式选择默认账号，或按名称设置账号。 |
 | `tg account remove <name> --force` | 删除账号及其本地会话和数据。 |
-| `tg account logout <name> --yes` / `tg account login <name>` | 在保留已添加账号和本地消息的同时结束或恢复身份验证。 |
+| `tg account logout <name> --yes` / `tg account login <name>` | 非交互确认登出，或交互式重新认证并创建新的本地会话；本地消息会保留。 |
 | `tg whoami` | 显示当前登录账号的基本信息。 |
 | `tg config set --api-id <id> --api-hash <hash>` | 持久化保存 Telegram API 凭据。 |
 | `tg config set --proxy <url>` | 为账号登录及所有需要连接 Telegram 的命令保存可选代理。 |
@@ -360,7 +360,7 @@ tg --help
 | `tg purge <chat> --yes` | 移除某个聊天在本地存储的消息。 |
 | `tg info <chat>` | 查看聊天元信息。 |
 | `tg group info <chat>` | 查看普通群组或超级群组的只读详情。 |
-| `tg group list [--admin]` | 列出管理中的群组，也可只列出自己管理或创建的群组。 |
+| `tg group list [--admin]` | 列出普通群组、超级群组和频道对话框；`--admin` 仅保留自己管理或拥有的聊天。 |
 | `tg group members <chat> [--type <type>] [--query <text>] [--limit <count>]` | 列出并筛选成员（默认 `recent`、100 条；最大 200 条）。 |
 | `tg group member <chat> <user>` | 查看单个成员的角色、权限和限制。 |
 | `tg group audit <chat> [--query <text>] [--user <user>] [--type <type>] [--limit <count>]` | 查询管理员审计日志（默认 100 条；最大 500 条）。 |
@@ -381,7 +381,16 @@ tg --help
 
 使用 `tg <command> --help` 查看命令专用选项。例如，`listen` 支持自动重连和纯文本模式，`search` 支持发送者、时间、正则表达式和结果数量筛选。
 
-这些新能力新增的稳定顶层命令错误码包括 `account_logged_out`、`account_identity_mismatch`、`contact_not_found`、`invalid_notification_duration`、`folder_not_found`、`ambiguous_folder`、`folder_operation_unsupported`、`password_required`、`password_invalid`、`archive_account_mismatch`、`archive_failed`、`archive_partial_failure`、`write_access_disabled` 和 `flood_wait`。结构化输出会在 `error.code` 中提供这些错误码，并在可用时附带操作相关详情。附件失败但归档保留部分结果时，顶层错误码为 `archive_partial_failure`，命令以非零状态退出；每条媒体警告的 `archive_media_failed` 位于 `error.details.warnings[].code`。
+### 错误码
+
+结构化输出会在 `error.code` 中提供稳定的顶层命令错误码，并在可用时附带操作相关详情：
+
+- **账号：** `account_logged_out`、`account_identity_mismatch`、`interaction_required`
+- **联系人：** `contact_not_found`
+- **通知和文件夹：** `invalid_notification_duration`、`folder_not_found`、`ambiguous_folder`、`folder_operation_unsupported`
+- **群组所有权：** `password_required`、`password_invalid`
+- **归档：** `archive_account_mismatch`、`archive_failed`、`archive_partial_failure`。附件失败但归档保留部分结果时，顶层错误码为 `archive_partial_failure`，命令以非零状态退出；每条媒体警告的 `archive_media_failed` 位于 `error.details.warnings[].code`。
+- **写操作安全和速率限制：** `write_access_disabled`、`flood_wait`
 
 ### 远端写操作安全
 

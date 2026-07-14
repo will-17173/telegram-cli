@@ -88,7 +88,7 @@ tg search-online release --chat @team --json
 
 Time bounds accept relative durations ending in `s`, `m`, `h`, `d`, or `w`, such as `7d`, and ISO timestamps that include a zone, such as `2026-07-13T00:00:00Z` or `2026-07-13T08:00:00+08:00`. Relative values mean that duration before the command starts; `--since` must be earlier than `--until`.
 
-Contacts, notification settings, folders, and managed groups are also available as online commands:
+Contacts, notification settings, folders, and group, supergroup, or channel dialogs are also available as online commands:
 
 ```sh
 tg contact info +8613800000000
@@ -217,7 +217,7 @@ tg account switch <name>
 tg account remove <name> --force
 ```
 
-To end the remote session without deleting the registered account, its settings, or locally stored messages, log out explicitly. Login authenticates that same registered account again and restores its Telegram session:
+To end the remote session without deleting the registered account, its settings, or locally stored messages, log out explicitly. `--yes` confirms logout non-interactively. Logging in to a logged-out account is an interactive reauthentication flow that requires a TTY and creates or replaces its local Telegram session; scripts and non-interactive agents receive the stable `interaction_required` error.
 
 ```sh
 tg account logout work --yes
@@ -328,7 +328,7 @@ Common commands:
 | `tg account current` | Show the current account. |
 | `tg account switch [name]` | Select the default account interactively or set it by name. |
 | `tg account remove <name> --force` | Remove an account and its local session/data. |
-| `tg account logout <name> --yes` / `tg account login <name>` | End or restore authentication while retaining the registered account and local messages. |
+| `tg account logout <name> --yes` / `tg account login <name>` | Confirm logout non-interactively, or reauthenticate interactively into a new local session; local messages are retained. |
 | `tg status` | Check whether the Telegram account is authenticated. |
 | `tg whoami` | Show basic authenticated account information. |
 | `tg config set --api-id <id> --api-hash <hash>` | Save Telegram API credentials for persistent use. |
@@ -360,7 +360,7 @@ Common commands:
 | `tg purge <chat> --yes` | Remove a chat's locally stored messages. |
 | `tg info <chat>` | Show metadata for a Telegram chat. |
 | `tg group info <chat>` | Show read-only group or supergroup details. |
-| `tg group list [--admin]` | List managed groups, optionally only those you administer or own. |
+| `tg group list [--admin]` | List group, supergroup, and channel dialogs; `--admin` keeps only chats you administer or own. |
 | `tg group members <chat> [--type <type>] [--query <text>] [--limit <count>]` | List and filter members (default `recent`, limit 100; maximum 200). |
 | `tg group member <chat> <user>` | Show one member's role, rights, and restrictions. |
 | `tg group audit <chat> [--query <text>] [--user <user>] [--type <type>] [--limit <count>]` | Query the administrator audit log (default 100; maximum 500). |
@@ -381,7 +381,16 @@ Common options:
 
 Use `tg <command> --help` to inspect command-specific options. For example, `listen` supports reconnection and plain-text modes, while `search` supports sender, time, regular-expression, and result-limit filters.
 
-Stable top-level command error codes added for these capabilities include `account_logged_out`, `account_identity_mismatch`, `contact_not_found`, `invalid_notification_duration`, `folder_not_found`, `ambiguous_folder`, `folder_operation_unsupported`, `password_required`, `password_invalid`, `archive_account_mismatch`, `archive_failed`, `archive_partial_failure`, `write_access_disabled`, and `flood_wait`. Structured output exposes these codes under `error.code`, with operation-specific details where available. When an attachment fails but the archive retains partial results, the top-level code is `archive_partial_failure`, the command exits nonzero, and each media warning uses `archive_media_failed` under `error.details.warnings[].code`.
+### Error codes
+
+Structured output exposes stable top-level command errors under `error.code`, with operation-specific details where available:
+
+- **Accounts:** `account_logged_out`, `account_identity_mismatch`, `interaction_required`
+- **Contacts:** `contact_not_found`
+- **Notifications and folders:** `invalid_notification_duration`, `folder_not_found`, `ambiguous_folder`, `folder_operation_unsupported`
+- **Group ownership:** `password_required`, `password_invalid`
+- **Archive:** `archive_account_mismatch`, `archive_failed`, `archive_partial_failure`. When an attachment fails but the archive retains partial results, the top-level code is `archive_partial_failure`, the command exits nonzero, and each media warning uses `archive_media_failed` under `error.details.warnings[].code`.
+- **Write safety and rate limits:** `write_access_disabled`, `flood_wait`
 
 ### Remote write safety
 
