@@ -45,13 +45,13 @@ import {
   useTerminalMetrics,
 } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
-import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
+import { DISABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
 import type { ListenMessageRow } from '../../src/presenters/listen-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
 
 describe('runInteractiveListen', () => {
-  it('enables mouse scrolling during the interactive run and restores the terminal afterward', async () => {
+  it('uses alternate scrolling without mouse reporting and restores the terminal afterward', async () => {
     const calls: string[] = []
 
     const result = await runInteractiveListen(
@@ -63,7 +63,12 @@ describe('runInteractiveListen', () => {
     )
 
     expect(result).toBe('completed')
-    expect(calls).toEqual([ENABLE_MOUSE_REPORTING, 'run', DISABLE_MOUSE_REPORTING])
+    expect(calls).toEqual([
+      DISABLE_MOUSE_REPORTING,
+      '\u001B[?1049h\u001B[?1007h',
+      'run',
+      '\u001B[?1007l\u001B[?1049l',
+    ])
   })
 })
 
@@ -131,6 +136,27 @@ describe('ListenComposer', () => {
 })
 
 describe('InteractiveListen slash commands', () => {
+  it('scrolls messages when the terminal translates the mouse wheel to an arrow key', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
+      onConnected?.()
+      for (const msgId of [1, 2, 3]) onMessage(storedPhoto(msgId, `message ${msgId}`))
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 12, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('message 3'))
+    await act(async () => { stdin.write('\u001bOA') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('message 2'))
+
+    controller.abort()
+    app.unmount()
+  })
+
   it('discovers reply with group commands and completes fuzzy reply input', async () => {
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })

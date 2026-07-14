@@ -6,6 +6,8 @@ export type MouseScrollDirection = 'up' | 'down'
 
 export const ENABLE_MOUSE_REPORTING = '\u001B[?1000h\u001B[?1006h'
 export const DISABLE_MOUSE_REPORTING = '\u001B[?1006l\u001B[?1003l\u001B[?1002l\u001B[?1000l'
+export const ENABLE_ALTERNATE_SCROLL = '\u001B[?1049h\u001B[?1007h'
+export const DISABLE_ALTERNATE_SCROLL = '\u001B[?1007l\u001B[?1049l'
 const SGR_MOUSE_PATTERN = /\u001B\[<(\d+);\d+;\d+([Mm])/g
 const INK_MOUSE_PATTERN = /^(?:\u001B)?\[<\d+;\d+;\d+[Mm]$/
 
@@ -18,6 +20,19 @@ export async function withMouseReporting<T>(options: {
     return await options.run()
   } finally {
     options.write(DISABLE_MOUSE_REPORTING)
+  }
+}
+
+export async function withAlternateScroll<T>(options: {
+  write: (value: string) => unknown
+  run: () => Promise<T>
+}): Promise<T> {
+  options.write(DISABLE_MOUSE_REPORTING)
+  options.write(ENABLE_ALTERNATE_SCROLL)
+  try {
+    return await options.run()
+  } finally {
+    options.write(DISABLE_ALTERNATE_SCROLL)
   }
 }
 

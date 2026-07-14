@@ -18,7 +18,7 @@ import { buildListenMessage, type ListenAttachment, type ListenMessageRow } from
 import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScrollState } from './listen-scroll.js'
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
-import { isMouseInput, useMouseScroll, withMouseReporting, type MouseScrollDirection } from './mouse-scroll.js'
+import { isMouseInput, withAlternateScroll } from './mouse-scroll.js'
 import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
 import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
 import { executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
@@ -614,7 +614,7 @@ export async function runInteractiveListen<T>(
   write: (value: string) => unknown,
   run: () => Promise<T>,
 ): Promise<T> {
-  return withMouseReporting({ write, run })
+  return withAlternateScroll({ write, run })
 }
 
 export async function renderInteractiveListen(options: ListenRuntimeOptions): Promise<void> {
@@ -780,7 +780,7 @@ export function InteractiveListen({
     visible: visibleMessages.length,
     offset: scrollState.offset,
   })
-  const scrollMessages = useCallback((direction: MouseScrollDirection, amount = 1) => {
+  const scrollMessages = useCallback((direction: 'up' | 'down', amount = 1) => {
     showScrollbar()
     setScrollState((current) => applyScroll(
       current,
@@ -789,12 +789,6 @@ export function InteractiveListen({
       amount,
     ))
   }, [messages.length, showScrollbar])
-
-  const handleMouseScroll = useCallback((direction: MouseScrollDirection) => {
-    scrollMessages(direction)
-  }, [scrollMessages])
-
-  useMouseScroll(handleMouseScroll)
 
   useEffect(() => {
     const maxOffset = Math.max(0, messages.length - 1)
@@ -968,6 +962,10 @@ export function InteractiveListen({
         const state = downloadStates[selectedAttachment.key] ?? { status: 'idle' }
         if (canManuallyDownload(state)) void downloadAttachment(selectedAttachment)
       }
+      return
+    }
+    if (key.upArrow || key.downArrow) {
+      scrollMessages(key.upArrow ? 'up' : 'down')
       return
     }
     if (sending || groupCommand.state.kind === 'executing') return
@@ -1356,7 +1354,7 @@ export function InteractiveListen({
               terminalWidth={contentWidth}
               sending={sending}
               cursorVisible={focus === 'input'}
-              hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Wheel/PgUp/PgDn scroll · Shift+drag select · Ctrl+C exit'}
+              hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Wheel/↑/↓/PgUp/PgDn scroll · Drag select · Ctrl+C exit'}
             />
           </Box>
         </Box> : null}
