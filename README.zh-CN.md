@@ -1,6 +1,6 @@
 # Telegram CLI
 
-[English](README.md)
+[项目网站](https://will-17173.github.io/telegram-cli/zh-CN/) · [English](README.md)
 
 一个 TypeScript 命令行客户端，用于同步 Telegram 聊天记录、监听实时消息、搜索本地存储的消息，并在终端中查看群组信息。
 

@@ -18,7 +18,14 @@ import { buildListenMessage, type ListenAttachment, type ListenMessageRow } from
 import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScrollState } from './listen-scroll.js'
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
-import { isMouseInput, withAlternateScroll } from './mouse-scroll.js'
+import {
+  DISABLE_MOUSE_REPORTING,
+  ENABLE_MOUSE_REPORTING,
+  isMouseInput,
+  useMouseScroll,
+  withAlternateScroll,
+  type MouseScrollDirection,
+} from './mouse-scroll.js'
 import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
 import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
 import { executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
@@ -648,7 +655,7 @@ export function InteractiveListen({
   const [note, setNote] = useState('')
   const [sending, setSending] = useState(false)
   const [focus, setFocus] = useState<'input' | 'attachments'>('input')
-  const [selectedAttachmentIndex, setSelectedAttachmentIndex] = useState(0)
+  const [selectedAttachmentKey, setSelectedAttachmentKey] = useState<string | null>(null)
   const [downloadStates, setDownloadStates] = useState<Record<string, AttachmentDownloadState>>({})
   const [scrollState, setScrollState] = useState<ListenScrollState>({ offset: 0, unseenCount: 0 })
   const [sendTargetLabel, setSendTargetLabel] = useState(sendTo == null ? '' : buildSendTargetLabel(sendTo))
@@ -659,6 +666,10 @@ export function InteractiveListen({
   const commandSelectionRef = useRef(0)
   const knownGroupRef = useRef<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const groupLookupGenerationRef = useRef<object>({})
+  const selectedAttachmentKeyRef = useRef<string | null>(null)
+  const scrollOffsetRef = useRef(0)
+  selectedAttachmentKeyRef.current = selectedAttachmentKey
+  scrollOffsetRef.current = scrollState.offset
   useEffect(() => {
     groupLookupGenerationRef.current = {}
     knownGroupRef.current = undefined
@@ -771,8 +782,13 @@ export function InteractiveListen({
 
   const seenRef = useRef<Set<string>>(new Set())
   const seenOrderRef = useRef<string[]>([])
-  const downloadableAttachments = collectDownloadableAttachments(visibleMessages)
-  const selectedAttachment = downloadableAttachments[selectedAttachmentIndex] ?? downloadableAttachments[0]
+  const downloadableAttachments = collectDownloadableAttachments(messages)
+  const visibleDownloadableAttachments = collectDownloadableAttachments(visibleMessages)
+  const selectedAttachment = downloadableAttachments.find((item) => item.key === selectedAttachmentKey)
+  const selectAttachment = (key: string | null): void => {
+    selectedAttachmentKeyRef.current = key
+    setSelectedAttachmentKey(key)
+  }
   const { visible: scrollbarVisible, show: showScrollbar } = useTransientScrollbar()
   const scrollbarGeometry = calculateScrollbar({
     height: terminalHeight,
@@ -780,21 +796,42 @@ export function InteractiveListen({
     visible: visibleMessages.length,
     offset: scrollState.offset,
   })
+  const lastScrollDirectionRef = useRef<'up' | 'down'>('up')
   const scrollMessages = useCallback((direction: 'up' | 'down', amount = 1) => {
+    lastScrollDirectionRef.current = direction
+    const step = Math.max(1, Math.floor(amount))
+    const maxOffset = Math.max(0, messages.length - 1)
+    scrollOffsetRef.current = direction === 'up'
+      ? Math.min(maxOffset, scrollOffsetRef.current + step)
+      : Math.max(0, scrollOffsetRef.current - step)
     showScrollbar()
     setScrollState((current) => applyScroll(
       current,
       direction,
-      Math.max(0, messages.length - 1),
+      maxOffset,
       amount,
     ))
   }, [messages.length, showScrollbar])
+
+  const handleMouseScroll = useCallback((direction: MouseScrollDirection) => {
+    if (focus === 'attachments') scrollMessages(direction)
+  }, [focus, scrollMessages])
+  useMouseScroll(handleMouseScroll)
+
+  useEffect(() => {
+    if (focus !== 'attachments') return
+    stdout.write(ENABLE_MOUSE_REPORTING)
+    return () => {
+      stdout.write(DISABLE_MOUSE_REPORTING)
+    }
+  }, [focus, stdout])
 
   useEffect(() => {
     const maxOffset = Math.max(0, messages.length - 1)
     setScrollState((current) => {
       const offset = Math.min(current.offset, maxOffset)
       const unseenCount = offset === 0 ? 0 : Math.min(current.unseenCount, messages.length)
+      scrollOffsetRef.current = offset
       return offset === current.offset && unseenCount === current.unseenCount
         ? current
         : { offset, unseenCount }
@@ -808,9 +845,24 @@ export function InteractiveListen({
       pendingAttachmentKeysRef.current,
     ))
     for (const key of validAttachmentKeys) pendingAttachmentKeysRef.current.delete(key)
-    setSelectedAttachmentIndex((current) => Math.min(current, Math.max(0, downloadableAttachments.length - 1)))
+    const currentSelectedKey = selectedAttachmentKeyRef.current
+    if (currentSelectedKey != null && !validAttachmentKeys.has(currentSelectedKey)) {
+      selectAttachment(downloadableAttachments[0]?.key ?? null)
+    }
     if (downloadableAttachments.length === 0) setFocus('input')
   }, [messages, downloadableAttachments.length])
+
+  useEffect(() => {
+    if (focus !== 'attachments' || visibleDownloadableAttachments.length === 0) return
+    if (visibleDownloadableAttachments.some((item) => item.key === selectedAttachment?.key)) return
+    const fallback = lastScrollDirectionRef.current === 'up'
+      ? visibleDownloadableAttachments.at(-1)
+      : visibleDownloadableAttachments[0]
+    const index = fallback == null
+      ? -1
+      : downloadableAttachments.findIndex((item) => item.key === fallback.key)
+    if (index >= 0) selectAttachment(downloadableAttachments[index]!.key)
+  }, [focus, messagePaneHeight, messages, scrollState.offset, selectedAttachmentKey])
 
   useInput((inputText, key) => {
     if (isMouseInput(inputText)) return
@@ -937,9 +989,12 @@ export function InteractiveListen({
     if (key.tab) {
       if (focus === 'attachments') {
         setFocus('input')
-      } else if (downloadableAttachments.length > 0) {
+      } else if (visibleDownloadableAttachments.length > 0) {
+        const currentSelectedKey = selectedAttachmentKeyRef.current
+        const nextSelection = visibleDownloadableAttachments.find((item) => item.key === currentSelectedKey)
+          ?? visibleDownloadableAttachments[0]!
         setFocus('attachments')
-        setSelectedAttachmentIndex((current) => Math.min(current, downloadableAttachments.length - 1))
+        selectAttachment(nextSelection.key)
       } else {
         setNote('no downloadable attachments')
       }
@@ -951,16 +1006,39 @@ export function InteractiveListen({
         return
       }
       if (key.upArrow || key.downArrow) {
-        const offset = key.upArrow ? -1 : 1
-        setSelectedAttachmentIndex((current) => {
-          const count = downloadableAttachments.length
-          return count === 0 ? 0 : (current + offset + count) % count
-        })
+        const direction = key.upArrow ? 'up' : 'down'
+        const delta = direction === 'up' ? -1 : 1
+        const count = downloadableAttachments.length
+        const currentIndex = downloadableAttachments.findIndex((item) => item.key === selectedAttachmentKeyRef.current)
+        const nextIndex = count === 0
+          ? 0
+          : (Math.max(0, currentIndex) + delta + count) % count
+        const nextAttachment = downloadableAttachments[nextIndex]
+        selectAttachment(nextAttachment?.key ?? null)
+        const effectiveVisibleMessages = takeListenViewport(messages, messagePaneHeight, scrollOffsetRef.current)
+        if (nextAttachment != null && !effectiveVisibleMessages.some((message) => message.key === nextAttachment.message.key)) {
+          const messageIndex = messages.findIndex((message) => message.key === nextAttachment.message.key)
+          if (messageIndex >= 0) {
+            const targetOffset = messages.length - 1 - messageIndex
+            scrollOffsetRef.current = targetOffset
+            showScrollbar()
+            setScrollState((current) => {
+              if (current.offset === targetOffset) return current
+              return applyScroll(
+                current,
+                targetOffset > current.offset ? 'up' : 'down',
+                Math.max(0, messages.length - 1),
+                Math.abs(targetOffset - current.offset),
+              )
+            })
+          }
+        }
         return
       }
-      if (key.return && selectedAttachment != null) {
-        const state = downloadStates[selectedAttachment.key] ?? { status: 'idle' }
-        if (canManuallyDownload(state)) void downloadAttachment(selectedAttachment)
+      const currentSelectedAttachment = downloadableAttachments.find((item) => item.key === selectedAttachmentKeyRef.current)
+      if (key.return && currentSelectedAttachment != null) {
+        const state = downloadStates[currentSelectedAttachment.key] ?? { status: 'idle' }
+        if (canManuallyDownload(state)) void downloadAttachment(currentSelectedAttachment)
       }
       return
     }
@@ -1354,7 +1432,7 @@ export function InteractiveListen({
               terminalWidth={contentWidth}
               sending={sending}
               cursorVisible={focus === 'input'}
-              hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Wheel/↑/↓/PgUp/PgDn scroll · Drag select · Ctrl+C exit'}
+              hint={focus === 'attachments' ? 'Wheel · ↑/↓ select · Enter download · Tab input' : 'Wheel/↑/↓/PgUp/PgDn scroll · Drag select · Ctrl+C exit'}
             />
           </Box>
         </Box> : null}

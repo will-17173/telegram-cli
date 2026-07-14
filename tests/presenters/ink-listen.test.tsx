@@ -45,7 +45,7 @@ import {
   useTerminalMetrics,
 } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
-import { DISABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
+import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
 import type { ListenMessageRow } from '../../src/presenters/listen-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
@@ -152,6 +152,193 @@ describe('InteractiveListen slash commands', () => {
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('message 3'))
     await act(async () => { stdin.write('\u001bOA') })
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('message 2'))
+
+    controller.abort()
+    app.unmount()
+  })
+
+  it('keeps mouse-wheel scrolling available while attachments have focus', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
+      onConnected?.()
+      onMessage(storedPhoto(1, 'older attachment'))
+      onMessage(storedText(2, 'plain middle message'))
+      onMessage(storedPhoto(3, 'newer attachment'))
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 12, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('newer attachment'))
+    await act(async () => { stdin.write('\t') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› 📎 Photo'))
+    expect(stdout.output).toContain(ENABLE_MOUSE_REPORTING)
+    await act(async () => { stdin.write('\u001b[<64;1;1M') })
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('plain middle message')
+      expect(frame).not.toContain('older attachment')
+    })
+
+    controller.abort()
+    app.unmount()
+    expect(stdout.output).toContain(DISABLE_MOUSE_REPORTING)
+  })
+
+  it('selects the attachment reached by mouse-wheel scrolling', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
+      onConnected?.()
+      onMessage(storedPhoto(1, 'older attachment'))
+      onMessage(storedText(2, 'plain middle message'))
+      onMessage(storedPhoto(3, 'newer attachment'))
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 12, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('newer attachment'))
+    await act(async () => { stdin.write('\t') })
+    await act(async () => { stdin.write('\u001b[<64;1;1M') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('plain middle message'))
+    await act(async () => { stdin.write('\u001b[<64;1;1M') })
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('older attachment')
+      expect(frame).toContain('› 📎 Photo')
+    })
+
+    controller.abort()
+    app.unmount()
+  })
+
+  it('moves attachment selection to an older attachment outside the viewport', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
+      onConnected?.()
+      onMessage(storedPhoto(1, 'older attachment'))
+      onMessage(storedText(2, 'plain middle message'))
+      onMessage(storedPhoto(3, 'newer attachment'))
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 12, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('newer attachment'))
+    await act(async () => { stdin.write('\t') })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› 📎 Photo'))
+    await act(async () => { stdin.write('\u001bOA') })
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('older attachment')
+      expect(frame).toContain('› 📎 Photo')
+      expect(frame).not.toContain('plain middle message')
+    })
+
+    controller.abort()
+    app.unmount()
+  })
+
+  it('moves once for every physical arrow sequence in the same input chunk', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
+      onConnected?.()
+      for (const msgId of [1, 2, 3]) onMessage(storedPhoto(msgId, `attachment ${msgId}`))
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 12, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('attachment 3'))
+    await act(async () => { stdin.write('\t') })
+    await act(async () => { stdin.write('\u001b[A\u001b[A') })
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('attachment 1')
+      expect(frame).toContain('› 📎 Photo')
+    })
+
+    controller.abort()
+    app.unmount()
+  })
+
+  it('uses the pending viewport for wrapped arrows in the same input chunk', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
+      onConnected?.()
+      for (const msgId of [1, 2, 3, 4]) onMessage(storedPhoto(msgId, `attachment ${msgId}`))
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 22, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('attachment 2')
+      expect(frame).toContain('attachment 4')
+      expect(frame).not.toContain('attachment 1')
+    })
+    await act(async () => { stdin.write('\t') })
+    await vi.waitFor(() => expectSelectedAttachmentBetween(stdout.output, 'attachment 2', 'attachment 3'))
+    await act(async () => { stdin.write('\u001b[A\u001b[A') })
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('attachment 4')
+      expect(frame.indexOf('› 📎 Photo')).toBeGreaterThan(frame.indexOf('attachment 4'))
+      expect(frame).not.toContain('attachment 1')
+    })
+
+    controller.abort()
+    app.unmount()
+  })
+
+  it('keeps selection on the same attachment when older history is pruned', async () => {
+    let deliverMessage!: (message: StoredMessageInput) => void
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
+      onConnected?.()
+      deliverMessage = onMessage
+      for (let msgId = 1; msgId <= LISTEN_HISTORY_LIMIT; msgId += 1) {
+        onMessage([1, 499, 500].includes(msgId)
+          ? storedPhoto(msgId, `attachment ${msgId}`)
+          : storedText(msgId, `message ${msgId}`))
+      }
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 24, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('attachment 499')
+      expect(frame).toContain('attachment 500')
+    }, { timeout: 5_000 })
+    await act(async () => { stdin.write('\t') })
+    await vi.waitFor(() => expectSelectedAttachmentBetween(stdout.output, 'attachment 499', 'attachment 500'))
+
+    await act(async () => { deliverMessage(storedText(501, 'message 501')) })
+    await vi.waitFor(() => {
+      expect(lastTerminalFrame(stdout.output)).toContain('message 501')
+      expectSelectedAttachmentBetween(stdout.output, 'attachment 499', 'attachment 500')
+    })
 
     controller.abort()
     app.unmount()
@@ -1723,6 +1910,13 @@ function storedPhoto(msgId: number, content: string): StoredMessageInput {
   }
 }
 
+function storedText(msgId: number, content: string): StoredMessageInput {
+  return {
+    ...storedPhoto(msgId, content),
+    raw_json: { _: 'message' },
+  }
+}
+
 function lifecycleClient(result: 'disconnected' | 'stopped', calls: string[], name: string) {
   return {
     listen: vi.fn(async (options: { onMessage: (message: StoredMessageInput) => void }) => {
@@ -1763,6 +1957,13 @@ function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
 
 function lastTerminalFrame(output: string): string {
   return output.split('\u001b[H').at(-1) ?? output
+}
+
+function expectSelectedAttachmentBetween(output: string, before: string, after: string): void {
+  const frame = lastTerminalFrame(output)
+  const selected = frame.indexOf('› 📎 Photo')
+  expect(selected).toBeGreaterThan(frame.indexOf(before))
+  expect(selected).toBeLessThan(frame.indexOf(after))
 }
 
 const twoByTwoJpeg =

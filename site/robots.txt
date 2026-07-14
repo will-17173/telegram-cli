@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://will-17173.github.io/telegram-cli/sitemap.xml

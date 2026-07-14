@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Sync, search, listen, archive, and manage Telegram from the terminal with a TypeScript CLI built for people, scripts, and AI agents.">
+  <meta name="theme-color" content="#eef6fb">
+  <meta name="color-scheme" content="light">
+  <title>Telegram CLI — Your Telegram, one command away</title>
+  <link rel="canonical" href="https://will-17173.github.io/telegram-cli/">
+  <link rel="alternate" hreflang="en" href="https://will-17173.github.io/telegram-cli/">
+  <link rel="alternate" hreflang="zh-CN" href="https://will-17173.github.io/telegram-cli/zh-CN/">
+  <link rel="alternate" hreflang="x-default" href="https://will-17173.github.io/telegram-cli/">
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./assets/styles.css">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Telegram CLI — Your Telegram, one command away">
+  <meta property="og:description" content="A command-line client for live Telegram workflows, local search, Markdown archives, and structured automation.">
+  <meta property="og:url" content="https://will-17173.github.io/telegram-cli/">
+  <meta property="og:site_name" content="Telegram CLI">
+  <meta name="twitter:card" content="summary">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="./" aria-label="Telegram CLI home">
+        <span class="brand-mark" aria-hidden="true">tg›</span>
+        <span class="brand-name">Telegram CLI</span>
+      </a>
+
+      <nav class="primary-nav" aria-label="Primary navigation">
+        <a href="#workflows">Workflow</a>
+        <a href="#capabilities">Capabilities</a>
+        <a href="#install">Install</a>
+        <a class="language-link" href="./zh-CN/" lang="zh-CN" hreflang="zh-CN">中文</a>
+        <a class="github-link" href="https://github.com/will-17173/telegram-cli">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Open-source TypeScript CLI</p>
+          <h1 id="hero-title">Your Telegram.<br><span>One command away.</span></h1>
+          <p class="hero-lede">Read live chats, build a searchable local memory, and manage conversations without leaving your terminal. Clear enough for people. Structured enough for agents.</p>
+
+          <div class="hero-actions">
+            <a class="button button-primary" href="#install">Install Telegram CLI</a>
+            <a class="button button-secondary" href="https://github.com/will-17173/telegram-cli">Explore the source <span aria-hidden="true">↗</span></a>
+          </div>
+
+          <dl class="hero-facts" aria-label="Project facts">
+            <div>
+              <dt>Runtime</dt>
+              <dd>Node.js 22+</dd>
+            </div>
+            <div>
+              <dt>Command</dt>
+              <dd><code>tg</code></dd>
+            </div>
+            <div>
+              <dt>License</dt>
+              <dd>GPL-3.0-only</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="signal-stage" aria-label="A Telegram message flowing through a tg command into structured output">
+          <div class="stage-label stage-label-in"><span aria-hidden="true">01</span> Live chat</div>
+          <div class="stage-label stage-label-out"><span aria-hidden="true">03</span> Structured result</div>
+
+          <svg class="signal-path" viewBox="0 0 640 520" aria-hidden="true" preserveAspectRatio="none">
+            <path d="M26 95 C150 95 120 206 250 206 S420 405 610 405" />
+            <circle cx="26" cy="95" r="5" />
+            <circle cx="610" cy="405" r="5" />
+          </svg>
+
+          <div class="message-bubble">
+            <div class="avatar" aria-hidden="true">M</div>
+            <div>
+              <strong>Maya · Build room</strong>
+              <p>Release is ready for review.</p>
+              <small>10:42</small>
+            </div>
+          </div>
+
+          <article class="terminal-card" aria-label="Terminal example">
+            <div class="terminal-bar">
+              <span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span>~/telegram</span>
+              <span class="terminal-mode">abridged JSON</span>
+            </div>
+            <div class="terminal-body">
+              <p class="terminal-command"><span class="prompt" aria-hidden="true">❯</span> tg search "release" --account work --json</p>
+              <pre class="terminal-json" aria-label="Abridged example JSON output"><code><span class="json-punctuation">{</span>
+  <span class="json-key">"ok"</span>: <span class="json-boolean">true</span>,
+  <span class="json-key">"schema_version"</span>: <span class="json-string">"1"</span>,
+  <span class="json-key">"data"</span>: <span class="json-punctuation">[{</span>
+    <span class="json-key">"chat_name"</span>: <span class="json-string">"Build room"</span>,
+    <span class="json-key">"sender_name"</span>: <span class="json-string">"Maya"</span>,
+    <span class="json-key">"content"</span>: <span class="json-string">"Release is ready…"</span>
+  <span class="json-punctuation">}]</span>
+<span class="json-punctuation">}</span></code></pre>
+            </div>
+          </article>
+
+          <div class="result-chip">
+            <span class="result-icon" aria-hidden="true">✓</span>
+            <div><strong>1 match</strong><small>local SQLite · no network</small></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="workflows" class="section workflow-section" aria-labelledby="workflow-title">
+      <div class="container">
+        <div class="section-heading split-heading">
+          <div>
+            <p class="eyebrow">One command surface</p>
+            <h2 id="workflow-title">From live chat to local memory.</h2>
+          </div>
+          <p>Choose when to talk to Telegram, when to work from SQLite, and when a remote write is allowed. The boundary stays visible in every workflow.</p>
+        </div>
+
+        <ol class="workflow-grid">
+          <li class="workflow-card">
+            <div class="workflow-number" aria-hidden="true">01</div>
+            <div class="workflow-icon" aria-hidden="true">↯</div>
+            <h3>Read live</h3>
+            <p>Inspect unread chats, read recent messages, or listen to the stream without storing results locally.</p>
+            <code>tg inbox --markdown</code>
+          </li>
+          <li class="workflow-card featured">
+            <div class="workflow-number" aria-hidden="true">02</div>
+            <div class="workflow-icon" aria-hidden="true">⌁</div>
+            <h3>Build memory</h3>
+            <p>Sync the chats you need into SQLite, then search and analyze them without reconnecting.</p>
+            <code>tg sync @team</code>
+          </li>
+          <li class="workflow-card">
+            <div class="workflow-number" aria-hidden="true">03</div>
+            <div class="workflow-icon" aria-hidden="true">→</div>
+            <h3>Act deliberately</h3>
+            <p>Send messages and manage groups with explicit commands and a global remote-write switch.</p>
+            <code>tg config write-access off</code>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="capabilities" class="section capabilities-section" aria-labelledby="capabilities-title">
+      <div class="container">
+        <div class="section-heading centered-heading">
+          <p class="eyebrow">The useful parts, close at hand</p>
+          <h2 id="capabilities-title">A focused toolkit for real Telegram work.</h2>
+          <p>Use one account or several. Stay online for the live moment, or bring the history home for work that should be fast and repeatable.</p>
+        </div>
+
+        <div class="capability-grid">
+          <article class="capability-card capability-wide">
+            <div class="capability-topline"><span>Live</span><code>inbox · read · listen</code></div>
+            <h3>Keep a terminal window on the conversation.</h3>
+            <p>Watch incoming messages, reply from interactive listen mode, and download attachments as they arrive.</p>
+            <div class="listen-preview" aria-hidden="true">
+              <div class="listen-header"><span class="pulse"></span> listening · @team</div>
+              <div class="listen-row"><time>10:42</time><strong>Maya</strong><span>Release is ready for review.</span></div>
+              <div class="listen-row muted"><time>10:43</time><strong>Dev Bot</strong><span>CI passed · 128 tests</span></div>
+              <div class="listen-composer">/reply 814 Looks good — ship it.<span>▋</span></div>
+            </div>
+          </article>
+
+          <article class="capability-card">
+            <div class="capability-symbol" aria-hidden="true">⌕</div>
+            <h3>Search locally</h3>
+            <p>Filter synced messages by keyword, regex, sender, chat, or time range.</p>
+            <code>tg search "incident" --hours 48</code>
+          </article>
+
+          <article class="capability-card">
+            <div class="capability-symbol" aria-hidden="true">M↓</div>
+            <h3>Archive to Markdown</h3>
+            <p>Create incremental, rebuildable chat archives with optional media downloads.</p>
+            <code>tg archive @team --download-media</code>
+          </article>
+
+          <article class="capability-card">
+            <div class="capability-symbol" aria-hidden="true">A/B</div>
+            <h3>Separate accounts</h3>
+            <p>Keep authentication sessions and message databases isolated per account.</p>
+            <code>tg account switch work</code>
+          </article>
+
+          <article class="capability-card capability-accent">
+            <div class="capability-symbol" aria-hidden="true">{ }</div>
+            <h3>Structured on demand</h3>
+            <p>Use stable JSON or YAML envelopes, nonzero exits, and explicit error codes in automation.</p>
+            <code>tg stats --json</code>
+          </article>
+
+          <article class="capability-card capability-wide group-card">
+            <div>
+              <div class="capability-topline"><span>Groups</span><code>members · admins · invites · topics</code></div>
+              <h3>Inspect deeply. Manage when you mean to.</h3>
+              <p>Explore group state, then use explicit commands for members, settings, invitations, forum topics, and messages.</p>
+            </div>
+            <div class="group-command-stack" aria-hidden="true">
+              <code><b>❯</b> tg group members @team</code>
+              <code><b>❯</b> tg group topic list @team</code>
+              <code><b>❯</b> tg group invite list @team</code>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="agent-section" aria-labelledby="agent-title">
+      <div class="container agent-grid">
+        <div class="agent-copy">
+          <p class="eyebrow light-eyebrow">Built for agent workflows</p>
+          <h2 id="agent-title">Give an agent commands,<br>not a browser.</h2>
+          <p>After interactive account authentication, coding agents can query synced history, read structured results, and target a named account without changing your default.</p>
+          <ul class="check-list">
+            <li>JSON and YAML output</li>
+            <li>Stable schema and error codes</li>
+            <li>Explicit <code>--account</code> selection</li>
+            <li>Remote write-access control</li>
+          </ul>
+          <a class="text-link light-link" href="https://github.com/will-17173/telegram-cli#built-for-ai-agents">Read the agent guide <span aria-hidden="true">→</span></a>
+        </div>
+
+        <div class="agent-install-card">
+          <div class="agent-install-label"><span>Agent skill</span><span>01 / 01</span></div>
+          <h3>Teach your coding agent how to use <code>tg</code>.</h3>
+          <div class="command-block">
+            <span class="command-prefix" aria-hidden="true">$</span>
+            <code>npx skills add https://github.com/will-17173/telegram-cli &#92;<br>&nbsp;&nbsp;--skill using-telegram-cli</code>
+          </div>
+          <p>The included skill documents authentication, synchronization, structured querying, and safe write workflows.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="install" class="section install-section" aria-labelledby="install-title">
+      <div class="container install-shell">
+        <div class="install-heading">
+          <p class="eyebrow">Start here</p>
+          <h2 id="install-title">Three commands to your first chat list.</h2>
+          <p>Telegram CLI needs Node.js 22 or later. Account authentication runs interactively and stores each account session locally.</p>
+        </div>
+
+        <ol class="install-steps">
+          <li>
+            <div class="step-label"><span>1</span> Install globally</div>
+            <pre><code>npm install -g @will-17173/telegram-cli</code></pre>
+          </li>
+          <li>
+            <div class="step-label"><span>2</span> Add an account</div>
+            <pre><code>tg account add</code></pre>
+          </li>
+          <li>
+            <div class="step-label"><span>3</span> List your chats</div>
+            <pre><code>tg status
+tg chats</code></pre>
+          </li>
+        </ol>
+
+        <div class="next-command">
+          <span>Then choose a chat and build local history</span>
+          <code>tg sync &lt;chat&gt; &amp;&amp; tg search "keyword" --chat &lt;chat&gt;</code>
+        </div>
+      </div>
+    </section>
+
+    <section class="section safety-section" aria-labelledby="safety-title">
+      <div class="container safety-grid">
+        <div>
+          <p class="eyebrow">A visible safety boundary</p>
+          <h2 id="safety-title">Read freely.<br>Gate remote writes.</h2>
+        </div>
+        <div class="safety-copy">
+          <p>Turn off Telegram mutations globally while keeping online reads and local database commands available. When you need to act, turn access back on intentionally.</p>
+          <div class="safety-switch" aria-label="Example commands for write-access control">
+            <code>tg config write-access off</code>
+            <span aria-hidden="true">↔</span>
+            <code>tg config write-access on</code>
+          </div>
+          <p class="safety-note">Telegram permissions and rate limits still apply. Large history or media requests may trigger flood waits.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="final-cta" aria-labelledby="final-title">
+      <div class="container final-cta-inner">
+        <p class="eyebrow">Terminal ready</p>
+        <h2 id="final-title">Bring Telegram into your workflow.</h2>
+        <div class="final-actions">
+          <a class="button button-primary" href="#install">Install the CLI</a>
+          <a class="button button-secondary" href="https://github.com/will-17173/telegram-cli">Star on GitHub <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <a class="brand footer-brand" href="./" aria-label="Telegram CLI home">
+        <span class="brand-mark" aria-hidden="true">tg›</span>
+        <span><strong>Telegram CLI</strong><small>Open-source terminal client</small></span>
+      </a>
+      <nav class="footer-nav" aria-label="Footer navigation">
+        <a href="https://www.npmjs.com/package/@will-17173/telegram-cli">npm</a>
+        <a href="https://github.com/will-17173/telegram-cli#readme">Documentation</a>
+        <a href="https://github.com/will-17173/telegram-cli/issues">Issues</a>
+        <a href="https://github.com/will-17173/telegram-cli/blob/main/LICENSE">License</a>
+      </nav>
+    </div>
+    <div class="container footer-legal">Independent open-source software. Not affiliated with Telegram.</div>
+  </footer>
+</body>
+</html>

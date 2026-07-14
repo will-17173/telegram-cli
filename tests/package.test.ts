@@ -40,7 +40,7 @@ describe('npm package metadata', () => {
       type: 'git',
       url: 'git+https://github.com/will-17173/telegram-cli.git',
     })
-    expect(packageJson.homepage).toBe('https://github.com/will-17173/telegram-cli#readme')
+    expect(packageJson.homepage).toBe('https://will-17173.github.io/telegram-cli/')
     expect(packageJson.bugs).toEqual({ url: 'https://github.com/will-17173/telegram-cli/issues' })
     expect(packageJson.publishConfig).toEqual({ access: 'public' })
     expect(packageJson.bin).toEqual({ tg: './dist/index.js' })
