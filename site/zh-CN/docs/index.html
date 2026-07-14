@@ -339,7 +339,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
 
         <section id="command-reference" class="doc-section docs-section" aria-labelledby="command-reference-title">
           <p class="section-kicker docs-kicker">05 · Reference</p>
-          <h2 id="command-reference-title">32 个顶层命令</h2>
+          <h2 id="command-reference-title">33 个顶层命令</h2>
           <p class="section-lede">这是 <code translate="no">tg</code> v0.4.1 的完整顶层 Commander 命令清单。范围徽标描述主要行为；带子命令的命令组可能同时包含读取和写入操作。</p>
 
           <div class="table-scroll table-wrap" tabindex="0" role="region" aria-label="完整顶层命令参考，可横向滚动">
@@ -512,6 +512,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <th scope="row"><code dir="ltr" translate="no">tg config</code></th>
                   <td><span class="scope-badge" data-scope="local">本地配置</span></td>
                   <td>管理 API 凭据、代理和远端写入总开关；改变开关不等于授权具体写操作。</td>
+                </tr>
+                <tr data-command="web">
+                  <th scope="row"><code dir="ltr" translate="no">tg web</code></th>
+                  <td><span class="scope-badge" data-scope="local">本地管理</span></td>
+                  <td>在 <code translate="no">127.0.0.1</code> 启动本地 Web 管理界面。</td>
                 </tr>
               </tbody>
             </table>
@@ -846,7 +851,7 @@ tg config write-access on --json</code></pre>
         </section>
       </article>
 
-      <aside class="docs-status-card docs-page-outline" data-command-count="32" data-group-command-count="48" aria-label="本页范围说明">
+      <aside class="docs-status-card docs-page-outline" data-command-count="33" data-group-command-count="48" aria-label="本页范围说明">
         <p class="status-card-label docs-outline-label">THIS PAGE</p>
         <h2>命令信号</h2>
         <dl class="scope-key">
@@ -872,7 +877,7 @@ tg config write-access on --json</code></pre>
           </div>
         </dl>
         <div class="status-card-counts">
-          <p><strong>32</strong><span>顶层命令</span></p>
+          <p><strong>33</strong><span>顶层命令</span></p>
           <p><strong>48</strong><span>群管理操作</span></p>
           <p><strong>1</strong><span>稳定 schema</span></p>
         </div>
