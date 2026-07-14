@@ -381,7 +381,7 @@ tg --help
 
 使用 `tg <command> --help` 查看命令专用选项。例如，`listen` 支持自动重连和纯文本模式，`search` 支持发送者、时间、正则表达式和结果数量筛选。
 
-这些新能力新增的稳定错误码包括 `account_logged_out`、`account_identity_mismatch`、`contact_not_found`、`invalid_notification_duration`、`folder_not_found`、`ambiguous_folder`、`folder_operation_unsupported`、`password_required`、`password_invalid`、`archive_account_mismatch`、`archive_failed`、`archive_partial_failure`、`archive_media_failed`（位于归档警告中）、`write_access_disabled` 和 `flood_wait`。结构化输出会在 `error.code` 中提供这些错误码，并在可用时附带操作相关详情。
+这些新能力新增的稳定顶层命令错误码包括 `account_logged_out`、`account_identity_mismatch`、`contact_not_found`、`invalid_notification_duration`、`folder_not_found`、`ambiguous_folder`、`folder_operation_unsupported`、`password_required`、`password_invalid`、`archive_account_mismatch`、`archive_failed`、`archive_partial_failure`、`write_access_disabled` 和 `flood_wait`。结构化输出会在 `error.code` 中提供这些错误码，并在可用时附带操作相关详情。附件失败但归档保留部分结果时，顶层错误码为 `archive_partial_failure`，命令以非零状态退出；每条媒体警告的 `archive_media_failed` 位于 `error.details.warnings[].code`。
 
 ### 远端写操作安全
 

@@ -381,7 +381,7 @@ Common options:
 
 Use `tg <command> --help` to inspect command-specific options. For example, `listen` supports reconnection and plain-text modes, while `search` supports sender, time, regular-expression, and result-limit filters.
 
-Stable error codes added for these capabilities include `account_logged_out`, `account_identity_mismatch`, `contact_not_found`, `invalid_notification_duration`, `folder_not_found`, `ambiguous_folder`, `folder_operation_unsupported`, `password_required`, `password_invalid`, `archive_account_mismatch`, `archive_failed`, `archive_partial_failure`, `archive_media_failed` (in archive warnings), `write_access_disabled`, and `flood_wait`. Structured output exposes these codes under `error.code`, with operation-specific details where available.
+Stable top-level command error codes added for these capabilities include `account_logged_out`, `account_identity_mismatch`, `contact_not_found`, `invalid_notification_duration`, `folder_not_found`, `ambiguous_folder`, `folder_operation_unsupported`, `password_required`, `password_invalid`, `archive_account_mismatch`, `archive_failed`, `archive_partial_failure`, `write_access_disabled`, and `flood_wait`. Structured output exposes these codes under `error.code`, with operation-specific details where available. When an attachment fails but the archive retains partial results, the top-level code is `archive_partial_failure`, the command exits nonzero, and each media warning uses `archive_media_failed` under `error.details.warnings[].code`.
 
 ### Remote write safety
 
