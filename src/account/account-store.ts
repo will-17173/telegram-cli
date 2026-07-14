@@ -2,17 +2,34 @@ import {
   chmodSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 const DEFAULT_LOCK_TIMEOUT_MS = 200
 const DEFAULT_LOCK_RETRY_MS = 10
 const DEFAULT_LOCK_STALE_MS = 1_000
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+const LOCK_OWNER_FILE = 'owner'
+
+export type AccountStoreOptions = {
+  chmodPath?: (path: string, mode: number) => void
+  lockHeartbeatMs?: number
+  lockRetryMs?: number
+  lockStaleMs?: number
+  lockTimeoutMs?: number
+  lockOperations?: {
+    removePath?: (path: string) => void
+    renamePath?: (source: string, destination: string) => void
+    writeOwner?: (path: string, owner: string) => void
+  }
+}
 
 export type AccountMeta = {
   name: string
@@ -62,9 +79,32 @@ const EMPTY_REGISTRY: AccountRegistry = {
 
 export class AccountStore {
   private readonly lockPath: string
+  private readonly lockOwnerPath: string
+  private readonly chmodPath: (path: string, mode: number) => void
+  private readonly lockHeartbeatMs: number
+  private readonly lockRetryMs: number
+  private readonly lockStaleMs: number
+  private readonly lockTimeoutMs: number
+  private readonly removeLockPath: (path: string) => void
+  private readonly renameLockPath: (source: string, destination: string) => void
+  private readonly writeLockOwner: (path: string, owner: string) => void
 
-  constructor(private readonly path: string) {
+  constructor(private readonly path: string, options: AccountStoreOptions = {}) {
     this.lockPath = `${this.path}.lock`
+    this.lockOwnerPath = join(this.lockPath, LOCK_OWNER_FILE)
+    this.chmodPath = options.chmodPath ?? chmodSync
+    this.lockStaleMs = options.lockStaleMs ?? DEFAULT_LOCK_STALE_MS
+    this.lockHeartbeatMs = options.lockHeartbeatMs ?? Math.max(10, Math.floor(this.lockStaleMs / 3))
+    this.lockRetryMs = options.lockRetryMs ?? DEFAULT_LOCK_RETRY_MS
+    this.lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS
+    this.removeLockPath = options.lockOperations?.removePath ?? ((path) => rmSync(path, { recursive: true, force: true }))
+    this.renameLockPath = options.lockOperations?.renamePath ?? renameSync
+    this.writeLockOwner = options.lockOperations?.writeOwner ?? ((path, owner) => {
+      writeFileSync(path, owner, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+    })
+    if (!validLockTimings(this.lockHeartbeatMs, this.lockRetryMs, this.lockStaleMs, this.lockTimeoutMs)) {
+      throw new AccountStoreError('account_store_error: invalid lock timing options')
+    }
   }
 
   read(): AccountRegistry {
@@ -130,9 +170,8 @@ export class AccountStore {
     let written = false
     try {
       writeFileSync(temporaryPath, serialized, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
-      chmodSync(temporaryPath, 0o600)
+      this.chmodPath(temporaryPath, 0o600)
       renameSync(temporaryPath, this.path)
-      chmodSync(this.path, 0o600)
       written = true
     } finally {
       if (!written) {
@@ -160,11 +199,13 @@ export class AccountStore {
   }
 
   async withLock<T>(fn: () => Promise<T> | T): Promise<T> {
-    await this.acquireLock()
+    const owner = await this.acquireLock()
+    const heartbeat = this.startHeartbeat(owner)
     try {
       return await fn()
     } finally {
-      this.releaseLock()
+      clearInterval(heartbeat)
+      this.releaseLock(owner)
     }
   }
 
@@ -220,45 +261,196 @@ export class AccountStore {
     })
   }
 
-  private async acquireLock(): Promise<void> {
+  private async acquireLock(): Promise<string> {
     const start = Date.now()
     const parent = dirname(this.path)
+    const owner = randomUUID()
     mkdirSync(parent, { recursive: true })
 
     while (true) {
       try {
         mkdirSync(this.lockPath)
-        return
       } catch (error) {
         if (!isNodeError(error) || error.code !== 'EEXIST') {
           throw new AccountStoreError(`account_store_error: unable to create lock: ${errorMessage(error)}`)
         }
 
-        if (this.isLockExpired()) {
-          rmSync(this.lockPath, { recursive: true, force: true })
-          continue
-        }
+        this.isolateAndReapExpiredLock()
 
-        if (Date.now() - start > DEFAULT_LOCK_TIMEOUT_MS) {
+        if (Date.now() - start > this.lockTimeoutMs) {
           throw new AccountStoreError('account_store_error: unable to acquire lock in time')
         }
-        await sleep(DEFAULT_LOCK_RETRY_MS)
+        await sleep(this.lockRetryMs)
+        continue
       }
+
+      try {
+        this.writeLockOwner(this.lockOwnerPath, owner)
+      } catch (error) {
+        throw new AccountStoreError(`account_store_error: unable to record lock ownership: ${errorMessage(error)}`)
+      }
+
+      const blockingIsolatedLock = this.findBlockingIsolatedLock()
+      if (blockingIsolatedLock) {
+        this.releaseLock(owner)
+        this.restoreIsolatedLock(blockingIsolatedLock)
+        await sleep(this.lockRetryMs)
+        continue
+      }
+      return owner
     }
   }
 
-  private releaseLock(): void {
-    rmSync(this.lockPath, { recursive: true, force: true })
+  private startHeartbeat(owner: string): ReturnType<typeof setInterval> {
+    const heartbeat = setInterval(() => {
+      if (this.readLockOwner() !== owner) return
+      try {
+        const now = new Date()
+        utimesSync(this.lockOwnerPath, now, now)
+      } catch {
+        // The lease may have been externally removed or replaced.
+      }
+    }, this.lockHeartbeatMs)
+    heartbeat.unref()
+    return heartbeat
   }
 
-  private isLockExpired(): boolean {
+  private releaseLock(owner: string): void {
+    while (true) {
+      const isolatedPath = this.isolateCanonicalLock('release')
+      if (!isolatedPath) {
+        const reapingPath = this.findIsolatedLockOwnedBy(owner)
+        if (!reapingPath) return
+        if (!this.finalizeIsolatedLock(reapingPath)) continue
+        return
+      }
+      if (this.readLockOwner(isolatedPath) !== owner) {
+        this.restoreIsolatedLock(isolatedPath)
+        const reapingPath = this.findIsolatedLockOwnedBy(owner)
+        if (reapingPath && !this.finalizeIsolatedLock(reapingPath)) continue
+        return
+      }
+
+      if (this.finalizeIsolatedLock(isolatedPath)) return
+    }
+  }
+
+  private finalizeIsolatedLock(isolatedPath: string): boolean {
+    const deletingPath = `${this.lockPath}.deleting-${randomUUID()}`
     try {
-      const lockStats = statSync(this.lockPath)
-      return Date.now() - lockStats.mtimeMs > DEFAULT_LOCK_STALE_MS
+      this.renameLockPath(isolatedPath, deletingPath)
+    } catch (error) {
+      if (!exists(isolatedPath)) return false
+      throw new AccountStoreError(`account_store_error: unable to finalize lock release: ${errorMessage(error)}`)
+    }
+    this.removeLockPath(deletingPath)
+    return true
+  }
+
+  private isLockExpired(path: string): boolean {
+    try {
+      const ownerPath = join(path, LOCK_OWNER_FILE)
+      const leasePath = exists(ownerPath) ? ownerPath : path
+      const lockStats = statSync(leasePath)
+      return Date.now() - lockStats.mtimeMs > this.lockStaleMs
     } catch (error) {
       if (isNodeError(error) && error.code === 'ENOENT') return false
       throw new AccountStoreError(`account_store_error: failed to check lock: ${errorMessage(error)}`)
     }
+  }
+
+  private isolateAndReapExpiredLock(): void {
+    const observedOwner = this.readLockOwner()
+    if (!this.isLockExpired(this.lockPath)) return
+    const isolatedPath = this.isolateCanonicalLock('reap')
+    if (!isolatedPath) return
+    if (this.readLockOwner(isolatedPath) === observedOwner && this.isLockExpired(isolatedPath)) {
+      this.removeLockPath(isolatedPath)
+      return
+    }
+    this.restoreIsolatedLock(isolatedPath)
+  }
+
+  private isolateCanonicalLock(purpose: 'reap' | 'release'): string | undefined {
+    const isolatedPath = `${this.lockPath}.isolated-${purpose}-${randomUUID()}`
+    try {
+      this.renameLockPath(this.lockPath, isolatedPath)
+      return isolatedPath
+    } catch (error) {
+      if (isNodeError(error) && error.code === 'ENOENT') return undefined
+      throw new AccountStoreError(`account_store_error: unable to isolate lock: ${errorMessage(error)}`)
+    }
+  }
+
+  private restoreIsolatedLock(isolatedPath: string): void {
+    try {
+      this.renameLockPath(isolatedPath, this.lockPath)
+    } catch (error) {
+      if (exists(this.lockPath) || !exists(isolatedPath)) return
+      throw new AccountStoreError(`account_store_error: unable to restore isolated lock: ${errorMessage(error)}`)
+    }
+  }
+
+  private findBlockingIsolatedLock(): string | undefined {
+    const parent = dirname(this.lockPath)
+    const prefix = `${basename(this.lockPath)}.isolated-`
+    for (const name of readdirSync(parent)) {
+      if (!name.startsWith(prefix)) continue
+      const isolatedPath = join(parent, name)
+      if (this.isLockExpired(isolatedPath)) {
+        this.removeLockPath(isolatedPath)
+        continue
+      }
+      return isolatedPath
+    }
+    return undefined
+  }
+
+  private findIsolatedLockOwnedBy(owner: string): string | undefined {
+    const parent = dirname(this.lockPath)
+    const prefix = `${basename(this.lockPath)}.isolated-reap-`
+    for (const name of readdirSync(parent)) {
+      if (!name.startsWith(prefix)) continue
+      const isolatedPath = join(parent, name)
+      if (this.readLockOwner(isolatedPath) === owner) return isolatedPath
+    }
+    return undefined
+  }
+
+  private readLockOwner(lockPath = this.lockPath): string | undefined {
+    try {
+      return readFileSync(join(lockPath, LOCK_OWNER_FILE), 'utf8')
+    } catch {
+      return undefined
+    }
+  }
+}
+
+function validLockTimings(heartbeatMs: number, retryMs: number, staleMs: number, timeoutMs: number): boolean {
+  return (
+    Number.isSafeInteger(heartbeatMs)
+    && Number.isSafeInteger(retryMs)
+    && Number.isSafeInteger(staleMs)
+    && Number.isSafeInteger(timeoutMs)
+    && heartbeatMs > 0
+    && retryMs > 0
+    && staleMs > 0
+    && timeoutMs > 0
+    && heartbeatMs <= MAX_TIMER_DELAY_MS
+    && retryMs <= MAX_TIMER_DELAY_MS
+    && staleMs <= MAX_TIMER_DELAY_MS
+    && timeoutMs <= MAX_TIMER_DELAY_MS
+    && heartbeatMs * 2 < staleMs
+  )
+}
+
+function exists(path: string): boolean {
+  try {
+    statSync(path)
+    return true
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return false
+    throw error
   }
 }
 

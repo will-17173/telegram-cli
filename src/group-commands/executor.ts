@@ -14,6 +14,7 @@ export interface GroupCommandExecutorContext {
   readonly connectionReady?: boolean
   readonly targetAvailable?: boolean
   readonly targetCount?: number
+  readonly ownershipPassword?: string
   readonly invalidateGroup?: (chat: string | number) => void | Promise<void>
 }
 export type GroupCommandExecutionResult = HandlerResult<GroupWriteServiceResult> | {
@@ -22,6 +23,9 @@ export type GroupCommandExecutionResult = HandlerResult<GroupWriteServiceResult>
 } | {
   readonly ok: false
   readonly selectionRequired: { readonly kind: 'admin_permissions'; readonly chat: string | number; readonly target: string; readonly available: typeof ADMIN_RIGHT_KEYS }
+} | {
+  readonly ok: false
+  readonly secretRequired: { readonly kind: 'ownership_password' }
 }
 
 export async function executeGroupCommand(request: ParsedGroupCommandRequest, context: GroupCommandExecutorContext): Promise<GroupCommandExecutionResult> {
@@ -40,9 +44,16 @@ export async function executeGroupCommand(request: ParsedGroupCommandRequest, co
     const confirmation = confirmationContext(request, context)
     return { ok: false, confirmation: { risk: request.definition.risk, chat: context.chat, summary: request.definition.summary, ...confirmation, ...(request.definition.risk === 'confirm-title' && context.knownGroup ? { title: context.knownGroup.title } : {}) } }
   }
-  const result = await context.groups.execute({ ...request, chat: context.chat })
+  if (request.key === 'admin transfer-owner' && !context.ownershipPassword) {
+    return { ok: false, secretRequired: { kind: 'ownership_password' } }
+  }
+  const result = request.key === 'admin transfer-owner'
+    ? await context.groups.execute({ ...request, chat: context.chat }, { ownershipPassword: context.ownershipPassword! })
+    : await context.groups.execute({ ...request, chat: context.chat })
   if (result.ok && !isReadOnlyGroupCommand(key) && context.invalidateGroup) {
-    await Promise.resolve(context.invalidateGroup(context.chat)).catch(() => undefined)
+    const invalidation = Promise.resolve(context.invalidateGroup(context.chat)).catch(() => undefined)
+    if (request.key === 'admin transfer-owner') void invalidation
+    else await invalidation
   }
   return result
 }

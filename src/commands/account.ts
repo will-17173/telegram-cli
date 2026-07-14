@@ -2,21 +2,25 @@ import { mkdtempSync, mkdirSync, renameSync, rmSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline/promises'
-import { TelegramClient } from '@mtcute/node'
 import type { Command } from 'commander'
 
-import { getAccountRegistryPath, getDataDir, getTelegramCredentials, getTelegramProxy } from '../config/env.js'
+import { getAccountRegistryPath, getDataDir } from '../config/env.js'
+import { authenticateAccountAt, mapAuthUser, type AuthenticatedSession } from '../account/account-authenticator.js'
 import { AccountStore, type AccountMeta } from '../account/account-store.js'
-import { accountSessionPath } from '../account/account-presets.js'
-import { telegramTransportOptions } from '../telegram/proxy.js'
+import { accountDbPath, accountSessionPath } from '../account/account-presets.js'
 import { outputFormatConflict, type HandlerResult, type OutputFlags } from './types.js'
 import { renderResult } from '../cli/output.js'
+import { AccountSessionService } from '../services/account-session-service.js'
+import { createInterruptScope, isCliInterruptedError, readVisibleInput } from '../cli/secure-input.js'
 
 type AccountOperationOptions = OutputFlags
 type AddAccountOptions = OutputFlags
 type SwitchAccountOptions = OutputFlags
 type RemoveAccountOptions = OutputFlags & {
   force?: boolean
+}
+type LogoutAccountOptions = OutputFlags & {
+  yes?: boolean
 }
 
 type CodedError = Error & {
@@ -310,6 +314,125 @@ export function registerAccountCommands(app: Command): void {
         }
       }, command)
     })
+
+  account.command('logout [name]')
+    .description('Log out a Telegram account while keeping local messages')
+    .option('--yes', 'Confirm logout without prompting')
+    .option('--json')
+    .option('--yaml')
+    .action(async (name: string | undefined, options: LogoutAccountOptions, command: Command) => {
+      await runAccountCommand(options, async () => {
+        const dataDir = getDataDir()
+        const store = new AccountStore(getAccountRegistryPath(dataDir))
+        const registry = store.read()
+        const selectedName = name ?? registry.current_account
+        if (selectedName === null) {
+          return {
+            ok: false,
+            error: {
+              code: 'account_required',
+              message: 'No current account is set. Provide an account name or select one with tg account switch <name>.',
+            },
+          }
+        }
+
+        const account = registry.accounts.find((candidate) => candidate.name === selectedName)
+        if (!account) {
+          return {
+            ok: false,
+            error: {
+              code: 'account_not_found',
+              message: `Account "${selectedName}" is not registered.`,
+            },
+          }
+        }
+
+        if (!options.yes) {
+          if (process.stdin.isTTY !== true) {
+            return {
+              ok: false,
+              error: {
+                code: 'confirmation_required',
+                message: `Log out ${selectedName} while keeping local messages? Use --yes to confirm.`,
+              },
+            }
+          }
+
+          const confirmed = await confirmLogout(selectedName)
+          if (!confirmed) return accountSessionResult(account, false, dataDir, 'Account logout cancelled')
+        }
+
+        const service = new AccountSessionService({ dataDir, store })
+        const result = await service.logout({ name: selectedName })
+        return result.ok
+          ? accountSessionResult(result.data.account, result.data.changed, dataDir, 'Account logged out')
+          : result
+      }, command)
+    })
+
+  account.command('login <name>')
+    .description('Log in to an existing Telegram account')
+    .option('--json')
+    .option('--yaml')
+    .action(async (name: string, options: AccountOperationOptions, command: Command) => {
+      await runAccountCommand(options, async () => {
+        const dataDir = getDataDir()
+        const store = new AccountStore(getAccountRegistryPath(dataDir))
+        const service = new AccountSessionService({ dataDir, store })
+        const result = await service.login({ name, interactive: process.stdin.isTTY === true })
+        if (!result.ok) return result
+        return {
+          ...result,
+          human: {
+            kind: 'detail' as const,
+            title: 'Account logged in',
+            fields: [
+              { label: 'Name', value: result.data.account.name },
+              { label: 'Auth state', value: result.data.account.auth_state, tone: 'success' as const },
+            ],
+          },
+        }
+      }, command)
+    })
+}
+
+async function confirmLogout(name: string): Promise<boolean> {
+  const interrupt = createInterruptScope()
+  try {
+    const answer = await readVisibleInput(`Log out ${name} while keeping local messages? [y/N]`, {
+      output: process.stderr,
+      signal: interrupt.signal,
+    })
+    return /^y(?:es)?$/i.test(answer.trim())
+  } finally {
+    interrupt.dispose()
+  }
+}
+
+function accountSessionResult(
+  account: AccountMeta,
+  changed: boolean,
+  dataDir: string,
+  title: string,
+): HandlerResult {
+  const retainedDbPath = accountDbPath(dataDir, account.name)
+  return {
+    ok: true,
+    data: {
+      account,
+      changed,
+      retained_db_path: retainedDbPath,
+    },
+    human: {
+      kind: 'detail',
+      title,
+      fields: [
+        { label: 'Name', value: account.name },
+        { label: 'Auth state', value: account.auth_state, tone: account.auth_state === 'logged_out' ? 'warning' : 'success' },
+        { label: 'Retained messages DB', value: retainedDbPath },
+      ],
+    },
+  }
 }
 
 async function promptForAccount(store: AccountStore, options: SwitchAccountOptions): Promise<string | HandlerResult<never>> {
@@ -372,6 +495,11 @@ async function runAccountCommand(
     const result = await handler()
     await renderResult(result, effectiveOptions)
   } catch (error) {
+    if (isCliInterruptedError(error)) {
+      await renderResult({ ok: false, error: { code: error.code, message: error.message } }, effectiveOptions)
+      process.exitCode = error.exitCode
+      return
+    }
     await renderResult(unwrapFailure(error, 'account_store_error'), effectiveOptions)
   }
 }
@@ -392,13 +520,11 @@ async function addAccount(): Promise<{
   const temporaryAccountDir = mkdtempSync(join(dataDir, 'tmp-account-'))
   const temporarySessionPath = join(temporaryAccountDir, 'session')
 
-  const credentials = getTelegramCredentials()
-  let auth: { getMe: () => Promise<AuthUser>; close: () => Promise<void> } | undefined
+  let auth: AuthenticatedSession | undefined
 
   try {
-    auth = await authenticateAccount(temporarySessionPath, credentials)
-    const user = await auth.getMe()
-    const mapped = mapAuthUser(user)
+    auth = await authenticateAccountAt(temporarySessionPath)
+    const mapped = mapAuthUser(auth.user)
     await auth.close()
     auth = undefined
 
@@ -457,69 +583,6 @@ async function addAccount(): Promise<{
       await auth.close()
     }
     rmSync(temporaryAccountDir, { recursive: true, force: true })
-  }
-}
-
-type AuthUser = {
-  id: number
-  displayName?: string | null
-  firstName?: string | null
-  lastName?: string | null
-  username?: string | null
-  phoneNumber?: string | null
-}
-
-async function authenticateAccount(sessionPath: string, credentials: ReturnType<typeof getTelegramCredentials>): Promise<{ getMe: () => Promise<AuthUser>; close: () => Promise<void> }> {
-  const client = new TelegramClient({
-    apiId: credentials.apiId,
-    apiHash: credentials.apiHash,
-    storage: sessionPath,
-    ...telegramTransportOptions(getTelegramProxy()),
-  }) as unknown as {
-    start: () => Promise<void>
-    getMe: () => Promise<AuthUser>
-    destroy: () => Promise<void>
-  }
-
-  try {
-    await client.start()
-    return {
-      getMe: () => client.getMe(),
-      close: () => client.destroy(),
-    }
-  } catch (error) {
-    await client.destroy().catch(() => undefined)
-    throwCodeError('account_login_failed', errorMessage(error))
-  }
-}
-
-function mapAuthUser(user: AuthUser): {
-  user_id: number
-  username: string
-  phone: string
-  display_name: string
-  name: string
-} {
-  const displayName = user.displayName?.trim()
-  const displayNameFallback = [
-    user.firstName,
-    user.lastName,
-  ].filter((value): value is string => value != null && value.trim().length > 0).join(' ')
-
-  const username = user.username?.trim() || `user-${user.id}`
-  const phone = (user.phoneNumber ?? '').replace(/\D/g, '') || String(user.id)
-  const preferredName = user.username?.trim().toLowerCase() || ''
-  const name = preferredName.length > 0 ? preferredName : phone
-  const resolvedDisplayName = displayName && displayName.length > 0
-    ? displayName
-    : displayNameFallback
-
-  return {
-    user_id: user.id,
-    username: username.toLowerCase(),
-    phone,
-    display_name: resolvedDisplayName.length > 0 ? normalizeDisplayName(resolvedDisplayName) : username,
-    name,
   }
 }
 

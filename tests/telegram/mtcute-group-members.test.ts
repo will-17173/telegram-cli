@@ -9,6 +9,10 @@ import {
   TelegramGroupNotFoundError,
   TelegramGroupPasswordRequiredError,
 } from '../../src/telegram/group-types.js'
+import {
+  TelegramGroupOwnershipTransferError, TelegramGroupPasswordInvalidError, TelegramGroupPasswordTooFreshError,
+  TelegramGroupSessionTooFreshError,
+} from '../../src/telegram/group-write-types.js'
 import { MtcuteGroupMembers } from '../../src/telegram/mtcute-group-members.js'
 
 const rights = {
@@ -118,18 +122,85 @@ describe('MtcuteGroupMembers', () => {
     expect(client.editChatMemberRank).toHaveBeenCalledWith({ chatId: -100123, participantId: 7, rank: 'Lead' })
   })
 
-  it('ensures readiness first then rejects ownership transfer without invoking Telegram RPC', async () => {
+  it('resolves ownership transfer targets and delegates the password to mtcute', async () => {
     const order: string[] = []
     const client = mockClient({
       getChat: vi.fn(async () => { order.push('chat'); return group() }),
+      getChatMember: vi.fn().mockResolvedValue(member(42)),
       transferChatOwnership: vi.fn(async () => { order.push('rpc') }),
     })
     const adapter = new MtcuteGroupMembers(client, async () => { order.push('ready') })
 
-    await expect(adapter.transferOwnership({ chat: -100123, user: 7 })).rejects.toBeInstanceOf(TelegramGroupPasswordRequiredError)
-    expect(order).toEqual(['ready'])
-    expect(client.getChat).not.toHaveBeenCalled()
+    const result = await adapter.transferOwnership({ chat: '@team', user: '@alice', password: 'secret' })
+
+    expect(order).toEqual(['ready', 'chat', 'rpc'])
+    expect(client.getChatMember).toHaveBeenCalledWith({ chatId: '@team', userId: '@alice' })
+    expect(client.transferChatOwnership).toHaveBeenCalledWith({ chatId: '@team', userId: 42, password: 'secret' })
+    expect(result).toEqual({ operation: 'transferOwnership', chat_id: -100123, target_id: 42 })
+    expect(JSON.stringify(result)).not.toContain('secret')
+  })
+
+  it.each([
+    [new tl.RpcError(400, 'PASSWORD_HASH_INVALID'), TelegramGroupPasswordInvalidError, undefined],
+    [Object.assign(new tl.RpcError(400, 'PASSWORD_TOO_FRESH_%d'), { seconds: 3600 }), TelegramGroupPasswordTooFreshError, 3600],
+    [Object.assign(new tl.RpcError(400, 'SESSION_TOO_FRESH_%d'), { seconds: 7200 }), TelegramGroupSessionTooFreshError, 7200],
+    [new tl.RpcError(400, 'SESSION_PASSWORD_NEEDED'), TelegramGroupPasswordRequiredError, undefined],
+    [new tl.RpcError(400, 'PASSWORD_EMPTY'), TelegramGroupPasswordRequiredError, undefined],
+    [new tl.RpcError(400, 'PASSWORD_MISSING'), TelegramGroupPasswordRequiredError, undefined],
+    [new tl.RpcError(400, 'PASSWORD_REQUIRED'), TelegramGroupPasswordRequiredError, undefined],
+  ])('maps ownership RPC error %s without retaining the password', async (failure, ExpectedError, seconds) => {
+    const client = mockClient({ transferChatOwnership: vi.fn().mockRejectedValue(failure) })
+    const password = 'ownership-secret'
+    const error = await new MtcuteGroupMembers(client, vi.fn())
+      .transferOwnership({ chat: -100123, user: 7, password }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ExpectedError)
+    if (seconds !== undefined) expect(error).toMatchObject({ seconds })
+    expect(JSON.stringify(error)).not.toContain(password)
+    expect((error as Error).message).not.toContain(password)
+  })
+
+  it('sanitizes arbitrary ownership transfer failures', async () => {
+    const password = 'ownership-secret'
+    const client = mockClient({
+      transferChatOwnership: vi.fn().mockRejectedValue(Object.assign(new Error(`failed ${password}`), {
+        request: { chatId: -100123, userId: 7, password },
+      })),
+    })
+    const error = await new MtcuteGroupMembers(client, vi.fn())
+      .transferOwnership({ chat: -100123, user: 7, password }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TelegramGroupOwnershipTransferError)
+    expect(JSON.stringify(error)).not.toContain(password)
+    expect((error as Error).message).not.toContain(password)
+    expect(error).not.toHaveProperty('request')
+  })
+
+  it('preserves unresolved ownership targets as member-not-found errors', async () => {
+    const password = 'ownership-secret'
+    const client = mockClient({ getChatMember: vi.fn().mockResolvedValue(null) })
+    const error = await new MtcuteGroupMembers(client, vi.fn())
+      .transferOwnership({ chat: '@team', user: '@missing', password }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(TelegramGroupMemberNotFoundError)
     expect(client.transferChatOwnership).not.toHaveBeenCalled()
+    expect(JSON.stringify(error)).not.toContain(password)
+  })
+
+  it.each([
+    [new tl.RpcError(420, 'FLOOD_WAIT_14'), TelegramGroupFloodWaitError, { seconds: 14 }],
+    [new tl.RpcError(400, 'CHAT_ADMIN_REQUIRED'), TelegramGroupAdminRequiredError, undefined],
+    [new tl.RpcError(400, 'RIGHT_FORBIDDEN'), TelegramGroupAdminRequiredError, undefined],
+    [new tl.RpcError(400, 'PEER_ID_INVALID'), TelegramGroupMemberNotFoundError, undefined],
+  ])('preserves ordinary ownership write error %s for numeric targets', async (failure, ExpectedError, details) => {
+    const password = 'ownership-secret'
+    const client = mockClient({ transferChatOwnership: vi.fn().mockRejectedValue(failure) })
+    const error = await new MtcuteGroupMembers(client, vi.fn())
+      .transferOwnership({ chat: -100123, user: 7, password }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ExpectedError)
+    if (details !== undefined) expect(error).toMatchObject(details)
+    expect(JSON.stringify(error)).not.toContain(password)
   })
 
   it('resolves username targets to real member IDs instead of fabricating them', async () => {

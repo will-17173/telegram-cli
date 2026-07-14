@@ -36,7 +36,7 @@ describe('MtcuteGroupManagement', () => {
     await adapter.promoteAdmin({ chat: 1, user: 2, rights: adminRights })
     await adapter.demoteAdmin({ chat: 1, user: 2 })
     await adapter.setAdminRank({ chat: 1, user: 2, rank: 'Mod' })
-    await adapter.transferOwnership({ chat: 1, user: 2 })
+    await adapter.transferOwnership({ chat: 1, user: 2, password: 'secret' })
 
     expect([add, kick, ban, unban, mute, unmute, purge, promote, demote, rank, transfer].every((spy) => spy.mock.calls.length === 1)).toBe(true)
   })

@@ -40,7 +40,10 @@ export type FakeTelegramGroupManagementOptions = {
 }
 
 export type FakeGroupWriteResult = W.GroupWriteOperationResultMap[W.TelegramGroupWriteOperation]
-export type FakeGroupWriteCall = { [K in W.TelegramGroupWriteOperation]: { readonly operation: K; readonly request: W.GroupWriteOperationRequestMap[K] } }[W.TelegramGroupWriteOperation]
+type FakeRecordedWriteRequest<K extends W.TelegramGroupWriteOperation> = K extends 'transferOwnership'
+  ? Omit<W.GroupWriteOperationRequestMap[K], 'password'>
+  : W.GroupWriteOperationRequestMap[K]
+export type FakeGroupWriteCall = { [K in W.TelegramGroupWriteOperation]: { readonly operation: K; readonly request: FakeRecordedWriteRequest<K> } }[W.TelegramGroupWriteOperation]
 
 export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapter {
   readonly getGroupCalls: Array<string | number> = []
@@ -230,6 +233,11 @@ export class FakeTelegramGroupManagement implements TelegramGroupManagementAdapt
   }
 
   private recordWrite<K extends W.TelegramGroupWriteOperation>(operation: K, request: W.GroupWriteOperationRequestMap[K]): void {
+    if (operation === 'transferOwnership') {
+      const { password: _password, ...safeRequest } = request as W.TelegramTransferOwnershipRequest
+      this.writeCalls.push({ operation, request: cloneSerializable(safeRequest) } as FakeGroupWriteCall)
+      return
+    }
     this.writeCalls.push({ operation, request: cloneSerializable(request) } as FakeGroupWriteCall)
   }
 

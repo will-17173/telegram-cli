@@ -16,13 +16,39 @@ const AUTH_USER = {
   phoneNumber: '+86 138 0013 8000',
 }
 
+type AuthStartOptions = {
+  phone?: () => Promise<string>
+  code?: () => Promise<string>
+  password?: () => Promise<string>
+  codeSentCallback?: () => Promise<void> | void
+}
+
+let simulateInteractiveAuth = false
+let interruptInteractiveAuthAt: 'phone' | 'code' | 'password' | undefined
+
 const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient(this: { storage: string }, options: { storage: string }) {
   const client = {
-    start: vi.fn(async () => {
+    start: vi.fn(async (startOptions?: AuthStartOptions) => {
+      if (simulateInteractiveAuth) {
+        if (!startOptions?.phone || !startOptions.code || !startOptions.password || !startOptions.codeSentCallback) {
+          throw new Error('missing interactive authentication callbacks')
+        }
+        const phone = startOptions.phone()
+        if (interruptInteractiveAuthAt === 'phone') process.emit('SIGINT')
+        await phone
+        await startOptions.codeSentCallback()
+        const code = startOptions.code()
+        if (interruptInteractiveAuthAt === 'code') process.emit('SIGINT')
+        await code
+        const password = startOptions.password()
+        if (interruptInteractiveAuthAt === 'password') process.emit('SIGINT')
+        await password
+      }
       mkdirSync(dirname(options.storage), { recursive: true })
       writeFileSync(options.storage, 'uncommitted-session')
     }),
     getMe: vi.fn(async () => AUTH_USER),
+    logOut: vi.fn(async () => undefined),
     destroy: vi.fn(async () => {
       writeFileSync(options.storage, 'committed-session')
     }),
@@ -46,6 +72,8 @@ afterEach(() => {
   vi.unstubAllEnvs()
   vi.clearAllMocks()
   proxyTransportFromUrl.mockReset()
+  simulateInteractiveAuth = false
+  interruptInteractiveAuthAt = undefined
   process.exitCode = 0
 })
 
@@ -56,9 +84,16 @@ function createDataDir(): string {
 }
 
 function seedAccounts(dataDir: string, registry: {
-  version: 1
+  version: 1 | 2
   current_account: string | null
-  accounts: Array<{ name: string; user_id: number; username: string; phone: string; display_name: string }>
+  accounts: Array<{
+    name: string
+    user_id: number
+    username: string
+    phone: string
+    display_name: string
+    auth_state?: 'authenticated' | 'logged_out'
+  }>
 }): void {
   writeFileSync(getAccountRegistryPath(dataDir), `${JSON.stringify(registry, null, 2)}\n`)
 }
@@ -67,11 +102,13 @@ async function run(
   args: string[],
   dataDir: string,
   stdinIsTty = false,
-  stdinInput?: string,
+  stdinInput?: string | string[],
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   const originalStdoutWrite = process.stdout.write
   const originalStderrWrite = process.stderr.write
   const originalStdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY')
+  const originalStdinIsRaw = Object.getOwnPropertyDescriptor(process.stdin, 'isRaw')
+  const originalSetRawMode = Object.getOwnPropertyDescriptor(process.stdin, 'setRawMode')
   const stdout: string[] = []
   const stderr: string[] = []
 
@@ -85,13 +122,30 @@ async function run(
   }) as typeof process.stderr.write
 
   Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: stdinIsTty })
+  let stdinIsRaw = false
+  Object.defineProperty(process.stdin, 'isRaw', { configurable: true, get: () => stdinIsRaw })
+  Object.defineProperty(process.stdin, 'setRawMode', {
+    configurable: true,
+    value: (mode: boolean) => {
+      stdinIsRaw = mode
+      return process.stdin
+    },
+  })
   vi.stubEnv('DATA_DIR', dataDir)
   process.exitCode = 0
 
   try {
     const parsing = createApp().exitOverride().parseAsync(['node', 'tg', ...args])
     if (stdinInput != null) {
-      setImmediate(() => process.stdin.emit('data', `${stdinInput}\n`))
+      const inputs = Array.isArray(stdinInput) ? stdinInput : [stdinInput]
+      const sendInput = (index: number): void => {
+        if (index >= inputs.length) return
+        setImmediate(() => {
+          process.stdin.emit('data', `${inputs[index]}\n`)
+          sendInput(index + 1)
+        })
+      }
+      sendInput(0)
     }
     await parsing
   } finally {
@@ -102,6 +156,8 @@ async function run(
     } else {
       Object.defineProperty(process.stdin, 'isTTY', originalStdinIsTty)
     }
+    restoreProperty(process.stdin, 'isRaw', originalStdinIsRaw)
+    restoreProperty(process.stdin, 'setRawMode', originalSetRawMode)
   }
 
   return {
@@ -109,6 +165,11 @@ async function run(
     stderr: stderr.join(''),
     code: Number(process.exitCode ?? 0),
   }
+}
+
+function restoreProperty(target: NodeJS.ReadStream, key: 'isRaw' | 'setRawMode', descriptor: PropertyDescriptor | undefined): void {
+  if (descriptor == null) delete (target as unknown as Record<string, unknown>)[key]
+  else Object.defineProperty(target, key, descriptor)
 }
 
 describe('account commands', () => {
@@ -366,6 +427,303 @@ describe('account commands', () => {
       expect(result.code).toBe(0)
       expect(payload.ok).toBe(true)
       expect(payload.data.account.display_name).toBe('漫漫长夜 W')
+    } finally {
+      Object.assign(AUTH_USER, originalAuthUser)
+    }
+  })
+
+  it('logs out a named account with explicit confirmation and retains its messages database', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+    const accountDir = join(dataDir, 'accounts', 'alice')
+    mkdirSync(accountDir, { recursive: true })
+    writeFileSync(join(accountDir, 'session'), 'existing-session')
+    writeFileSync(join(accountDir, 'messages.db'), 'retained-messages')
+
+    const result = await run(['account', 'logout', 'alice', '--yes', '--json'], dataDir)
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload).toMatchObject({
+      ok: true,
+      data: {
+        account: { name: 'alice', auth_state: 'logged_out' },
+        retained_db_path: join(accountDir, 'messages.db'),
+      },
+    })
+    expect(readFileSync(join(accountDir, 'messages.db'), 'utf8')).toBe('retained-messages')
+  })
+
+  it('uses the current account when logout name is omitted', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+    const accountDir = join(dataDir, 'accounts', 'alice')
+    mkdirSync(accountDir, { recursive: true })
+    writeFileSync(join(accountDir, 'session'), 'existing-session')
+
+    const result = await run(['account', 'logout', '--yes', '--json'], dataDir)
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload.data.account).toMatchObject({ name: 'alice', auth_state: 'logged_out' })
+  })
+
+  it('requires confirmation for non-interactive logout', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+
+    const result = await run(['account', 'logout', 'alice'], dataDir, false)
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain('confirmation_required')
+    expect(telegramClientFactory).not.toHaveBeenCalled()
+  })
+
+  it('writes the interactive logout prompt to stderr and declines without creating a client', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+
+    const result = await run(['account', 'logout', 'alice', '--json'], dataDir, true, 'n')
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(result.stderr).toContain('Log out alice while keeping local messages? [y/N]')
+    expect(payload).toMatchObject({ ok: true, data: { account: { name: 'alice' }, changed: false } })
+    expect(telegramClientFactory).not.toHaveBeenCalled()
+  })
+
+  it('logs in an existing account interactively and emits only the final YAML result on stdout', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+
+    const result = await run(['account', 'login', 'alice', '--yaml'], dataDir, true)
+    const payload = YAML.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload).toMatchObject({
+      ok: true,
+      data: { account: { name: 'alice', auth_state: 'authenticated' } },
+    })
+    expect(result.stdout).not.toContain('Log in')
+  })
+
+  it('writes mtcute login prompts to stderr and keeps JSON stdout structured', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+    simulateInteractiveAuth = true
+
+    const result = await run(
+      ['account', 'login', 'alice', '--json'],
+      dataDir,
+      true,
+      ['+8613800138000', '12345', 'secret-password'],
+    )
+
+    expect(result.code).toBe(0)
+    expect(() => JSON.parse(result.stdout)).not.toThrow()
+    expect(result.stdout.trimStart().startsWith('{')).toBe(true)
+    expect(result.stdout).not.toContain('Phone')
+    expect(result.stdout).not.toContain('code')
+    expect(result.stdout).not.toContain('password')
+    expect(result.stderr).toContain('Phone number: ')
+    expect(result.stderr).toContain('Login code: ')
+    expect(result.stderr).toContain('2FA password: ')
+  })
+
+  it('keeps structured account add stdout clean while authenticating interactively', async () => {
+    const dataDir = createDataDir()
+    simulateInteractiveAuth = true
+
+    const result = await run(
+      ['account', 'add', '--yaml'],
+      dataDir,
+      true,
+      ['+8613800138000', '12345', 'secret-password'],
+    )
+    const payload = YAML.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload).toMatchObject({ ok: true, data: { account: { name: 'aliceuser' } } })
+    expect(result.stdout).not.toContain('Phone number')
+    expect(result.stdout).not.toContain('Login code')
+    expect(result.stdout).not.toContain('2FA password')
+    expect(result.stderr).toContain('Phone number: ')
+    expect(result.stderr).toContain('Login code: ')
+    expect(result.stderr).toContain('2FA password: ')
+  })
+
+  it.each([
+    ['phone', []],
+    ['code', ['+8613800138000']],
+    ['password', ['+8613800138000', '12345']],
+  ] as const)('exits 130 on Ctrl-C during the %s login prompt', async (prompt, inputs) => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+    simulateInteractiveAuth = true
+    interruptInteractiveAuthAt = prompt
+
+    const result = await run(['account', 'login', 'alice', '--json'], dataDir, true, [...inputs])
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(130)
+    expect(payload).toMatchObject({ ok: false, error: { code: 'interrupted' } })
+  })
+
+  it('requires an interactive terminal before starting account login', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+
+    const result = await run(['account', 'login', 'alice', '--json'], dataDir, false)
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(1)
+    expect(payload).toMatchObject({ ok: false, error: { code: 'interaction_required' } })
+    expect(telegramClientFactory).not.toHaveBeenCalled()
+  })
+
+  it('returns unchanged for an authenticated account without requiring a TTY', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+
+    const result = await run(['account', 'login', 'alice', '--json'], dataDir, false)
+    const payload = JSON.parse(result.stdout)
+
+    expect(result.code).toBe(0)
+    expect(payload).toMatchObject({
+      ok: true,
+      data: { changed: false, account: { name: 'alice', auth_state: 'authenticated' } },
+    })
+    expect(telegramClientFactory).not.toHaveBeenCalled()
+  })
+
+  it('leaves account files untouched when login authenticates a different identity', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 2,
+      current_account: 'alice',
+      accounts: [{
+        name: 'alice',
+        user_id: 1001,
+        username: 'alice',
+        phone: '13800138000',
+        display_name: 'Alice',
+        auth_state: 'logged_out',
+      }],
+    })
+    const accountDir = join(dataDir, 'accounts', 'alice')
+    mkdirSync(accountDir, { recursive: true })
+    writeFileSync(join(accountDir, 'session'), 'original-session')
+    writeFileSync(join(accountDir, 'messages.db'), 'original-messages')
+    const originalAuthUser = { ...AUTH_USER }
+    AUTH_USER.id = 2002
+
+    try {
+      const result = await run(['account', 'login', 'alice', '--json'], dataDir, true)
+      const payload = JSON.parse(result.stdout)
+
+      expect(result.code).toBe(1)
+      expect(payload).toMatchObject({ ok: false, error: { code: 'account_identity_mismatch' } })
+      expect(readFileSync(join(accountDir, 'session'), 'utf8')).toBe('original-session')
+      expect(readFileSync(join(accountDir, 'messages.db'), 'utf8')).toBe('original-messages')
     } finally {
       Object.assign(AUTH_USER, originalAuthUser)
     }

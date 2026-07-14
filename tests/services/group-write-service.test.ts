@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import type { TelegramClient } from '@mtcute/node'
+import { describe, expect, it, vi } from 'vitest'
 import { parseGroupCommand } from '../../src/group-commands/parser.js'
 import { COMMAND_HANDLERS, GROUP_RESTRICTION_KEYS, GroupWriteService } from '../../src/services/group-write-service.js'
 import { FakeTelegramGroupManagement } from '../../src/telegram/fake-group-management.js'
@@ -9,12 +10,31 @@ import {
   TelegramGroupPasswordRequiredError, TelegramUnsupportedGroupTypeError,
 } from '../../src/telegram/group-types.js'
 import { WriteAccessPolicy } from '../../src/services/write-access-policy.js'
+import {
+  TelegramGroupOwnershipTransferError, TelegramGroupPasswordInvalidError, TelegramGroupPasswordTooFreshError,
+  TelegramGroupSessionTooFreshError,
+} from '../../src/telegram/group-write-types.js'
+import { MtcuteGroupMembers } from '../../src/telegram/mtcute-group-members.js'
 
 function request(source: string) {
   const parsed = parseGroupCommand(source)
   if (!parsed.ok) throw new Error(parsed.error.message)
   return { ...parsed.request, chat: 100 }
 }
+
+type TransferRequest = Extract<ReturnType<typeof request>, { readonly key: 'admin transfer-owner' }>
+type NonTransferRequest = Exclude<ReturnType<typeof request>, TransferRequest>
+function compileTimeExecutionSecretBoundary(service: GroupWriteService, transfer: TransferRequest, other: NonTransferRequest): void {
+  service.execute(transfer, { ownershipPassword: 'secret' })
+  // @ts-expect-error narrowed ownership transfer requests require an execution-secrets argument
+  service.execute(transfer)
+  // @ts-expect-error narrowed ownership transfer secrets require a password
+  service.execute(transfer, {})
+  service.execute(other)
+  // @ts-expect-error non-transfer requests must not accept ownership execution secrets
+  service.execute(other, { ownershipPassword: 'secret' })
+}
+void compileTimeExecutionSecretBoundary
 
 describe('GroupWriteService', () => {
   it('exports the complete default restriction whitelist', () => {
@@ -89,7 +109,11 @@ describe('GroupWriteService', () => {
     ['message pin 1', 'pinMessage'], ['message unpin 1', 'unpinMessage'], ['message unpin-all', 'unpinAllMessages'], ['message delete 1 2', 'deleteGroupMessages'],
   ])('covers catalog path %s with %s', async (source, operation) => {
     const groups = new FakeTelegramGroupManagement()
-    const result = await new GroupWriteService(groups).execute(request(source))
+    const service = new GroupWriteService(groups)
+    const command = request(source)
+    const result = source === 'admin transfer-owner 1'
+      ? await service.execute(command, { ownershipPassword: 'secret' })
+      : await service.execute(command)
     expect(result.ok).toBe(true)
     expect(groups.writeCalls[0]?.operation).toBe(operation)
   })
@@ -103,6 +127,10 @@ describe('GroupWriteService', () => {
     [new TelegramUnsupportedGroupTypeError(100), 'unsupported_group', { chat: 100 }],
     [new TelegramGroupFloodWaitError(12), 'flood_wait', { seconds: 12 }],
     [new TelegramGroupPasswordRequiredError(), 'password_required', undefined],
+    [new TelegramGroupPasswordInvalidError(), 'password_invalid', undefined],
+    [new TelegramGroupPasswordTooFreshError(30), 'password_too_fresh', { seconds: 30 }],
+    [new TelegramGroupSessionTooFreshError(60), 'session_too_fresh', { seconds: 60 }],
+    [new TelegramGroupOwnershipTransferError(), 'telegram_error', undefined],
     [new Error('safe failure'), 'telegram_error', undefined],
   ])('maps errors to %s', async (failure, code, details) => {
     const groups = new FakeTelegramGroupManagement({ writeFailures: { setTitle: failure } })
@@ -141,6 +169,156 @@ describe('GroupWriteService', () => {
       ban_users: true, delete_messages: true, change_info: false, invite_users: false,
       pin_messages: false, add_admins: false, manage_call: false, anonymous: false, manage_topics: false,
     } } })
+  })
+
+  it('requires an ephemeral password before transferring ownership', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const transfer = request('admin transfer-owner @alice')
+    const result = await new GroupWriteService(groups).execute(transfer)
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'password_required' } })
+    expect(groups.writeCalls).toHaveLength(0)
+    expect(JSON.stringify(transfer)).not.toContain('password')
+  })
+
+  it('passes ownership passwords outside parsed values and never returns them', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const transferSpy = vi.spyOn(groups, 'transferOwnership')
+    const transfer = request('admin transfer-owner @alice')
+    const snapshot = structuredClone(transfer)
+    const result = await new GroupWriteService(groups).execute(transfer, { ownershipPassword: 'bad-secret' })
+
+    expect(result.ok).toBe(true)
+    expect(transferSpy).toHaveBeenCalledWith({ chat: 100, user: '@alice', password: 'bad-secret' })
+    expect(groups.writeCalls).toEqual([{
+      operation: 'transferOwnership', request: { chat: 100, user: '@alice' },
+    }])
+    transferSpy.mockClear()
+    expect(transfer).toEqual(snapshot)
+    expect(JSON.stringify(transfer)).not.toContain('bad-secret')
+    expect(JSON.stringify(result)).not.toContain('bad-secret')
+  })
+
+  it('maps invalid ownership passwords without exposing the secret', async () => {
+    const password = 'bad-secret'
+    const groups = new FakeTelegramGroupManagement({
+      writeFailures: { transferOwnership: new TelegramGroupPasswordInvalidError() },
+    })
+    const result = await new GroupWriteService(groups).execute(
+      request('admin transfer-owner @alice'),
+      { ownershipPassword: password },
+    )
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'password_invalid' } })
+    expect(JSON.stringify(result)).not.toContain(password)
+  })
+
+  it('sanitizes ownership secrets from arbitrary adapter errors', async () => {
+    const password = 'bad-secret'
+    const groups = new FakeTelegramGroupManagement({
+      writeFailures: { transferOwnership: Object.assign(new Error(`failed ${password}`), {
+        request: { chat: 100, user: '@alice', password },
+      }) },
+    })
+    const result = await new GroupWriteService(groups).execute(
+      request('admin transfer-owner @alice'),
+      { ownershipPassword: password },
+    )
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'telegram_error' } })
+    expect(JSON.stringify(result)).not.toContain(password)
+    expect(result).not.toHaveProperty('error.details.request')
+  })
+
+  it('maps unresolved ownership usernames to member_not_found without exposing the secret', async () => {
+    const password = 'bad-secret'
+    const client = {
+      getChat: vi.fn().mockResolvedValue({ type: 'chat', id: 100, chatType: 'supergroup', title: 'Group' }),
+      getChatMember: vi.fn().mockResolvedValue(null),
+      transferChatOwnership: vi.fn().mockResolvedValue(undefined),
+    } as unknown as TelegramClient
+    const groups = new FakeTelegramGroupManagement()
+    const members = new MtcuteGroupMembers(client, vi.fn())
+    groups.transferOwnership = members.transferOwnership.bind(members)
+    const transfer = request('admin transfer-owner @missing')
+    const result = await new GroupWriteService(groups).execute(transfer, { ownershipPassword: password })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'member_not_found' } })
+    expect(client.transferChatOwnership).not.toHaveBeenCalled()
+    expect(JSON.stringify(result)).not.toContain(password)
+    expect(JSON.stringify(transfer)).not.toContain(password)
+  })
+
+  it.each([
+    [new TelegramGroupPasswordRequiredError(), 'password_required'],
+    [new TelegramGroupPasswordInvalidError(), 'password_invalid'],
+    [new TelegramGroupPasswordTooFreshError(Number.NaN), 'password_too_fresh'],
+    [new TelegramGroupSessionTooFreshError(Number.POSITIVE_INFINITY), 'session_too_fresh'],
+    [new TelegramGroupOwnershipTransferError(), 'telegram_error'],
+    [new TelegramGroupFloodWaitError(Number.NaN), 'flood_wait'],
+    [new TelegramGroupNotFoundError(100), 'group_not_found'],
+    [new TelegramGroupMemberNotFoundError(100, 7), 'member_not_found'],
+    [new TelegramGroupAdminRequiredError(100), 'admin_required'],
+    [new TelegramGroupMembersNotAddedError(100, [{ user_id: 7, reason: 'privacy' }]), 'members_not_added'],
+    [new TelegramGroupMissingPermissionError('ban_users'), 'permission_missing'],
+    [new TelegramUnsupportedGroupTypeError(100), 'unsupported_group'],
+  ])('sanitizes mutated recognized ownership error for %s', async (failure, code) => {
+    const password = 'bad-secret'
+    Object.assign(failure, {
+      message: `leaked ${password}`,
+      enumerableLeak: password,
+      cause: { password, request: { password } },
+    })
+    const groups = new FakeTelegramGroupManagement({ writeFailures: { transferOwnership: failure } })
+    const result = await new GroupWriteService(groups).execute(
+      request('admin transfer-owner @alice'),
+      { ownershipPassword: password },
+    )
+
+    expect(result).toMatchObject({ ok: false, error: { code } })
+    expect(JSON.stringify(result)).not.toContain(password)
+    expect(result).not.toHaveProperty('error.enumerableLeak')
+    expect(result).not.toHaveProperty('error.cause')
+    if ('seconds' in failure && !Number.isFinite(failure.seconds)) expect(result).not.toHaveProperty('error.details.seconds')
+  })
+
+  it.each([
+    [Object.assign(new TelegramGroupMembersNotAddedError(100, [{ user_id: 7, reason: 'privacy' }]), {
+      chat: 'bad-secret', missing: [{ user_id: 'bad-secret', reason: 'privacy' }],
+    }), 'members_not_added'],
+    [Object.assign(new TelegramGroupMissingPermissionError('ban_users'), { permission: 'bad-secret' }), 'permission_missing'],
+    [Object.assign(new TelegramUnsupportedGroupTypeError(100), { chat: 'bad-secret' }), 'unsupported_group'],
+  ])('drops unvalidated recognized error details for %s', async (failure, code) => {
+    const groups = new FakeTelegramGroupManagement({ writeFailures: { transferOwnership: failure } })
+    const result = await new GroupWriteService(groups).execute(
+      request('admin transfer-owner @alice'),
+      { ownershipPassword: 'bad-secret' },
+    )
+
+    expect(result).toMatchObject({ ok: false, error: { code } })
+    expect(JSON.stringify(result)).not.toContain('bad-secret')
+    expect(result).not.toHaveProperty('error.details')
+  })
+
+  it('does not consume ownership secrets for unrelated commands at runtime', async () => {
+    const groups = new FakeTelegramGroupManagement()
+    const result = await (new GroupWriteService(groups).execute as (
+      command: ReturnType<typeof request>, secrets: { ownershipPassword: string },
+    ) => Promise<Awaited<ReturnType<GroupWriteService['execute']>>>)(request('chat title Safe'), { ownershipPassword: 'bad-secret' })
+
+    expect(result.ok).toBe(true)
+    expect(groups.writeCalls).toEqual([{ operation: 'setTitle', request: { chat: 100, title: 'Safe' } }])
+    expect(JSON.stringify(result)).not.toContain('bad-secret')
+  })
+
+  it('preserves ordinary non-transfer failures when the secret type boundary is bypassed', async () => {
+    const groups = new FakeTelegramGroupManagement({ writeFailures: { setTitle: new Error('safe failure') } })
+    const result = await (new GroupWriteService(groups).execute as (
+      command: ReturnType<typeof request>, secrets: { ownershipPassword: string },
+    ) => Promise<Awaited<ReturnType<GroupWriteService['execute']>>>)(request('chat title Safe'), { ownershipPassword: 'bad-secret' })
+
+    expect(result).toEqual({ ok: false, error: { code: 'telegram_error', message: 'safe failure' } })
+    expect(JSON.stringify(result)).not.toContain('bad-secret')
   })
 
   it('rejects unknown administrator permission names at the service boundary', async () => {

@@ -23,6 +23,10 @@ import type { TelegramNotificationAdapter, TelegramNotificationState } from './n
 
 type FakeTelegramCall =
   | {
+    operation: 'logOut'
+    request: Record<string, never>
+  }
+  | {
     operation: 'readOnline'
     request: { chat: string | number; limit: number; since?: Date; until?: Date }
   }
@@ -71,6 +75,7 @@ export type FakeTelegramClientOptions = {
   getChatInfoFailures?: Record<string, Error>
   listenFailure?: Error
   listChatsFailure?: Error
+  logOutFailure?: Error
   notificationStates?: Record<string, TelegramNotificationState>
   setMuteUntilResult?: TelegramNotificationState
   folderSummaries?: TelegramFolderSummary[]
@@ -111,6 +116,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   private readonly getChatInfoFailures: Record<string, Error>
   private readonly listenFailure?: Error
   private readonly listChatsFailure?: Error
+  private readonly logOutFailure?: Error
   private readonly notificationStates: Record<string, TelegramNotificationState>
   private readonly setMuteUntilResult?: TelegramNotificationState
   private readonly folderSummaries: TelegramFolderSummary[]
@@ -154,6 +160,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     this.getChatInfoFailures = options.getChatInfoFailures ?? {}
     this.listenFailure = options.listenFailure
     this.listChatsFailure = options.listChatsFailure
+    this.logOutFailure = options.logOutFailure
     this.notificationStates = cloneNotificationStateMap(options.notificationStates ?? {})
     this.setMuteUntilResult = cloneNotificationStateOrUndefined(options.setMuteUntilResult)
     this.folderSummaries = (options.folderSummaries ?? []).map(cloneFolderSummary)
@@ -169,6 +176,11 @@ export class FakeTelegramClient implements TelegramClientAdapter {
 
   async close(): Promise<void> {
     this.closeCalls += 1
+  }
+
+  async logOut(): Promise<void> {
+    this.calls.push({ operation: 'logOut', request: {} })
+    if (this.logOutFailure) throw this.logOutFailure
   }
 
   async getCurrentUser(): Promise<TelegramUser> {

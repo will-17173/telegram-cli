@@ -12,14 +12,20 @@ const groups = vi.hoisted(() => ({
   listInvites: vi.fn(async () => ({ chat_id: 42, invites: [], total: 0 })),
   deleteTopic: vi.fn(async (request) => ({ operation: 'deleteTopic', chat_id: 42, target_id: request.topicId })),
   deleteGroupMessages: vi.fn(async () => ({ operation: 'deleteGroupMessages', chat_id: 42 })),
+  transferOwnership: vi.fn(async (request) => ({ operation: 'transferOwnership', chat_id: 42, target_id: request.user })),
   getGroup: vi.fn(),
 }))
 const client = vi.hoisted(() => ({ groups, close: vi.fn(async () => undefined) }))
 const createTelegramClient = vi.hoisted(() => vi.fn(() => client))
 const renderResult = vi.hoisted(() => vi.fn(async (result: { ok: boolean }) => { if (!result.ok) process.exitCode = 1 }))
+const readSecret = vi.hoisted(() => vi.fn())
 
 vi.mock('../../src/telegram/client-factory.js', () => ({ createTelegramClient }))
 vi.mock('../../src/cli/output.js', () => ({ renderResult }))
+vi.mock('../../src/cli/secure-input.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/cli/secure-input.js')>(),
+  readSecret,
+}))
 
 import { createApp } from '../../src/cli/app.js'
 import { GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
@@ -29,6 +35,7 @@ beforeEach(() => {
   dataDir = mkdtempSync(join(tmpdir(), 'tg-group-write-'))
   writeFileSync(join(dataDir, 'accounts.json'), `${JSON.stringify({ version: 1, current_account: 'alice', accounts: [{ name: 'alice', user_id: 1, username: 'alice', phone: '10001', display_name: 'Alice' }] })}\n`)
   vi.stubEnv('DATA_DIR', dataDir)
+  groups.getGroup.mockReset()
   groups.getGroup.mockResolvedValue({ id: 42, title: 'General', username: null, type: 'supergroup', member_count: 1, current_user_role: 'creator', current_user_rank: null, permissions: null, default_restrictions: null, slow_mode_seconds: null, message_ttl_seconds: null, content_protected: false, forum: true })
 })
 afterEach(() => {
@@ -87,6 +94,82 @@ describe('group write commands', () => {
     await run('group', 'member', 'ban', 'General', '@alice', '--yes', '--json')
     expect(groups.banMember).toHaveBeenCalledWith({ chat: 'General', user: '@alice', seconds: null })
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: true }), expect.objectContaining({ yes: true, json: true }))
+  })
+
+  it('prompts once after ownership transfer confirmation and never renders the password', async () => {
+    readSecret.mockResolvedValueOnce('secret')
+
+    await run('group', 'admin', 'transfer-owner', 'General', '@alice', '--yes', '--json')
+
+    expect(readSecret).toHaveBeenCalledOnce()
+    expect(readSecret).toHaveBeenCalledWith('Telegram 2FA password: ', { signal: expect.any(AbortSignal) })
+    expect(groups.getGroup).toHaveBeenCalledOnce()
+    expect(groups.getGroup).toHaveBeenCalledWith('General')
+    expect(groups.transferOwnership).toHaveBeenCalledOnce()
+    expect(groups.transferOwnership).toHaveBeenCalledWith({ chat: 'General', user: '@alice', password: 'secret' })
+    expect(JSON.stringify(renderResult.mock.calls)).not.toContain('secret')
+  })
+
+  it('rejects a known non-creator before prompting for an ownership password', async () => {
+    groups.getGroup.mockResolvedValue({
+      id: 42,
+      title: 'General',
+      username: null,
+      type: 'supergroup',
+      member_count: 1,
+      current_user_role: 'admin',
+      current_user_rank: null,
+      permissions: null,
+      default_restrictions: null,
+      slow_mode_seconds: null,
+      message_ttl_seconds: null,
+      content_protected: false,
+      forum: true,
+    })
+
+    await run('group', 'admin', 'transfer-owner', 'General', '@alice', '--yes', '--json')
+
+    expect(groups.getGroup).toHaveBeenCalledOnce()
+    expect(groups.getGroup).toHaveBeenCalledWith('General')
+    expect(readSecret).not.toHaveBeenCalled()
+    expect(groups.transferOwnership).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ok: false, error: { code: 'permission_missing', message: 'This command requires the group creator.' } }),
+      expect.objectContaining({ json: true }),
+    )
+  })
+
+  it('never asks for an ownership password when confirmation is declined', async () => {
+    await run('group', 'admin', 'transfer-owner', 'General', '@alice')
+    expect(readSecret).not.toHaveBeenCalled()
+    expect(groups.transferOwnership).not.toHaveBeenCalled()
+  })
+
+  it('returns interaction_required when ownership password input has no TTY', async () => {
+    const { InteractionRequiredError } = await import('../../src/cli/secure-input.js')
+    readSecret.mockRejectedValueOnce(new InteractionRequiredError())
+
+    await run('group', 'admin', 'transfer-owner', 'General', '@alice', '--yes', '--yaml')
+
+    expect(groups.transferOwnership).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ok: false, error: { code: 'interaction_required', message: 'Interactive terminal input is required.' } }),
+      expect.objectContaining({ yaml: true }),
+    )
+  })
+
+  it('preserves exit 130 when ownership password input is interrupted', async () => {
+    const { CliInterruptedError } = await import('../../src/cli/secure-input.js')
+    readSecret.mockRejectedValueOnce(new CliInterruptedError())
+
+    await run('group', 'admin', 'transfer-owner', 'General', '@alice', '--yes', '--json')
+
+    expect(groups.transferOwnership).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ok: false, error: { code: 'interrupted', message: 'Operation interrupted.' } }),
+      expect.objectContaining({ json: true }),
+    )
+    expect(process.exitCode).toBe(130)
   })
 
   it('requires explicit administrator permissions without opening an interactive selector', async () => {

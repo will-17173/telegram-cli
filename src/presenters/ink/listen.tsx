@@ -30,6 +30,7 @@ import { ADMIN_RIGHT_KEYS } from '../../services/group-write-service.js'
 import { WriteAccessPolicy } from '../../services/write-access-policy.js'
 import { GroupCommandConfirm } from './group-command-confirm.js'
 import { truncateCell } from './display-width.js'
+import { SecureInput } from './secure-input.js'
 
 export type ListenMessage = ListenMessageRow & {
   key: string
@@ -61,11 +62,13 @@ export type ListenRuntimeOptions = {
   showChatName: boolean
   createClient: () => TelegramClientAdapter
   stopSignal: AbortSignal
+  shutdownRequests?: { subscribe: (listener: () => void) => () => void }
   onRequestStop: () => void
   createReplyResolver?: (dbPath: string, limit: number) => ListenReplyResolver
 }
 
 const MESSAGE_SEPARATOR = '────────────────────────────────────────────'
+const OWNERSHIP_SHUTDOWN_GRACE_MS = 250
 /** Maximum number of grouped messages retained by a long-running interactive listener. */
 export const LISTEN_HISTORY_LIMIT = 500
 const LISTEN_IMAGE_PREVIEWS_ENABLED = false
@@ -337,16 +340,23 @@ export async function runInteractiveAutoDownloadLifecycle(options: {
     : null
   options.onCoordinator?.(coordinator)
   let currentClient: TelegramClientAdapter | null = null
+  let closeCurrentClient: (() => Promise<void>) | null = null
   const abort = () => {
     coordinator?.stop()
-    void currentClient?.close().catch(() => undefined)
+    void closeCurrentClient?.()
   }
   options.signal.addEventListener('abort', abort)
   try {
     while (!options.signal.aborted) {
       options.onStatus?.('connecting')
       const client = options.createClient()
+      let closePromise: Promise<void> | undefined
+      const closeClient = (): Promise<void> => {
+        closePromise ??= Promise.resolve().then(() => client.close()).catch(() => undefined)
+        return closePromise
+      }
       currentClient = client
+      closeCurrentClient = closeClient
       options.onClient?.(client)
       coordinator?.setClient(client)
       let retry = false
@@ -382,9 +392,10 @@ export async function runInteractiveAutoDownloadLifecycle(options: {
         } else {
           coordinator?.stop()
         }
-        await client.close().catch(() => undefined)
+        await closeClient()
         if (options.signal.aborted) await coordinator?.waitForActive()
         if (currentClient === client) currentClient = null
+        if (closeCurrentClient === closeClient) closeCurrentClient = null
         options.onClient?.(null)
       }
       if (!retry) break
@@ -618,6 +629,7 @@ export function InteractiveListen({
   stopSignal,
   onRequestStop,
   createReplyResolver,
+  shutdownRequests,
 }: ListenRuntimeOptions): React.JSX.Element {
   const { exit } = useApp()
   const { stdout } = useStdout()
@@ -635,12 +647,12 @@ export function InteractiveListen({
   const [knownGroup, setKnownGroup] = useState<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const replyExecutionLockRef = useRef(false)
-  const inputGenerationRef = useRef(0)
+  const inputGenerationRef = useRef<object>({})
   const commandSelectionRef = useRef(0)
   const knownGroupRef = useRef<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
-  const groupLookupGenerationRef = useRef(0)
+  const groupLookupGenerationRef = useRef<object>({})
   useEffect(() => {
-    groupLookupGenerationRef.current++
+    groupLookupGenerationRef.current = {}
     knownGroupRef.current = undefined
     setKnownGroup(undefined)
   }, [sendTo])
@@ -649,19 +661,25 @@ export function InteractiveListen({
     if (client == null) return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection is not ready.' } }
     if (sendTo == null) return { ok: false, error: { code: 'ambiguous_chat', message: 'Select exactly one target chat with --send-to.' } }
     let knownGroup = knownGroupRef.current
-    if (knownGroup == null) {
-      const lookup = ++groupLookupGenerationRef.current
+    const refreshOwnershipCapability = request.key === 'admin transfer-owner'
+      && options?.confirmed === true
+      && options.ownershipPassword == null
+    if (knownGroup == null || refreshOwnershipCapability) {
+      const lookup = {}
+      groupLookupGenerationRef.current = lookup
       knownGroup = await client.groups.getGroup(sendTo)
-      if (lookup === groupLookupGenerationRef.current && clientRef.current === client) {
-        knownGroupRef.current = knownGroup
-        setKnownGroup(knownGroup)
+      if (lookup !== groupLookupGenerationRef.current || clientRef.current !== client) {
+        return { ok: false, error: { code: 'connection_not_ready', message: 'Telegram connection changed during group verification.' } }
       }
+      knownGroupRef.current = knownGroup
+      setKnownGroup(knownGroup)
     }
     return executeGroupCommand(request, {
       chat: sendTo,
       groups: new GroupWriteService(client.groups),
       confirmed: options?.confirmed ?? false,
       confirmationTitle: options?.confirmationTitle,
+      ownershipPassword: options?.ownershipPassword,
       knownGroup,
       connectionReady: true,
       targetAvailable: true,
@@ -670,7 +688,8 @@ export function InteractiveListen({
         knownGroupRef.current = undefined
         setKnownGroup(undefined)
         if (request.key === 'chat delete' || request.key === 'chat leave') return
-        const lookup = ++groupLookupGenerationRef.current
+        const lookup = {}
+        groupLookupGenerationRef.current = lookup
         try {
           const refreshed = await client.groups.getGroup(sendTo)
           if (lookup === groupLookupGenerationRef.current && clientRef.current === client) {
@@ -683,6 +702,8 @@ export function InteractiveListen({
       },
     })
   }, [sendTo]))
+  const irreversibleGroupWriteRef = useRef(false)
+  irreversibleGroupWriteRef.current = groupCommand.state.kind === 'executing' && groupCommand.state.irreversible === true
   const terminalWidth = terminalMetrics.columns
   const terminalHeight = terminalMetrics.rows
   const previewColorDepth = interactiveListenPreviewColorDepth(terminalMetrics.colorDepth)
@@ -708,6 +729,38 @@ export function InteractiveListen({
   const operationControllerRef = useRef<InteractiveOperationController | null>(null)
   if (operationControllerRef.current == null) operationControllerRef.current = createInteractiveOperationController()
   const stoppingRef = useRef(false)
+  const lifecycleStopRef = useRef<AbortController | null>(null)
+  const deferredStopRef = useRef(false)
+  const shutdownRequestedRef = useRef(false)
+  const shutdownGraceTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  function requestOwnershipShutdown(source: 'terminal' | 'external'): void {
+    if (deferredStopRef.current || shutdownRequestedRef.current) {
+      deferredStopRef.current = false
+      shutdownRequestedRef.current = false
+      if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
+      shutdownGraceTimerRef.current = null
+      groupCommand.setState({ kind: 'error', message: 'Ownership transfer outcome is indeterminate after forced shutdown.' })
+      setTimeout(stopListening, 0)
+      return
+    }
+    if (source === 'terminal') {
+      deferredStopRef.current = true
+      setNote('Group write is already running; wait for its outcome.')
+      return
+    }
+    shutdownRequestedRef.current = true
+    setNote('Shutdown requested; waiting briefly for the ownership transfer outcome.')
+    shutdownGraceTimerRef.current = setTimeout(() => {
+      shutdownGraceTimerRef.current = null
+      groupCommand.setState({
+        kind: 'error',
+        message: 'Ownership transfer outcome is indeterminate because shutdown grace expired.',
+      })
+      setTimeout(stopListening, 0)
+    }, OWNERSHIP_SHUTDOWN_GRACE_MS)
+  }
+
   const seenRef = useRef<Set<string>>(new Set())
   const seenOrderRef = useRef<string[]>([])
   const downloadableAttachments = collectDownloadableAttachments(visibleMessages)
@@ -743,11 +796,20 @@ export function InteractiveListen({
 
   useInput((inputText, key) => {
     if (isMouseInput(inputText)) return
+    const modal = groupCommand.state
+    if (modal.kind === 'executing' && modal.irreversible === true) {
+      if (key.ctrl && (inputText === 'c' || inputText === 'C' || inputText === '\u0003')) {
+        requestOwnershipShutdown('terminal')
+      } else if (key.escape) {
+        setNote('Group write is already running; wait for its outcome.')
+      }
+      return
+    }
     if (key.ctrl && (inputText === 'c' || inputText === 'C' || inputText === '\u0003')) {
       stopListening()
       return
     }
-    const modal = groupCommand.state
+    if (modal.kind === 'password') return
     if (modal.kind === 'confirm') {
       if (key.escape) { closeGroupCommand(); return }
       if (key.upArrow || key.downArrow) { groupCommand.setState({ ...modal, selectedIndex: modal.selectedIndex === 0 ? 1 : 0 }); return }
@@ -774,7 +836,8 @@ export function InteractiveListen({
           groupCommand.setState({ kind: 'error', message: 'Telegram connection is not ready.' })
         } else {
           const submittedTitle = modal.confirmText
-          const lookup = ++groupLookupGenerationRef.current
+          const lookup = {}
+          groupLookupGenerationRef.current = lookup
           void client.groups.getGroup(sendTo).then((fresh) => {
             if (lookup !== groupLookupGenerationRef.current || clientRef.current !== client) return
             knownGroupRef.current = fresh
@@ -824,7 +887,7 @@ export function InteractiveListen({
     const slashMode = input.trimStart().startsWith('/')
     if (slashMode && key.escape) {
       if (replyExecutionLockRef.current) {
-        inputGenerationRef.current++
+        inputGenerationRef.current = {}
         setSending(false)
       }
       closeGroupCommand()
@@ -842,7 +905,7 @@ export function InteractiveListen({
       const selected = commandSelectionRef.current
       const failure = listenCommandMenuAvailability(input, knownGroup)[selected]
       if (failure && 'error' in failure) { setNote(failure.error.message); return }
-      inputGenerationRef.current++
+      inputGenerationRef.current = {}
       setInput(completeListenCommand(input, selected))
       commandSelectionRef.current = 0
       groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
@@ -889,7 +952,7 @@ export function InteractiveListen({
         if (!match) { setNote('No matching command.'); return }
         const parsed = parseSelectedListenCommand(input, match)
         if (parsed.kind === 'complete') {
-          inputGenerationRef.current++
+          inputGenerationRef.current = {}
           setInput(parsed.input)
           commandSelectionRef.current = 0
           groupCommand.setState({ kind: 'menu', selectedIndex: 0 })
@@ -944,7 +1007,7 @@ export function InteractiveListen({
       return
     }
     if (key.backspace || key.delete) {
-      inputGenerationRef.current++
+      inputGenerationRef.current = {}
       setInput((current) => current.slice(0, -1))
       return
     }
@@ -952,7 +1015,7 @@ export function InteractiveListen({
       return
     }
     if (!key.ctrl && !key.meta && inputText.length > 0) {
-      inputGenerationRef.current++
+      inputGenerationRef.current = {}
       setInput((current) => {
         const next = current + inputText
         if (next.trimStart().startsWith('/')) {
@@ -968,15 +1031,23 @@ export function InteractiveListen({
   useEffect(() => {
     const generation = operationControllerRef.current!.beginGeneration()
     const isActive = generation.isActive
+    const lifecycleStop = new AbortController()
+    lifecycleStopRef.current = lifecycleStop
     if (stopSignal.aborted) {
       exit()
       return
     }
 
     const stopFromSignal = () => {
+      if (stoppingRef.current) return
+      if (irreversibleGroupWriteRef.current) {
+        requestOwnershipShutdown('external')
+        return
+      }
       stopListening()
     }
-    stopSignal.addEventListener('abort', stopFromSignal)
+    const unsubscribeShutdown = shutdownRequests?.subscribe(stopFromSignal)
+    if (shutdownRequests == null) stopSignal.addEventListener('abort', stopFromSignal)
     const groupQueue = createInteractiveListenRuntime(dbPath, createReplyResolver ?? createListenReplyResolver, {
       isActive,
       onGroup: (group) => {
@@ -1016,7 +1087,7 @@ export function InteractiveListen({
       chats,
       persist,
       retrySeconds,
-      signal: stopSignal,
+      signal: lifecycleStop.signal,
       createClient,
       createCoordinator: () => autoDownloader!,
       onCoordinator: (coordinator) => {
@@ -1024,12 +1095,13 @@ export function InteractiveListen({
       },
       onClient: (client) => {
         if (!isActive()) return
-        groupLookupGenerationRef.current++
+        groupLookupGenerationRef.current = {}
         knownGroupRef.current = undefined
         setKnownGroup(undefined)
         clientRef.current = client
         if (client != null && sendTo != null) {
-          const lookup = ++groupLookupGenerationRef.current
+          const lookup = {}
+          groupLookupGenerationRef.current = lookup
           void client.groups.getGroup(sendTo).then((group) => {
             if (isActive() && lookup === groupLookupGenerationRef.current && clientRef.current === client) { knownGroupRef.current = group; setKnownGroup(group) }
           }).catch(() => undefined)
@@ -1071,28 +1143,32 @@ export function InteractiveListen({
         if (isActive()) albumAggregator.flush()
       },
     }).finally(() => {
-      if (isActive() && !stopSignal.aborted) {
+      if (isActive() && !stopSignal.aborted && !stoppingRef.current) {
         onRequestStop()
         exit()
       }
     })
 
     return () => {
-      groupLookupGenerationRef.current += 1
+      groupLookupGenerationRef.current = {}
       knownGroupRef.current = undefined
-      stopSignal.removeEventListener('abort', stopFromSignal)
+      unsubscribeShutdown?.()
+      if (shutdownRequests == null) stopSignal.removeEventListener('abort', stopFromSignal)
       albumAggregator.flush()
       generation.dispose()
       albumAggregator.dispose()
       void groupQueue.close()
       if (albumAggregatorRef.current === albumAggregator) albumAggregatorRef.current = null
-      void clientRef.current?.close().catch(() => undefined)
+      lifecycleStop.abort()
       clientRef.current = null
       autoDownloader?.stop()
       void autoDownloader?.waitForActive()
       if (autoDownloaderRef.current === autoDownloader) autoDownloaderRef.current = null
+      if (lifecycleStopRef.current === lifecycleStop) lifecycleStopRef.current = null
+      if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
+      shutdownGraceTimerRef.current = null
     }
-  }, [autoDownload, chats, createClient, createReplyResolver, dbPath, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, onRequestStop])
+  }, [autoDownload, chats, createClient, createReplyResolver, dbPath, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, shutdownRequests, onRequestStop])
 
   const sendMessage = async (text: string): Promise<void> => {
     const access = new WriteAccessPolicy().check()
@@ -1183,8 +1259,19 @@ export function InteractiveListen({
     else setTimeout(exit, 0)
     onRequestStop()
     autoDownloaderRef.current?.stop()
-    clientRef.current?.close().catch(() => undefined)
+    lifecycleStopRef.current?.abort()
   }
+
+  useEffect(() => {
+    if (groupCommand.state.kind !== 'result' && groupCommand.state.kind !== 'error') return
+    if (!deferredStopRef.current && !shutdownRequestedRef.current) return
+    deferredStopRef.current = false
+    shutdownRequestedRef.current = false
+    if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
+    shutdownGraceTimerRef.current = null
+    const pending = setTimeout(stopListening, 0)
+    return () => clearTimeout(pending)
+  }, [groupCommand.state])
 
   const permissionState = groupCommand.state.kind === 'select-permissions' ? groupCommand.state : null
 
@@ -1203,6 +1290,7 @@ export function InteractiveListen({
         {groupCommand.state.kind === 'confirm-title' && 'confirmation' in groupCommand.state.pending ? groupCommand.state.stage === 'confirm'
           ? <GroupCommandConfirm confirmation={groupCommand.state.pending.confirmation} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} />
           : <Box flexDirection="column" width={contentWidth}><Text color="yellow">{truncateCell('Type the exact title to permanently delete this chat:', contentWidth)}</Text><Text>{truncateCell(groupCommand.state.pending.confirmation.title ?? '', contentWidth)}</Text><Text color="#8ecbff">{truncateCell(`› ${groupCommand.state.confirmText}`, contentWidth)}</Text>{groupCommand.state.mismatch ? <Text color="red">{truncateCell('Title does not match exactly.', contentWidth)}</Text> : null}<Text dimColor>{truncateCell('Enter verify · Esc back', contentWidth)}</Text></Box> : null}
+        {groupCommand.state.kind === 'password' ? <SecureInput label="Telegram 2FA password" onSubmit={(value) => { void groupCommand.runWithOwnershipPassword(value) }} onCancel={closeGroupCommand} /> : null}
         {permissionState ? <Box flexDirection="column" width={contentWidth}><Text color="#8ecbff">{truncateCell('Administrator permissions', contentWidth)}</Text>{ADMIN_RIGHT_KEYS.map((right, index) => <Text key={right} color={index === permissionState.selectedIndex ? '#8ecbff' : undefined}>{truncateCell(`${index === permissionState.selectedIndex ? '› ' : '  '}[${permissionState.selected.includes(right) ? 'x' : ' '}] ${right}`, contentWidth)}</Text>)}{permissionState.warning ? <Text color="yellow">{truncateCell(permissionState.warning, contentWidth)}</Text> : null}<Text dimColor>{truncateCell('↑/↓ select · Space toggle · Enter continue · Esc cancel', contentWidth)}</Text></Box> : null}
         <Box marginTop={1} flexDirection="column" flexGrow={1} overflow="hidden">
           {messages.length === 0 ? <Text dimColor>Waiting for new messages...</Text> : null}

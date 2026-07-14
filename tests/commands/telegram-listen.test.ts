@@ -7,7 +7,7 @@ import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db
 import type { DownloadMessageMediaOptions } from '../../src/telegram/types.js'
 import { accountDbPath } from '../../src/account/account-presets.js'
 
-const renderInteractiveListen = vi.hoisted(() => vi.fn(async () => undefined))
+const renderInteractiveListen = vi.hoisted(() => vi.fn(async (_options: any) => undefined))
 
 vi.mock('node:os', async (importOriginal) => {
   const original = await importOriginal<typeof import('node:os')>()
@@ -105,6 +105,29 @@ describe('listen command', () => {
       sendTo: -1001,
       showMedia: true,
     }))
+  })
+
+  it('forwards every OS shutdown request separately to the interactive listener', async () => {
+    const stdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY')
+    const stdoutIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY')
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true })
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true })
+    const requests: number[] = []
+    renderInteractiveListen.mockImplementationOnce(async (options: { shutdownRequests: { subscribe: (listener: () => void) => () => void } }) => {
+      const unsubscribe = options.shutdownRequests.subscribe(() => requests.push(requests.length + 1))
+      process.emit('SIGINT')
+      process.emit('SIGTERM')
+      unsubscribe()
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen'])
+    } finally {
+      restoreProperty(process.stdin, 'isTTY', stdinIsTty)
+      restoreProperty(process.stdout, 'isTTY', stdoutIsTty)
+    }
+
+    expect(requests).toEqual([1, 2])
   })
 
   it('passes --auto-download to the interactive listener', async () => {
