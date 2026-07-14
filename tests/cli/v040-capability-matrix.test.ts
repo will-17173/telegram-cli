@@ -137,8 +137,26 @@ function accountDbPath(dataDir: string): string {
 }
 
 function expectNoSecretSentinels(observable: unknown): void {
-  if (containsSecretSentinel(observable, new WeakSet<object>())) {
+  let containsSecret: boolean
+  try {
+    containsSecret = containsSecretSentinel(observable, new WeakSet<object>())
+  } catch {
+    throw new Error('Unable to audit collected observables safely.')
+  }
+  if (containsSecret) {
     throw new Error('Secret sentinel appeared in collected observables.')
+  }
+}
+
+function expectAuditFailureClosed(action: () => void): void {
+  let thrown: unknown
+  try {
+    action()
+  } catch (error) {
+    thrown = error
+  }
+  if (!(thrown instanceof Error) || thrown.message !== 'Unable to audit collected observables safely.') {
+    throw new Error('Observable audit did not fail closed.')
   }
 }
 
@@ -157,17 +175,23 @@ function containsSecretSentinel(value: unknown, seen: WeakSet<object>): boolean 
   )) return true
 
   if (value instanceof Map) {
+    let entries = 0
     for (const [key, item] of value) {
+      if (++entries > 10_000) throw new Error('observable_audit_limit_exceeded')
       if (containsSecretSentinel(key, seen) || containsSecretSentinel(item, seen)) return true
     }
   }
   if (value instanceof Set) {
+    let entries = 0
     for (const item of value) {
+      if (++entries > 10_000) throw new Error('observable_audit_limit_exceeded')
       if (containsSecretSentinel(item, seen)) return true
     }
   }
 
   for (const key of Reflect.ownKeys(value)) {
+    const label = typeof key === 'string' ? key : key.description
+    if (label != null && containsSecretSentinel(label, seen)) return true
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     if (descriptor != null && 'value' in descriptor
       && containsSecretSentinel(descriptor.value, seen)) return true
@@ -269,6 +293,59 @@ describe('v0.4.0 capability matrix', () => {
     cyclic.self = cyclic
 
     expect(() => expectNoSecretSentinels(cyclic)).not.toThrow()
+  })
+
+  it('detects secret sentinels in string property keys', () => {
+    const keyed = { [`audit-${secrets.password}`]: 'safe value' }
+
+    expect(() => expectNoSecretSentinels(keyed))
+      .toThrow('Secret sentinel appeared in collected observables.')
+  })
+
+  it('detects secret sentinels in symbol descriptions', () => {
+    const symbol = Symbol(`audit-${secrets.accessHash}`)
+    const keyed = { [symbol]: 'safe value' }
+
+    expect(() => expectNoSecretSentinels(keyed))
+      .toThrow('Secret sentinel appeared in collected observables.')
+  })
+
+  it.each([
+    {
+      label: 'ownKeys trap',
+      value: () => new Proxy({}, {
+        ownKeys: () => { throw new Error(secrets.sessionPathContents) },
+      }),
+    },
+    {
+      label: 'descriptor trap',
+      value: () => new Proxy({}, {
+        ownKeys: () => ['safe'],
+        getOwnPropertyDescriptor: () => { throw new Error(secrets.apiHash) },
+      }),
+    },
+    {
+      label: 'Map iterator',
+      value: () => {
+        const map = new Map<unknown, unknown>()
+        Object.defineProperty(map, Symbol.iterator, {
+          value: () => { throw new Error(secrets.proxyPassword) },
+        })
+        return map
+      },
+    },
+    {
+      label: 'Set iterator',
+      value: () => {
+        const set = new Set<unknown>()
+        Object.defineProperty(set, Symbol.iterator, {
+          value: () => { throw new Error(secrets.proxyUser) },
+        })
+        return set
+      },
+    },
+  ])('fails closed with a generic error for hostile $label observables', ({ value }) => {
+    expectAuditFailureClosed(() => expectNoSecretSentinels(value()))
   })
 
   it.each(routes)('registers the approved %s route', (route) => {

@@ -281,8 +281,21 @@ function maskProxyCredentials(proxy: string): string {
     const url = new URL(proxy)
     if (url.username) url.username = '***'
     if (url.password) url.password = '***'
+    for (const key of [...url.searchParams.keys()]) {
+      if (PROXY_CREDENTIAL_QUERY_KEYS.has(key.toLowerCase())) {
+        url.searchParams.set(key, '***')
+      }
+    }
     return url.toString()
   } catch {
-    return proxy.replace(/^(\w+:\/\/)[^@/]+@/u, '$1***@')
+    return '[invalid proxy URL]'
   }
 }
+
+const PROXY_CREDENTIAL_QUERY_KEYS = new Set([
+  'secret',
+  'user',
+  'pass',
+  'username',
+  'password',
+])

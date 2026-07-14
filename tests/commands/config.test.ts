@@ -435,6 +435,66 @@ describe('config command', () => {
     expect(result.stdout).not.toContain('proxy-password')
   })
 
+  it.each([
+    {
+      label: 'SOCKS userinfo',
+      proxy: 'socks5://proxy-user-a:proxy-password-a@127.0.0.1:1080',
+      expected: 'socks5://***:***@127.0.0.1:1080',
+      sentinels: ['proxy-user-a', 'proxy-password-a'],
+    },
+    {
+      label: 'MTProxy secret',
+      proxy: 'mtproxy://127.0.0.1:443?secret=mtproxy-secret-b&mode=compact',
+      expected: 'mtproxy://127.0.0.1:443?secret=***&mode=compact',
+      sentinels: ['mtproxy-secret-b'],
+    },
+    {
+      label: 'Telegram proxy secret',
+      proxy: 'tg://proxy?server=127.0.0.1&port=443&secret=tg-secret-c',
+      expected: 'tg://proxy?server=127.0.0.1&port=443&secret=***',
+      sentinels: ['tg-secret-c'],
+    },
+    {
+      label: 'encoded userinfo',
+      proxy: 'socks5://encoded%20user:encoded%2Fpassword@127.0.0.1:1080',
+      expected: 'socks5://***:***@127.0.0.1:1080',
+      sentinels: ['encoded%20user', 'encoded%2Fpassword'],
+    },
+    {
+      label: 'encoded query credentials',
+      proxy: 'tg://socks?server=127.0.0.1&port=1080&user=query%20user&pass=query%2Fpassword',
+      expected: 'tg://socks?server=127.0.0.1&port=1080&user=***&pass=***',
+      sentinels: ['query%20user', 'query%2Fpassword'],
+    },
+    {
+      label: 'credential-free endpoint',
+      proxy: 'socks5://127.0.0.1:1080?timeout=30',
+      expected: 'socks5://127.0.0.1:1080?timeout=30',
+      sentinels: [],
+    },
+    {
+      label: 'malformed credential-bearing input',
+      proxy: 'not a proxy?secret=malformed-secret-d&server=127.0.0.1',
+      expected: '[invalid proxy URL]',
+      sentinels: ['malformed-secret-d'],
+    },
+  ])('redacts $label without changing safe endpoint details', async ({ proxy, expected, sentinels }) => {
+    const dataDir = tempDir()
+    writeFileSync(join(dataDir, 'config.json'), JSON.stringify({
+      api_id: 12345,
+      api_hash: 'safe-test-api-hash',
+      proxy,
+    }))
+
+    const result = await run(['config', 'list', '--json'], dataDir)
+    const actual = JSON.parse(result.stdout).data.proxy
+
+    if (actual !== expected) throw new Error('Proxy redaction output did not match the expected safe shape.')
+    if (sentinels.some(sentinel => `${result.stdout}${result.stderr}`.includes(sentinel))) {
+      throw new Error('Proxy redaction output contained a credential sentinel.')
+    }
+  })
+
   it('uses environment credentials and proxy instead of stored values', async () => {
     const dataDir = tempDir()
     writeFileSync(join(dataDir, 'config.json'), JSON.stringify({
