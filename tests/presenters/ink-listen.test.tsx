@@ -24,6 +24,7 @@ import {
   interactiveListenPreviewColorDepth,
   InteractiveListen,
   LISTEN_COMPOSER_THEME,
+  listenComposerCursorColor,
   ListenAttachmentLine,
   ListenAttachmentWithPreview,
   ListenComposer,
@@ -121,6 +122,11 @@ describe('ListenComposer', () => {
       target: '#f0d38a',
       hint: '#9bdca8',
     })
+  })
+
+  it('hides the cursor when the attachment list has focus', () => {
+    expect(listenComposerCursorColor(true)).toBe(LISTEN_COMPOSER_THEME.cursor)
+    expect(listenComposerCursorColor(false)).toBe(LISTEN_COMPOSER_THEME.background)
   })
 })
 

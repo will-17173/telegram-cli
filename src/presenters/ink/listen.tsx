@@ -128,6 +128,11 @@ type ListenComposerProps = {
   terminalWidth: number
   sending?: boolean
   hint?: string
+  cursorVisible?: boolean
+}
+
+export function listenComposerCursorColor(visible: boolean): string {
+  return visible ? LISTEN_COMPOSER_THEME.cursor : LISTEN_COMPOSER_THEME.background
 }
 
 export function ListenComposer({
@@ -136,6 +141,7 @@ export function ListenComposer({
   terminalWidth,
   sending = false,
   hint = 'Enter to send · Ctrl+C to exit',
+  cursorVisible = true,
 }: ListenComposerProps): React.JSX.Element {
   const inputText = `› ${input}${sending ? ' (sending...)' : ''}`
   const blankRow = ' '.repeat(Math.max(0, terminalWidth))
@@ -145,7 +151,7 @@ export function ListenComposer({
     <Box flexDirection="column">
       <Text backgroundColor={LISTEN_COMPOSER_THEME.background}>{blankRow}</Text>
       <Text backgroundColor={LISTEN_COMPOSER_THEME.background} color={LISTEN_COMPOSER_THEME.foreground}>
-        {inputText}<Text backgroundColor={LISTEN_COMPOSER_THEME.cursor}> </Text>{inputRowFill}
+        {inputText}<Text backgroundColor={listenComposerCursorColor(cursorVisible)}> </Text>{inputRowFill}
       </Text>
       <Text backgroundColor={LISTEN_COMPOSER_THEME.background}>{blankRow}</Text>
       <Box justifyContent="space-between">
@@ -1330,6 +1336,7 @@ export function InteractiveListen({
               sendTargetLabel={sendTo == null ? '(not selected)' : sendTargetLabel}
               terminalWidth={contentWidth}
               sending={sending}
+              cursorVisible={focus === 'input'}
               hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Enter send · /reply <id> ... · Tab attachments · Ctrl+C exit'}
             />
           </Box>
