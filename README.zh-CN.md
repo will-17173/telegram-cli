@@ -2,23 +2,79 @@
 
 [项目网站](https://will-17173.github.io/telegram-cli/zh-CN/) · [Telegram CLI 使用文档](https://will-17173.github.io/telegram-cli/zh-CN/docs/) · [English README](README.md)
 
-Telegram CLI 是一个用 TypeScript 编写的命令行界面（CLI），用于在终端中读取、同步、搜索、归档和管理 Telegram。它将账号会话与同步消息保存在你的电脑上。
+Telegram CLI 是一个 TypeScript 命令行界面（CLI），统一处理 Telegram 在线数据、本地 SQLite 搜索和远端管理。你可以在终端、脚本或编程智能体中调用同一个 `tg` 命令。账号会话与同步消息保留在本机。
 
 ## 阅读完整文档
 
 阅读 [Telegram CLI 完整使用文档](https://will-17173.github.io/telegram-cli/zh-CN/docs/)，了解安装、工作流、全部命令、自动化、安全边界和故障排查。
 
-## 它能做什么
+## 选择 Telegram 工作流
 
-你可以使用 Telegram CLI：
+请根据数据新鲜度、结果去向以及命令是否修改 Telegram 来选择工作流。
 
-- 管理多个账号，并隔离各账号的会话和消息数据库。
-- 在线读取和搜索 Telegram，不保存查询结果。
-- 将消息同步到 SQLite，用于本地搜索、分析和导出。
-- 监听新消息并下载附件。
-- 将聊天增量归档为 Markdown 文件。
-- 发送消息，并管理联系人、文件夹、通知和群组。
-- 为脚本和编程智能体输出 JSON、YAML 或 Markdown。
+### 读取 Telegram 当前数据
+
+需要最新的服务端状态时，请使用在线命令。这些命令不会把返回消息写入 SQLite。
+
+```sh
+tg inbox
+tg read @team --since 2h
+tg search-online "incident" --chat @team --json
+```
+
+你还可以在线查看联系人、通知设置、文件夹和群组详情，且不会导入消息。
+
+### 建立可搜索的本地消息库
+
+将一个或多个聊天同步到所选账号的 SQLite 数据库。之后无需连接 Telegram，即可搜索和分析本地副本。
+
+```sh
+tg sync @team
+tg search "release" --chat @team
+tg recent --chat @team --hours 24
+```
+
+本地命令还可以筛选、汇总和导出已存储消息。
+
+### 监听新消息并下载文件
+
+`listen` 可以实时接收一个或多个聊天的新消息。它还可以下载收到的附件，并在交互模式中执行回复或群组操作。
+
+```sh
+tg listen @team --auto-download
+```
+
+### 保存增量 Markdown 归档
+
+`archive` 将消息增量写入 Markdown，并可同时下载媒体文件。它单独记录归档进度，不会填充 SQLite。
+
+```sh
+tg archive @team --download-media
+```
+
+后续运行会追加新消息，并重试仍然缺失的引用媒体。
+
+### 发送消息并管理群组
+
+你可以从终端发送文本、文件或带说明文字的媒体组，也可以查看和管理群成员、管理员、邀请链接、论坛话题和消息。
+
+```sh
+tg send @team "Release is ready" --file ./report.pdf
+tg group members @team --type admins
+tg group member mute @team @alice 2h --yes
+```
+
+Telegram CLI 还可以管理联系人、通知设置和聊天文件夹。写操作总开关会控制修改 Telegram 的命令。
+
+### 跨隔离账号运行自动化
+
+每个已添加账号都有独立的会话和 SQLite 数据库。你可以为单次命令选择账号，且不会改变默认账号。
+
+```sh
+tg stats --account work --json
+```
+
+有限结果命令支持 JSON、YAML 和 Markdown 输出。失败时会返回非零退出状态和稳定错误码。
 
 ## 安装
 
@@ -40,7 +96,7 @@ tg sync @team
 tg search "release" --chat @team
 ```
 
-请将 `@team` 替换为聊天名称、用户名或数字 ID。运行 `tg --help` 或 `tg sync --help` 等具体命令查看可用选项。
+请将 `@team` 替换为聊天名称、用户名或数字标识符（ID）。运行 `tg --help` 或 `tg sync --help` 等具体命令查看可用选项。
 
 ## 了解数据去向
 
@@ -67,7 +123,7 @@ tg config write-access status
 
 准备再次修改 Telegram 时，运行 `tg config write-access on`。打开总开关不代表已授权某一项具体写操作。
 
-请妥善保管 API 凭据、代理凭据、会话文件、SQLite 数据库、导出文件和归档。
+请妥善保管 Telegram 应用程序接口（API）凭据、代理凭据、会话文件、SQLite 数据库、导出文件和归档。
 
 ## 配合编程智能体
 

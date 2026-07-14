@@ -50,7 +50,7 @@ describe('npm package metadata', () => {
     expect(readFileSync('src/index.ts', 'utf8').split('\n')[0]).toBe('#!/usr/bin/env node')
   })
 
-  it('ships concise bilingual readmes that link to the detailed documentation', () => {
+  it('ships focused bilingual readmes with representative workflows and detailed documentation links', () => {
     const readmes = [
       {
         contents: readFileSync('README.md', 'utf8'),
@@ -65,12 +65,19 @@ describe('npm package metadata', () => {
     ]
 
     for (const readme of readmes) {
-      expect(readme.contents.split(/\r?\n/).length).toBeLessThanOrEqual(130)
+      expect(readme.contents.split(/\r?\n/).length).toBeLessThanOrEqual(230)
       expect(readme.contents).toContain(readme.docsUrl)
       for (const example of [
         'npm install -g @will-17173/telegram-cli',
         'tg account add',
+        'tg inbox',
+        'tg search-online "incident" --chat @team --json',
         'tg sync @team',
+        'tg listen @team --auto-download',
+        'tg archive @team --download-media',
+        'tg send @team "Release is ready" --file ./report.pdf',
+        'tg group members @team --type admins',
+        'tg stats --account work --json',
         'tg config write-access off',
         'npx skills add https://github.com/will-17173/telegram-cli',
       ]) expect(readme.contents).toContain(example)
