@@ -43,6 +43,7 @@ describe('cli help', () => {
       'timeline',
       'today',
       'top',
+      'web',
       'whoami',
     ])
   })
@@ -119,7 +120,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(32)
+    expect(commands).toHaveLength(33)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 
