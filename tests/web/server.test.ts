@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { startWebServer } from '../../src/web/server.js'
+import { defaultStaticDir, startWebServer } from '../../src/web/server.js'
+import { serveStatic } from '../../src/web/static.js'
 
 const roots: string[] = []
 
@@ -22,6 +23,11 @@ afterEach(() => {
 })
 
 describe('startWebServer', () => {
+  it('defaults static assets to the web module directory', () => {
+    expect(defaultStaticDir().endsWith('/src/web')).toBe(true)
+    expect(defaultStaticDir().endsWith('/src/web/web')).toBe(false)
+  })
+
   it('serves health and the app shell on localhost', async () => {
     const root = makeRoot()
     const server = await startWebServer({ port: 0, dataDir: root, staticDir: join(root, 'dist-web') })
@@ -40,6 +46,8 @@ describe('startWebServer', () => {
 
   it('serves assets without allowing path traversal outside the static directory', async () => {
     const root = makeRoot()
+    await expect(serveStatic(join(root, 'dist-web'), '/../secret.txt')).resolves.toBeNull()
+
     const server = await startWebServer({ port: 0, dataDir: root, staticDir: join(root, 'dist-web') })
     try {
       const asset = await fetch(`${server.url}assets/app.js`)

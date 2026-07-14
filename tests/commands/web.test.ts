@@ -55,6 +55,8 @@ describe('web command', () => {
 
     await expect(app.parseAsync(['node', 'tg', 'web', '--port', 'abc']))
       .rejects.toThrow('--port must be a positive integer')
+    await expect(app.parseAsync(['node', 'tg', 'web', '--port', '70000']))
+      .rejects.toThrow('--port must be a positive integer')
     expect(startWebServer).not.toHaveBeenCalled()
   })
 })

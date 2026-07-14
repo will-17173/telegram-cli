@@ -34,7 +34,7 @@ function parsePort(raw: string | undefined): number | undefined {
   if (raw == null) return undefined
   if (!/^\d+$/.test(raw)) throw new Error('--port must be a positive integer')
   const port = Number(raw)
-  if (!Number.isSafeInteger(port) || port <= 0) throw new Error('--port must be a positive integer')
+  if (!Number.isSafeInteger(port) || port <= 0 || port > 65535) throw new Error('--port must be a positive integer')
   return port
 }
 

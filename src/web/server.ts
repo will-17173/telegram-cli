@@ -1,5 +1,5 @@
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { getDataDir } from '../config/env.js'
@@ -19,7 +19,7 @@ export type WebServerHandle = {
 
 export async function startWebServer(options: { port?: number; dataDir?: string; staticDir?: string } = {}): Promise<WebServerHandle> {
   const dataDir = options.dataDir ?? getDataDir()
-  const staticDir = options.staticDir ?? join(dirname(fileURLToPath(import.meta.url)), 'web')
+  const staticDir = options.staticDir ?? defaultStaticDir()
   const syncTask = new SyncTaskRunner({ dataDir })
   let selectedPort = options.port ?? DEFAULT_PORT
 
@@ -87,7 +87,12 @@ function headersInit(headers: IncomingHttpHeaders): Headers {
 
 async function writeResponse(res: ServerResponse, response: Response, headOnly: boolean): Promise<void> {
   res.writeHead(response.status, Object.fromEntries(response.headers))
-  if (headOnly || response.body == null) {
+  if (headOnly) {
+    await response.body?.cancel()
+    res.end()
+    return
+  }
+  if (response.body == null) {
     res.end()
     return
   }
@@ -115,6 +120,10 @@ function serverPort(server: Server): number {
   const address = server.address()
   if (typeof address === 'object' && address != null) return address.port
   throw new Error('Web server did not expose a listening port.')
+}
+
+export function defaultStaticDir(): string {
+  return dirname(fileURLToPath(import.meta.url))
 }
 
 function close(server: Server): Promise<void> {

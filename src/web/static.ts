@@ -11,6 +11,8 @@ const MIME_TYPES: Record<string, string> = {
 }
 
 export async function serveStatic(staticDir: string, pathname: string): Promise<Response | null> {
+  if (hasUnsafeSegment(pathname)) return null
+
   const root = resolve(staticDir)
   const cleanPath = pathname === '/' ? '/index.html' : pathname
   const target = resolve(join(root, normalize(cleanPath)))
@@ -26,4 +28,16 @@ export async function serveStatic(staticDir: string, pathname: string): Promise<
 
 function existingFile(path: string): string | undefined {
   return existsSync(path) && statSync(path).isFile() ? path : undefined
+}
+
+function hasUnsafeSegment(pathname: string): boolean {
+  return pathname.split('/').some((segment) => safeDecode(segment) === '..')
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
 }
