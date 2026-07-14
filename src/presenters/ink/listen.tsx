@@ -893,12 +893,12 @@ export function InteractiveListen({
       closeGroupCommand()
       return
     }
+    if (replyExecutionLockRef.current) {
+      if (key.escape) setNote('Reply is still sending; wait for its outcome.')
+      return
+    }
     const slashMode = input.trimStart().startsWith('/')
     if (slashMode && key.escape) {
-      if (replyExecutionLockRef.current) {
-        inputGenerationRef.current = {}
-        setSending(false)
-      }
       closeGroupCommand()
       return
     }

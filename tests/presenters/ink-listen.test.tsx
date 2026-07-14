@@ -224,9 +224,9 @@ describe('InteractiveListen slash commands', () => {
     controller.abort(); app.unmount()
   })
 
-  it('locks repeated reply submission and does not clear newer input after Escape', async () => {
-    let resolveSend!: (value: { sent_message: StoredMessageInput }) => void
-    const pending = new Promise<{ sent_message: StoredMessageInput }>(resolve => { resolveSend = resolve })
+  it('locks repeated reply submission and keeps its outcome visible after Escape', async () => {
+    let rejectSend!: (error: Error) => void
+    const pending = new Promise<{ sent_message: StoredMessageInput }>((_resolve, reject) => { rejectSend = reject })
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
     client.sendMessage.mockReturnValue(pending)
@@ -235,11 +235,15 @@ describe('InteractiveListen slash commands', () => {
     await vi.waitFor(() => expect(stdout.output).toContain('connected'))
     stdin.write('/reply 88 slow'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 slow'))
     stdin.write('\r'); await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(1)); stdin.write('\r')
-    stdin.write('\u001b'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).not.toContain('(sending...)')); stdin.write(' newer')
-    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 slow newer'))
-    resolveSend({ sent_message: storedPhoto(99, 'late') })
+    stdin.write('\u001b')
     await new Promise(resolve => setTimeout(resolve, 20))
-    expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 slow newer')
+    expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 slow (sending...)')
+    stdin.write(' newer')
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(lastTerminalFrame(stdout.output)).not.toContain('/reply 88 slow newer')
+    rejectSend(new Error('network timeout'))
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('send failed: network timeout'))
+    expect(lastTerminalFrame(stdout.output)).toContain('/reply 88 slow')
     controller.abort(); app.unmount()
   })
 
