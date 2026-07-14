@@ -31,6 +31,21 @@ export type SearchOptions = {
   limit?: number
 }
 
+export type ChatListOptions = {
+  q?: string
+  limit?: number
+  offset?: number
+}
+
+export type MessagePageOptions = {
+  chatId: number
+  q?: string
+  since?: string
+  until?: string
+  limit?: number
+  cursor?: string
+}
+
 export type RecentPageOptions = SearchOptions & {
   before?: { timestamp: string; id: number }
 }
@@ -200,6 +215,41 @@ export class MessageDB {
     `).all(...params, options.limit ?? 100) as StoredMessage[]
   }
 
+  getMessagesPage(options: MessagePageOptions): { items: StoredMessage[]; next_cursor: string | null } {
+    const params: unknown[] = [canonicalChatId(options.chatId)]
+    const conditions = ['chat_id = ?']
+    if (options.q) {
+      conditions.push('content LIKE ?')
+      params.push(`%${options.q}%`)
+    }
+    if (options.since) {
+      conditions.push('timestamp >= ?')
+      params.push(options.since)
+    }
+    if (options.until) {
+      conditions.push('timestamp <= ?')
+      params.push(options.until)
+    }
+    if (options.cursor) {
+      const cursor = decodeMessageCursor(options.cursor)
+      conditions.push('(timestamp, id) < (?, ?)')
+      params.push(cursor.timestamp, cursor.id)
+    }
+
+    const limit = options.limit ?? 100
+    const rows = this.db.prepare(`
+      SELECT * FROM messages INDEXED BY idx_messages_chat_recent
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY timestamp DESC, id DESC
+      LIMIT ?
+    `).all(...params, limit + 1) as StoredMessage[]
+    const items = rows.slice(0, limit)
+    const next_cursor = rows.length > limit && items.length > 0
+      ? encodeMessageCursor(items[items.length - 1])
+      : null
+    return { items, next_cursor }
+  }
+
   getMessagesByKeys(keys: Array<{ chatId: number; msgId: number }>): StoredMessage[] {
     if (keys.length === 0) return []
     const stmt = this.db.prepare(`SELECT * FROM messages WHERE platform = 'telegram' AND chat_id = ? AND msg_id = ?`)
@@ -262,6 +312,51 @@ export class MessageDB {
         MAX(m.timestamp) as last_msg
       FROM messages m GROUP BY m.chat_id ORDER BY msg_count DESC
     `).all() as Array<{ chat_id: number; chat_name: string | null; msg_count: number; first_msg: string; last_msg: string }>
+  }
+
+  getChatsPage(options: ChatListOptions = {}): { items: Array<{ chat_id: number; chat_name: string | null; msg_count: number; first_msg: string; last_msg: string }>; total: number } {
+    const filter = options.q?.trim()
+    const conditions: string[] = []
+    const params: unknown[] = []
+    if (filter) {
+      conditions.push("(COALESCE(chat_name, '') LIKE ? OR CAST(chat_id AS TEXT) LIKE ?)")
+      params.push(`%${filter}%`, `%${filter}%`)
+    }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const groupedSql = `
+      WITH grouped AS (
+        SELECT
+          m.chat_id,
+          (
+            SELECT latest.chat_name
+            FROM messages latest
+            WHERE latest.chat_id = m.chat_id
+              AND latest.chat_name IS NOT NULL
+            ORDER BY latest.timestamp DESC, latest.id DESC
+            LIMIT 1
+          ) as chat_name,
+          COUNT(*) as msg_count,
+          MIN(m.timestamp) as first_msg,
+          MAX(m.timestamp) as last_msg
+        FROM messages m
+        GROUP BY m.chat_id
+      )
+    `
+    const items = this.db.prepare(`
+      ${groupedSql}
+      SELECT chat_id, chat_name, msg_count, first_msg, last_msg
+      FROM grouped
+      ${whereClause}
+      ORDER BY msg_count DESC, last_msg DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, options.limit ?? 100, options.offset ?? 0) as Array<{ chat_id: number; chat_name: string | null; msg_count: number; first_msg: string; last_msg: string }>
+    const totalRow = this.db.prepare(`
+      ${groupedSql}
+      SELECT COUNT(*) as total
+      FROM grouped
+      ${whereClause}
+    `).get(...params) as { total: number }
+    return { items, total: totalRow.total }
   }
 
   topSenders(options: { chatId?: number; hours?: number; limit?: number } = {}): Array<{ sender_name: string | null; sender_id: number | null; msg_count: number; first_msg: string; last_msg: string }> {
@@ -401,6 +496,18 @@ export class MessageDB {
       )
     )`
   }
+}
+
+function encodeMessageCursor(row: { timestamp: string; id: number }): string {
+  return Buffer.from(JSON.stringify({ timestamp: row.timestamp, id: row.id }), 'utf8').toString('base64url')
+}
+
+function decodeMessageCursor(cursor: string): { timestamp: string; id: number } {
+  const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { timestamp?: unknown; id?: unknown }
+  if (typeof parsed.timestamp !== 'string' || typeof parsed.id !== 'number' || !Number.isSafeInteger(parsed.id)) {
+    throw new Error('invalid_cursor')
+  }
+  return { timestamp: parsed.timestamp, id: parsed.id }
 }
 
 type FileFingerprint = {

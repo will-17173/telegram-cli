@@ -1,0 +1,97 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { MessageDB } from '../../src/storage/message-db.js'
+import { WebQueryService } from '../../src/web/query.js'
+
+const roots: string[] = []
+
+function makeRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'tg-web-query-'))
+  roots.push(root)
+  return root
+}
+
+function seedAccount(root: string): void {
+  const registry = {
+    version: 2,
+    current_account: 'work',
+    accounts: [{
+      name: 'work',
+      user_id: 100,
+      username: 'alice',
+      phone: '10086',
+      display_name: 'Alice',
+      auth_state: 'authenticated',
+    }],
+  }
+  writeFileSync(join(root, 'accounts.json'), `${JSON.stringify(registry, null, 2)}\n`)
+}
+
+function seedMessages(dbPath: string): void {
+  const db = new MessageDB(dbPath)
+  db.insertBatch([
+    { platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 1, sender_id: 1, sender_name: 'Alice', content: 'first alpha', timestamp: '2026-07-14T08:00:00.000Z' },
+    { platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 2, sender_id: 2, sender_name: 'Bob', content: 'second beta', timestamp: '2026-07-14T09:00:00.000Z' },
+    { platform: 'telegram', chat_id: 20, chat_name: 'Ops', msg_id: 1, sender_id: 3, sender_name: 'Carol', content: 'incident alpha', timestamp: '2026-07-14T10:00:00.000Z' },
+  ])
+  db.close()
+}
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+describe('WebQueryService', () => {
+  it('lists accounts from the registry', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const service = new WebQueryService({ dataDir: root })
+
+    expect(service.accounts()).toEqual({
+      current_account: 'work',
+      accounts: [{
+        name: 'work',
+        user_id: 100,
+        username: 'alice',
+        display_name: 'Alice',
+        auth_state: 'authenticated',
+      }],
+    })
+  })
+
+  it('lists chats with counts and time coverage', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    expect(service.chats({ account: 'work', limit: 10, offset: 0 })).toEqual({
+      items: [
+        { chat_id: 10, chat_name: 'General', msg_count: 2, first_msg: '2026-07-14T08:00:00.000Z', last_msg: '2026-07-14T09:00:00.000Z' },
+        { chat_id: 20, chat_name: 'Ops', msg_count: 1, first_msg: '2026-07-14T10:00:00.000Z', last_msg: '2026-07-14T10:00:00.000Z' },
+      ],
+      total: 2,
+    })
+  })
+
+  it('returns a stable filtered message page', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    const page = service.messages({
+      account: 'work',
+      chatId: 10,
+      q: 'beta',
+      since: '2026-07-14T00:00:00.000Z',
+      until: '2026-07-15T00:00:00.000Z',
+      limit: 20,
+    })
+
+    expect(page.items.map((message) => message.content)).toEqual(['second beta'])
+    expect(page.next_cursor).toBeNull()
+  })
+})
