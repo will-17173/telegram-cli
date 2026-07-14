@@ -88,6 +88,21 @@ describe('SyncTaskRunner', () => {
     expect(runner.getState()).toEqual({ status: 'idle' })
   })
 
+  it('returns account_not_found for missing accounts without changing state', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const runner = new SyncTaskRunner({ dataDir: root })
+
+    const result = await runner.start({ account: 'missing', chatId: 10, limit: 500 })
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'account_not_found' },
+    })
+    expect(runner.getState()).toEqual({ status: 'idle' })
+    expect(createTelegramClient).not.toHaveBeenCalled()
+  })
+
   it('runs a sync task for an authenticated account and stores the final state', async () => {
     const root = makeRoot()
     seedAccount(root)

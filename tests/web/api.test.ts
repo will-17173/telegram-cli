@@ -253,6 +253,23 @@ describe('handleApiRequest', () => {
     })
   })
 
+  it('maps missing sync task accounts to invalid_request', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+
+    const response = await api(root, '/api/sync-task', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'missing', chatId: 10 }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'account_not_found' },
+    })
+  })
+
   it('starts a sync task from a valid POST request', async () => {
     const root = makeRoot()
     const result = {

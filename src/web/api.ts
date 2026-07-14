@@ -114,7 +114,7 @@ async function syncTaskPost(request: Request, context: ApiContext): Promise<Resp
   if (result.ok) return jsonResponse(200, result)
 
   if (result.error.code === 'sync_task_running') return jsonResponse(409, result)
-  if (result.error.code === 'invalid_request') return jsonResponse(400, result)
+  if (result.error.code === 'invalid_request' || isAccountErrorCode(result.error.code)) return jsonResponse(400, result)
   return jsonResponse(500, result)
 }
 
@@ -140,6 +140,13 @@ function hasOwn(value: Record<string, unknown>, key: string): boolean {
 
 function isSafePositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+function isAccountErrorCode(code: string): boolean {
+  return code === 'account_required'
+    || code === 'account_not_found'
+    || code === 'account_logged_out'
+    || code === 'account_session_missing'
 }
 
 function stringParam(url: URL, name: string): string | undefined {

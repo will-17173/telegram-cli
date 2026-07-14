@@ -8,7 +8,7 @@ export type SyncTaskState =
   | { status: 'idle' }
   | { status: 'running'; account: string; chat_id: number; limit: number; started_at: string }
   | { status: 'done'; account: string; chat_id: number; limit: number; started_at: string; finished_at: string; synced: number }
-  | { status: 'error'; account: string; chat_id: number; limit: number; started_at: string; finished_at: string; error: { code: string; message: string } }
+  | { status: 'error'; account: string; chat_id: number; limit: number; started_at: string; finished_at: string; error: { code: string; message: string; details?: unknown } }
 
 export class SyncTaskRunner {
   private state: SyncTaskState = { status: 'idle' }
@@ -38,6 +38,18 @@ export class SyncTaskRunner {
       return invalidRequest('limit must be a positive integer.')
     }
 
+    let accountContext: ReturnType<typeof resolveAuthenticatedAccountContext>
+    try {
+      accountContext = resolveAuthenticatedAccountContext({
+        explicitName: account,
+        dataDir: this.options.dataDir,
+      })
+    } catch (error) {
+      const accountError = accountFailure(error)
+      if (accountError) return { ok: false, error: accountError }
+      throw error
+    }
+
     const startedAt = new Date().toISOString()
     this.state = {
       status: 'running',
@@ -50,10 +62,6 @@ export class SyncTaskRunner {
     let client: ReturnType<typeof createTelegramClient> | undefined
     let service: SyncService | undefined
     try {
-      const accountContext = resolveAuthenticatedAccountContext({
-        explicitName: account,
-        dataDir: this.options.dataDir,
-      })
       client = createTelegramClient(accountContext.sessionPath)
       const db = new MessageDB(accountContext.dbPath)
       service = new SyncService(client, db)
@@ -127,6 +135,25 @@ function syncedCount(data: unknown): number {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function accountFailure(error: unknown): { code: string; message: string } | undefined {
+  const [code, message] = splitError(errorMessage(error))
+  return isAccountErrorCode(code) ? { code, message } : undefined
+}
+
+function splitError(message: string): [string, string] {
+  const separator = ': '
+  const index = message.indexOf(separator)
+  if (index < 0) return ['', message]
+  return [message.slice(0, index), message.slice(index + separator.length)]
+}
+
+function isAccountErrorCode(code: string): boolean {
+  return code === 'account_required'
+    || code === 'account_not_found'
+    || code === 'account_logged_out'
+    || code === 'account_session_missing'
 }
 
 async function closeResources(service: SyncService | undefined, client: ReturnType<typeof createTelegramClient> | undefined): Promise<void> {
