@@ -16,6 +16,10 @@ import type { TelegramContactAdapter } from './contact-types.js'
 import { createDialogsAdapter } from './mtcute-dialogs.js'
 import type { TelegramDialogAdapter } from './dialog-types.js'
 import { normalizeMtcuteMessage } from './mtcute-message-normalizer.js'
+import type { TelegramFolderAdapter } from './folder-types.js'
+import { createFoldersAdapter } from './mtcute-folders.js'
+import type { TelegramNotificationAdapter } from './notification-types.js'
+import { createNotificationsAdapter } from './mtcute-notifications.js'
 
 type PeerShape = {
   type: string
@@ -30,6 +34,8 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   readonly groups: TelegramGroupManagementAdapter
   readonly dialogs: TelegramDialogAdapter
   readonly contacts: TelegramContactAdapter
+  readonly notifications: TelegramNotificationAdapter
+  readonly folders: TelegramFolderAdapter
   private isReady = false
   private readonly listenedMedia = new Map<string, FileLocation>()
 
@@ -37,6 +43,8 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     this.groups = new MtcuteGroupManagement(client, () => this.ensureReady())
     this.dialogs = createDialogsAdapter(client, () => this.ensureReady())
     this.contacts = createContactsAdapter(client, () => this.ensureReady())
+    this.notifications = createNotificationsAdapter(client, () => this.ensureReady())
+    this.folders = createFoldersAdapter(client, () => this.ensureReady())
   }
 
   async close(): Promise<void> {
