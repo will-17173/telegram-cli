@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Command } from 'commander'
@@ -142,6 +142,23 @@ describe('v0.4.0 capability matrix', () => {
 
     expect(operation).toHaveBeenCalledOnce()
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: true }), {})
+  })
+
+  it('allows a local configuration mutation when remote write access is disabled', async () => {
+    vi.unstubAllEnvs()
+    const dataDir = seedAccounts(false)
+
+    await run(['config', 'write-access', 'on', '--json'])
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: {
+        write_access: true,
+        changed: true,
+      },
+    }), { json: true })
+    expect(JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')).write_access).toBe(true)
   })
 
   it.each([
