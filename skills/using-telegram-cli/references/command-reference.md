@@ -44,7 +44,7 @@ tg config set --proxy socks5://127.0.0.1:1080
 tg config list --json
 ```
 
-`TG_API_ID` and `TG_API_HASH` must be set together and override stored credentials. `TG_PROXY` overrides a stored proxy. A proxy URL can contain credentials or an MTProxy secret. `config list` masks the API hash by default but returns the complete proxy URL.
+`TG_API_ID` and `TG_API_HASH` must be set together and override stored credentials. `TG_PROXY` overrides a stored proxy. `config list` reports the effective sources; the API ID is visible, while the API hash is masked by default. `--show-secrets` reveals only the complete API hash among credential fields: proxy usernames, passwords, and credential query parameters (`secret`, `user`, `pass`, `username`, `password`) remain `***` in every format. Safe proxy endpoint details and non-credential query parameters may remain visible; malformed proxy URLs render as `[invalid proxy URL]`.
 
 `account add` starts authentication for a new registration. `account login` reauthenticates an existing logged-out registration. A human may need to supply a phone number, login code, and 2FA password:
 
@@ -171,14 +171,14 @@ Archive writes Markdown files but does not populate SQLite:
 
 ```sh
 tg archive @ops --account work --json
-tg archive @ops --since 2d --until '2026-07-14T10:00:00+08:00' --download-media --account work --json
+tg archive @ops --since '2026-07-12T10:00:00+08:00' --until '2026-07-14T10:00:00+08:00' --download-media --account work --json
 tg archive --all --full --output ./telegram-archive --account work --markdown
 tg archive @ops --rebuild --account work --yaml
 ```
 
 Specify one or more chats or `--all`, never both. Without a range, the first run archives the preceding seven days; `--since`/`--until` set an explicit range and `--full` requests all history (`--full` conflicts with `--since`). Later runs are incremental, resuming from the manifest and embedded Markdown message markers. `--rebuild` replaces chat files using the recorded initial range unless a new range or `--full` is supplied. `--download-media` stores attachments under `media/` and retries missing referenced downloads.
 
-Any chat or media failure yields non-zero status and `archive_partial_failure`, with `completed`, `failed`, and `warnings`. Treat the overall operation as failed even when some chats completed. Report all three fields and never summarize it as complete success.
+Any chat or media failure yields non-zero status, top-level `ok: false`, and `error.code: archive_partial_failure`. For automation use `--json` or `--yaml` and inspect `error.details.completed`, `error.details.failed`, and `error.details.warnings`. Treat the overall operation as failed even when some chats completed. Markdown is only a human-facing rendering and does not preserve the full `error.details`; never derive partial-failure accounting from it.
 
 ## Messaging and listening
 
@@ -194,7 +194,7 @@ tg delete <chat> <message-id> [more-ids...] --account work --json
 
 `send` has no confirmation prompt. Repeated files are sent in order as one Telegram media group, with the optional message as its caption. Telegram validates allowed combinations. Sending does not insert a row into the local database; sync afterward before local search.
 
-`listen` is long-running and does not expose JSON/YAML flags:
+`listen` is long-running and does not expose JSON/YAML/Markdown flags:
 
 ```sh
 tg listen <chat> --persist --retry-seconds 5 --account work
@@ -263,7 +263,7 @@ The gate applies to remote mutations only: `send`, `edit`, `delete`, notificatio
 
 ## Structured output
 
-Use one explicit format for every finite command: `--json` for machine parsing, `--yaml` for readable structured output, or `--markdown` for human-readable Markdown.
+Select exactly one output format for a finite command: `--json` or `--yaml` for a structured envelope, or `--markdown` for human-facing rendering. JSON/YAML are required for automation and stable `ok`, `data`, and `error.details` fields. Markdown failures do not preserve full structured details, so do not use Markdown for automated failure accounting.
 
 ```json
 {
@@ -286,7 +286,7 @@ Failures use non-zero exit status and:
 }
 ```
 
-Without a format flag, TTY output is human-oriented and non-TTY output defaults to YAML. `OUTPUT=json|yaml|rich` can set a default, but explicit `--json`/`--yaml`/`--markdown` wins. Never combine `--json` and `--yaml`; do not parse human tables. `listen` is streaming and has no JSON/YAML/Markdown flags. For `refresh`, do not assume `ok: true` means every chat succeeded; inspect `data.failures`.
+Without a format flag, TTY output is human-oriented and non-TTY output defaults to YAML. `OUTPUT=json|yaml|rich` can set a default, but an explicit flag wins. Never combine any of `--json`, `--yaml`, and `--markdown`; do not parse human tables. `listen` is streaming and has no format flags. For `refresh`, do not assume `ok: true` means every chat succeeded; inspect `data.failures`.
 
 ## Data, privacy, and recovery
 
