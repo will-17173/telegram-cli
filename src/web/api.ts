@@ -103,7 +103,7 @@ async function syncTaskPost(request: Request, context: ApiContext): Promise<Resp
   }
 
   let limit = 500
-  if (body.limit != null) {
+  if (hasOwn(body, 'limit')) {
     if (!isSafePositiveInteger(body.limit)) {
       return failure(400, 'invalid_request', 'limit must be a positive integer.')
     }
@@ -132,6 +132,10 @@ async function parseJsonBody(request: Request): Promise<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key)
 }
 
 function isSafePositiveInteger(value: unknown): value is number {

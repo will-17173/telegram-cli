@@ -165,6 +165,22 @@ describe('handleApiRequest', () => {
     })
   })
 
+  it('rejects null sync task limits', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/sync-task', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'work', chatId: 10, limit: null }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
   it('starts a sync task from a valid POST request', async () => {
     const root = makeRoot()
     const result = {
