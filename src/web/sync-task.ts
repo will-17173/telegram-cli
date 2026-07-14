@@ -31,8 +31,8 @@ export class SyncTaskRunner {
     if (account === '') {
       return invalidRequest('account must be a non-empty string.')
     }
-    if (!isSafePositiveInteger(input.chatId)) {
-      return invalidRequest('chatId must be a positive integer.')
+    if (!isSafeNonZeroInteger(input.chatId)) {
+      return invalidRequest('chatId must be a non-zero integer.')
     }
     if (!isSafePositiveInteger(input.limit)) {
       return invalidRequest('limit must be a positive integer.')
@@ -125,6 +125,10 @@ function invalidRequest(message: string): ApiResult<SyncTaskState> {
 
 function isSafePositiveInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0
+}
+
+function isSafeNonZeroInteger(value: number): boolean {
+  return Number.isSafeInteger(value) && value !== 0
 }
 
 function syncedCount(data: unknown): number {

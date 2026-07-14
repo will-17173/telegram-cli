@@ -24,8 +24,8 @@ afterEach(() => {
 
 describe('startWebServer', () => {
   it('defaults static assets to the web module directory', () => {
-    expect(defaultStaticDir().endsWith('/src/web')).toBe(true)
-    expect(defaultStaticDir().endsWith('/src/web/web')).toBe(false)
+    expect(defaultStaticDir().endsWith('/dist/web')).toBe(true)
+    expect(defaultStaticDir().endsWith('/dist/web/web')).toBe(false)
   })
 
   it('serves health and the app shell on localhost', async () => {

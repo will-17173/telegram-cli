@@ -36,6 +36,16 @@ tg recent --chat @team --hours 24
 
 Local commands can also filter, summarize, and export stored messages.
 
+### Browse local data in a web UI
+
+Run a local-only management UI for stored messages:
+
+```sh
+tg web
+```
+
+The server binds to `127.0.0.1`, has no login screen, and is intended for local use only. It can browse local SQLite data and trigger read-only sync for the selected chat.
+
 ### Follow live messages and download files
 
 The `listen` command streams new messages from one chat or many chats. It can download incoming attachments and run interactive reply or group actions.
@@ -78,7 +88,7 @@ Finite commands support JSON, YAML, and Markdown output. Failures return nonzero
 
 ## Install
 
-Install Node.js 22 or later, then install Telegram CLI from npm:
+Install Node.js 22.12.0 or later, then install Telegram CLI from npm:
 
 ```sh
 npm install -g @will-17173/telegram-cli
@@ -106,7 +116,7 @@ Check a command’s execution scope before you run it:
 | --- | --- | --- |
 | Online read | `inbox`, `read`, `search-online` | Queries Telegram without storing returned messages. |
 | Local persistence | `history`, `sync`, `sync-all`, `refresh` | Stores fetched messages in the selected account’s SQLite database. |
-| Local read | `search`, `recent`, `stats`, `export` | Reads local SQLite data without connecting to Telegram. |
+| Local read | `search`, `recent`, `stats`, `export`, `web` | Reads local SQLite data without connecting to Telegram. |
 | File archive | `archive` | Reads Telegram and writes Markdown or media files without writing to SQLite. |
 | Remote write | `send`, `edit`, `delete`, notification, folder, and group actions | Changes Telegram messages or settings. |
 
@@ -146,7 +156,7 @@ The skill covers authentication, synchronization, queries, and write safety.
 
 ## Develop
 
-Use pnpm with Node.js 22 or later:
+Use pnpm with Node.js 22.12.0 or later:
 
 ```sh
 pnpm install

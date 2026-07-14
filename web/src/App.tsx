@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getJson,
   postJson,
@@ -27,6 +27,13 @@ export function App() {
   const [loadingChats, setLoadingChats] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [error, setError] = useState('')
+  const chatRequestId = useRef(0)
+  const messageRequestId = useRef(0)
+  const accountRef = useRef(account)
+  const selectedChatRef = useRef(selectedChat)
+
+  accountRef.current = account
+  selectedChatRef.current = selectedChat
 
   useEffect(() => {
     getJson<AccountData>('/api/accounts')
@@ -38,7 +45,15 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    if (!account) return
+    const requestId = chatRequestId.current + 1
+    chatRequestId.current = requestId
+    if (!account) {
+      setChats([])
+      setSelectedChat(null)
+      setMessages([])
+      setNextCursor(null)
+      return
+    }
     setLoadingChats(true)
     setError('')
     const params = new URLSearchParams({ account, limit: '100' })
@@ -46,18 +61,40 @@ export function App() {
 
     getJson<Page<ChatSummary>>(`/api/chats?${params}`)
       .then((page) => {
+        if (requestId !== chatRequestId.current) return
         setChats(page.items)
-        setSelectedChat((current) => {
-          if (current != null && page.items.some((item) => item.chat_id === current.chat_id)) return current
-          return page.items[0] ?? null
-        })
+        if (page.items.length === 0) {
+          messageRequestId.current += 1
+          setMessages([])
+          setNextCursor(null)
+        }
+        const current = selectedChatRef.current
+        const next = current != null && page.items.some((item) => item.chat_id === current.chat_id)
+          ? current
+          : page.items[0] ?? null
+        if (next?.chat_id !== current?.chat_id) {
+          messageRequestId.current += 1
+          setMessages([])
+          setNextCursor(null)
+        }
+        setSelectedChat(next)
       })
-      .catch((caught) => setError(errorText(caught)))
-      .finally(() => setLoadingChats(false))
+      .catch((caught) => {
+        if (requestId === chatRequestId.current) setError(errorText(caught))
+      })
+      .finally(() => {
+        if (requestId === chatRequestId.current) setLoadingChats(false)
+      })
   }, [account, chatQuery])
 
   useEffect(() => {
-    if (!account || selectedChat == null) return
+    if (!account || selectedChat == null) {
+      messageRequestId.current += 1
+      setMessages([])
+      setNextCursor(null)
+      setLoadingMessages(false)
+      return
+    }
     void loadMessages(null)
   }, [account, selectedChat?.chat_id])
 
@@ -68,47 +105,59 @@ export function App() {
 
   async function loadMessages(cursor: string | null) {
     if (!account || selectedChat == null) return
+    const requestId = messageRequestId.current + 1
+    messageRequestId.current = requestId
+    const requestAccount = account
+    const requestChat = selectedChat
+    const requestKeyword = keyword.trim()
+    const requestSince = since
+    const requestUntil = until
     setLoadingMessages(true)
     setError('')
     try {
       const params = new URLSearchParams({
-        account,
-        chatId: String(selectedChat.chat_id),
+        account: requestAccount,
+        chatId: String(requestChat.chat_id),
         limit: String(MESSAGE_LIMIT),
       })
-      if (keyword.trim()) params.set('q', keyword.trim())
-      if (since) params.set('since', new Date(since).toISOString())
-      if (until) params.set('until', new Date(until).toISOString())
+      if (requestKeyword) params.set('q', requestKeyword)
+      if (requestSince) params.set('since', new Date(requestSince).toISOString())
+      if (requestUntil) params.set('until', new Date(requestUntil).toISOString())
       if (cursor) params.set('cursor', cursor)
 
       const page = await getJson<Page<MessageRow>>(`/api/messages?${params}`)
+      if (requestId !== messageRequestId.current) return
       setMessages((current) => cursor ? current.concat(page.items) : page.items)
       setNextCursor(page.next_cursor ?? null)
     } catch (caught) {
-      setError(errorText(caught))
+      if (requestId === messageRequestId.current) setError(errorText(caught))
     } finally {
-      setLoadingMessages(false)
+      if (requestId === messageRequestId.current) setLoadingMessages(false)
     }
   }
 
   async function syncCurrentChat() {
     if (!account || selectedChat == null || syncTask.status === 'running') return
+    const syncAccount = account
+    const syncChat = selectedChat
     setError('')
     setSyncTask({
       status: 'running',
-      account,
-      chat_id: selectedChat.chat_id,
+      account: syncAccount,
+      chat_id: syncChat.chat_id,
       limit: SYNC_LIMIT,
       started_at: new Date().toISOString(),
     })
     try {
       const state = await postJson<SyncTaskState>('/api/sync-task', {
-        account,
-        chatId: selectedChat.chat_id,
+        account: syncAccount,
+        chatId: syncChat.chat_id,
         limit: SYNC_LIMIT,
       })
       setSyncTask(state)
-      await loadMessages(null)
+      if (accountRef.current === syncAccount && selectedChatRef.current?.chat_id === syncChat.chat_id) {
+        await loadMessages(null)
+      }
     } catch (caught) {
       setSyncTask({ status: 'idle' })
       setError(errorText(caught))
@@ -132,10 +181,10 @@ export function App() {
             ))}
           </select>
         </label>
-        <span className={`sync-pill sync-pill-${syncTask.status}`}>Sync: {syncTask.status}</span>
+        <span className={`sync-pill sync-pill-${syncTask.status}`} role="status" aria-live="polite">Sync: {syncTask.status}</span>
       </header>
 
-      {error && <div className="error-strip">{error}</div>}
+      {error && <div className="error-strip" role="alert">{error}</div>}
 
       <section className="workspace" aria-label="Telegram message browser">
         <aside className="sidebar">
@@ -151,6 +200,8 @@ export function App() {
                 className={chat.chat_id === selectedChat?.chat_id ? 'chat-row chat-row-active' : 'chat-row'}
                 key={chat.chat_id}
                 onClick={() => setSelectedChat(chat)}
+                aria-current={chat.chat_id === selectedChat?.chat_id ? 'true' : undefined}
+                aria-pressed={chat.chat_id === selectedChat?.chat_id}
                 type="button"
               >
                 <span className="chat-name">{chat.chat_name ?? `Chat ${chat.chat_id}`}</span>
@@ -193,7 +244,7 @@ export function App() {
           <ol className="message-list" aria-busy={loadingMessages}>
             {messages.map((message) => (
               <li key={message.id} className="message-row">
-                <time>{formatDate(message.timestamp)}</time>
+                <time dateTime={message.timestamp}>{formatDate(message.timestamp)}</time>
                 <div>
                   <strong>{message.sender_name ?? message.sender_id ?? 'Unknown'}</strong>
                   <p>{message.content ?? ''}</p>

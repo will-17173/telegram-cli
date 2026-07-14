@@ -45,7 +45,7 @@ describe('npm package metadata', () => {
     expect(packageJson.publishConfig).toEqual({ access: 'public' })
     expect(packageJson.bin).toEqual({ tg: './dist/index.js' })
     expect(packageJson.files).toEqual(['dist', 'README.md', 'README.zh-CN.md', 'LICENSE'])
-    expect(packageJson.engines).toEqual({ node: '>=22' })
+    expect(packageJson.engines).toEqual({ node: '>=22.12.0' })
     expect(packageJson.scripts?.['build:web']).toBe('vite build --config web/vite.config.ts')
     expect(packageJson.scripts?.build).toBe('pnpm clean && pnpm build:web && tsc -p tsconfig.build.json')
     expect(packageJson.scripts?.typecheck).toBe('tsc --noEmit && tsc -p web/tsconfig.json')
@@ -77,12 +77,14 @@ describe('npm package metadata', () => {
         'tg sync @team',
         'tg listen @team --auto-download',
         'tg archive @team --download-media',
+        'tg web',
         'tg send @team "Release is ready" --file ./report.pdf',
         'tg group members @team --type admins',
         'tg stats --account work --json',
         'tg config write-access off',
         'npx skills add https://github.com/will-17173/telegram-cli',
       ]) expect(readme.contents).toContain(example)
+      expect(readme.contents).toContain('127.0.0.1')
       for (const heading of readme.removedHeadings) expect(readme.contents).not.toContain(heading)
     }
   })

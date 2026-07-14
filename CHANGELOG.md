@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `tg web`, a local-only React management UI for browsing stored messages and triggering read-only sync for the selected chat.
+
 ## [0.4.1] - 2026-07-14
 
 ### Added

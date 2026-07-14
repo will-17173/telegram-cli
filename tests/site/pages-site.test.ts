@@ -129,6 +129,9 @@ describe('GitHub Pages site', () => {
       expect(page).toContain('write_access_disabled')
       expect(page).toContain('tg config write-access off')
       expect(page).toContain('OUTPUT=markdown')
+      expect(page).toContain('tg web')
+      expect(page).not.toContain('not implemented yet')
+      expect(page).not.toContain('尚未实现')
 
       const archiveRow = page.match(/<tr data-command="archive">[\s\S]*?<\/tr>/)
       expect(archiveRow, 'archive should have a command-reference row').not.toBeNull()

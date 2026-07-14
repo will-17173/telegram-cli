@@ -45,7 +45,7 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
         if (request.method !== 'GET') return notFound()
         return success(query.messages({
           account: stringParam(url, 'account'),
-          chatId: requiredPositiveIntParam(url, 'chatId'),
+          chatId: requiredNonZeroIntParam(url, 'chatId'),
           q: stringParam(url, 'q'),
           since: stringParam(url, 'since'),
           until: stringParam(url, 'until'),
@@ -98,8 +98,8 @@ async function syncTaskPost(request: Request, context: ApiContext): Promise<Resp
     return failure(400, 'invalid_request', 'account must be a non-empty string.')
   }
 
-  if (!isSafePositiveInteger(body.chatId)) {
-    return failure(400, 'invalid_request', 'chatId must be a positive integer.')
+  if (!isSafeNonZeroInteger(body.chatId)) {
+    return failure(400, 'invalid_request', 'chatId must be a non-zero integer.')
   }
 
   let limit = 500
@@ -142,6 +142,10 @@ function isSafePositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
+function isSafeNonZeroInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value !== 0
+}
+
 function isAccountErrorCode(code: string): boolean {
   return code === 'account_required'
     || code === 'account_not_found'
@@ -154,9 +158,9 @@ function stringParam(url: URL, name: string): string | undefined {
   return value == null || value.trim() === '' ? undefined : value
 }
 
-function requiredPositiveIntParam(url: URL, name: string): number {
+function requiredNonZeroIntParam(url: URL, name: string): number {
   const value = parseInteger(url.searchParams.get(name))
-  if (value == null || value <= 0) throw invalidRequest(`${name} must be a positive integer.`)
+  if (value == null || value === 0) throw invalidRequest(`${name} must be a non-zero integer.`)
   return value
 }
 
@@ -179,7 +183,7 @@ function optionalNonNegativeIntParam(url: URL, name: string): number | undefined
 function parseInteger(raw: string | null): number | undefined {
   if (raw == null) return undefined
   const value = raw.trim()
-  if (!/^\d+$/.test(value)) return undefined
+  if (!/^-?\d+$/.test(value)) return undefined
   const parsed = Number(value)
   return Number.isSafeInteger(parsed) ? parsed : undefined
 }

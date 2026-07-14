@@ -130,6 +130,23 @@ describe('SyncTaskRunner', () => {
     }))
   })
 
+  it('accepts signed Telegram chat IDs for sync tasks', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const runner = new SyncTaskRunner({ dataDir: root })
+
+    const result = await runner.start({ account: 'work', chatId: -123, limit: 500 })
+
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        status: 'done',
+        chat_id: -123,
+      }),
+    })
+    expect(fakeClient.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({ chat: -123, limit: 500 }))
+  })
+
   it('closes the Telegram client when database construction fails after client creation', async () => {
     const root = makeRoot()
     seedAccount(root)

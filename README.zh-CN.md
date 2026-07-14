@@ -36,6 +36,16 @@ tg recent --chat @team --hours 24
 
 本地命令还可以筛选、汇总和导出已存储消息。
 
+### 在 Web 界面浏览本地数据
+
+启动仅限本机访问的管理界面来浏览已存储消息：
+
+```sh
+tg web
+```
+
+服务器只绑定 `127.0.0.1`，没有登录页面，仅供本机使用。它可以浏览本地 SQLite 数据，并为当前选中的聊天触发只读同步。
+
 ### 监听新消息并下载文件
 
 `listen` 可以实时接收一个或多个聊天的新消息。它还可以下载收到的附件，并在交互模式中执行回复或群组操作。
@@ -78,7 +88,7 @@ tg stats --account work --json
 
 ## 安装
 
-安装 Node.js 22 或更高版本，再从 npm 安装 Telegram CLI：
+安装 Node.js 22.12.0 或更高版本，再从 npm 安装 Telegram CLI：
 
 ```sh
 npm install -g @will-17173/telegram-cli
@@ -106,7 +116,7 @@ tg search "release" --chat @team
 | --- | --- | --- |
 | 在线读取 | `inbox`、`read`、`search-online` | 查询 Telegram，不保存返回的消息。 |
 | 写入本地 | `history`、`sync`、`sync-all`、`refresh` | 将消息保存到所选账号的 SQLite 数据库。 |
-| 仅本地 | `search`、`recent`、`stats`、`export` | 读取本地 SQLite，不连接 Telegram。 |
+| 仅本地 | `search`、`recent`、`stats`、`export`、`web` | 读取本地 SQLite，不连接 Telegram。 |
 | 文件归档 | `archive` | 读取 Telegram 并写入 Markdown 或媒体文件，不写入 SQLite。 |
 | 远端写入 | `send`、`edit`、`delete`，以及通知、文件夹和群组操作 | 修改 Telegram 消息或设置。 |
 
@@ -146,7 +156,7 @@ npx skills add https://github.com/will-17173/telegram-cli \
 
 ## 开发
 
-请使用 pnpm 和 Node.js 22 或更高版本：
+请使用 pnpm 和 Node.js 22.12.0 或更高版本：
 
 ```sh
 pnpm install

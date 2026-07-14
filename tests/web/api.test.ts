@@ -48,6 +48,23 @@ function seedMessage(root: string): void {
   db.close()
 }
 
+function seedNegativeChatMessage(root: string): void {
+  const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
+  db.insertBatch([
+    {
+      platform: 'telegram',
+      chat_id: -123,
+      chat_name: 'Negative Chat',
+      msg_id: 2,
+      sender_id: 2,
+      sender_name: 'Bob',
+      content: 'negative chat id',
+      timestamp: '2026-07-14T09:00:00.000Z',
+    },
+  ])
+  db.close()
+}
+
 async function api(
   root: string,
   path: string,
@@ -361,6 +378,22 @@ describe('handleApiRequest', () => {
     expect(await json(response)).toMatchObject({
       ok: false,
       error: { code: 'invalid_request' },
+    })
+  })
+
+  it('returns messages for signed Telegram chat IDs', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedNegativeChatMessage(root)
+
+    const response = await api(root, '/api/messages?account=work&chatId=-123')
+
+    expect(response.status).toBe(200)
+    expect(await json(response)).toMatchObject({
+      ok: true,
+      data: {
+        items: [{ chat_id: -123, content: 'negative chat id' }],
+      },
     })
   })
 

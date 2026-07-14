@@ -1,5 +1,6 @@
+import { existsSync } from 'node:fs'
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { getDataDir } from '../config/env.js'
@@ -123,7 +124,11 @@ function serverPort(server: Server): number {
 }
 
 export function defaultStaticDir(): string {
-  return dirname(fileURLToPath(import.meta.url))
+  const moduleDir = dirname(fileURLToPath(import.meta.url))
+  if (moduleDir.endsWith('/src/web')) return resolve(moduleDir, '../../dist/web')
+  const colocatedIndex = resolve(moduleDir, 'index.html')
+  if (existsSync(colocatedIndex)) return moduleDir
+  return resolve(moduleDir, '../../dist/web')
 }
 
 function close(server: Server): Promise<void> {
