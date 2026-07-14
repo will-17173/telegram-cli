@@ -13,6 +13,7 @@ describe('cli help', () => {
 
     expect(names).toEqual([
       'account',
+      'archive',
       'chats',
       'config',
       'contact',
@@ -105,7 +106,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(31)
+    expect(commands).toHaveLength(32)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 
@@ -147,6 +148,29 @@ describe('cli help', () => {
     expect(folder?.commands.find((command) => command.name() === 'list')?.options.map(option => option.long)).toEqual(['--json', '--yaml'])
     expect(folder?.commands.find((command) => command.name() === 'info')?.options.map(option => option.long)).toEqual(['--json', '--yaml'])
     expect(chat?.commands.every(command => command.options.map(option => option.long).join(',') === '--json,--yaml')).toBe(true)
+  })
+
+  it('registers the archive command contract', () => {
+    const archive = createApp().commands.find((command) => command.name() === 'archive')
+
+    expect(archive?.registeredArguments.map((argument) => ({
+      name: argument.name(),
+      required: argument.required,
+      variadic: argument.variadic,
+    }))).toEqual([{ name: 'chats', required: false, variadic: true }])
+    expect(archive?.options.map((option) => option.long)).toEqual([
+      '--all',
+      '--output',
+      '--since',
+      '--until',
+      '--full',
+      '--rebuild',
+      '--download-media',
+      '--json',
+      '--yaml',
+      '--markdown',
+    ])
+    expect(archive?.helpInformation()).toContain('account data directory')
   })
 
   it('lists page delay for history and sync', () => {

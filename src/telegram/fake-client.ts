@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises'
 import type { StoredMessageInput } from '../storage/message-db.js'
 import { FakeTelegramGroupManagement } from './fake-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
@@ -20,6 +21,7 @@ import type {
   TelegramFolderSummary,
 } from './folder-types.js'
 import type { TelegramNotificationAdapter, TelegramNotificationState } from './notification-types.js'
+import type { ArchiveMessage, TelegramArchiveAdapter } from './archive-types.js'
 
 type FakeTelegramCall =
   | {
@@ -82,9 +84,15 @@ export type FakeTelegramClientOptions = {
   folderDetails?: Record<string, TelegramFolderDetail>
   addFolderChatResult?: TelegramFolderChatResult
   removeFolderChatResult?: TelegramFolderChatResult
+  archivePagesByChat?: Record<string, ArchiveMessage[][]>
+  archiveHistoryFailures?: Record<string, Error>
+  archiveMediaFailures?: Record<string, Error>
+  archiveMediaByMessage?: Record<string, Uint8Array | string>
+  archiveResolveFailures?: Record<string, Error>
 }
 
 export class FakeTelegramClient implements TelegramClientAdapter {
+  readonly archive: TelegramArchiveAdapter
   readonly dialogs: TelegramDialogAdapter
   readonly contacts: TelegramContactAdapter
   readonly groups: TelegramGroupManagementAdapter
@@ -98,6 +106,12 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   readonly sendMediaCalls: SendMediaOptions[] = []
   readonly editMessageCalls: Array<{ chat: string | number; msgId: number; text: string; linkPreview: boolean }> = []
   readonly deleteMessagesCalls: Array<{ chat: string | number; msgIds: number[] }> = []
+  readonly archiveDownloadCalls: Array<{
+    chat: string | number
+    messageId: number
+    destination: string
+    onProgress?: (done: number, total: number) => void
+  }> = []
 
   private readonly chats: TelegramChat[]
   private readonly messagesByChat: Record<string, StoredMessageInput[]>
@@ -123,6 +137,11 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   private readonly folderDetails: Record<string, TelegramFolderDetail>
   private readonly addFolderChatResult?: TelegramFolderChatResult
   private readonly removeFolderChatResult?: TelegramFolderChatResult
+  private readonly archivePagesByChat: Record<string, ArchiveMessage[][]>
+  private readonly archiveHistoryFailures: Record<string, Error>
+  private readonly archiveMediaFailures: Record<string, Error>
+  private readonly archiveMediaByMessage: Record<string, Uint8Array | string>
+  private readonly archiveResolveFailures: Record<string, Error>
 
   constructor(options: FakeTelegramClientOptions = {}) {
     this.groups = options.groupManagement ?? new FakeTelegramGroupManagement()
@@ -167,9 +186,15 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     this.folderDetails = cloneFolderDetailMap(options.folderDetails ?? {})
     this.addFolderChatResult = cloneFolderChatResultOrUndefined(options.addFolderChatResult)
     this.removeFolderChatResult = cloneFolderChatResultOrUndefined(options.removeFolderChatResult)
+    this.archivePagesByChat = options.archivePagesByChat ?? {}
+    this.archiveHistoryFailures = options.archiveHistoryFailures ?? {}
+    this.archiveMediaFailures = options.archiveMediaFailures ?? {}
+    this.archiveMediaByMessage = options.archiveMediaByMessage ?? {}
+    this.archiveResolveFailures = options.archiveResolveFailures ?? {}
 
     this.dialogs = this.createDialogsAdapter()
     this.contacts = this.createContactsAdapter()
+    this.archive = this.createArchiveAdapter()
     this.notifications = this.createNotificationsAdapter()
     this.folders = this.createFoldersAdapter()
   }
@@ -347,6 +372,49 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     }
   }
 
+  private createArchiveAdapter(): TelegramArchiveAdapter {
+    return {
+      resolveChats: async (input) => {
+        const source: TelegramChat[] = []
+        if (input.all) {
+          source.push(...this.chats)
+        } else {
+          for (const requested of input.chats ?? []) {
+            const failure = this.archiveResolveFailures[String(requested)]
+            if (failure) throw failure
+            const resolved = this.findChat(requested)
+            if (resolved == null) throw new Error(`Chat ${String(requested)} was not found`)
+            source.push(resolved)
+          }
+        }
+        const seen = new Set<number>()
+        return source.flatMap((chat) => {
+          if (seen.has(chat.id)) return []
+          seen.add(chat.id)
+          return [{ id: chat.id, title: chat.name, type: chat.type }]
+        })
+      },
+      iterHistoryPages: (input) => this.iterArchiveHistoryPages(input),
+      downloadMedia: async (input) => {
+        this.archiveDownloadCalls.push({ ...input })
+        const chat = this.findChat(input.chat)
+        const specific = `${String(input.chat)}:${input.messageId}`
+        const namedSpecific = chat == null ? '' : `${chat.name}:${input.messageId}`
+        const failure = this.archiveMediaFailures[specific]
+          ?? this.archiveMediaFailures[namedSpecific]
+          ?? this.archiveMediaFailures[String(input.chat)]
+          ?? (chat == null ? undefined : this.archiveMediaFailures[chat.name])
+        if (failure) throw failure
+        const bytes = this.archiveMediaByMessage[specific]
+          ?? this.archiveMediaByMessage[namedSpecific]
+          ?? new Uint8Array([0x74, 0x67])
+        await writeFile(input.destination, bytes)
+        const size = typeof bytes === 'string' ? Buffer.byteLength(bytes) : bytes.byteLength
+        input.onProgress?.(size, size)
+      },
+    }
+  }
+
   private createFoldersAdapter(): TelegramFolderAdapter {
     return {
       list: async () => this.folderSummaries.map(cloneFolderSummary),
@@ -365,6 +433,32 @@ export class FakeTelegramClient implements TelegramClientAdapter {
           this.removeFolderChatResult ?? defaultFolderChatResult(request.folder, request.chat),
         )
       },
+    }
+  }
+
+  private async *iterArchiveHistoryPages(input: {
+    chat: string | number
+    since?: Date
+    until?: Date
+    minId?: number
+  }): AsyncIterable<ArchiveMessage[]> {
+    const chat = this.findChat(input.chat)
+    const failure = this.archiveHistoryFailures[String(input.chat)]
+      ?? (chat == null ? undefined : this.archiveHistoryFailures[chat.name])
+    if (failure) throw failure
+
+    const pages = this.archivePagesByChat[String(input.chat)]
+      ?? (chat == null ? undefined : this.archivePagesByChat[chat.name])
+      ?? []
+    for (const page of pages) {
+      const filtered = page.filter((message) => {
+        if (input.minId != null && message.msg_id <= input.minId) return false
+        const timestamp = Date.parse(message.timestamp)
+        if (input.since != null && timestamp < input.since.getTime()) return false
+        if (input.until != null && timestamp >= input.until.getTime()) return false
+        return true
+      }).map(cloneArchiveMessage)
+      if (filtered.length > 0) yield filtered
     }
   }
 
@@ -528,6 +622,13 @@ function allContacts(
 
 function cloneContact(contact: TelegramContact): TelegramContact {
   return { ...contact }
+}
+
+function cloneArchiveMessage(message: ArchiveMessage): ArchiveMessage {
+  return {
+    ...message,
+    attachment: message.attachment == null ? null : { ...message.attachment },
+  }
 }
 
 function cloneCall(call: FakeTelegramCall): FakeTelegramCall {

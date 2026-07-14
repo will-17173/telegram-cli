@@ -37,6 +37,7 @@ Inside this repository, use `pnpm dev <args>` after dependencies are installed, 
 | --- | --- | --- | --- |
 | Authenticate/select accounts | `account` | login only | local session/registry |
 | Discover chats or fetch messages | `chats`, `info`, `history`, `sync`, `sync-all`, `refresh` | yes | writes local DB when syncing |
+| Archive chats as Markdown | `archive` | yes | writes account-local archive files |
 | Query/export stored messages | `search`, `recent`, `today`, `stats`, `top`, `timeline`, `filter`, `export` | no | export may write a file |
 | Watch incoming messages | `listen` | yes, long-running | optional attachment downloads |
 | Change Telegram content | `send`, `edit`, `delete`, group writes | yes | real external write |
@@ -52,6 +53,12 @@ Read [references/command-reference.md](references/command-reference.md) before c
 5. Query only after synchronization. `search`, `recent`, and analytics never query Telegram directly.
 6. Parse the structured envelope rather than terminal tables. For batch failure visibility, use `refresh` and report non-empty `data.failures`.
 7. Reconfirm the target and requested content immediately before an authorized external write.
+
+## Archive workflow
+
+`tg archive` requires one or more chats or `--all`; do not combine them. It uses the selected/current account and defaults to that account's `archive` data directory. An initial run covers the preceding seven days unless `--since`/`--until` define a custom range or `--full` requests all available history. Subsequent runs are incremental and recover their cursor from both the manifest and embedded Markdown message markers. `--rebuild` replaces chat files using the recorded initial range unless a new range or `--full` is supplied. `--download-media` saves attachments under `media/` and recovers missing referenced downloads.
+
+For automation, prefer `--account <name> --json`. A partial chat or media failure returns `archive_partial_failure`, includes `completed`, `failed`, and `warnings`, and exits with status 1.
 
 ## Common mistakes
 

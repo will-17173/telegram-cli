@@ -6,7 +6,10 @@ import { randomUUID } from 'node:crypto'
 
 import type { StoredMessageInput } from '../storage/message-db.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
-import { resolveAttachmentDestination } from './attachment-download.js'
+import {
+  attachmentDownloadProgress,
+  resolveAttachmentDestination,
+} from './attachment-download.js'
 import {
   attachmentDownloadTarget,
   attachmentFileName,
@@ -155,9 +158,7 @@ export class AutoDownloadCoordinator {
         ...attachmentDownloadTarget(task.attachment),
         destination: temporary,
         onProgress: (downloaded, total) => {
-          const progress = Number.isFinite(total) && total > 0
-            ? Math.round(downloaded / total * 100)
-            : null
+          const progress = attachmentDownloadProgress(downloaded, total)
           this.emit({ status: 'downloading', key: task.key, progress })
         },
       })

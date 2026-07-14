@@ -1,6 +1,7 @@
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import type { AccountAuthState, AccountMeta } from './account-store.js'
+import { assertSafeAccountName } from './account-name.js'
 
 export type AccountContext = {
   name: string
@@ -37,9 +38,23 @@ export function toAccountContext(dataDir: string, account: AccountMeta): Account
 }
 
 export function accountSessionPath(dataDir: string, accountName: string): string {
-  return join(dataDir, 'accounts', accountName, 'session')
+  return join(accountRoot(dataDir, accountName), 'session')
 }
 
 export function accountDbPath(dataDir: string, accountName: string): string {
-  return join(dataDir, 'accounts', accountName, 'messages.db')
+  return join(accountRoot(dataDir, accountName), 'messages.db')
+}
+
+function accountRoot(dataDir: string, accountName: string): string {
+  assertSafeAccountName(accountName)
+  const accountsRoot = resolve(dataDir, 'accounts')
+  const root = resolve(accountsRoot, accountName)
+  const contained = relative(accountsRoot, root)
+  if (contained.length === 0
+    || contained === '..'
+    || contained.startsWith(`..${sep}`)
+    || isAbsolute(contained)) {
+    throw new Error('account_store_error: invalid account name')
+  }
+  return root
 }

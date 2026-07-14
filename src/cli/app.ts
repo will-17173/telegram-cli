@@ -1,5 +1,6 @@
 import { Command } from 'commander'
 import { registerAccountCommands } from '../commands/account.js'
+import { registerArchiveCommand } from '../commands/archive.js'
 import { registerConfigCommands } from '../commands/config.js'
 import { registerDataCommands } from '../commands/data.js'
 import { registerDialogCommands } from '../commands/dialog.js'
@@ -20,6 +21,7 @@ export function createApp(): Command {
     .version('0.4.0')
 
   registerQueryCommands(app)
+  registerArchiveCommand(app)
   registerDataCommands(app)
   registerTelegramCommands(app)
   registerContactCommands(app)

@@ -146,6 +146,25 @@ tg send <chat> "Group caption" --file ./photo.jpg --file ./clip.mp4
 
 Telegram determines which file combinations and group sizes it accepts. If Telegram rejects the requested combination or limit, the command returns an error and does not silently split the files into separate messages or groups.
 
+## Archive chats as Markdown
+
+`archive` requires a scope: pass one or more chat IDs/usernames, or use `--all` (not both). It uses the current account unless `--account <name>` is supplied, and writes by default to that account's `archive` data directory; use `--output <path>` to override it.
+
+```sh
+# Initial archive: the preceding seven days
+tg archive @team
+
+# Custom range (relative durations or ISO timestamps with zones)
+tg archive @team --since 30d --until 2026-07-13T00:00:00Z
+
+# Full available history for every chat, including attachments
+tg archive --all --full --download-media
+```
+
+The first run defaults to exactly the preceding seven days. `--since` and `--until` select a custom range, while `--full` removes the lower bound and cannot be combined with `--since`. Later runs are incremental: the manifest and embedded message markers recover the highest archived message even if their cursors differ. `--rebuild` replaces each Markdown file, reusing its recorded initial range unless a new range or `--full` is given. `--download-media` stores downloadable attachments under the archive's `media/` directory and retries missing referenced media during incremental recovery.
+
+Chat or attachment failures produce `archive_partial_failure`, preserve successful chat results, and exit with status 1. Use `--json` or `--yaml` in automation and inspect `completed`, `failed`, and `warnings`.
+
 ## Multiple accounts
 
 Each Telegram account has its own persisted authentication session and local message database. Add and authenticate an account interactively with:
@@ -294,6 +313,7 @@ Common commands:
 | `tg recent`, `tg today`, `tg stats`, `tg top`, `tg timeline` | Explore local message data. |
 | `tg filter <keywords>` | Filter local messages by keyword with optional chat/hour filters. |
 | `tg export <chat>` | Export local messages from a chat. |
+| `tg archive <chat ...>` / `tg archive --all` | Archive selected or all chats as incremental Markdown files. |
 | `tg send <chat> [message] [--file <path> ...]` | Send text, files, or a captioned media group. |
 | `tg edit <chat> <msgId> <text>` | Edit a message. |
 | `tg delete <chat> <msgIds...>` | Delete one or more messages. |

@@ -7,7 +7,10 @@ import { dirname } from 'node:path'
 
 import type { TelegramClientAdapter } from '../../telegram/types.js'
 import type { StoredMessageInput } from '../../storage/message-db.js'
-import { resolveAttachmentDestination } from '../../services/attachment-download.js'
+import {
+  attachmentDownloadProgress,
+  resolveAttachmentDestination,
+} from '../../services/attachment-download.js'
 import { ListenAlbumAggregator } from '../../services/listen-album-aggregator.js'
 import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../../services/auto-download-coordinator.js'
 import { attachmentDownloadTarget, attachmentFileName, discoverListenAttachments, listenAttachmentKey } from '../../services/listen-attachment.js'
@@ -1240,7 +1243,7 @@ export function InteractiveListen({
         destination,
         onProgress: (downloaded, total) => {
           if (!isCurrent()) return
-          const progress = Number.isFinite(total) && total > 0 ? Math.round(downloaded / total * 100) : null
+          const progress = attachmentDownloadProgress(downloaded, total)
           setDownloadStates((current) => ({ ...current, [item.key]: { status: 'downloading', progress } }))
         },
       })

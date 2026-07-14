@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveAttachmentDestination } from '../../src/services/attachment-download.js'
+import {
+  attachmentDownloadProgress,
+  resolveAttachmentDestination,
+  sanitizeAttachmentFileName,
+} from '../../src/services/attachment-download.js'
+
+describe('attachment download helpers', () => {
+  it('provides stable safe names for archive and listen downloads', () => {
+    expect(sanitizeAttachmentFileName('../bad:name?.jpg')).toBe('bad_name_.jpg')
+    expect(sanitizeAttachmentFileName('  ')).toBe('attachment')
+  })
+
+  it('preserves listen download progress semantics', () => {
+    expect(attachmentDownloadProgress(5, 12)).toBe(42)
+    expect(attachmentDownloadProgress(1, 0)).toBeNull()
+    expect(attachmentDownloadProgress(1, Number.NaN)).toBeNull()
+  })
+})
 
 describe('resolveAttachmentDestination', () => {
   it('uses the telegram-cli folder under Downloads and sanitizes filenames', () => {

@@ -5,6 +5,7 @@ import type { TelegramClientAdapter } from '../telegram/types.js'
 import { runWithAuthenticatedAccountContext, type AccountCommandOptions } from './account-options.js'
 import type { HandlerResult } from './types.js'
 import { WriteAccessPolicy } from '../services/write-access-policy.js'
+import { isTelegramAuthSessionError } from '../telegram/errors.js'
 
 type StreamWrite = typeof process.stdout.write
 
@@ -104,7 +105,7 @@ export function hideBenignUpdateWarnings(stream: NodeJS.WriteStream): () => void
 }
 
 function toAuthSessionError(error: unknown, accountName: string): HandlerResult<never> | null {
-  if (isAuthKeyUnregistered(error)) {
+  if (isTelegramAuthSessionError(error)) {
     return {
       ok: false,
       error: {
@@ -114,21 +115,6 @@ function toAuthSessionError(error: unknown, accountName: string): HandlerResult<
     }
   }
   return null
-}
-
-function isAuthKeyUnregistered(error: unknown): boolean {
-  if (error === null || typeof error !== 'object') return false
-
-  const candidate = error as { text?: unknown; message?: unknown; code?: unknown }
-  const text = typeof candidate.text === 'string'
-    ? candidate.text
-    : undefined
-
-  if (text === 'AUTH_KEY_UNREGISTERED') return true
-
-  const code = typeof candidate.code === 'number' ? candidate.code : undefined
-  const message = typeof candidate.message === 'string' ? candidate.message : ''
-  return message.includes('AUTH_KEY_UNREGISTERED') && code === 401
 }
 
 function commandFailure(code: string, error: unknown): HandlerResult<never> {
