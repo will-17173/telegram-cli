@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -70,6 +70,24 @@ afterEach(() => {
 })
 
 describe('SyncTaskRunner', () => {
+  it('rejects blank account names without falling back to the current account', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const runner = new SyncTaskRunner({ dataDir: root })
+
+    const result = await runner.start({ account: '   ', chatId: 10, limit: 500 })
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: 'invalid_request',
+        message: 'account must be a non-empty string.',
+      },
+    })
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(runner.getState()).toEqual({ status: 'idle' })
+  })
+
   it('runs a sync task for an authenticated account and stores the final state', async () => {
     const root = makeRoot()
     seedAccount(root)
@@ -95,6 +113,29 @@ describe('SyncTaskRunner', () => {
       chat_id: 10,
       synced: 1,
     }))
+  })
+
+  it('closes the Telegram client when database construction fails after client creation', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    mkdirSync(join(root, 'accounts'))
+    writeFileSync(join(root, 'accounts', 'work'), 'not a directory')
+    const runner = new SyncTaskRunner({ dataDir: root })
+
+    const result = await runner.start({ account: 'work', chatId: 10, limit: 500 })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        status: 'error',
+        account: 'work',
+        chat_id: 10,
+        error: { code: 'telegram_error' },
+      },
+    })
+    expect(createTelegramClient).toHaveBeenCalledWith(join(root, 'accounts', 'work', 'session'))
+    expect(fakeClient.fetchHistory).not.toHaveBeenCalled()
+    expect(fakeClient.close).toHaveBeenCalledOnce()
   })
 
   it('rejects a concurrent sync while another sync task is running', async () => {

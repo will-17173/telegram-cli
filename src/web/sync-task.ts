@@ -27,6 +27,10 @@ export class SyncTaskRunner {
       }
     }
 
+    const account = input.account.trim()
+    if (account === '') {
+      return invalidRequest('account must be a non-empty string.')
+    }
     if (!isSafePositiveInteger(input.chatId)) {
       return invalidRequest('chatId must be a positive integer.')
     }
@@ -37,20 +41,22 @@ export class SyncTaskRunner {
     const startedAt = new Date().toISOString()
     this.state = {
       status: 'running',
-      account: input.account,
+      account,
       chat_id: input.chatId,
       limit: input.limit,
       started_at: startedAt,
     }
 
+    let client: ReturnType<typeof createTelegramClient> | undefined
+    let service: SyncService | undefined
     try {
       const accountContext = resolveAuthenticatedAccountContext({
-        explicitName: input.account,
+        explicitName: account,
         dataDir: this.options.dataDir,
       })
-      const client = createTelegramClient(accountContext.sessionPath)
+      client = createTelegramClient(accountContext.sessionPath)
       const db = new MessageDB(accountContext.dbPath)
-      const service = new SyncService(client, db)
+      service = new SyncService(client, db)
 
       try {
         const result = await service.sync({
@@ -62,7 +68,7 @@ export class SyncTaskRunner {
         if (!result.ok) {
           this.state = {
             status: 'error',
-            account: input.account,
+            account,
             chat_id: input.chatId,
             limit: input.limit,
             started_at: startedAt,
@@ -74,7 +80,7 @@ export class SyncTaskRunner {
 
         this.state = {
           status: 'done',
-          account: input.account,
+          account,
           chat_id: input.chatId,
           limit: input.limit,
           started_at: startedAt,
@@ -83,17 +89,17 @@ export class SyncTaskRunner {
         }
         return { ok: true, data: this.state }
       } finally {
-        service.close()
-        try {
-          await client.close()
-        } catch {
-          // Closing the Telegram client is best effort after the sync result is known.
-        }
+        const closingService = service
+        const closingClient = client
+        service = undefined
+        client = undefined
+        await closeResources(closingService, closingClient)
       }
     } catch (error) {
+      await closeResources(service, client)
       this.state = {
         status: 'error',
-        account: input.account,
+        account,
         chat_id: input.chatId,
         limit: input.limit,
         started_at: startedAt,
@@ -121,4 +127,18 @@ function syncedCount(data: unknown): number {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+async function closeResources(service: SyncService | undefined, client: ReturnType<typeof createTelegramClient> | undefined): Promise<void> {
+  try {
+    service?.close()
+  } finally {
+    if (client) {
+      try {
+        await client.close()
+      } catch {
+        // Closing the Telegram client is best effort after the sync result is known.
+      }
+    }
+  }
 }

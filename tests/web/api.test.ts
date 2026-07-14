@@ -181,6 +181,78 @@ describe('handleApiRequest', () => {
     })
   })
 
+  it('maps running sync task responses to conflict', async () => {
+    const root = makeRoot()
+    const result = {
+      ok: false as const,
+      error: {
+        code: 'sync_task_running',
+        message: 'A sync task is already running.',
+      },
+    }
+    const syncTask = {
+      getState: vi.fn(() => ({ status: 'idle' })),
+      start: vi.fn(async () => result),
+    } as unknown as SyncTaskRunner
+
+    const response = await api(root, '/api/sync-task', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'work', chatId: 10 }),
+    }, syncTask)
+
+    expect(response.status).toBe(409)
+    expect(await json(response)).toEqual(result)
+  })
+
+  it('rejects blank sync task accounts', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/sync-task', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: '  ', chatId: 10 }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
+  it('rejects invalid sync task chat IDs', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/sync-task', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'work', chatId: '10' }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
+  it('rejects invalid provided sync task limits', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/sync-task', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'work', chatId: 10, limit: 0 }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
   it('starts a sync task from a valid POST request', async () => {
     const root = makeRoot()
     const result = {
