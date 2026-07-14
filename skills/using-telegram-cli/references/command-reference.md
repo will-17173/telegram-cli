@@ -7,7 +7,9 @@ Use this reference for the repository's current `tg` behavior. Confirm flags aga
 - [Invocation and installation](#invocation-and-installation)
 - [Configuration and accounts](#configuration-and-accounts)
 - [Chat discovery and synchronization](#chat-discovery-and-synchronization)
+- [Online reads, contacts, notifications, and folders](#online-reads-contacts-notifications-and-folders)
 - [Local query and data commands](#local-query-and-data-commands)
+- [Archiving](#archiving)
 - [Messaging and listening](#messaging-and-listening)
 - [Group operations](#group-operations)
 - [Structured output](#structured-output)
@@ -44,17 +46,21 @@ tg config list --json
 
 `TG_API_ID` and `TG_API_HASH` must be set together and override stored credentials. `TG_PROXY` overrides a stored proxy. A proxy URL can contain credentials or an MTProxy secret. `config list` masks the API hash by default but returns the complete proxy URL.
 
-Only `account add` starts interactive Telegram authentication. A human may need to supply a phone number, login code, and 2FA password:
+`account add` starts authentication for a new registration. `account login` reauthenticates an existing logged-out registration. A human may need to supply a phone number, login code, and 2FA password:
 
 ```sh
 tg account add
 tg account list --json
 tg account current --json
 tg account switch <name> --json
+tg account logout work --yes --json
+tg account login work --json
 tg account remove <name> --force --json
 ```
 
-Adding `--json` to `account add` only structures the final result; it does not make authentication non-interactive or guarantee prompt-free stdout.
+Adding `--json`/`--yaml` only structures the result; authentication still requires an interactive TTY. `account logout [name]` uses the current account when omitted and requires `--yes` in non-TTY use. Logout invalidates the Telegram session but retains the registration and messages database; login replaces the session safely and retains that database. A logged-out account can still run local SQLite queries.
+
+If non-TTY login returns `interaction_required`, rerun `tg account login <name>` in an interactive terminal; do not pipe credentials. Session replacement is staged and rolled back where possible. If a failure includes `error.details.recovery_path` or `recovery_paths`, preserve those paths, report them securely, and do not delete or overwrite them while recovering.
 
 The first account becomes current. Later additions do not change current. Prefer a per-command selection in automation:
 
@@ -77,7 +83,7 @@ tg info <chat> --account work --json
 
 Use chat names, usernames, or numeric IDs. Prefer the ID returned by `chats --json` in scripts. Valid chat types are `user`, `group`, `supergroup`, `channel`, and `unknown`.
 
-`chats --type user` lists private dialogs, not the Telegram address book; no contact-list or contact-sync command exists. If the user needs the complete Telegram contact list, state that this CLI cannot provide it. Do not substitute dialogs for contacts or expand to another API/tool without user direction.
+`chats --type user` lists private dialogs, not the Telegram address book. Use `contact list` for contacts.
 
 History and sync commands fetch from Telegram and store rows in the selected account's SQLite database:
 
@@ -88,9 +94,47 @@ tg sync-all --max-chats 20 --limit 5000 --delay 1 --account work --json
 tg refresh --max-chats 20 --delay 1 --account work --json
 ```
 
-Use `history` for an explicit historical backfill. Use `sync` for incremental updates and `sync-all`/`refresh` across dialogs. For a chat absent from the local database, `sync`, `sync-all`, and `refresh` cap the first fetch at 500 messages even if `--limit` is higher. Page/chat delays reduce request pressure; default API credentials have stricter flood limits.
+Use `history` for a count-bounded historical backfill. Use `sync` for incremental updates and `sync-all`/`refresh` across dialogs. These persistence commands accept limit/delay controls, not `--since` or `--until`; an identical time-bounded `read` range cannot be persisted directly. Fetch enough history, then use local query filters for the desired range. For a chat absent from the local database, `sync`, `sync-all`, and `refresh` cap the first fetch at 500 messages even if `--limit` is higher. Page/chat delays reduce request pressure; default API credentials have stricter flood limits.
 
 `refresh` may return top-level success while individual chats failed, so inspect `data.failures`. `sync-all` intentionally projects the result to `new_messages`, `chats`, and `results` and omits failure details. Use `refresh` instead when a script must reliably identify partial failures.
+
+## Online reads, contacts, notifications, and folders
+
+These finite commands query Telegram and do not persist messages to SQLite:
+
+```sh
+tg inbox --limit 50 --account work --json
+tg read @ops --limit 100 --since 2h --account work --json
+tg read @ops --since '2026-07-14T08:00:00+08:00' --until '2026-07-14T10:00:00+08:00' --account work --yaml
+tg search-online 'incident' --limit 100 --since 2h --account work --json
+tg search-online 'incident' --chat @ops --until '2026-07-14T10:00:00+08:00' --account work --json
+tg contact list --limit 100 --account work --json
+tg contact info @alice --account work --json
+tg group list --admin --limit 100 --account work --json
+```
+
+`inbox` lists unread dialogs without marking messages read. `read` is a transient server read, not a persistence command. Use `history` or `sync` when messages must enter SQLite. `search-online` searches Telegram globally unless `--chat` scopes it; local `search` never contacts Telegram. Time bounds accept positive relative durations (`2h`, meaning two hours before execution) or ISO timestamps with a zone (`2026-07-14T08:00:00+08:00` or `Z`); `--since` must be earlier than `--until`.
+
+Notification inspection is read-only; mute/unmute mutate Telegram:
+
+```sh
+tg notification info @ops --account work --json
+tg notification mute @ops 2h --account work --json
+tg notification unmute @ops --account work --json
+```
+
+Mute duration is a positive integer plus `s`, `m`, `h`, `d`, or `w`, or `forever`; omission defaults to `forever`.
+
+Folder list/info are read-only; explicit chat membership changes mutate Telegram:
+
+```sh
+tg folder list --account work --json
+tg folder info 3 --account work --json
+tg folder chat add 3 @ops --account work --json
+tg folder chat remove 3 @ops --account work --json
+```
+
+Folder titles may be ambiguous. Discover folders with `folder list`, then prefer the returned numeric folder ID for `info`, `chat add`, and `chat remove`.
 
 ## Local query and data commands
 
@@ -120,6 +164,21 @@ Local deletion requires confirmation and does not delete Telegram messages:
 ```sh
 tg purge <chat> --yes --account work --json
 ```
+
+## Archiving
+
+Archive writes Markdown files but does not populate SQLite:
+
+```sh
+tg archive @ops --account work --json
+tg archive @ops --since 2d --until '2026-07-14T10:00:00+08:00' --download-media --account work --json
+tg archive --all --full --output ./telegram-archive --account work --markdown
+tg archive @ops --rebuild --account work --yaml
+```
+
+Specify one or more chats or `--all`, never both. Without a range, the first run archives the preceding seven days; `--since`/`--until` set an explicit range and `--full` requests all history (`--full` conflicts with `--since`). Later runs are incremental, resuming from the manifest and embedded Markdown message markers. `--rebuild` replaces chat files using the recorded initial range unless a new range or `--full` is supplied. `--download-media` stores attachments under `media/` and retries missing referenced downloads.
+
+Any chat or media failure yields non-zero status and `archive_partial_failure`, with `completed`, `failed`, and `warnings`. Treat the overall operation as failed even when some chats completed. Report all three fields and never summarize it as complete success.
 
 ## Messaging and listening
 
@@ -154,6 +213,7 @@ tg group info <chat> --account work --json
 tg group members <chat> --type admins --query alice --limit 50 --account work --json
 tg group member info <chat> <@username-or-user-id> --account work --json
 tg group audit <chat> --user <user> --type member_invited --limit 100 --account work --json
+tg group list --admin --limit 100 --account work --json
 ```
 
 Prefer `group member info`; the legacy `group member <chat> <user>` is ambiguous when a chat name equals a reserved action. Member write targets must be `@username` or a numeric user ID.
@@ -180,13 +240,30 @@ The concrete write syntax places the chat immediately after the action:
 ```sh
 tg group member mute <chat> <user> 2h --yes --account work --json
 tg group chat slowmode <chat> 30s --account work --json
+tg group admin transfer-owner <chat> <@username-or-user-id> --yes --account work --json
 ```
 
 Commands marked risky reject execution without `--yes`. Permanent chat deletion also requires `--confirm-title '<exact title>'`. Other mutations can execute without built-in confirmation, so authorization is required regardless of CLI safeguards. Permissions and Telegram capabilities (admin, creator, supergroup, or forum) still apply.
 
+Ownership transfer requires the current user to be the creator. After `--yes`, the CLI securely prompts for the Telegram 2FA password in an interactive TTY. Never provide or request that password in plain text, place it in command arguments/environment/stdin automation, or automate the prompt. Non-TTY ownership transfer returns an interaction error; have the human run it interactively and enter the password directly into the prompt.
+
+## Remote write access
+
+Check the local safety gate before planning a remote mutation:
+
+```sh
+tg config write-access status --json
+tg config write-access on --json
+tg config write-access off --json
+```
+
+Omitting `status` also reports the setting. Enabling the gate is a local configuration mutation, but requires explicit user authorization; it does not authorize any Telegram mutation. Obtain separate explicit authorization immediately before the specific remote write.
+
+The gate applies to remote mutations only: `send`, `edit`, `delete`, notification `mute`/`unmute`, folder `chat add`/`chat remove`, and non-read-only group actions. It does not block Telegram reads, local SQLite queries/exports/purge, sync/history/archive persistence, account lifecycle, or configuration changes. When off, gated commands fail with `write_access_disabled` before connecting for the mutation.
+
 ## Structured output
 
-Use one explicit format for finite automation commands:
+Use one explicit format for every finite command: `--json` for machine parsing, `--yaml` for readable structured output, or `--markdown` for human-readable Markdown.
 
 ```json
 {
@@ -209,7 +286,7 @@ Failures use non-zero exit status and:
 }
 ```
 
-Without a format flag, TTY output is human-oriented and non-TTY output defaults to YAML. `OUTPUT=json|yaml|rich` can set a default, but explicit `--json`/`--yaml` wins. Do not parse human tables. For `refresh`, do not assume `ok: true` means every chat succeeded; inspect `data.failures`.
+Without a format flag, TTY output is human-oriented and non-TTY output defaults to YAML. `OUTPUT=json|yaml|rich` can set a default, but explicit `--json`/`--yaml`/`--markdown` wins. Never combine `--json` and `--yaml`; do not parse human tables. `listen` is streaming and has no JSON/YAML/Markdown flags. For `refresh`, do not assume `ok: true` means every chat succeeded; inspect `data.failures`.
 
 ## Data, privacy, and recovery
 
@@ -228,6 +305,8 @@ Common recovery paths:
 
 - `account_required`: run `tg account add` or select an existing account.
 - `account_not_found`: inspect `tg account list --json` and correct `--account`.
+- Logged-out registered account: local SQLite queries remain available; run `account login <name>` in an interactive TTY for Telegram access.
+- `interaction_required` from account login or ownership transfer: rerun interactively; never pipe authentication or ownership secrets.
 - `telegram_account_session_expired` / `AUTH_KEY_UNREGISTERED`: remove the named account with `--force`, then authenticate again.
 - `FLOOD_WAIT`: stop retrying aggressively, respect the wait, keep delays, and configure personal API credentials.
 - Empty local search: synchronize the correct chat and account first.
