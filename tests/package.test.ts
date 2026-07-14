@@ -46,7 +46,9 @@ describe('npm package metadata', () => {
     expect(packageJson.bin).toEqual({ tg: './dist/index.js' })
     expect(packageJson.files).toEqual(['dist', 'README.md', 'README.zh-CN.md', 'LICENSE'])
     expect(packageJson.engines).toEqual({ node: '>=22' })
-    expect(packageJson.scripts?.build).toBe('pnpm clean && tsc -p tsconfig.build.json')
+    expect(packageJson.scripts?.['build:web']).toBe('vite build --config web/vite.config.ts')
+    expect(packageJson.scripts?.build).toBe('pnpm clean && pnpm build:web && tsc -p tsconfig.build.json')
+    expect(packageJson.scripts?.typecheck).toBe('tsc --noEmit && tsc -p web/tsconfig.json')
     expect(readFileSync('src/index.ts', 'utf8').split('\n')[0]).toBe('#!/usr/bin/env node')
   })
 
