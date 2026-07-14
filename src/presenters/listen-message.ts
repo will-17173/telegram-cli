@@ -73,7 +73,7 @@ export function formatListenLine(message: StoredMessageInput | StoredMessageInpu
 
 function contentPreview(content: string | null, hasVisibleMedia: boolean): string | null {
   if (content == null || content.trim() === '') return hasVisibleMedia ? null : '(no text)'
-  return content.replaceAll('\n', ' ')
+  return content
 }
 
 function formatListenTimestamp(value: string): string {

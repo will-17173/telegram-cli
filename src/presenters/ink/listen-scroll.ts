@@ -8,7 +8,7 @@ export type ListenScrollState = {
 function messageLines(message: ListenMessageRow): number {
   return 2
     + (message.replyContext == null ? 0 : 1)
-    + (message.content == null ? 0 : 1)
+    + (message.content == null ? 0 : message.content.split(/\r\n|\r|\n/).length)
     + (message.mediaSummary == null ? 0 : 1)
     + message.media.reduce(
     (lines, attachment) => lines + 1 + (attachment.previewRows ?? 0),

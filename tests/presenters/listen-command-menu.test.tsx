@@ -27,6 +27,13 @@ const knownMemberGroup = {
   forum: false,
 }
 
+const knownAdminSupergroup = {
+  ...knownMemberGroup,
+  title: 'Ops',
+  type: 'supergroup' as const,
+  current_user_role: 'admin' as const,
+}
+
 function menuRows(element: React.JSX.Element) {
   return React.Children.toArray(element.props.children) as React.ReactElement<Record<string, unknown>>[]
 }
@@ -53,6 +60,14 @@ describe('ListenCommandMenu', () => {
     expect(availability[0]).toMatchObject({ ok: false })
     expect(renderToString(<ListenCommandMenu input="/ban" selectedIndex={0} width={80} knownGroup={knownMemberGroup} />))
       .toContain('disabled:')
+  })
+
+  it('shows an administrator badge for known group and supergroup targets', () => {
+    expect(renderToString(<ListenCommandMenu input="/ban" selectedIndex={0} width={80} knownGroup={knownAdminSupergroup} />))
+      .toContain('Target: Ops · supergroup · admin')
+
+    expect(renderToString(<ListenCommandMenu input="/ban" selectedIndex={0} width={80} knownGroup={knownMemberGroup} />))
+      .not.toContain('Target:')
   })
 
   it('styles selected, non-selected, and selected-disabled rows', () => {

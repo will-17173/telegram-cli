@@ -28,6 +28,12 @@ export function moveListenCommandSelectionEnabled(
   return next
 }
 
+function groupAdminBadge(knownGroup?: TelegramGroupDetails): string | null {
+  if (knownGroup == null) return null
+  if (knownGroup.current_user_role !== 'admin' && knownGroup.current_user_role !== 'creator') return null
+  return `Target: ${knownGroup.title} · ${knownGroup.type} · ${knownGroup.current_user_role}`
+}
+
 export function ListenCommandMenu({ input, selectedIndex, width, knownGroup }: {
   input: string
   selectedIndex: number
@@ -38,8 +44,10 @@ export function ListenCommandMenu({ input, selectedIndex, width, knownGroup }: {
   if (matches.length === 0) return null
   const selected = Math.max(0, Math.min(selectedIndex, matches.length - 1))
   const availability = listenCommandMenuAvailability(input, knownGroup)
+  const adminBadge = groupAdminBadge(knownGroup)
 
   return <Box flexDirection="column" width={width}>
+    {adminBadge == null ? null : <Text color="#f0d38a">{truncateCell(adminBadge, width)}</Text>}
     {matches.map((match, index) => {
       const path = match.definition.path.join(' ')
       const failure = availability[index]

@@ -1551,6 +1551,13 @@ describe('calculateListenMessagePaneHeight', () => {
 })
 
 describe('interactive album messages', () => {
+  it('preserves line breaks in text message content', () => {
+    const row = toListenMessage([storedText(11, 'first line\nsecond line')], false)
+
+    expect(row.content).toBe('first line\nsecond line')
+    expect(renderToString(<ListenMessageBody message={row} />)).toContain('first line\nsecond line')
+  })
+
   it('renders reply context, current content, media summary, then every album download row', () => {
     const row = toListenMessage([
       storedPhoto(11, ''),
@@ -1897,6 +1904,15 @@ describe('interactive album messages', () => {
 })
 
 describe('listen scroll state', () => {
+  it('counts multi-line content when selecting complete messages', () => {
+    const old = message('old', 2)
+    const current = message('current', 2)
+    current.content = 'first line\nsecond line\nthird line'
+
+    expect(takeListenViewport([old, current], 6, 0).map((item) => item.sender)).toEqual(['current'])
+    expect(takeListenViewport([old, current], 7, 0).map((item) => item.sender)).toEqual(['old', 'current'])
+  })
+
   it('accounts for reply and media summary lines without dropping attachment preview rows', () => {
     const old = message('old', 2)
     const current = message('current', 3)
