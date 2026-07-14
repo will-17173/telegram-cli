@@ -76,6 +76,21 @@ function seedManyChats(dbPath: string, count: number): void {
   db.close()
 }
 
+function seedTiedChats(dbPath: string): void {
+  const db = new MessageDB(dbPath)
+  db.insertBatch([1, 2, 3].map((chatId) => ({
+    platform: 'telegram',
+    chat_id: chatId,
+    chat_name: `Chat ${chatId}`,
+    msg_id: 1,
+    sender_id: 1,
+    sender_name: 'Alice',
+    content: `chat ${chatId}`,
+    timestamp: '2026-07-14T08:00:00.000Z',
+  })))
+  db.close()
+}
+
 function encodeCursor(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
 }
@@ -160,6 +175,21 @@ describe('WebQueryService', () => {
     })
   })
 
+  it('treats whitespace-only chat queries as no filter', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    expect(service.chats({ account: 'work', q: '   ' })).toEqual({
+      items: [
+        { chat_id: 10, chat_name: 'General', msg_count: 2, first_msg: '2026-07-14T08:00:00.000Z', last_msg: '2026-07-14T09:00:00.000Z' },
+        { chat_id: 20, chat_name: 'Ops', msg_count: 1, first_msg: '2026-07-14T10:00:00.000Z', last_msg: '2026-07-14T10:00:00.000Z' },
+      ],
+      total: 2,
+    })
+  })
+
   it('clamps chat limit and negative offset at the storage boundary', () => {
     const root = makeRoot()
     const dbPath = join(root, 'messages.db')
@@ -173,6 +203,21 @@ describe('WebQueryService', () => {
       expect(page.items[0].chat_id).toBe(101)
       expect(page.items[99].chat_id).toBe(2)
       expect(page.total).toBe(101)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('orders tied chat pages by chat id for stable offsets', () => {
+    const root = makeRoot()
+    const dbPath = join(root, 'messages.db')
+    seedTiedChats(dbPath)
+    const db = new MessageDB(dbPath)
+
+    try {
+      expect(db.getChatsPage({ limit: 1, offset: 0 }).items.map((chat) => chat.chat_id)).toEqual([3])
+      expect(db.getChatsPage({ limit: 1, offset: 1 }).items.map((chat) => chat.chat_id)).toEqual([2])
+      expect(db.getChatsPage({ limit: 1, offset: 2 }).items.map((chat) => chat.chat_id)).toEqual([1])
     } finally {
       db.close()
     }
@@ -275,5 +320,6 @@ describe('WebQueryService', () => {
 
     expect(() => service.messages({ account: 'work', chatId: 10, cursor: encodeCursor({ timestamp: '   ', id: 1 }) })).toThrow('invalid_cursor')
     expect(() => service.messages({ account: 'work', chatId: 10, cursor: encodeCursor({ timestamp: '2026-07-14T09:00:00.000Z', id: -1 }) })).toThrow('invalid_cursor')
+    expect(() => service.messages({ account: 'work', chatId: 10, cursor: encodeCursor({ timestamp: 'not-a-date', id: 1 }) })).toThrow('invalid_cursor')
   })
 })

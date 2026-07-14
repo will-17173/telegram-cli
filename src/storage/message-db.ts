@@ -348,7 +348,7 @@ export class MessageDB {
       SELECT chat_id, chat_name, msg_count, first_msg, last_msg
       FROM grouped
       ${whereClause}
-      ORDER BY msg_count DESC, last_msg DESC
+      ORDER BY msg_count DESC, last_msg DESC, chat_id DESC
       LIMIT ? OFFSET ?
     `).all(...params, clampInteger(options.limit, 100, 1, 100), clampInteger(options.offset, 0, 0, Number.MAX_SAFE_INTEGER)) as Array<{ chat_id: number; chat_name: string | null; msg_count: number; first_msg: string; last_msg: string }>
     const totalRow = this.db.prepare(`
@@ -507,7 +507,7 @@ function decodeMessageCursor(cursor: string): { timestamp: string; id: number } 
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { timestamp?: unknown; id?: unknown }
     const timestamp = typeof parsed.timestamp === 'string' ? parsed.timestamp.trim() : ''
-    if (timestamp.length === 0 || typeof parsed.id !== 'number' || !Number.isSafeInteger(parsed.id) || parsed.id <= 0) {
+    if (timestamp.length === 0 || Number.isNaN(Date.parse(timestamp)) || typeof parsed.id !== 'number' || !Number.isSafeInteger(parsed.id) || parsed.id <= 0) {
       throw new Error('invalid_cursor')
     }
     return { timestamp, id: parsed.id }
