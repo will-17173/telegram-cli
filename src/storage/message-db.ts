@@ -236,7 +236,7 @@ export class MessageDB {
       params.push(cursor.timestamp, cursor.id)
     }
 
-    const limit = options.limit ?? 100
+    const limit = options.limit ?? 50
     const rows = this.db.prepare(`
       SELECT * FROM messages INDEXED BY idx_messages_chat_recent
       WHERE ${conditions.join(' AND ')}
@@ -503,11 +503,15 @@ function encodeMessageCursor(row: { timestamp: string; id: number }): string {
 }
 
 function decodeMessageCursor(cursor: string): { timestamp: string; id: number } {
-  const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { timestamp?: unknown; id?: unknown }
-  if (typeof parsed.timestamp !== 'string' || typeof parsed.id !== 'number' || !Number.isSafeInteger(parsed.id)) {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { timestamp?: unknown; id?: unknown }
+    if (typeof parsed.timestamp !== 'string' || typeof parsed.id !== 'number' || !Number.isSafeInteger(parsed.id)) {
+      throw new Error('invalid_cursor')
+    }
+    return { timestamp: parsed.timestamp, id: parsed.id }
+  } catch {
     throw new Error('invalid_cursor')
   }
-  return { timestamp: parsed.timestamp, id: parsed.id }
 }
 
 type FileFingerprint = {

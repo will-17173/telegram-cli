@@ -39,6 +39,24 @@ function seedMessages(dbPath: string): void {
   db.close()
 }
 
+function seedManyMessages(dbPath: string, count: number): void {
+  const db = new MessageDB(dbPath)
+  db.insertBatch(Array.from({ length: count }, (_, index) => {
+    const msgId = index + 1
+    return {
+      platform: 'telegram',
+      chat_id: 10,
+      chat_name: 'General',
+      msg_id: msgId,
+      sender_id: 1,
+      sender_name: 'Alice',
+      content: `message ${msgId}`,
+      timestamp: `2026-07-14T00:${String(msgId).padStart(2, '0')}:00.000Z`,
+    }
+  }))
+  db.close()
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -93,5 +111,48 @@ describe('WebQueryService', () => {
 
     expect(page.items.map((message) => message.content)).toEqual(['second beta'])
     expect(page.next_cursor).toBeNull()
+  })
+
+  it('defaults message pages to 50 items and returns a cursor', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedManyMessages(join(root, 'accounts', 'work', 'messages.db'), 55)
+    const service = new WebQueryService({ dataDir: root })
+
+    const page = service.messages({ account: 'work', chatId: 10 })
+
+    expect(page.items).toHaveLength(50)
+    expect(page.items[0].content).toBe('message 55')
+    expect(page.items[49].content).toBe('message 6')
+    expect(page.next_cursor).not.toBeNull()
+  })
+
+  it('uses message cursors to return older rows without duplicates', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedManyMessages(join(root, 'accounts', 'work', 'messages.db'), 55)
+    const service = new WebQueryService({ dataDir: root })
+
+    const firstPage = service.messages({ account: 'work', chatId: 10 })
+    const secondPage = service.messages({ account: 'work', chatId: 10, cursor: firstPage.next_cursor ?? undefined })
+
+    expect(secondPage.items.map((message) => message.content)).toEqual([
+      'message 5',
+      'message 4',
+      'message 3',
+      'message 2',
+      'message 1',
+    ])
+    expect(secondPage.next_cursor).toBeNull()
+    expect(new Set([...firstPage.items, ...secondPage.items].map((message) => message.id)).size).toBe(55)
+  })
+
+  it('rejects malformed message cursors with invalid_cursor', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    expect(() => service.messages({ account: 'work', chatId: 10, cursor: 'not-json' })).toThrow('invalid_cursor')
   })
 })
