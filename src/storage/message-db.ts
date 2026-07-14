@@ -507,7 +507,8 @@ function decodeMessageCursor(cursor: string): { timestamp: string; id: number } 
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { timestamp?: unknown; id?: unknown }
     const timestamp = typeof parsed.timestamp === 'string' ? parsed.timestamp.trim() : ''
-    if (timestamp.length === 0 || Number.isNaN(Date.parse(timestamp)) || typeof parsed.id !== 'number' || !Number.isSafeInteger(parsed.id) || parsed.id <= 0) {
+    const date = new Date(timestamp)
+    if (timestamp.length === 0 || Number.isNaN(date.getTime()) || date.toISOString() !== timestamp || typeof parsed.id !== 'number' || !Number.isSafeInteger(parsed.id) || parsed.id <= 0) {
       throw new Error('invalid_cursor')
     }
     return { timestamp, id: parsed.id }

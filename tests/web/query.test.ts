@@ -57,6 +57,21 @@ function seedManyMessages(dbPath: string, count: number): void {
   db.close()
 }
 
+function seedTiedMessages(dbPath: string): void {
+  const db = new MessageDB(dbPath)
+  db.insertBatch([1, 2, 3, 4].map((msgId) => ({
+    platform: 'telegram',
+    chat_id: 10,
+    chat_name: 'General',
+    msg_id: msgId,
+    sender_id: 1,
+    sender_name: 'Alice',
+    content: `tied ${msgId}`,
+    timestamp: '2026-07-14T09:00:00.000Z',
+  })))
+  db.close()
+}
+
 function seedManyChats(dbPath: string, count: number): void {
   const db = new MessageDB(dbPath)
   db.insertBatch(Array.from({ length: count }, (_, index) => {
@@ -303,6 +318,21 @@ describe('WebQueryService', () => {
     expect(new Set([...firstPage.items, ...secondPage.items].map((message) => message.id)).size).toBe(55)
   })
 
+  it('uses id as the cursor tie-breaker for identical message timestamps', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedTiedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    const firstPage = service.messages({ account: 'work', chatId: 10, limit: 2 })
+    const secondPage = service.messages({ account: 'work', chatId: 10, limit: 2, cursor: firstPage.next_cursor ?? undefined })
+
+    expect(firstPage.items.map((message) => message.msg_id)).toEqual([4, 3])
+    expect(secondPage.items.map((message) => message.msg_id)).toEqual([2, 1])
+    expect(secondPage.next_cursor).toBeNull()
+    expect(new Set([...firstPage.items, ...secondPage.items].map((message) => message.id)).size).toBe(4)
+  })
+
   it('rejects malformed message cursors with invalid_cursor', () => {
     const root = makeRoot()
     seedAccount(root)
@@ -321,5 +351,6 @@ describe('WebQueryService', () => {
     expect(() => service.messages({ account: 'work', chatId: 10, cursor: encodeCursor({ timestamp: '   ', id: 1 }) })).toThrow('invalid_cursor')
     expect(() => service.messages({ account: 'work', chatId: 10, cursor: encodeCursor({ timestamp: '2026-07-14T09:00:00.000Z', id: -1 }) })).toThrow('invalid_cursor')
     expect(() => service.messages({ account: 'work', chatId: 10, cursor: encodeCursor({ timestamp: 'not-a-date', id: 1 }) })).toThrow('invalid_cursor')
+    expect(() => service.messages({ account: 'work', chatId: 10, cursor: encodeCursor({ timestamp: 'Tue, 14 Jul 2026 09:00:00 GMT', id: 1 }) })).toThrow('invalid_cursor')
   })
 })
