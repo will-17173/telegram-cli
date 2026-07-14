@@ -131,6 +131,23 @@ describe('MtcuteTelegramClient history', () => {
     expect(sleep).toHaveBeenCalledWith(15_000)
   })
 
+  it('retries transient channel invalid errors before failing a history sync', async () => {
+    const getHistory = vi.fn()
+      .mockRejectedValueOnce(new tl.RpcError(400, 'CHANNEL_INVALID'))
+      .mockResolvedValueOnce(page(8, 1))
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getHistory,
+    } as unknown as TelegramClient
+
+    const rows = await new MtcuteTelegramClient(client).fetchHistory({ chat: -100123, limit: 1 })
+
+    expect(rows).toHaveLength(1)
+    expect(getHistory).toHaveBeenCalledTimes(2)
+    expect(sleep).toHaveBeenCalledWith(500)
+  })
+
   it('propagates the sixth flood error after five automatic retries', async () => {
     vi.useFakeTimers()
     const errors = Array.from({ length: 6 }, () => new tl.RpcError(420, 'FLOOD_WAIT_14'))

@@ -32,6 +32,9 @@ type PeerShape = {
   usernames?: unknown
 }
 
+const TRANSIENT_HISTORY_RETRY_LIMIT = 3
+const TRANSIENT_HISTORY_RETRY_DELAY_MS = 500
+
 export class MtcuteTelegramClient implements TelegramClientAdapter {
   readonly archive: TelegramArchiveAdapter
   readonly groups: TelegramGroupManagementAdapter
@@ -137,6 +140,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     const rows: StoredMessageInput[] = []
     let offset: NonNullable<Parameters<TelegramClient['getHistory']>[1]>['offset']
     let floodRetries = 0
+    let transientRetries = 0
 
     while (rows.length < options.limit) {
       const pageOptions = {
@@ -150,12 +154,21 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
           page = await this.client.getHistory(normalizeChatId(options.chat), pageOptions)
           break
         } catch (error) {
-          const floodSeconds = tl.RpcError.is(error, 'FLOOD_WAIT_%d')
-            ? error.seconds
-            : tl.RpcError.is(error) ? Number(/^FLOOD_WAIT_(\d+)$/.exec(error.text)?.[1]) : Number.NaN
-          if (!Number.isFinite(floodSeconds) || floodRetries >= 5) throw error
-          floodRetries += 1
-          await setTimeout((floodSeconds + 1) * 1000)
+          const floodSeconds = floodWaitSeconds(error)
+          if (Number.isFinite(floodSeconds)) {
+            if (floodRetries >= 5) throw error
+            floodRetries += 1
+            await setTimeout((floodSeconds + 1) * 1000)
+            continue
+          }
+
+          if (isRetriableHistoryRpcError(error) && transientRetries < TRANSIENT_HISTORY_RETRY_LIMIT) {
+            transientRetries += 1
+            await setTimeout(transientRetries * TRANSIENT_HISTORY_RETRY_DELAY_MS)
+            continue
+          }
+
+          throw error
         }
       }
       for (const message of page) {
@@ -343,6 +356,16 @@ function isTerminalSessionRpcError(error: unknown): boolean {
     'USER_DEACTIVATED_BAN',
   ] as const
   return terminal.some((text) => tl.RpcError.is(error, text))
+}
+
+function isRetriableHistoryRpcError(error: unknown): boolean {
+  return tl.RpcError.is(error, 'CHANNEL_INVALID')
+}
+
+function floodWaitSeconds(error: unknown): number {
+  if (tl.RpcError.is(error, 'FLOOD_WAIT_%d')) return error.seconds
+  if (!tl.RpcError.is(error)) return Number.NaN
+  return Number(/^FLOOD_WAIT_(\d+)$/.exec(error.text)?.[1])
 }
 
 function normalizeChatId(chat: string | number): string | number {
