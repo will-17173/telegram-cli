@@ -45,13 +45,13 @@ import {
   useTerminalMetrics,
 } from '../../src/presenters/ink/listen.js'
 import { decodeImagePreview } from '../../src/presenters/ink/image-preview.js'
-import { DISABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
+import { DISABLE_MOUSE_REPORTING, ENABLE_MOUSE_REPORTING } from '../../src/presenters/ink/mouse-scroll.js'
 import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
 import type { ListenMessageRow } from '../../src/presenters/listen-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
 
 describe('runInteractiveListen', () => {
-  it('keeps mouse reporting disabled for native text selection', async () => {
+  it('enables mouse scrolling during the interactive run and restores the terminal afterward', async () => {
     const calls: string[] = []
 
     const result = await runInteractiveListen(
@@ -63,7 +63,7 @@ describe('runInteractiveListen', () => {
     )
 
     expect(result).toBe('completed')
-    expect(calls).toEqual([DISABLE_MOUSE_REPORTING, 'run'])
+    expect(calls).toEqual([ENABLE_MOUSE_REPORTING, 'run', DISABLE_MOUSE_REPORTING])
   })
 })
 
@@ -1638,6 +1638,11 @@ describe('listen scroll state', () => {
     expect(applyScroll({ offset: 0, unseenCount: 0 }, 'up', 3)).toEqual({ offset: 1, unseenCount: 0 })
     expect(applyScroll({ offset: 1, unseenCount: 2 }, 'down', 3)).toEqual({ offset: 0, unseenCount: 0 })
     expect(applyScroll({ offset: 3, unseenCount: 2 }, 'up', 3)).toEqual({ offset: 3, unseenCount: 2 })
+  })
+
+  it('moves by a page-sized message count for PageUp and PageDown', () => {
+    expect(applyScroll({ offset: 0, unseenCount: 0 }, 'up', 10, 3)).toEqual({ offset: 3, unseenCount: 0 })
+    expect(applyScroll({ offset: 5, unseenCount: 2 }, 'down', 10, 3)).toEqual({ offset: 2, unseenCount: 2 })
   })
 
   it('anchors a historical viewport when a message arrives', () => {

@@ -44,10 +44,12 @@ export function applyScroll(
   state: ListenScrollState,
   direction: 'up' | 'down',
   maxOffset: number,
+  amount = 1,
 ): ListenScrollState {
+  const step = Math.max(1, Math.floor(amount))
   const offset = direction === 'up'
-    ? Math.min(maxOffset, state.offset + 1)
-    : Math.max(0, state.offset - 1)
+    ? Math.min(maxOffset, state.offset + step)
+    : Math.max(0, state.offset - step)
   return {
     offset,
     unseenCount: offset === 0 ? 0 : state.unseenCount,

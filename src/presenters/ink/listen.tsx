@@ -18,7 +18,7 @@ import { buildListenMessage, type ListenAttachment, type ListenMessageRow } from
 import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScrollState } from './listen-scroll.js'
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
-import { DISABLE_MOUSE_REPORTING, isMouseInput } from './mouse-scroll.js'
+import { isMouseInput, useMouseScroll, withMouseReporting, type MouseScrollDirection } from './mouse-scroll.js'
 import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
 import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
 import { executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
@@ -614,8 +614,7 @@ export async function runInteractiveListen<T>(
   write: (value: string) => unknown,
   run: () => Promise<T>,
 ): Promise<T> {
-  write(DISABLE_MOUSE_REPORTING)
-  return run()
+  return withMouseReporting({ write, run })
 }
 
 export async function renderInteractiveListen(options: ListenRuntimeOptions): Promise<void> {
@@ -774,13 +773,29 @@ export function InteractiveListen({
   const seenOrderRef = useRef<string[]>([])
   const downloadableAttachments = collectDownloadableAttachments(visibleMessages)
   const selectedAttachment = downloadableAttachments[selectedAttachmentIndex] ?? downloadableAttachments[0]
-  const { visible: scrollbarVisible } = useTransientScrollbar()
+  const { visible: scrollbarVisible, show: showScrollbar } = useTransientScrollbar()
   const scrollbarGeometry = calculateScrollbar({
     height: terminalHeight,
     total: messages.length,
     visible: visibleMessages.length,
     offset: scrollState.offset,
   })
+  const scrollMessages = useCallback((direction: MouseScrollDirection, amount = 1) => {
+    showScrollbar()
+    setScrollState((current) => applyScroll(
+      current,
+      direction,
+      Math.max(0, messages.length - 1),
+      amount,
+    ))
+  }, [messages.length, showScrollbar])
+
+  const handleMouseScroll = useCallback((direction: MouseScrollDirection) => {
+    scrollMessages(direction)
+  }, [scrollMessages])
+
+  useMouseScroll(handleMouseScroll)
+
   useEffect(() => {
     const maxOffset = Math.max(0, messages.length - 1)
     setScrollState((current) => {
@@ -895,6 +910,10 @@ export function InteractiveListen({
     }
     if (replyExecutionLockRef.current) {
       if (key.escape) setNote('Reply is still sending; wait for its outcome.')
+      return
+    }
+    if (key.pageUp || key.pageDown) {
+      scrollMessages(key.pageUp ? 'up' : 'down', Math.max(1, visibleMessages.length))
       return
     }
     const slashMode = input.trimStart().startsWith('/')
@@ -1337,7 +1356,7 @@ export function InteractiveListen({
               terminalWidth={contentWidth}
               sending={sending}
               cursorVisible={focus === 'input'}
-              hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Enter send · /reply <id> ... · Tab attachments · Ctrl+C exit'}
+              hint={focus === 'attachments' ? '↑/↓ select · Enter download · Tab input' : 'Wheel/PgUp/PgDn scroll · Shift+drag select · Ctrl+C exit'}
             />
           </Box>
         </Box> : null}
