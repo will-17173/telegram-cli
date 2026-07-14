@@ -274,7 +274,75 @@ describe('InteractiveListen slash commands', () => {
     app.unmount()
   })
 
-  it('uses the pending viewport for wrapped arrows in the same input chunk', async () => {
+  it('does not wrap above the first attachment', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
+      onConnected?.()
+      onMessage(storedPhoto(1, 'older attachment'))
+      onMessage(storedText(2, 'plain middle message'))
+      onMessage(storedPhoto(3, 'newer attachment'))
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 12, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('newer attachment'))
+    await act(async () => { stdin.write('\t') })
+    await act(async () => { stdin.write('\u001bOA') })
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('older attachment')
+      expect(frame).toContain('› 📎 Photo')
+      expect(frame).not.toContain('newer attachment')
+    })
+    const boundaryFrame = lastTerminalFrame(stdout.output)
+    await act(async () => {
+      stdin.write('\u001bOA')
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    })
+
+    expect(lastTerminalFrame(stdout.output)).toBe(boundaryFrame)
+
+    controller.abort()
+    app.unmount()
+  })
+
+  it('does not wrap below the last attachment', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
+      onConnected?.()
+      for (const msgId of [1, 2, 3]) onMessage(storedPhoto(msgId, `attachment ${msgId}`))
+      await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 40, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('attachment 3'))
+    await act(async () => { stdin.write('\t') })
+    await act(async () => { stdin.write('\u001b[B\u001b[B') })
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame.indexOf('› 📎 Photo')).toBeGreaterThan(frame.indexOf('attachment 3'))
+    })
+    const boundaryFrame = lastTerminalFrame(stdout.output)
+    await act(async () => {
+      stdin.write('\u001b[B')
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    })
+
+    expect(lastTerminalFrame(stdout.output)).toBe(boundaryFrame)
+
+    controller.abort()
+    app.unmount()
+  })
+
+  it('stops batched arrows at the oldest attachment', async () => {
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
     vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
@@ -298,9 +366,9 @@ describe('InteractiveListen slash commands', () => {
     await act(async () => { stdin.write('\u001b[A\u001b[A') })
     await vi.waitFor(() => {
       const frame = lastTerminalFrame(stdout.output)
-      expect(frame).toContain('attachment 4')
-      expect(frame.indexOf('› 📎 Photo')).toBeGreaterThan(frame.indexOf('attachment 4'))
-      expect(frame).not.toContain('attachment 1')
+      expect(frame).toContain('attachment 1')
+      expect(frame.indexOf('› 📎 Photo')).toBeGreaterThan(frame.indexOf('attachment 1'))
+      expect(frame).not.toContain('attachment 4')
     })
 
     controller.abort()

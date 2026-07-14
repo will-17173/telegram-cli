@@ -1008,11 +1008,9 @@ export function InteractiveListen({
       if (key.upArrow || key.downArrow) {
         const direction = key.upArrow ? 'up' : 'down'
         const delta = direction === 'up' ? -1 : 1
-        const count = downloadableAttachments.length
         const currentIndex = downloadableAttachments.findIndex((item) => item.key === selectedAttachmentKeyRef.current)
-        const nextIndex = count === 0
-          ? 0
-          : (Math.max(0, currentIndex) + delta + count) % count
+        const nextIndex = currentIndex + delta
+        if (currentIndex < 0 || nextIndex < 0 || nextIndex >= downloadableAttachments.length) return
         const nextAttachment = downloadableAttachments[nextIndex]
         selectAttachment(nextAttachment?.key ?? null)
         const effectiveVisibleMessages = takeListenViewport(messages, messagePaneHeight, scrollOffsetRef.current)
