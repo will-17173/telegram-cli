@@ -1,6 +1,6 @@
 ---
 name: using-telegram-cli
-description: Use when an agent needs to operate the @will-17173/telegram-cli `tg` command for Telegram accounts, chats, messages, contacts, folders, notifications, archives, listening, or group administration.
+description: Use when an agent needs to ensure the @will-17173/telegram-cli `tg` command is available or use it for Telegram accounts, chats, messages, contacts, folders, notifications, archives, listening, or group administration.
 ---
 
 # Using Telegram CLI
@@ -19,18 +19,52 @@ Use `tg` as an account-aware Telegram client and local SQLite message index. Cho
 - Select exactly one of `--json`, `--yaml`, or `--markdown` for finite commands. Use JSON or YAML for automation and stable `ok`/error fields; Markdown is human-facing and may omit structured failure details. Non-TTY output otherwise defaults to YAML. `listen` excludes these flags.
 - Check the process exit status and structured `ok`. For automated archive partial-failure accounting, use JSON/YAML and inspect `error.code` plus `error.details.completed`, `error.details.failed`, and `error.details.warnings`; never report complete success when any chat or media failed.
 
-## Resolve the executable
+## Ensure the executable is available
 
-Prefer an installed `tg` and inspect live help:
+When developing or testing this repository's current source, skip global package installation. Require Node.js 22 or later, run `pnpm install`, and use `pnpm dev <args>`, for example `pnpm dev search --help`. Do **not** insert an extra `--`; `pnpm dev -- search ...` passes that token to the CLI and can fail.
+
+For any other user-requested `tg` task, first run `command -v tg`. If the user asks only for instructions, explain the setup without changing their system.
+
+If `tg` is installed, do not reinstall or upgrade it automatically. Verify the installed executable and inspect live help:
 
 ```sh
-command -v tg
 tg --version
 tg --help
 tg <command> --help
 ```
 
-Inside this repository, use `pnpm dev <args>` after dependencies are installed, for example `pnpm dev search --help`. Do **not** insert an extra `--`; `pnpm dev -- search ...` passes that token to the CLI and can fail.
+If `tg` is missing, check the runtime first:
+
+```sh
+node --version
+npm --version
+```
+
+Continue only when both commands succeed and Node.js is version 22 or later. If Node.js is missing or too old, use an existing user-managed version manager when available; ask before installing or changing a system-level runtime or package manager.
+
+Install the published package, then continue the original task:
+
+```sh
+npm install --global @will-17173/telegram-cli
+```
+
+Never retry a permission failure with `sudo`. Prefer an existing user-managed Node.js installation; otherwise install to a user-owned prefix for the current shell:
+
+```sh
+npm install --global --prefix "$HOME/.local" @will-17173/telegram-cli
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Do not modify a shell startup file without authorization. After installation, require these checks to succeed before running Telegram commands:
+
+```sh
+hash -r
+command -v tg
+tg --version
+tg --help
+```
+
+If the binary is still missing, inspect the npm global prefix and `PATH`, report the failure, and stop before running Telegram commands.
 
 ## Choose the operation
 

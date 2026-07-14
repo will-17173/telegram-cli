@@ -50,65 +50,31 @@ describe('npm package metadata', () => {
     expect(readFileSync('src/index.ts', 'utf8').split('\n')[0]).toBe('#!/usr/bin/env node')
   })
 
-  it('documents CLI and unified interactive slash-command contracts', () => {
-    const readme = readFileSync('README.md', 'utf8')
-
-    for (const example of [
-      'tg group member ban @team @alice --yes',
-      'tg group chat slowmode @team 30s',
-      '/reply <message-id> <content>',
-      '/member mute @alice 2h',
-      '`/rep`',
-      '`/rpy`',
-      '`/ban`',
-      '--send-to',
-      '--confirm-title',
-      'password_required',
-    ]) expect(readme).toContain(example)
-  })
-
-  it('links the published documentation from both readmes', () => {
-    const english = readFileSync('README.md', 'utf8')
-    const chinese = readFileSync('README.zh-CN.md', 'utf8')
-
-    expect(english).toContain('[Documentation](https://will-17173.github.io/telegram-cli/docs/)')
-    expect(english).toContain('[Read the complete Telegram CLI documentation →](https://will-17173.github.io/telegram-cli/docs/)')
-    expect(chinese).toContain('[使用文档](https://will-17173.github.io/telegram-cli/zh-CN/docs/)')
-    expect(chinese).toContain('[阅读完整的 Telegram CLI 文档 →](https://will-17173.github.io/telegram-cli/zh-CN/docs/)')
-  })
-
-  it('documents release security, output-stream, and ownership-transfer contracts in both languages', () => {
+  it('ships concise bilingual readmes that link to the detailed documentation', () => {
     const readmes = [
       {
         contents: readFileSync('README.md', 'utf8'),
-        contracts: [
-          'proxy usernames, passwords, and credential query parameters are always masked, even with `--show-secrets`',
-          '`--show-secrets` reveals only the full API hash',
-          'Successful finite output is written to stdout.',
-          'JSON/YAML structured failures are written to stdout in the requested format',
-          'Output-format conflicts also use stdout and a stable YAML envelope.',
-          'Human-readable and Markdown failures are written to stderr.',
-          'tg group admin transfer-owner @team @newowner --yes',
-          'never a CLI argument, stdin input, or environment automation source',
-        ],
+        docsUrl: 'https://will-17173.github.io/telegram-cli/docs/',
+        removedHeadings: ['## Command reference', '## Troubleshooting', '## Configuration'],
       },
       {
         contents: readFileSync('README.zh-CN.md', 'utf8'),
-        contracts: [
-          '代理用户名、密码和凭据查询参数始终会被脱敏，即使使用 `--show-secrets`',
-          '`--show-secrets` 只会显示完整的 API hash',
-          '有限结果命令成功时写入 stdout。',
-          'JSON/YAML 结构化失败按请求的格式写入 stdout',
-          '输出格式冲突同样写入 stdout，并使用稳定的 YAML 信封。',
-          '人类可读和 Markdown 失败信息写入 stderr。',
-          'tg group admin transfer-owner @team @newowner --yes',
-          '绝不会来自 CLI 参数、stdin 输入或环境变量等自动化来源',
-        ],
+        docsUrl: 'https://will-17173.github.io/telegram-cli/zh-CN/docs/',
+        removedHeadings: ['## 命令参考', '## 故障排查', '## 配置'],
       },
     ]
 
     for (const readme of readmes) {
-      for (const contract of readme.contracts) expect(readme.contents).toContain(contract)
+      expect(readme.contents.split(/\r?\n/).length).toBeLessThanOrEqual(130)
+      expect(readme.contents).toContain(readme.docsUrl)
+      for (const example of [
+        'npm install -g @will-17173/telegram-cli',
+        'tg account add',
+        'tg sync @team',
+        'tg config write-access off',
+        'npx skills add https://github.com/will-17173/telegram-cli',
+      ]) expect(readme.contents).toContain(example)
+      for (const heading of readme.removedHeadings) expect(readme.contents).not.toContain(heading)
     }
   })
 })

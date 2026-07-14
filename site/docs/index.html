@@ -995,7 +995,12 @@ tg group member info @team @alice --json</code></pre>
             <p>After <code>--yes</code>, <code>admin transfer-owner</code> securely prompts the current creator for the Telegram 2FA password. The password is never a command argument, environment value, or piped stdin input. A non-TTY run fails with an interaction error; do not automate this prompt.</p>
           </aside>
 
-          <p>Interactive <code>listen</code> exposes the same catalog as slash commands without repeating the selected chat—for example, <code>/member mute @alice 2h</code>. With more than one listened chat, set <code>--send-to &lt;chat&gt;</code> before group actions. Permission and availability checks remain active, and risky actions open a confirmation modal.</p>
+          <h3>Use slash commands while listening</h3>
+          <p>Type <code>/</code> in interactive <code>listen</code> to open one command menu. Reply to a message or run a group action without repeating the selected chat:</p>
+          <pre class="command-block compact" translate="no" dir="ltr"><code>/reply &lt;message-id&gt; &lt;content&gt;
+/member mute @alice 2h</code></pre>
+          <p>Matching checks exact paths, prefixes, then ordered fuzzy matches. <code>/rep</code> and <code>/rpy</code> find <code>/reply</code>. <code>/ban</code> finds <code>/member ban</code>.</p>
+          <p>When listening to more than one chat, set <code>--send-to &lt;chat&gt;</code> before group actions. Permission and availability checks remain active. Risky actions open a confirmation modal.</p>
 
           <nav class="section-pager docs-pagination" aria-label="Group management section navigation">
             <a href="#command-reference"><span aria-hidden="true">←</span> Command reference</a>

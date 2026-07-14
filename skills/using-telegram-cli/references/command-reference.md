@@ -18,14 +18,14 @@ Use this reference for the repository's current `tg` behavior. Confirm flags aga
 
 ## Invocation and installation
 
-When the package is available from the configured npm registry, install it globally:
+Require Node.js 22 or later for both the published package and repository checkout. Follow the executable bootstrap in [../SKILL.md](../SKILL.md) before running a user-requested command. When the package is available from the configured npm registry, install it globally:
 
 ```sh
 npm install -g @will-17173/telegram-cli
 tg --help
 ```
 
-Repository checkout (Node.js 22+, pnpm dependencies installed):
+Repository checkout (pnpm dependencies installed):
 
 ```sh
 pnpm install

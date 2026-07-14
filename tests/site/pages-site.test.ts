@@ -137,6 +137,37 @@ describe('GitHub Pages site', () => {
     expect(chinese).not.toMatch(/<div class="definition-grid">\s*<div>\s*<dt>/s)
   })
 
+  it('keeps advanced safety and interactive contracts in the detailed documentation', () => {
+    const english = readRequiredFile('site/docs/index.html')
+    const chinese = readRequiredFile('site/zh-CN/docs/index.html')
+
+    for (const page of [english, chinese]) {
+      for (const contract of [
+        '/reply &lt;message-id&gt; &lt;content&gt;',
+        '/member mute @alice 2h',
+        '--send-to',
+        '--confirm-title',
+        'password_required',
+        '--show-secrets',
+        'stdout',
+        'stderr',
+        'YAML',
+        '2FA',
+        'stdin',
+        'TTY',
+      ]) expect(page).toContain(contract)
+
+      for (const alias of ['/rep', '/rpy', '/ban']) {
+        expect(page).toMatch(new RegExp(`<code(?: translate="no")?>${alias}</code>`))
+      }
+    }
+
+    expect(english).toContain('Proxy usernames, passwords, and credential query parameters remain masked')
+    expect(english).toContain('The password is never a command argument, environment value, or piped stdin input')
+    expect(chinese).toContain('代理用户名、密码和凭据查询参数始终显示为')
+    expect(chinese).toContain('不要在参数、环境变量、stdin、日志或聊天中提供密码')
+  })
+
   it('keeps both documentation locales aligned with the real command catalogs', () => {
     const commandNames = createApp().commands.map(command => command.name()).sort()
     const groupCommands = GROUP_COMMANDS.map(definition => definition.path.join(' ')).sort()

@@ -650,6 +650,13 @@ tg group list --admin --limit 100 --account work --json</code></pre>
             <p>当前账号必须是群主。传入 <code translate="no">--yes</code> 后，CLI 会在交互式 TTY 安全提示 Telegram 2FA 密码。不要在参数、环境变量、stdin、日志或聊天中提供密码，也不要自动操作这个提示。非 TTY 会返回交互错误，请让人直接在终端完成。</p>
           </aside>
 
+          <h3>在监听模式使用斜杠命令</h3>
+          <p>在交互式 <code translate="no">listen</code> 中输入 <code translate="no">/</code>，即可打开统一命令菜单。回复消息或执行群组操作时，无需重复当前聊天：</p>
+          <pre class="command-block compact" dir="ltr" translate="no"><code>/reply &lt;message-id&gt; &lt;content&gt;
+/member mute @alice 2h</code></pre>
+          <p>命令依次匹配完整路径、前缀和有序模糊结果。<code translate="no">/rep</code> 和 <code translate="no">/rpy</code> 会找到 <code translate="no">/reply</code>，<code translate="no">/ban</code> 会找到 <code translate="no">/member ban</code>。</p>
+          <p>监听多个聊天时，执行群组操作前必须设置 <code translate="no">--send-to &lt;chat&gt;</code>。权限与可用性检查仍然生效，有风险的操作会打开确认弹窗。</p>
+
           <nav class="section-pagination docs-pagination" aria-label="章节导航">
             <a href="#command-reference"><span aria-hidden="true">←</span> 上一节：命令参考</a>
             <a href="#automation">下一节：自动化 <span aria-hidden="true">→</span></a>
