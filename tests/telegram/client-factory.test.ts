@@ -33,13 +33,14 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
   rmSync(dataDir, { force: true, recursive: true })
 })
 
 describe('createTelegramClient', () => {
-  it('warns on stderr once per process when two clients use default credentials', async () => {
+  it('warns on stderr once per day when two clients use default credentials', async () => {
     const { createTelegramClient } = await import('../../src/telegram/client-factory.js')
 
     const output = captureOutput(() => {
@@ -59,6 +60,42 @@ describe('createTelegramClient', () => {
       apiHash: 'b18441a1ff607e10a989891a5462e627',
       storage: join(dataDir, 'accounts', 'bob', 'session'),
     })
+  })
+
+  it('does not warn again after a process restart on the same day', async () => {
+    const firstModule = await import('../../src/telegram/client-factory.js')
+    const firstOutput = captureOutput(() => {
+      firstModule.createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))
+    })
+
+    vi.resetModules()
+    const secondModule = await import('../../src/telegram/client-factory.js')
+    const secondOutput = captureOutput(() => {
+      secondModule.createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))
+    })
+
+    expect(firstOutput.stderr).toBe(WARNING)
+    expect(secondOutput.stderr).toBe('')
+  })
+
+  it('warns again on the next local calendar day', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 14, 23, 59))
+
+    const firstModule = await import('../../src/telegram/client-factory.js')
+    const firstOutput = captureOutput(() => {
+      firstModule.createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))
+    })
+
+    vi.setSystemTime(new Date(2026, 6, 15, 0, 1))
+    vi.resetModules()
+    const secondModule = await import('../../src/telegram/client-factory.js')
+    const secondOutput = captureOutput(() => {
+      secondModule.createTelegramClient(join(dataDir, 'accounts', 'alice', 'session'))
+    })
+
+    expect(firstOutput.stderr).toBe(WARNING)
+    expect(secondOutput.stderr).toBe(WARNING)
   })
 
   it('warns on a later call when the first stderr write throws synchronously', async () => {
