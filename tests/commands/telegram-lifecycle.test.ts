@@ -210,6 +210,47 @@ describe('Telegram command lifecycle', () => {
     }, expect.any(Object))
   })
 
+  it.each([
+    ['--channel', 'channel'],
+    ['--user', 'user'],
+  ])('filters chats with %s', async (flag, type) => {
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'chats', flag])
+
+    expect(client.listChats).toHaveBeenCalledWith(type)
+  })
+
+  it('includes basic groups and supergroups with --group', async () => {
+    client.listChats.mockResolvedValueOnce([
+      { id: 41, name: 'Basic Group', type: 'group', unread: 1 },
+      { id: 42, name: 'Supergroup', type: 'supergroup', unread: 2 },
+      { id: 43, name: 'Channel', type: 'channel', unread: 3 },
+    ])
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'chats', '--group'])
+
+    expect(client.listChats).toHaveBeenCalledWith(undefined)
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: [
+        { id: 41, name: 'Basic Group', type: 'group', unread: 1 },
+        { id: 42, name: 'Supergroup', type: 'supergroup', unread: 2 },
+      ],
+    }), expect.any(Object))
+  })
+
+  it('does not construct a client when chat type flags conflict', async () => {
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'chats', '--group', '--channel'])
+
+    expect(createTelegramClient).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith({
+      ok: false,
+      error: {
+        code: 'invalid_option',
+        message: 'Only one chat type filter may be used: --group, --channel, --user, or --type.',
+      },
+    }, expect.any(Object))
+  })
+
   it('hides benign mtcute update warnings emitted during chats', async () => {
     const writes: string[] = []
     const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {

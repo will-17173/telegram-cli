@@ -47,6 +47,19 @@ describe('cli help', () => {
     ])
   })
 
+  it('registers chat type filter options', () => {
+    const chats = createApp().commands.find((command) => command.name() === 'chats')
+
+    expect(chats?.options.map((option) => option.long)).toEqual([
+      '--type',
+      '--group',
+      '--channel',
+      '--user',
+      '--json',
+      '--yaml',
+    ])
+  })
+
   it('registers config set with ordinary configuration options', () => {
     const config = createApp().commands.find((command) => command.name() === 'config')
     const set = config?.commands.find((command) => command.name() === 'set')

@@ -1,8 +1,8 @@
 import type { Command } from 'commander'
-import type { HandlerResult } from './types.js'
+import type { CommandFailure, HandlerResult } from './types.js'
 import { MessageDB } from '../storage/message-db.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
-import type { TelegramClientAdapter, TelegramUser } from '../telegram/types.js'
+import type { TelegramChatType, TelegramClientAdapter, TelegramUser } from '../telegram/types.js'
 import { MessageService } from '../services/message-service.js'
 import { SyncService } from '../services/sync-service.js'
 import { ListenAlbumAggregator } from '../services/listen-album-aggregator.js'
@@ -15,6 +15,13 @@ import { hideBenignUpdateWarnings, runTelegramCommand, runTelegramWriteCommand }
 import { createListenReplyResolver } from '../services/listen-reply-resolver.js'
 
 type MachineOptions = AccountCommandOptions
+
+type ChatsFlags = MachineOptions & {
+  type?: string
+  group?: boolean
+  channel?: boolean
+  user?: boolean
+}
 
 type SendFlags = MachineOptions & {
   reply?: string
@@ -90,12 +97,23 @@ export function registerTelegramCommands(app: Command): void {
 
   app.command('chats')
     .description('List available Telegram chats')
-    .option('--type <type>')
+    .option('--type <type>', 'Filter by chat type')
+    .option('--group', 'List group chats')
+    .option('--channel', 'List channels')
+    .option('--user', 'List private user chats')
     .option('--json')
     .option('--yaml')
-    .action(async (options: MachineOptions & { type?: string }, command: Command) => {
+    .action(async (options: ChatsFlags, command: Command) => {
+      const filter = resolveChatTypeFilter(options)
+      if (!filter.ok) {
+        await runWithAuthenticatedAccountContext(options, async () => filter, command)
+        return
+      }
       await runTelegramCommand(options, async (client) => {
-        const chats = await client.listChats(options.type as any)
+        const listedChats = await client.listChats(filter.type)
+        const chats = filter.includeSupergroups
+          ? listedChats.filter(chat => chat.type === 'group' || chat.type === 'supergroup')
+          : listedChats
         return { ok: true, data: chats, human: chatTable(chats) }
       }, command)
     })
@@ -390,6 +408,26 @@ export function registerTelegramCommands(app: Command): void {
 
 function collectOption(value: string, previous: string[]): string[] {
   return [...previous, value]
+}
+
+function resolveChatTypeFilter(options: ChatsFlags):
+  | { ok: true; type?: TelegramChatType; includeSupergroups?: boolean }
+  | CommandFailure {
+  const selected = [options.type, options.group, options.channel, options.user].filter(Boolean)
+  if (selected.length > 1) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid_option',
+        message: 'Only one chat type filter may be used: --group, --channel, --user, or --type.',
+      },
+    }
+  }
+
+  if (options.group) return { ok: true, includeSupergroups: true }
+  if (options.channel) return { ok: true, type: 'channel' }
+  if (options.user) return { ok: true, type: 'user' }
+  return { ok: true, type: options.type as TelegramChatType | undefined }
 }
 
 function printAutoDownloadEvent(event: AutoDownloadEvent): void {

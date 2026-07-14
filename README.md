@@ -62,6 +62,9 @@ Authenticate an account, check its status, and list its chats:
 tg account add
 tg status
 tg chats
+tg chats --group
+tg chats --channel
+tg chats --user
 ```
 
 Choose a chat name, username, or ID from `tg chats`, then sync and search its messages:
@@ -373,7 +376,7 @@ Common commands:
 | `tg config set --proxy <url>` | Save an optional proxy for account login and Telegram-backed commands. |
 | `tg config list [--show-secrets]` | Show effective configuration values and sources. Proxy credentials remain masked. |
 | `tg config write-access [status\|on\|off]` | Inspect or gate remote Telegram mutations. |
-| `tg chats` | List available chats. |
+| `tg chats [--group\|--channel\|--user]` | List available chats, optionally filtered by type (`--group` includes supergroups). |
 | `tg inbox` | List unread dialogs online without marking messages read. |
 | `tg read <chat> [--since <time>] [--until <time>]` | Read recent Telegram messages without persisting them locally. |
 | `tg search-online <query> [--chat <chat>]` | Search Telegram globally or within one chat without persisting results. |
