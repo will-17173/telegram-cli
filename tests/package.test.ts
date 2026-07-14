@@ -67,6 +67,16 @@ describe('npm package metadata', () => {
     ]) expect(readme).toContain(example)
   })
 
+  it('links the published documentation from both readmes', () => {
+    const english = readFileSync('README.md', 'utf8')
+    const chinese = readFileSync('README.zh-CN.md', 'utf8')
+
+    expect(english).toContain('[Documentation](https://will-17173.github.io/telegram-cli/docs/)')
+    expect(english).toContain('[Read the complete Telegram CLI documentation →](https://will-17173.github.io/telegram-cli/docs/)')
+    expect(chinese).toContain('[使用文档](https://will-17173.github.io/telegram-cli/zh-CN/docs/)')
+    expect(chinese).toContain('[阅读完整的 Telegram CLI 文档 →](https://will-17173.github.io/telegram-cli/zh-CN/docs/)')
+  })
+
   it('documents release security, output-stream, and ownership-transfer contracts in both languages', () => {
     const readmes = [
       {

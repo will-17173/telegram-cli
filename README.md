@@ -1,8 +1,12 @@
 # Telegram CLI
 
-[Website](https://will-17173.github.io/telegram-cli/) · [简体中文](README.zh-CN.md)
+[Website](https://will-17173.github.io/telegram-cli/) · [Documentation](https://will-17173.github.io/telegram-cli/docs/) · [简体中文](README.zh-CN.md)
 
 A TypeScript command-line client for syncing Telegram chats, listening to live messages, searching locally stored messages, and inspecting groups from the terminal.
+
+## Documentation
+
+[Read the complete Telegram CLI documentation →](https://will-17173.github.io/telegram-cli/docs/)
 
 ## What you can do
 
