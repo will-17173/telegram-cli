@@ -230,6 +230,17 @@ describe('cli help', () => {
     expect(group?.commands.slice(0, 5).map((command) => command.name())[4]).toBe('list')
   })
 
+  it('describes group list as all group-like dialogs unless admin-filtered', () => {
+    const group = createApp().commands.find((command) => command.name() === 'group')
+    const list = group?.commands.find((command) => command.name() === 'list')
+    const help = list?.helpInformation() ?? ''
+
+    expect(list?.description()).toBe('List group, supergroup, and channel dialogs')
+    expect(help).toContain('Only groups where you are an admin or creator')
+    expect(help).toContain('Max dialogs to list')
+    expect(help).not.toContain('managed groups')
+  })
+
   it('registers all catalog arguments and options without a conflicting account option', () => {
     const group = createApp().commands.find((command) => command.name() === 'group')
     for (const definition of GROUP_COMMANDS) {

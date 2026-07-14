@@ -257,9 +257,12 @@ tg group audit <chat> --query invite --user <user> --type member_invited --type 
 
 # Management examples (the chat argument comes before action arguments)
 tg group member ban @team @alice --yes
+tg group admin transfer-owner @team @newowner --yes
 tg group chat slowmode @team 30s
 tg group topic --help
 ```
+
+Ownership transfer prompts securely for the Telegram 2FA password in an interactive TTY after confirmation. The password is never a CLI argument, stdin input, or environment automation source, and users and agents must never automate the prompt.
 
 `group members` accepts exactly these seven `--type` filters: `recent`, `all`, `admins`, `banned`, `restricted`, `bots`, and `contacts`. It defaults to `recent` and 100 results; `--limit` accepts 1 through 200. Telegram can return fewer members than its reported total, so a page is not guaranteed to enumerate the whole group.
 
@@ -276,7 +279,7 @@ Inspection and management actions use human-readable output by default; actions 
 
 Management actions are grouped under `member`, `admin`, `chat`, `invite`, `topic`, and `message`. Member targets must be explicit `@username` values or numeric Telegram user IDs. Durations accept `s`, `m`, `h`, and `d` suffixes, or `off` where disabling is supported. For example, `tg group member mute @team @alice 2h --yes` temporarily mutes a member, while `tg group chat slowmode @team off` disables slow mode.
 
-Potentially destructive CLI actions refuse to connect to Telegram unless `--yes` is present. Permanently deleting a chat additionally requires `--confirm-title` with the exact current title. Interactive listen mode presents these confirmations in an Ink modal. Management requires the relevant administrator permission, and some actions require a supergroup, forum, or creator role. Ownership transfer reads the Telegram 2FA password from a secure interactive terminal prompt after confirmation. Users and agents must never automate that prompt or pass the password as a command argument, environment variable, or logged input.
+Potentially destructive CLI actions refuse to connect to Telegram unless `--yes` is present. Permanently deleting a chat additionally requires `--confirm-title` with the exact current title. Interactive listen mode presents these confirmations in an Ink modal. Management requires the relevant administrator permission, and some actions require a supergroup, forum, or creator role.
 
 Use `tg group member info <chat> <user>` as the canonical member-details route. The legacy `tg group member <chat> <user>` form remains available, but a chat name matching a reserved member action such as `ban`, `mute`, or `info` is ambiguous and requires the canonical route.
 
@@ -333,7 +336,7 @@ Common commands:
 | `tg whoami` | Show basic authenticated account information. |
 | `tg config set --api-id <id> --api-hash <hash>` | Save Telegram API credentials for persistent use. |
 | `tg config set --proxy <url>` | Save an optional proxy for account login and Telegram-backed commands. |
-| `tg config list [--show-secrets]` | Show effective configuration values and sources; the proxy URL is always visible. |
+| `tg config list [--show-secrets]` | Show effective configuration values and sources. Safe proxy endpoint details remain visible, but proxy usernames, passwords, and credential query parameters are always masked, even with `--show-secrets`; `--show-secrets` reveals only the full API hash. |
 | `tg config write-access [status\|on\|off]` | Inspect or gate remote Telegram mutations. |
 | `tg chats` | List available chats. |
 | `tg inbox` | List unread dialogs online without marking messages read. |
@@ -368,7 +371,7 @@ Common commands:
 
 All sync-like commands write to local SQLite storage. The `sync-all` and `refresh` commands process multiple chats based on locally stored message IDs.
 
-Finite commands support explicit `--json`, `--yaml`, and `--markdown` output. Without an explicit format, output to a non-TTY remains YAML; interactive terminals use rich human-readable output. `listen` is an unbounded stream and is excluded from these finite output formats. Failed commands return a nonzero exit code, so scripts can detect errors without parsing human-readable text.
+Finite commands support explicit `--json`, `--yaml`, and `--markdown` output. Without an explicit format, output to a non-TTY remains YAML; interactive terminals use rich human-readable output. Successful finite output is written to stdout. JSON/YAML structured failures are written to stdout in the requested format so automation can parse stable error envelopes. Output-format conflicts also use stdout and a stable YAML envelope. Human-readable and Markdown failures are written to stderr. A nonzero exit status still determines failure. `listen` is an unbounded stream and is excluded from these finite rendering and stream-location rules.
 
 Common options:
 

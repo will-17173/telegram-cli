@@ -257,9 +257,12 @@ tg group audit <chat> --query invite --user <user> --type member_invited --type 
 
 # 管理示例（chat 参数位于操作参数之前）
 tg group member ban @team @alice --yes
+tg group admin transfer-owner @team @newowner --yes
 tg group chat slowmode @team 30s
 tg group topic --help
 ```
+
+转移所有权会在确认后通过交互式 TTY 安全提示输入 Telegram 2FA 密码。密码绝不会来自 CLI 参数、stdin 输入或环境变量等自动化来源，用户和智能体也绝不能自动操作该提示。
 
 `group members` 的 `--type` 恰好支持以下七种筛选器：`recent`、`all`、`admins`、`banned`、`restricted`、`bots` 和 `contacts`。默认使用 `recent` 并返回 100 条结果；`--limit` 可设为 1 到 200。Telegram 可能返回少于其报告总数的成员，因此单页结果不保证包含整个群组的全部成员。
 
@@ -276,7 +279,7 @@ tg group topic --help
 
 管理操作分为 `member`、`admin`、`chat`、`invite`、`topic` 和 `message` 六个命令组。成员目标必须显式使用 `@username` 或 Telegram 数字用户 ID。时长支持 `s`、`m`、`h`、`d` 后缀；支持关闭的设置还可使用 `off`。例如 `tg group member mute @team @alice 2h --yes` 会临时禁言，`tg group chat slowmode @team off` 会关闭慢速模式。
 
-有破坏风险的 CLI 操作在缺少 `--yes` 时会直接拒绝，且不会连接 Telegram。永久删除群组还必须用 `--confirm-title` 提供完全一致的当前群名；交互式 `listen` 模式则通过 Ink 弹窗确认。管理操作需要对应的管理员权限，部分操作还要求超级群组、论坛或群主身份。转移所有权会在确认后通过安全的交互式终端提示读取 Telegram 2FA 密码。用户和智能体绝不能自动操作该提示，也不能通过命令参数、环境变量或会被记录的输入传递密码。
+有破坏风险的 CLI 操作在缺少 `--yes` 时会直接拒绝，且不会连接 Telegram。永久删除群组还必须用 `--confirm-title` 提供完全一致的当前群名；交互式 `listen` 模式则通过 Ink 弹窗确认。管理操作需要对应的管理员权限，部分操作还要求超级群组、论坛或群主身份。
 
 查询成员详情请优先使用规范路由 `tg group member info <chat> <user>`。旧形式 `tg group member <chat> <user>` 仍保留，但当群名等于 `ban`、`mute`、`info` 等保留操作名时会产生歧义，必须使用规范路由。
 
@@ -332,7 +335,7 @@ tg --help
 | `tg whoami` | 显示当前登录账号的基本信息。 |
 | `tg config set --api-id <id> --api-hash <hash>` | 持久化保存 Telegram API 凭据。 |
 | `tg config set --proxy <url>` | 为账号登录及所有需要连接 Telegram 的命令保存可选代理。 |
-| `tg config list [--show-secrets]` | 显示生效配置值及其来源；代理 URL 始终可见。 |
+| `tg config list [--show-secrets]` | 显示生效配置值及其来源。安全的代理端点详情仍然可见，但代理用户名、密码和凭据查询参数始终会被脱敏，即使使用 `--show-secrets`；`--show-secrets` 只会显示完整的 API hash。 |
 | `tg config write-access [status\|on\|off]` | 查看或控制远端 Telegram 写操作权限。 |
 | `tg status` | 检查 Telegram 账户是否已完成身份验证。 |
 | `tg chats` | 列出可用聊天。 |
@@ -368,7 +371,7 @@ tg --help
 
 所有同步类命令都会写入本地 SQLite 数据库。`sync-all` 和 `refresh` 根据本地已保存的消息 ID 增量处理多个聊天。
 
-有限结果命令明确支持 `--json`、`--yaml` 和 `--markdown` 输出。未明确指定格式时，输出到非 TTY 仍默认使用 YAML；交互式终端使用富文本人类可读输出。`listen` 是无界数据流，不属于这些有限结果输出格式。命令失败时会返回非零退出码，脚本无需解析人类可读文本即可判断执行结果。
+有限结果命令明确支持 `--json`、`--yaml` 和 `--markdown` 输出。未明确指定格式时，输出到非 TTY 仍默认使用 YAML；交互式终端使用富文本人类可读输出。有限结果命令成功时写入 stdout。JSON/YAML 结构化失败按请求的格式写入 stdout，便于自动化程序解析稳定的错误信封。输出格式冲突同样写入 stdout，并使用稳定的 YAML 信封。人类可读和 Markdown 失败信息写入 stderr。非零退出状态仍是判断失败的依据。`listen` 是无界数据流，不适用这些有限结果的渲染和流位置规则。
 
 常用选项：
 

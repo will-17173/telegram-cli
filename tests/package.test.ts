@@ -66,6 +66,41 @@ describe('npm package metadata', () => {
       'password_required',
     ]) expect(readme).toContain(example)
   })
+
+  it('documents release security, output-stream, and ownership-transfer contracts in both languages', () => {
+    const readmes = [
+      {
+        contents: readFileSync('README.md', 'utf8'),
+        contracts: [
+          'proxy usernames, passwords, and credential query parameters are always masked, even with `--show-secrets`',
+          '`--show-secrets` reveals only the full API hash',
+          'Successful finite output is written to stdout.',
+          'JSON/YAML structured failures are written to stdout in the requested format',
+          'Output-format conflicts also use stdout and a stable YAML envelope.',
+          'Human-readable and Markdown failures are written to stderr.',
+          'tg group admin transfer-owner @team @newowner --yes',
+          'never a CLI argument, stdin input, or environment automation source',
+        ],
+      },
+      {
+        contents: readFileSync('README.zh-CN.md', 'utf8'),
+        contracts: [
+          '代理用户名、密码和凭据查询参数始终会被脱敏，即使使用 `--show-secrets`',
+          '`--show-secrets` 只会显示完整的 API hash',
+          '有限结果命令成功时写入 stdout。',
+          'JSON/YAML 结构化失败按请求的格式写入 stdout',
+          '输出格式冲突同样写入 stdout，并使用稳定的 YAML 信封。',
+          '人类可读和 Markdown 失败信息写入 stderr。',
+          'tg group admin transfer-owner @team @newowner --yes',
+          '绝不会来自 CLI 参数、stdin 输入或环境变量等自动化来源',
+        ],
+      },
+    ]
+
+    for (const readme of readmes) {
+      for (const contract of readme.contracts) expect(readme.contents).toContain(contract)
+    }
+  })
 })
 
 describe('group management package contracts', () => {

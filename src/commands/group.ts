@@ -139,9 +139,9 @@ export function registerGroupCommands(app: Command): void {
     })
 
   group.command('list')
-    .description('List Telegram managed groups')
+    .description('List group, supergroup, and channel dialogs')
     .option('--admin', 'Only groups where you are an admin or creator')
-    .option('-n, --limit <limit>', 'Max managed groups to list')
+    .option('-n, --limit <limit>', 'Max dialogs to list')
     .option('--json')
     .option('--yaml')
   .action(async (_options: GroupListCommandOptions, command: Command) => {
