@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `tg group list` and group administrator discovery to the read-only group workflows.
 - Add account logout and login flows that retain local data, preserve recoverable sessions, and support secure TTY reauthentication.
 - Add Markdown chat archives with explicit chat scope; default and bounded time ranges; incremental and rebuild modes; resumable media downloads; and non-zero exit status when an archive completes with partial failures.
-- Add the completed `tg group admin transfer-owner` flow with secure Telegram 2FA password entry.
+- Add the `tg group admin transfer-owner` flow with secure Telegram 2FA password entry.
 - Add Markdown output for finite commands alongside the existing human-readable, JSON, and YAML formats.
 
 ### Changed
