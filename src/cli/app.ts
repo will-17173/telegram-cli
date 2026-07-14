@@ -18,7 +18,7 @@ export function createApp(): Command {
     .option('-v, --verbose', 'Enable debug logging')
     .option('--account <account>', 'Select an account for account-dependent commands')
     .option('--markdown', 'Produce Markdown output for human-readable results')
-    .version('0.4.0')
+    .version('0.4.1')
 
   registerQueryCommands(app)
   registerArchiveCommand(app)

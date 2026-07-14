@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-14
+
+### Added
+
+- Add responsive English and Simplified Chinese GitHub Pages sites with landing pages and detailed documentation for all top-level commands and group actions.
+- Add a validated GitHub Pages deployment workflow, localized sitemap routes, canonical metadata, keyboard navigation, and no-script documentation layouts.
+- Add mouse-wheel history scrolling while attachments have focus in interactive `tg listen`.
+
+### Changed
+
+- Make attachment keyboard navigation reveal offscreen selections and stop at the first and last attachments instead of wrapping.
+- Point the npm homepage and bilingual READMEs to the website, and organize both READMEs around representative Telegram workflows.
+- Expand the `using-telegram-cli` skill to detect, install, and verify `tg` with Node.js 22 checks and a user-owned npm prefix fallback.
+
+### Fixed
+
+- Preserve the selected attachment when the interactive listen history buffer prunes older messages.
+- Keep attachment selection synchronized with wheel scrolling and batched arrow input, and disable mouse reporting after attachment focus ends.
+
 ## [0.4.0] - 2026-07-13
 
 ### Added

@@ -300,7 +300,7 @@ Without a format flag, TTY output is human-oriented and non-TTY output defaults 
 
 ## Error codes and recovery
 
-Handle v0.4.0 errors by code instead of matching message text:
+Handle v0.4.1 errors by code instead of matching message text:
 
 - Accounts: `account_logged_out`, `account_identity_mismatch`, and `interaction_required` require selecting, verifying, or interactively reauthenticating the named account.
 - Contacts: `contact_not_found` means Telegram could not resolve the supplied ID, username, or phone number.
