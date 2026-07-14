@@ -57,6 +57,29 @@ function seedManyMessages(dbPath: string, count: number): void {
   db.close()
 }
 
+function seedManyChats(dbPath: string, count: number): void {
+  const db = new MessageDB(dbPath)
+  db.insertBatch(Array.from({ length: count }, (_, index) => {
+    const chatId = index + 1
+    const timestamp = new Date(Date.UTC(2026, 6, 14, 0, index)).toISOString()
+    return {
+      platform: 'telegram',
+      chat_id: chatId,
+      chat_name: `Chat ${String(chatId).padStart(3, '0')}`,
+      msg_id: 1,
+      sender_id: 1,
+      sender_name: 'Alice',
+      content: `chat ${chatId}`,
+      timestamp,
+    }
+  }))
+  db.close()
+}
+
+function encodeCursor(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
@@ -137,6 +160,24 @@ describe('WebQueryService', () => {
     })
   })
 
+  it('clamps chat limit and negative offset at the storage boundary', () => {
+    const root = makeRoot()
+    const dbPath = join(root, 'messages.db')
+    seedManyChats(dbPath, 101)
+    const db = new MessageDB(dbPath)
+
+    try {
+      const page = db.getChatsPage({ limit: 500, offset: -20 })
+
+      expect(page.items).toHaveLength(100)
+      expect(page.items[0].chat_id).toBe(101)
+      expect(page.items[99].chat_id).toBe(2)
+      expect(page.total).toBe(101)
+    } finally {
+      db.close()
+    }
+  })
+
   it('returns a stable filtered message page', () => {
     const root = makeRoot()
     seedAccount(root)
@@ -156,6 +197,18 @@ describe('WebQueryService', () => {
     expect(page.next_cursor).toBeNull()
   })
 
+  it('treats whitespace-only message queries as no filter', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    const page = service.messages({ account: 'work', chatId: 10, q: '   ' })
+
+    expect(page.items.map((message) => message.content)).toEqual(['second beta', 'first alpha'])
+    expect(page.next_cursor).toBeNull()
+  })
+
   it('defaults message pages to 50 items and returns a cursor', () => {
     const root = makeRoot()
     seedAccount(root)
@@ -168,6 +221,21 @@ describe('WebQueryService', () => {
     expect(page.items[0].content).toBe('message 55')
     expect(page.items[49].content).toBe('message 6')
     expect(page.next_cursor).not.toBeNull()
+  })
+
+  it('clamps negative and zero message limits to 1', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedManyMessages(join(root, 'accounts', 'work', 'messages.db'), 3)
+    const service = new WebQueryService({ dataDir: root })
+
+    const negative = service.messages({ account: 'work', chatId: 10, limit: -10 })
+    const zero = service.messages({ account: 'work', chatId: 10, limit: 0 })
+
+    expect(negative.items.map((message) => message.content)).toEqual(['message 3'])
+    expect(negative.next_cursor).not.toBeNull()
+    expect(zero.items.map((message) => message.content)).toEqual(['message 3'])
+    expect(zero.next_cursor).not.toBeNull()
   })
 
   it('uses message cursors to return older rows without duplicates', () => {
@@ -197,5 +265,15 @@ describe('WebQueryService', () => {
     const service = new WebQueryService({ dataDir: root })
 
     expect(() => service.messages({ account: 'work', chatId: 10, cursor: 'not-json' })).toThrow('invalid_cursor')
+  })
+
+  it('rejects structurally invalid message cursors with invalid_cursor', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    expect(() => service.messages({ account: 'work', chatId: 10, cursor: encodeCursor({ timestamp: '   ', id: 1 }) })).toThrow('invalid_cursor')
+    expect(() => service.messages({ account: 'work', chatId: 10, cursor: encodeCursor({ timestamp: '2026-07-14T09:00:00.000Z', id: -1 }) })).toThrow('invalid_cursor')
   })
 })

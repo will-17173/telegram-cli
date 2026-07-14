@@ -218,9 +218,10 @@ export class MessageDB {
   getMessagesPage(options: MessagePageOptions): { items: StoredMessage[]; next_cursor: string | null } {
     const params: unknown[] = [canonicalChatId(options.chatId)]
     const conditions = ['chat_id = ?']
-    if (options.q) {
+    const filter = options.q?.trim()
+    if (filter) {
       conditions.push('content LIKE ?')
-      params.push(`%${options.q}%`)
+      params.push(`%${filter}%`)
     }
     if (options.since) {
       conditions.push('timestamp >= ?')
@@ -236,7 +237,7 @@ export class MessageDB {
       params.push(cursor.timestamp, cursor.id)
     }
 
-    const limit = options.limit ?? 50
+    const limit = clampInteger(options.limit, 50, 1, 100)
     const rows = this.db.prepare(`
       SELECT * FROM messages INDEXED BY idx_messages_chat_recent
       WHERE ${conditions.join(' AND ')}
@@ -349,7 +350,7 @@ export class MessageDB {
       ${whereClause}
       ORDER BY msg_count DESC, last_msg DESC
       LIMIT ? OFFSET ?
-    `).all(...params, options.limit ?? 100, options.offset ?? 0) as Array<{ chat_id: number; chat_name: string | null; msg_count: number; first_msg: string; last_msg: string }>
+    `).all(...params, clampInteger(options.limit, 100, 1, 100), clampInteger(options.offset, 0, 0, Number.MAX_SAFE_INTEGER)) as Array<{ chat_id: number; chat_name: string | null; msg_count: number; first_msg: string; last_msg: string }>
     const totalRow = this.db.prepare(`
       ${groupedSql}
       SELECT COUNT(*) as total
@@ -505,13 +506,19 @@ function encodeMessageCursor(row: { timestamp: string; id: number }): string {
 function decodeMessageCursor(cursor: string): { timestamp: string; id: number } {
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { timestamp?: unknown; id?: unknown }
-    if (typeof parsed.timestamp !== 'string' || typeof parsed.id !== 'number' || !Number.isSafeInteger(parsed.id)) {
+    const timestamp = typeof parsed.timestamp === 'string' ? parsed.timestamp.trim() : ''
+    if (timestamp.length === 0 || typeof parsed.id !== 'number' || !Number.isSafeInteger(parsed.id) || parsed.id <= 0) {
       throw new Error('invalid_cursor')
     }
-    return { timestamp: parsed.timestamp, id: parsed.id }
+    return { timestamp, id: parsed.id }
   } catch {
     throw new Error('invalid_cursor')
   }
+}
+
+function clampInteger(value: number | undefined, defaultValue: number, min: number, max: number): number {
+  if (value == null || !Number.isFinite(value)) return defaultValue
+  return Math.min(max, Math.max(min, Math.trunc(value)))
 }
 
 type FileFingerprint = {
