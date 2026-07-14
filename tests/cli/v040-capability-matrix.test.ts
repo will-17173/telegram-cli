@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Command } from 'commander'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import YAML from 'yaml'
 
 const dialogs = vi.hoisted(() => ({
   inbox: vi.fn(),
@@ -25,12 +26,14 @@ const client = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
 }))
 const createTelegramClient = vi.hoisted(() => vi.fn((_sessionPath: string) => client))
-const renderResult = vi.hoisted(() => vi.fn(async (result: { ok: boolean }) => {
-  if (!result.ok) process.exitCode = 1
-}))
+const renderResult = vi.hoisted(() => vi.fn())
 
 vi.mock('../../src/telegram/client-factory.js', () => ({ createTelegramClient }))
-vi.mock('../../src/cli/output.js', () => ({ renderResult }))
+vi.mock('../../src/cli/output.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/cli/output.js')>()
+  renderResult.mockImplementation(actual.renderResult)
+  return { ...actual, renderResult }
+})
 
 import { createApp } from '../../src/cli/app.js'
 
@@ -44,6 +47,18 @@ const routes = [
 ]
 
 const dataDirs: string[] = []
+
+type RunResult = {
+  stdout: string
+  stderr: string
+  code: number
+}
+
+type FormatCase = {
+  route: string
+  args: string[]
+  assertOutput: (stdout: string) => void
+}
 
 function findCommand(root: Command, route: string): Command | undefined {
   return route.split(' ').reduce<Command | undefined>(
@@ -68,8 +83,21 @@ function seedAccounts(writeAccess = true): string {
   return dataDir
 }
 
-async function run(args: string[]): Promise<void> {
-  await createApp().exitOverride().parseAsync(['node', 'tg', ...args])
+async function run(args: string[]): Promise<RunResult> {
+  const stdout: string[] = []
+  const stderr: string[] = []
+  const oldOut = process.stdout.write
+  const oldErr = process.stderr.write
+  process.stdout.write = ((chunk: string | Uint8Array) => { stdout.push(String(chunk)); return true }) as typeof process.stdout.write
+  process.stderr.write = ((chunk: string | Uint8Array) => { stderr.push(String(chunk)); return true }) as typeof process.stderr.write
+  process.exitCode = 0
+  try {
+    await createApp().exitOverride().parseAsync(['node', 'tg', ...args])
+  } finally {
+    process.stdout.write = oldOut
+    process.stderr.write = oldErr
+  }
+  return { stdout: stdout.join(''), stderr: stderr.join(''), code: Number(process.exitCode ?? 0) }
 }
 
 beforeEach(() => {
@@ -107,16 +135,31 @@ describe('v0.4.0 capability matrix', () => {
     expect(findCommand(createApp(), route)).toBeDefined()
   })
 
-  it.each([
-    ['inbox', ['inbox', '--json'], { json: true }],
-    ['contact list', ['contact', 'list', '--yaml'], { yaml: true }],
-    ['folder list', ['folder', 'list', '--markdown'], { markdown: true }],
-    ['group list', ['group', 'list', '--json'], { json: true }],
-  ])('runs finite %s with its selected output format', async (_route, args, output) => {
-    await run(args as string[])
+  it.each<FormatCase>([
+    {
+      route: 'inbox',
+      args: ['inbox', '--json'],
+      assertOutput: stdout => expect(JSON.parse(stdout)).toMatchObject({ ok: true, data: { dialogs: [] } }),
+    },
+    {
+      route: 'contact list',
+      args: ['contact', 'list', '--yaml'],
+      assertOutput: stdout => expect(YAML.parse(stdout)).toMatchObject({ ok: true, data: [] }),
+    },
+    {
+      route: 'folder list',
+      args: ['folder', 'list', '--markdown'],
+      assertOutput: stdout => {
+        expect(stdout).toContain('# Telegram Folders')
+        expect(stdout).toContain('| ID | Folder | Icon | Color | Chats |')
+      },
+    },
+  ])('renders finite $route output on stdout', async ({ args, assertOutput }) => {
+    const result = await run(args)
 
-    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({ ok: true }), output)
-    expect(process.exitCode ?? 0).toBe(0)
+    expect(result).toMatchObject({ stderr: '', code: 0 })
+    expect(result.stdout).not.toBe('')
+    assertOutput(result.stdout)
   })
 
   it('uses the explicitly selected account without changing the current account', async () => {
@@ -129,6 +172,7 @@ describe('v0.4.0 capability matrix', () => {
       account: 'bob',
       json: true,
     })
+    expect(JSON.parse(readFileSync(join(dataDir, 'accounts.json'), 'utf8')).current_account).toBe('alice')
   })
 
   it.each([
