@@ -7,6 +7,7 @@ import { COMMAND_HANDLERS } from '../src/services/group-write-service.js'
 
 type PackageJson = {
   name?: string
+  version?: string
   private?: boolean
   repository?: {
     type?: string
@@ -24,6 +25,12 @@ type PackageJson = {
 }
 
 describe('npm package metadata', () => {
+  it('publishes version 0.4.0', () => {
+    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as PackageJson
+
+    expect(packageJson.version).toBe('0.4.0')
+  })
+
   it('publishes the compiled CLI as a public scoped package', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as PackageJson
 
