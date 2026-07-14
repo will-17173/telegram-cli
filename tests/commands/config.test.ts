@@ -405,7 +405,7 @@ describe('config command', () => {
     expect(writeAccess?.helpInformation()).toContain('[status|on|off]')
   })
 
-  it('lists stored values with a masked API hash and complete proxy URL', async () => {
+  it('lists stored values with masked API hash and proxy credentials', async () => {
     const dataDir = tempDir()
     const apiHash = 'stored-api-hash-secret'
     const proxy = 'socks5://proxy-user:proxy-password@127.0.0.1:1080'
@@ -424,15 +424,15 @@ describe('config command', () => {
         api_id: 12345,
         api_hash: `${'*'.repeat(apiHash.length - 4)}${apiHash.slice(-4)}`,
         credentials_source: 'stored',
-        proxy,
+        proxy: 'socks5://***:***@127.0.0.1:1080',
         proxy_source: 'stored',
         write_access: true,
       },
     })
     expect(result).toMatchObject({ stderr: '', code: 0 })
     expect(`${result.stdout}${result.stderr}`).not.toContain(apiHash)
-    expect(result.stdout).toContain(proxy)
-    expect(result.stdout).toContain('proxy-password')
+    expect(result.stdout).not.toContain('proxy-user')
+    expect(result.stdout).not.toContain('proxy-password')
   })
 
   it('uses environment credentials and proxy instead of stored values', async () => {
@@ -455,13 +455,13 @@ describe('config command', () => {
         api_id: 22222,
         api_hash: `${'*'.repeat('environment-secret'.length - 4)}cret`,
         credentials_source: 'environment',
-        proxy: 'socks5://environment-secret@127.0.0.1:1081',
+        proxy: 'socks5://***@127.0.0.1:1081',
         proxy_source: 'environment',
         write_access: true,
       },
     })
     expect(`${result.stdout}${result.stderr}`).not.toContain('stored-secret')
-    expect(result.stdout).toContain('socks5://environment-secret@127.0.0.1:1081')
+    expect(result.stdout).not.toContain('environment-secret@')
   })
 
   it('lists default credentials and no proxy when neither is configured', async () => {
@@ -560,7 +560,7 @@ describe('config command', () => {
     { flags: ['--json'], format: 'json' },
     { flags: ['--yaml'], format: 'yaml' },
     { flags: [], format: 'human' },
-  ])('shows the complete API hash with --show-secrets in $format output', async ({ flags, format }) => {
+  ])('shows the complete API hash but keeps proxy credentials masked in $format output', async ({ flags, format }) => {
     const dataDir = tempDir()
     const apiHash = 'complete-api-hash-secret'
     const proxy = 'socks5://proxy-user:proxy-secret@127.0.0.1:1080'
@@ -574,7 +574,9 @@ describe('config command', () => {
 
     expect(result).toMatchObject({ stderr: '', code: 0 })
     expect(result.stdout).toContain(apiHash)
-    expect(result.stdout).toContain(proxy)
+    expect(result.stdout).toContain('socks5://***:***@127.0.0.1:1080')
+    expect(result.stdout).not.toContain('proxy-user')
+    expect(result.stdout).not.toContain('proxy-secret')
   })
 
   it('fully masks API hashes with four or fewer characters', async () => {

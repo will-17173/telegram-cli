@@ -168,7 +168,7 @@ export function registerConfigCommands(app: Command): void {
         api_id: credentials.apiId,
         api_hash: options.showSecrets ? credentials.apiHash : maskSecret(credentials.apiHash),
         credentials_source: credentials.source,
-        proxy: proxy?.url ?? null,
+        proxy: proxy == null ? null : maskProxyCredentials(proxy.url),
         proxy_source: proxy?.source ?? null,
         write_access: writeAccess,
       }
@@ -274,4 +274,15 @@ function mergeOptionsWithGlobals<T extends OutputFlags>(command: Command, option
 function maskSecret(secret: string): string {
   if (secret.length <= 4) return '*'.repeat(secret.length)
   return `${'*'.repeat(secret.length - 4)}${secret.slice(-4)}`
+}
+
+function maskProxyCredentials(proxy: string): string {
+  try {
+    const url = new URL(proxy)
+    if (url.username) url.username = '***'
+    if (url.password) url.password = '***'
+    return url.toString()
+  } catch {
+    return proxy.replace(/^(\w+:\/\/)[^@/]+@/u, '$1***@')
+  }
 }
