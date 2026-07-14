@@ -7,11 +7,14 @@ A TypeScript command-line client for syncing Telegram chats, listening to live m
 ## What you can do
 
 - Manage multiple Telegram accounts with isolated sessions and message databases.
+- Inspect unread chats and read or search messages without storing them locally.
 - Sync chat history to SQLite for offline search, filtering, analysis, and export.
+- Archive selected chats as incremental Markdown files, with optional attachment downloads.
 - Listen for new messages and download incoming attachments.
 - Send, edit, and delete messages from the command line.
-- Inspect and manage groups, members, administrators, invites, and forum topics.
-- Use human-readable output or structured JSON and YAML in scripts and agent workflows.
+- Inspect contacts, notification settings, chat folders, groups, members, administrators, invites, and forum topics.
+- Disable remote Telegram mutations while keeping read-only and local commands available.
+- Use human-readable, JSON, YAML, or Markdown output in scripts and agent workflows.
 
 ## Built for AI agents
 
@@ -78,7 +81,7 @@ tg send <chat> "Hello from tg"
 
 ## Read and manage Telegram online
 
-`history`, `sync`, and `sync-all` fetch Telegram messages and persist them in the local SQLite database. By contrast, `read`, `search-online`, and `inbox` query Telegram directly and return transient results without adding them to the local message database. `inbox` only lists chats with unread messages; it does not mark any message as read.
+`history`, `sync`, and `sync-all` fetch Telegram messages and store them in the local SQLite database. `read`, `search-online`, and `inbox` query Telegram directly without storing their results. `inbox` lists chats with unread messages without marking them as read.
 
 ```sh
 tg inbox --markdown
@@ -86,18 +89,31 @@ tg read @team --since 7d --until 2d
 tg search-online release --chat @team --json
 ```
 
-Time bounds accept relative durations ending in `s`, `m`, `h`, `d`, or `w`, such as `7d`, and ISO timestamps that include a zone, such as `2026-07-13T00:00:00Z` or `2026-07-13T08:00:00+08:00`. Relative values mean that duration before the command starts; `--since` must be earlier than `--until`.
+Time bounds accept relative durations ending in `s`, `m`, `h`, `d`, or `w`. For example, `7d` means seven days before the command starts. Absolute bounds use ISO 8601 timestamps with a time zone, such as `2026-07-13T00:00:00Z`. The `--since` value must be earlier than `--until`.
 
-Contacts, notification settings, folders, and group, supergroup, or channel dialogs are also available as online commands:
+You can also inspect contacts, notification settings, folders, and group dialogs without changing remote state:
 
 ```sh
+tg contact list
 tg contact info +8613800000000
-tg notification mute @team 8h
-tg folder chat add Work @team
+tg notification info @team
+tg folder list
+tg folder info 2
 tg group list --admin
 ```
 
-Folder commands accept either a title or numeric folder ID. Titles are not necessarily unique: first use `tg folder list`, then prefer the returned folder ID for `folder info` and `folder chat add/remove`, especially in scripts.
+The following commands modify Telegram remotely:
+
+```sh
+tg notification mute @team 8h
+tg notification unmute @team
+tg folder chat add Work @team
+tg folder chat remove Work @team
+```
+
+Use `tg config write-access off` to block these mutations. Restore them with `tg config write-access on`.
+
+Folder commands accept either a title or numeric folder ID. Folder titles are not necessarily unique. Run `tg folder list` first, then use the returned ID with `tg folder info`, `tg folder chat add`, or `tg folder chat remove`.
 
 ## Configuration
 
@@ -140,7 +156,9 @@ tg config list --yaml
 tg config list --show-secrets
 ```
 
-This reports the effective configuration rather than the raw contents of `config.json`. The API hash is masked by default; use `--show-secrets` to display it in full.
+This reports the effective configuration rather than the raw contents of `config.json`. The API hash is masked by default; `--show-secrets` reveals only the full API hash.
+
+Safe proxy endpoint details remain visible, but proxy usernames, passwords, and credential query parameters are always masked, even with `--show-secrets`.
 
 Run `tg account add` to authenticate and create a local session. Other commands never start the interactive login flow.
 
@@ -171,7 +189,9 @@ Telegram determines which file combinations and group sizes it accepts. If Teleg
 
 ## Archive chats as Markdown
 
-`archive` requires a scope: pass one or more chat IDs/usernames, or use `--all` (not both). It uses the current account unless `--account <name>` is supplied, and writes by default to that account's `archive` data directory; use `--output <path>` to override it.
+`archive` requires an explicit scope. Pass one or more chat IDs or usernames, or use `--all`, but don't combine them.
+
+The command uses the current account unless you pass `--account <name>`. It writes to that account's `archive` directory by default. Use `--output <path>` to select another directory.
 
 ```sh
 # Initial archive with attachments: the preceding seven days
@@ -184,11 +204,15 @@ tg archive @team --since 30d --until 2026-07-13T00:00:00Z
 tg archive --all --full --download-media
 ```
 
-The first run defaults to exactly the preceding seven days. `--since` and `--until` select a custom range, while `--full` removes the lower bound and cannot be combined with `--since`. Later runs are incremental: the manifest and embedded message markers recover the highest archived message even if their cursors differ. `--rebuild` replaces each Markdown file, reusing its recorded initial range unless a new range or `--full` is given. `--download-media` stores downloadable attachments under the archive's `media/` directory and retries missing referenced media during incremental recovery.
+The first run archives the preceding seven days. Use `--since` and `--until` to select another range. Use `--full` to remove the lower bound; you can't combine it with `--since`.
+
+Later runs append new messages to the existing archive. Use `--rebuild` to replace each selected Markdown file. Without a new range, rebuilding reuses the archive's initial range.
+
+Use `--download-media` to store attachments in the archive's `media/` directory. Incremental runs retry referenced media that is still missing.
 
 Chat or attachment failures produce `archive_partial_failure`, preserve successful chat results, and exit with status 1. Use `--json` or `--yaml` in automation and inspect `completed`, `failed`, and `warnings`.
 
-Archiving performs potentially large Telegram history and media requests, so it can encounter flood waits or other rate limits. Media downloads can fail independently: successfully archived messages and chats remain on disk, warnings identify failed attachments, and any partial failure still causes a nonzero exit.
+Large history and media requests can trigger Telegram flood waits or other rate limits. Media downloads can fail independently. Successfully archived messages remain on disk, and warnings identify failed attachments.
 
 ## Multiple accounts
 
@@ -217,7 +241,9 @@ tg account switch <name>
 tg account remove <name> --force
 ```
 
-To end the remote session without deleting the registered account, its settings, or locally stored messages, log out explicitly. `--yes` confirms logout non-interactively. Logging in to a logged-out account is an interactive reauthentication flow that requires a TTY and creates or replaces its local Telegram session; scripts and non-interactive agents receive the stable `interaction_required` error.
+Log out explicitly to end the remote session without deleting the account, its settings, or locally stored messages. The `--yes` option confirms logout without a prompt.
+
+Logging in again requires an interactive terminal (TTY) and creates or replaces the local Telegram session. Scripts and non-interactive agents receive an `interaction_required` error.
 
 ```sh
 tg account logout work --yes
@@ -262,7 +288,7 @@ tg group chat slowmode @team 30s
 tg group topic --help
 ```
 
-Ownership transfer prompts securely for the Telegram 2FA password in an interactive TTY after confirmation. The password is never a CLI argument, stdin input, or environment automation source, and users and agents must never automate the prompt.
+After confirmation, ownership transfer securely prompts for the Telegram two-factor authentication (2FA) password. The password is never a CLI argument, stdin input, or environment automation source. The secure prompt accepts it only from an interactive terminal, not piped input. Don't automate this prompt.
 
 `group members` accepts exactly these seven `--type` filters: `recent`, `all`, `admins`, `banned`, `restricted`, `bots`, and `contacts`. It defaults to `recent` and 100 results; `--limit` accepts 1 through 200. Telegram can return fewer members than its reported total, so a page is not guaranteed to enumerate the whole group.
 
@@ -298,7 +324,16 @@ Group-command availability and permission checks are unchanged: unavailable acti
 
 ## Online and local commands
 
-Online commands connect to Telegram and require a valid session. `read`, `search-online`, and `inbox` return transient results; `inbox` does not mark messages read. `history`, `sync`, `sync-all`, and `refresh` persist fetched messages locally. Other online commands include `status`, `whoami`, `chats`, `contact`, `notification`, `folder`, `archive`, `info`, all `group` inspection and management commands, `send`, `edit`, `delete`, and `listen`. Global online search and large archives can trigger Telegram flood waits or other rate limits.
+Online commands connect to Telegram and require a valid session:
+
+- `read`, `search-online`, and `inbox` return results without storing them locally.
+- `history`, `sync`, `sync-all`, and `refresh` persist fetched messages in SQLite.
+- `contact`, `notification`, `folder`, `info`, and `group` inspect or manage Telegram data.
+- `archive` reads Telegram history and writes Markdown files locally.
+- `send`, `edit`, and `delete` modify Telegram messages.
+- `listen` keeps a connection open for incoming messages and interactive actions.
+
+Global online searches and large archives can trigger Telegram flood waits or other rate limits.
 
 Local commands read or modify the selected account's message database without connecting to Telegram. These include `search`, `recent`, `stats`, `top`, `timeline`, `today`, `filter`, `export`, and `purge`.
 
@@ -336,15 +371,21 @@ Common commands:
 | `tg whoami` | Show basic authenticated account information. |
 | `tg config set --api-id <id> --api-hash <hash>` | Save Telegram API credentials for persistent use. |
 | `tg config set --proxy <url>` | Save an optional proxy for account login and Telegram-backed commands. |
-| `tg config list [--show-secrets]` | Show effective configuration values and sources. Safe proxy endpoint details remain visible, but proxy usernames, passwords, and credential query parameters are always masked, even with `--show-secrets`; `--show-secrets` reveals only the full API hash. |
+| `tg config list [--show-secrets]` | Show effective configuration values and sources. Proxy credentials remain masked. |
 | `tg config write-access [status\|on\|off]` | Inspect or gate remote Telegram mutations. |
 | `tg chats` | List available chats. |
 | `tg inbox` | List unread dialogs online without marking messages read. |
 | `tg read <chat> [--since <time>] [--until <time>]` | Read recent Telegram messages without persisting them locally. |
 | `tg search-online <query> [--chat <chat>]` | Search Telegram globally or within one chat without persisting results. |
 | `tg contact list` / `tg contact info <user_or_phone>` | List contacts or resolve one by ID, username, or phone. |
-| `tg notification info/mute/unmute <chat>` | Inspect or change Telegram notification settings. |
-| `tg folder list/info/chat --help` | Discover folders and inspect or change their explicit chats. |
+| `tg dialog inbox` / `tg dialog read <chat>` | Use the dialog-family routes for `inbox` and `read`. |
+| `tg dialog search <query>` / `tg dialog groups` | Search online messages or list group dialogs through the dialog family. |
+| `tg notification info <chat>` | Show notification settings for a chat. |
+| `tg notification mute <chat> [duration]` | Mute notifications temporarily or indefinitely. |
+| `tg notification unmute <chat>` | Restore notifications for a chat. |
+| `tg folder list` / `tg folder info <folder>` | List folders or inspect one folder. |
+| `tg folder chat add <folder> <chat>` | Add an explicit chat to a folder. |
+| `tg folder chat remove <folder> <chat>` | Remove an explicit chat from a folder. |
 | `tg history <chat> -n <limit>` | Fetch and store full chat history (default up to 1000 messages). |
 | `tg sync <chat>` | Incrementally sync new messages for one chat. |
 | `tg sync-all` | Sync messages from all chats, using local last-message IDs for incremental updates. |
@@ -371,7 +412,11 @@ Common commands:
 
 All sync-like commands write to local SQLite storage. The `sync-all` and `refresh` commands process multiple chats based on locally stored message IDs.
 
-Finite commands support explicit `--json`, `--yaml`, and `--markdown` output. Without an explicit format, output to a non-TTY remains YAML; interactive terminals use rich human-readable output. Successful finite output is written to stdout. JSON/YAML structured failures are written to stdout in the requested format so automation can parse stable error envelopes. Output-format conflicts also use stdout and a stable YAML envelope. Human-readable and Markdown failures are written to stderr. A nonzero exit status still determines failure. `listen` is an unbounded stream and is excluded from these finite rendering and stream-location rules.
+Finite commands support explicit `--json`, `--yaml`, and `--markdown` output. Without an explicit format, non-interactive output remains YAML. Interactive terminals use rich human-readable output.
+
+Successful finite output is written to stdout. JSON/YAML structured failures are written to stdout in the requested format. Output-format conflicts also use stdout and a stable YAML envelope. Human-readable and Markdown failures are written to stderr. Every failure sets a nonzero exit status.
+
+The `listen` command is an unbounded stream, so these finite-output rules don't apply to it.
 
 Common options:
 
@@ -391,13 +436,15 @@ Structured output exposes stable top-level command errors under `error.code`, wi
 - **Accounts:** `account_logged_out`, `account_identity_mismatch`, `interaction_required`
 - **Contacts:** `contact_not_found`
 - **Notifications and folders:** `invalid_notification_duration`, `folder_not_found`, `ambiguous_folder`, `folder_operation_unsupported`
-- **Group ownership:** `password_required`, `password_invalid`
+- **Group ownership:** `password_required`, `password_invalid`, `password_too_fresh`, `session_too_fresh`
 - **Archive:** `archive_account_mismatch`, `archive_failed`, `archive_partial_failure`. When an attachment fails but the archive retains partial results, the top-level code is `archive_partial_failure`, the command exits nonzero, and each media warning uses `archive_media_failed` under `error.details.warnings[].code`.
 - **Write safety and rate limits:** `write_access_disabled`, `flood_wait`
 
 ### Remote write safety
 
-Use `tg config write-access off` to block Telegram mutations made by commands such as send, edit, delete, notification changes, folder changes, and group management. The gate affects only remote Telegram writes: local database operations, configuration changes (including turning write access back on), and Telegram read operations remain available.
+Run `tg config write-access status` to inspect the current setting. Use `tg config write-access off` to block remote mutations made by send, edit, delete, notification, folder, and group commands. Local database operations, configuration changes, and Telegram reads remain available.
+
+Run `tg config write-access on` to restore remote mutations after testing or maintenance.
 
 ### Sync and listen behavior
 

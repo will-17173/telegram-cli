@@ -13,7 +13,8 @@ Use this reference for the repository's current `tg` behavior. Confirm flags aga
 - [Messaging and listening](#messaging-and-listening)
 - [Group operations](#group-operations)
 - [Structured output](#structured-output)
-- [Data, privacy, and recovery](#data-privacy-and-recovery)
+- [Error codes and recovery](#error-codes-and-recovery)
+- [Data and privacy](#data-and-privacy)
 
 ## Invocation and installation
 
@@ -114,6 +115,15 @@ tg group list --admin --limit 100 --account work --json
 ```
 
 `inbox` lists unread dialogs without marking messages read. `read` is a transient server read, not a persistence command. Use `history` or `sync` when messages must enter SQLite. `search-online` searches Telegram globally unless `--chat` scopes it; local `search` never contacts Telegram. Time bounds accept positive relative durations (`2h`, meaning two hours before execution) or ISO timestamps with a zone (`2026-07-14T08:00:00+08:00` or `Z`); `--since` must be earlier than `--until`.
+
+The `dialog` family provides alternate paths with the same behavior and flags. Prefer the shorter top-level commands in automation, but recognize both forms:
+
+```sh
+tg dialog inbox --account work --json
+tg dialog read @ops --since 2h --account work --json
+tg dialog search 'incident' --chat @ops --account work --json
+tg dialog groups --admin --account work --json
+```
 
 Notification inspection is read-only; mute/unmute mutate Telegram:
 
@@ -288,7 +298,28 @@ Failures use non-zero exit status and:
 
 Without a format flag, TTY output is human-oriented and non-TTY output defaults to YAML. `OUTPUT=json|yaml|rich` can set a default, but an explicit flag wins. Never combine any of `--json`, `--yaml`, and `--markdown`; do not parse human tables. `listen` is streaming and has no format flags. For `refresh`, do not assume `ok: true` means every chat succeeded; inspect `data.failures`.
 
-## Data, privacy, and recovery
+## Error codes and recovery
+
+Handle v0.4.0 errors by code instead of matching message text:
+
+- Accounts: `account_logged_out`, `account_identity_mismatch`, and `interaction_required` require selecting, verifying, or interactively reauthenticating the named account.
+- Contacts: `contact_not_found` means Telegram could not resolve the supplied ID, username, or phone number.
+- Notifications and folders: validate mute durations after `invalid_notification_duration`; use a numeric folder ID for `folder_not_found` or `ambiguous_folder`; do not retry unsupported changes after `folder_operation_unsupported`.
+- Archives: use a separate output root after `archive_account_mismatch`; report `archive_failed`; inspect completed chats, failures, and warnings after `archive_partial_failure`. Individual attachment warnings use `archive_media_failed`.
+- Ownership transfer: prompt interactively again after `password_required` or `password_invalid`. For `password_too_fresh` or `session_too_fresh`, report the wait details and do not retry early.
+- Safety and rate limits: request authorization before changing `write_access_disabled`; respect the reported delay after `flood_wait`.
+
+Common recovery paths:
+
+- `account_required`: run `tg account add` or select an existing account.
+- `account_not_found`: inspect `tg account list --json` and correct `--account`.
+- Logged-out registered account: local SQLite queries remain available; run `account login <name>` in an interactive TTY for Telegram access.
+- `interaction_required` from account login or ownership transfer: rerun interactively; never pipe authentication or ownership secrets.
+- `telegram_account_session_expired` / `AUTH_KEY_UNREGISTERED`: remove the named account with `--force`, then authenticate again.
+- `FLOOD_WAIT`: stop retrying aggressively, respect the wait, keep delays, and configure personal API credentials.
+- Empty local search: synchronize the correct chat and account first.
+
+## Data and privacy
 
 `DATA_DIR` changes the storage root. The default root is OS-specific. Important files are:
 
@@ -300,13 +331,3 @@ accounts/<name>/messages.db
 ```
 
 Sessions and SQLite messages are sensitive and must not enter version control, logs, tickets, or shared artifacts. Avoid exposing secrets through shell history, process arguments, backups, exports, or `config list --show-secrets`.
-
-Common recovery paths:
-
-- `account_required`: run `tg account add` or select an existing account.
-- `account_not_found`: inspect `tg account list --json` and correct `--account`.
-- Logged-out registered account: local SQLite queries remain available; run `account login <name>` in an interactive TTY for Telegram access.
-- `interaction_required` from account login or ownership transfer: rerun interactively; never pipe authentication or ownership secrets.
-- `telegram_account_session_expired` / `AUTH_KEY_UNREGISTERED`: remove the named account with `--force`, then authenticate again.
-- `FLOOD_WAIT`: stop retrying aggressively, respect the wait, keep delays, and configure personal API credentials.
-- Empty local search: synchronize the correct chat and account first.
