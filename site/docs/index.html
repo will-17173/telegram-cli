@@ -1,0 +1,1365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Detailed Telegram CLI v0.4.0 documentation: installation, execution scopes, all commands, group management, automation, safety, and troubleshooting.">
+  <meta name="theme-color" content="#eef6fb">
+  <meta name="color-scheme" content="light">
+  <title>Documentation — Telegram CLI</title>
+  <link rel="canonical" href="https://will-17173.github.io/telegram-cli/docs/">
+  <link rel="alternate" hreflang="en" href="https://will-17173.github.io/telegram-cli/docs/">
+  <link rel="alternate" hreflang="zh-CN" href="https://will-17173.github.io/telegram-cli/zh-CN/docs/">
+  <link rel="alternate" hreflang="x-default" href="https://will-17173.github.io/telegram-cli/docs/">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/styles.css">
+  <link rel="stylesheet" href="../assets/docs.css">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Documentation — Telegram CLI">
+  <meta property="og:description" content="Choose the right tg command, understand where it runs, and automate Telegram CLI safely.">
+  <meta property="og:url" content="https://will-17173.github.io/telegram-cli/docs/">
+  <meta property="og:site_name" content="Telegram CLI">
+  <meta name="twitter:card" content="summary">
+</head>
+<body class="docs-page">
+  <a class="skip-link" href="#main-content">Skip to documentation</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="../" aria-label="Telegram CLI home">
+        <span class="brand-mark" aria-hidden="true">tg›</span>
+        <span class="brand-name">Telegram CLI</span>
+      </a>
+
+      <nav class="primary-nav docs-top-nav" aria-label="Documentation navigation">
+        <a class="landing-section-link" href="#quick-start">Quick start</a>
+        <a class="landing-section-link" href="#command-reference">Commands</a>
+        <a class="landing-section-link" href="#safety">Safety</a>
+        <a class="language-link" href="../zh-CN/docs/" lang="zh-CN" hreflang="zh-CN">中文</a>
+        <a class="github-link" href="https://github.com/will-17173/telegram-cli">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main-content" class="docs-main">
+    <section class="docs-hero docs-intro" aria-labelledby="docs-title">
+      <div class="container docs-hero-grid docs-intro-inner">
+        <div class="docs-hero-copy">
+          <nav class="breadcrumbs docs-breadcrumb" aria-label="Breadcrumb">
+            <a href="../">Home</a>
+            <span aria-hidden="true">/</span>
+            <span aria-current="page">Documentation</span>
+          </nav>
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Complete guide · v0.4.0</p>
+          <h1 id="docs-title">Know where every<br><span>command runs.</span></h1>
+          <p class="docs-lede">Telegram CLI moves between the Telegram network, a private SQLite database, local files, and deliberate remote writes. This guide makes that boundary visible while documenting the complete <code translate="no">tg</code> surface.</p>
+          <div class="docs-hero-actions">
+            <a class="button button-primary" href="#quick-start">Install and connect</a>
+            <a class="button button-secondary" href="#command-reference">Browse all commands</a>
+          </div>
+        </div>
+
+        <div class="docs-hero-terminal docs-version-card" aria-label="Quick installation example">
+          <div class="terminal-bar">
+            <span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>first session</span>
+            <span class="terminal-mode">Node.js 22+</span>
+          </div>
+          <pre class="command-block terminal-command-block" translate="no" dir="ltr"><code><span class="prompt" aria-hidden="true">$</span> npm install -g @will-17173/telegram-cli
+<span class="prompt" aria-hidden="true">$</span> tg account add
+<span class="prompt" aria-hidden="true">$</span> tg chats --json
+<span class="prompt" aria-hidden="true">$</span> tg sync @team
+<span class="prompt" aria-hidden="true">$</span> tg search "release" --chat @team</code></pre>
+          <div class="docs-scope-strip" aria-label="Command execution scopes">
+            <span class="scope-badge" data-scope="live"><span aria-hidden="true">●</span> Live</span>
+            <span class="scope-badge" data-scope="persist"><span aria-hidden="true">●</span> Persist</span>
+            <span class="scope-badge" data-scope="local"><span aria-hidden="true">●</span> Local</span>
+            <span class="scope-badge" data-scope="filesystem"><span aria-hidden="true">●</span> Files</span>
+            <span class="scope-badge" data-scope="write"><span aria-hidden="true">●</span> Write</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="container">
+      <details class="mobile-docs-nav">
+        <summary>On this page <span aria-hidden="true">⌄</span></summary>
+        <nav aria-label="Mobile documentation sections">
+          <ol>
+            <li><a href="#quick-start">Quick start</a></li>
+            <li><a href="#execution-model">Execution model</a></li>
+            <li><a href="#workflows">Everyday workflows</a></li>
+            <li><a href="#accounts-config">Accounts &amp; configuration</a></li>
+            <li><a href="#command-reference">Command reference</a></li>
+            <li><a href="#group-management">Group management</a></li>
+            <li><a href="#automation">Automation</a></li>
+            <li><a href="#safety">Safety</a></li>
+            <li><a href="#troubleshooting">Troubleshooting</a></li>
+          </ol>
+        </nav>
+      </details>
+    </div>
+
+    <div class="container docs-layout">
+      <aside class="docs-signal-rail" aria-label="Documentation sections">
+        <div class="signal-rail-label docs-rail-label"><span translate="no">tg›</span> Docs</div>
+        <nav class="signal-rail-nav docs-rail-nav">
+          <ol>
+            <li><a href="#quick-start"><span aria-hidden="true">01</span> Quick start</a></li>
+            <li><a href="#execution-model"><span aria-hidden="true">02</span> Execution model</a></li>
+            <li><a href="#workflows"><span aria-hidden="true">03</span> Workflows</a></li>
+            <li><a href="#accounts-config"><span aria-hidden="true">04</span> Accounts &amp; config</a></li>
+            <li><a href="#command-reference"><span aria-hidden="true">05</span> Commands</a></li>
+            <li><a href="#group-management"><span aria-hidden="true">06</span> Group management</a></li>
+            <li><a href="#automation"><span aria-hidden="true">07</span> Automation</a></li>
+            <li><a href="#safety"><span aria-hidden="true">08</span> Safety</a></li>
+            <li><a href="#troubleshooting"><span aria-hidden="true">09</span> Troubleshooting</a></li>
+          </ol>
+        </nav>
+        <p class="signal-rail-version">Reference for <strong>v0.4.0</strong></p>
+      </aside>
+
+      <article class="docs-article">
+        <section id="quick-start" class="doc-section docs-section" aria-labelledby="quick-start-title">
+          <header class="doc-section-heading">
+            <p class="section-index docs-kicker">01 · Start</p>
+            <h2 id="quick-start-title">From install to local search.</h2>
+            <p>Authenticate once in an interactive terminal, discover a stable chat identifier, then choose whether to read online or build a local message history.</p>
+          </header>
+
+          <div class="prerequisite-card">
+            <div>
+              <span class="mini-label">Requires</span>
+              <strong>Node.js 22 or later</strong>
+            </div>
+            <div>
+              <span class="mini-label">Package</span>
+              <strong translate="no">@will-17173/telegram-cli</strong>
+            </div>
+            <div>
+              <span class="mini-label">Binary</span>
+              <strong translate="no">tg</strong>
+            </div>
+          </div>
+
+          <ol class="quick-steps quick-path">
+            <li>
+              <div class="step-number" aria-hidden="true">1</div>
+              <div>
+                <h3>Install the CLI</h3>
+                <p>Install it globally from npm so <code translate="no">tg</code> is available in any directory.</p>
+                <pre class="command-block" translate="no" dir="ltr"><code>npm install -g @will-17173/telegram-cli
+tg --version</code></pre>
+              </div>
+            </li>
+            <li>
+              <div class="step-number" aria-hidden="true">2</div>
+              <div>
+                <h3>Add an account</h3>
+                <p>The login flow may ask for a phone number, Telegram code, and 2FA password. Run it directly in a TTY; never pipe credentials.</p>
+                <pre class="command-block" translate="no" dir="ltr"><code>tg account add
+tg status
+tg whoami</code></pre>
+              </div>
+            </li>
+            <li>
+              <div class="step-number" aria-hidden="true">3</div>
+              <div>
+                <h3>Discover a chat</h3>
+                <p>Names and usernames work interactively. For scripts, prefer the numeric ID returned by structured output. Chat types are <code>user</code>, <code>group</code>, <code>supergroup</code>, <code>channel</code>, and <code>unknown</code>.</p>
+                <pre class="command-block" translate="no" dir="ltr"><code>tg chats --json
+tg chats --type supergroup
+tg info @team --json</code></pre>
+              </div>
+            </li>
+            <li>
+              <div class="step-number" aria-hidden="true">4</div>
+              <div>
+                <h3>Sync, then search locally</h3>
+                <p><code>sync</code> stores new messages in the selected account’s SQLite database. A chat not yet present locally is capped at 500 messages on its first <code>sync</code>, even when a larger limit is requested.</p>
+                <pre class="command-block" translate="no" dir="ltr"><code>tg sync @team
+tg search "release" --chat @team
+tg search "release" --account work --json</code></pre>
+              </div>
+            </li>
+          </ol>
+
+          <aside class="callout callout-info">
+            <h3>API credentials are optional, but recommended</h3>
+            <p>If neither saved credentials nor <code>TG_API_ID</code>/<code>TG_API_HASH</code> are present, the CLI uses restricted built-in credentials and prints a flood-limit warning when it creates a Telegram client. Configure both personal values together to reduce request pressure.</p>
+            <pre class="command-block compact" translate="no" dir="ltr"><code>tg config set --api-id &lt;id&gt; --api-hash '&lt;hash&gt;'</code></pre>
+          </aside>
+
+          <nav class="section-pager docs-pagination" aria-label="Quick start section navigation">
+            <span></span>
+            <a href="#execution-model">Next: execution model <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="execution-model" class="doc-section docs-section" aria-labelledby="execution-model-title">
+          <header class="doc-section-heading">
+            <p class="section-index docs-kicker">02 · Boundaries</p>
+            <h2 id="execution-model-title">Five scopes, one command surface.</h2>
+            <p>A command’s scope tells you whether it needs Telegram, changes local state, or mutates remote state. Check the scope before choosing a command for a script.</p>
+          </header>
+
+          <div class="scope-model">
+            <article class="scope-model-card scope-card" data-scope="live">
+              <span class="scope-badge" data-scope="live"><span aria-hidden="true">●</span> Live</span>
+              <h3>Read from Telegram</h3>
+              <p>Connects with the selected session and returns current server state. Message results are not inserted into SQLite.</p>
+              <code translate="no">inbox · read · search-online</code>
+            </article>
+            <article class="scope-model-card scope-card" data-scope="persist">
+              <span class="scope-badge" data-scope="persist"><span aria-hidden="true">●</span> Persist</span>
+              <h3>Telegram → SQLite</h3>
+              <p>Fetches Telegram history and stores it in the selected account’s local message database for later queries.</p>
+              <code translate="no">history · sync · sync-all · refresh</code>
+            </article>
+            <article class="scope-model-card scope-card" data-scope="local">
+              <span class="scope-badge" data-scope="local"><span aria-hidden="true">●</span> Local</span>
+              <h3>Read local SQLite</h3>
+              <p>Works without Telegram. Freshness is exactly the last data you synchronized for that account.</p>
+              <code translate="no">search · recent · stats · export</code>
+            </article>
+            <article class="scope-model-card scope-card" data-scope="write">
+              <span class="scope-badge" data-scope="write"><span aria-hidden="true">●</span> Write</span>
+              <h3>Change Telegram</h3>
+              <p>Mutates messages, notifications, folders, or group state. The local write-access gate must be enabled.</p>
+              <code translate="no">send · edit · delete · group actions</code>
+            </article>
+            <article class="scope-model-card scope-card" data-scope="filesystem">
+              <span class="scope-badge" data-scope="filesystem"><span aria-hidden="true">●</span> Files</span>
+              <h3>Write a Markdown archive</h3>
+              <p>Reads Telegram history into incremental Markdown and optional media files. It does not populate SQLite.</p>
+              <code translate="no">archive</code>
+            </article>
+          </div>
+
+          <div class="table-scroll table-wrap" role="region" aria-label="Execution scope comparison" tabindex="0">
+            <table class="scope-table">
+              <thead>
+                <tr>
+                  <th scope="col">Task</th>
+                  <th scope="col">Network</th>
+                  <th scope="col">Destination</th>
+                  <th scope="col">Key behavior</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Online read</th>
+                  <td>Telegram</td>
+                  <td>Output only</td>
+                  <td><code>read</code> and <code>search-online</code> do not populate SQLite.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Synchronization</th>
+                  <td>Telegram</td>
+                  <td>SQLite</td>
+                  <td><code>history</code> is count-bounded; sync commands are incremental.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Local analysis</th>
+                  <td>None</td>
+                  <td>Output or export file</td>
+                  <td>Account databases stay isolated; synchronize first when freshness matters.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Archive</th>
+                  <td>Telegram</td>
+                  <td>Markdown + media files</td>
+                  <td>Does not populate SQLite; later runs resume from archive state.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Remote write</th>
+                  <td>Telegram</td>
+                  <td>Telegram</td>
+                  <td>Blocked before mutation when write access is off.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <aside class="callout callout-warning">
+            <h3>Similar names do not imply similar storage</h3>
+            <p><code>read</code> displays a time-bounded live range without saving it. <code>history</code> saves a count-bounded backfill. Persistence commands accept limit and delay controls, not <code>--since</code>/<code>--until</code>. Fetch enough history, then apply time filters locally.</p>
+          </aside>
+
+          <nav class="section-pager docs-pagination" aria-label="Execution model section navigation">
+            <a href="#quick-start"><span aria-hidden="true">←</span> Quick start</a>
+            <a href="#workflows">Next: workflows <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="workflows" class="doc-section docs-section" aria-labelledby="workflows-title">
+          <header class="doc-section-heading">
+            <p class="section-index docs-kicker">03 · Recipes</p>
+            <h2 id="workflows-title">Everyday workflows.</h2>
+            <p>These recipes keep the account explicit and use structured output where a machine will consume the result.</p>
+          </header>
+
+          <div class="workflow-docs-grid">
+            <article class="workflow-doc-card">
+              <div class="workflow-doc-topline">
+                <span class="scope-badge" data-scope="live">Live</span>
+                <span>01</span>
+              </div>
+              <h3>Triage without storing</h3>
+              <p>List unread dialogs without marking them read, inspect one chat, or search Telegram globally.</p>
+              <pre class="command-block compact" translate="no" dir="ltr"><code>tg inbox --limit 50 --account work --json
+tg read @ops --since 2h --account work --json
+tg search-online "incident" --until 2026-07-14T10:00:00+08:00 --json</code></pre>
+              <p class="fine-print">Relative time bounds use <code>s</code>, <code>m</code>, <code>h</code>, <code>d</code>, or <code>w</code>. Absolute timestamps require an ISO 8601 zone.</p>
+            </article>
+
+            <article class="workflow-doc-card">
+              <div class="workflow-doc-topline">
+                <span class="scope-badge" data-scope="persist">Persist</span>
+                <span>02</span>
+              </div>
+              <h3>Build a searchable memory</h3>
+              <p>Backfill a bounded number of messages, increment one chat, or refresh many chats before local analysis.</p>
+              <pre class="command-block compact" translate="no" dir="ltr"><code>tg history @ops --limit 1000 --delay 1 --account work
+tg sync @ops --limit 5000 --account work
+tg refresh --max-chats 20 --delay 1 --account work --json
+tg search "incident" --chat @ops --hours 168 --json</code></pre>
+              <p class="fine-print"><code>refresh</code> can be top-level successful while individual chats fail; inspect <code>data.failures</code>. <code>sync-all</code> omits failure details, so prefer <code>refresh</code> when partial failures matter.</p>
+            </article>
+
+            <article class="workflow-doc-card">
+              <div class="workflow-doc-topline">
+                <span class="scope-badge" data-scope="local">Local</span>
+                <span>03</span>
+              </div>
+              <h3>Analyze without reconnecting</h3>
+              <p>Query the selected account’s SQLite database by keyword, sender, time, regular expression, or aggregate.</p>
+              <pre class="command-block compact" translate="no" dir="ltr"><code>tg search "error|failed" --regex --account work --json
+tg recent --sender alice --hours 6 --limit 100
+tg top --chat @ops --hours 168
+tg timeline --chat @ops --by hour --json</code></pre>
+              <p class="fine-print">An empty result may simply mean the correct chat or account has not been synchronized yet.</p>
+            </article>
+
+            <article class="workflow-doc-card">
+              <div class="workflow-doc-topline">
+                <span class="scope-badge" data-scope="write">Write</span>
+                <span>04</span>
+              </div>
+              <h3>Send, then synchronize</h3>
+              <p>Check the safety gate, send text or a media group, then sync if the sent message must be available to local queries.</p>
+              <pre class="command-block compact" translate="no" dir="ltr"><code>tg config write-access status --json
+tg send @team "Release is ready" --account work --json
+tg send @team "Build artifacts" --file ./app.zip --file ./checks.txt
+tg sync @team --account work</code></pre>
+              <p class="fine-print"><code>send</code> has no confirmation prompt and does not insert its result into SQLite. Repeat <code>--file</code> to preserve media-group order.</p>
+            </article>
+
+            <article class="workflow-doc-card">
+              <div class="workflow-doc-topline">
+                <span class="scope-badge" data-scope="live">Live stream</span>
+                <span>05</span>
+              </div>
+              <h3>Listen continuously</h3>
+              <p>Listen globally or to selected chats. Interactive TTY mode uses Ink; plain mode emits streaming text.</p>
+              <pre class="command-block compact" translate="no" dir="ltr"><code>tg listen @team --persist --retry-seconds 5
+tg listen @team @ops --send-to @team
+tg listen --no-interactive --auto-download --no-media</code></pre>
+              <p class="fine-print"><code>--persist</code> means reconnect automatically; it is not a database option. <code>listen</code> exposes no JSON, YAML, or Markdown format flags. Auto-download saves attachments under <code>~/Downloads/telegram-cli</code>, even with <code>--no-media</code>.</p>
+            </article>
+
+            <article class="workflow-doc-card">
+              <div class="workflow-doc-topline">
+                <span class="scope-badge scope-files" data-scope="filesystem">Files</span>
+                <span>06</span>
+              </div>
+              <h3>Archive to Markdown</h3>
+              <p>Select explicit chats or <code>--all</code>, never both. The first unbounded run defaults to the preceding seven days.</p>
+              <pre class="command-block compact" translate="no" dir="ltr"><code>tg archive @team --download-media --account work
+tg archive @team --since 30d --until 2026-07-14T00:00:00Z
+tg archive --all --full --output ./telegram-archive --json</code></pre>
+              <p class="fine-print">Later runs are incremental. <code>--rebuild</code> replaces chat files; <code>--download-media</code> retries referenced files that are still missing. Archive files do not populate SQLite.</p>
+            </article>
+          </div>
+
+          <nav class="section-pager docs-pagination" aria-label="Workflows section navigation">
+            <a href="#execution-model"><span aria-hidden="true">←</span> Execution model</a>
+            <a href="#accounts-config">Next: accounts &amp; config <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="accounts-config" class="doc-section docs-section" aria-labelledby="accounts-config-title">
+          <header class="doc-section-heading">
+            <p class="section-index docs-kicker">04 · Identity</p>
+            <h2 id="accounts-config-title">Accounts and configuration.</h2>
+            <p>Each registered account owns an isolated Telegram session and SQLite database. API credentials and proxy configuration are shared across registered accounts.</p>
+          </header>
+
+          <div class="definition-grid docs-grid">
+            <article>
+              <span class="mini-label">Add</span>
+              <h3>Authenticate a new account</h3>
+              <p>The first account becomes current. Adding later accounts does not switch the default.</p>
+              <code translate="no">tg account add</code>
+            </article>
+            <article>
+              <span class="mini-label">Select</span>
+              <h3>Keep scripts explicit</h3>
+              <p>Use <code>--account</code> for one invocation without changing the current account.</p>
+              <code translate="no">tg chats --account work --json</code>
+            </article>
+            <article>
+              <span class="mini-label">Log out</span>
+              <h3>Retain local history</h3>
+              <p>Logout invalidates the Telegram session but keeps registration and SQLite messages.</p>
+              <code translate="no">tg account logout work --yes</code>
+            </article>
+            <article>
+              <span class="mini-label">Remove</span>
+              <h3>Delete local account data</h3>
+              <p>Removal deletes the account’s local session and data; <code>--force</code> skips confirmation.</p>
+              <code translate="no">tg account remove work --force</code>
+            </article>
+          </div>
+
+          <h3>Account lifecycle</h3>
+          <pre class="command-block" translate="no" dir="ltr"><code>tg account list --json
+tg account current
+tg account switch work
+tg account logout work --yes
+tg account login work
+tg account remove work --force</code></pre>
+          <p><code>account login</code> reauthenticates an existing logged-out registration and replaces its session safely while retaining its database. Login and ownership transfer require interactive input; adding <code>--json</code> does not make authentication non-interactive. If a failed replacement reports <code>recovery_path</code> or <code>recovery_paths</code>, preserve those files during recovery.</p>
+
+          <h3>Credential and proxy precedence</h3>
+          <div class="table-scroll table-wrap" role="region" aria-label="Configuration precedence" tabindex="0">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Setting</th>
+                  <th scope="col">One-command override</th>
+                  <th scope="col">Persisted setting</th>
+                  <th scope="col">Fallback</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">API credentials</th>
+                  <td><code>TG_API_ID</code> + <code>TG_API_HASH</code></td>
+                  <td><code>tg config set --api-id … --api-hash …</code></td>
+                  <td>Restricted built-in credentials</td>
+                </tr>
+                <tr>
+                  <th scope="row">Telegram proxy</th>
+                  <td><code>TG_PROXY</code></td>
+                  <td><code>tg config set --proxy &lt;url&gt;</code></td>
+                  <td>Direct connection</td>
+                </tr>
+                <tr>
+                  <th scope="row">Storage root</th>
+                  <td><code>DATA_DIR=/path/to/data</code></td>
+                  <td>OS-specific default</td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>Set <code>TG_API_ID</code> and <code>TG_API_HASH</code> together; supplying only one is an error. Supported proxy schemes are SOCKS4, SOCKS5, HTTP, HTTPS, and MTProxy. The proxy applies to account login and every Telegram-backed command.</p>
+          <pre class="command-block" translate="no" dir="ltr"><code>tg config set --proxy socks5://127.0.0.1:1080
+TG_PROXY=http://127.0.0.1:8080 tg status
+tg config list --json
+tg config list --show-secrets</code></pre>
+
+          <aside class="callout callout-safety">
+            <h3>Secret display stays conservative</h3>
+            <p><code>config list</code> reports effective values and sources. The API hash is masked by default; <code>--show-secrets</code> reveals only that full hash. Proxy usernames, passwords, and credential query parameters remain masked in every format. Treat proxy URLs and the displayed API hash as sensitive.</p>
+          </aside>
+
+          <h3>Local layout</h3>
+          <p><code>DATA_DIR</code> changes the root for configuration, the account registry, sessions, databases, and default archives. Important paths are:</p>
+          <pre class="command-block" translate="no" dir="ltr"><code>config.json
+accounts.json
+accounts/&lt;name&gt;/session
+accounts/&lt;name&gt;/messages.db
+accounts/&lt;name&gt;/archive/</code></pre>
+
+          <nav class="section-pager docs-pagination" aria-label="Accounts and configuration section navigation">
+            <a href="#workflows"><span aria-hidden="true">←</span> Workflows</a>
+            <a href="#command-reference">Next: commands <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="command-reference" class="doc-section docs-section doc-section-wide" aria-labelledby="command-reference-title">
+          <header class="doc-section-heading">
+            <p class="section-index docs-kicker">05 · Reference</p>
+            <h2 id="command-reference-title">All 32 top-level commands.</h2>
+            <p>Examples show the representative route, not every option. Run <code translate="no">tg &lt;command&gt; --help</code> for the installed version’s exact arguments and flags.</p>
+          </header>
+
+          <div class="reference-legend" aria-label="Scope legend">
+            <span class="scope-badge" data-scope="live">Live read</span>
+            <span class="scope-badge" data-scope="persist">Persist</span>
+            <span class="scope-badge" data-scope="local">Local</span>
+            <span class="scope-badge" data-scope="write">Remote write</span>
+            <span class="scope-badge scope-files" data-scope="filesystem">Files</span>
+          </div>
+
+          <div class="table-scroll table-wrap command-table-scroll command-table-wrap" role="region" aria-label="Complete top-level command reference" tabindex="0">
+            <table class="command-reference-table">
+              <thead>
+                <tr>
+                  <th scope="col">Command</th>
+                  <th scope="col">Scope</th>
+                  <th scope="col">Purpose and representative syntax</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-command="search">
+                  <th scope="row"><code>search</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Search stored messages by keyword, chat, sender, time, or regex.<code class="command-syntax">tg search "release" --chat @team --hours 168 --json</code></td>
+                </tr>
+                <tr data-command="recent">
+                  <th scope="row"><code>recent</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Show recently stored messages; defaults to 24 hours and 50 results.<code class="command-syntax">tg recent --sender alice --hours 6 --limit 100</code></td>
+                </tr>
+                <tr data-command="stats">
+                  <th scope="row"><code>stats</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Summarize local message and chat statistics.<code class="command-syntax">tg stats --account work --json</code></td>
+                </tr>
+                <tr data-command="top">
+                  <th scope="row"><code>top</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Rank the most active stored-message senders.<code class="command-syntax">tg top --chat @team --hours 168 --limit 20</code></td>
+                </tr>
+                <tr data-command="timeline">
+                  <th scope="row"><code>timeline</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Aggregate local message activity by day or hour.<code class="command-syntax">tg timeline --chat @team --by hour --json</code></td>
+                </tr>
+                <tr data-command="today">
+                  <th scope="row"><code>today</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Show messages stored today, optionally for one chat.<code class="command-syntax">tg today --chat @team</code></td>
+                </tr>
+                <tr data-command="filter">
+                  <th scope="row"><code>filter</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Filter stored messages using space-separated keywords.<code class="command-syntax">tg filter "release urgent" --hours 24 --json</code></td>
+                </tr>
+                <tr data-command="archive">
+                  <th scope="row"><code>archive</code></th>
+                  <td><span class="scope-badge scope-files" data-scope="filesystem">Files</span></td>
+                  <td>Build incremental Markdown archives from Telegram history; SQLite is unchanged.<code class="command-syntax">tg archive @team --download-media --json</code></td>
+                </tr>
+                <tr data-command="export">
+                  <th scope="row"><code>export</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Export one chat’s stored messages to text, JSON, or YAML.<code class="command-syntax">tg export @team --format json --output ./messages.json</code></td>
+                </tr>
+                <tr data-command="purge">
+                  <th scope="row"><code>purge</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Delete one chat’s locally stored messages only; requires confirmation.<code class="command-syntax">tg purge @team --yes --json</code></td>
+                </tr>
+                <tr data-command="status">
+                  <th scope="row"><code>status</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live</span></td>
+                  <td>Check whether the selected Telegram account is authenticated.<code class="command-syntax">tg status --account work --json</code></td>
+                </tr>
+                <tr data-command="whoami">
+                  <th scope="row"><code>whoami</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live</span></td>
+                  <td>Show identity information for the authenticated account.<code class="command-syntax">tg whoami --account work --json</code></td>
+                </tr>
+                <tr data-command="chats">
+                  <th scope="row"><code>chats</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live</span></td>
+                  <td>List Telegram dialogs and filter by user, group, supergroup, or channel.<code class="command-syntax">tg chats --type channel --json</code></td>
+                </tr>
+                <tr data-command="history">
+                  <th scope="row"><code>history</code></th>
+                  <td><span class="scope-badge" data-scope="persist">Persist</span></td>
+                  <td>Fetch and store a count-bounded historical backfill; default limit 1000.<code class="command-syntax">tg history @team --limit 1000 --delay 1</code></td>
+                </tr>
+                <tr data-command="sync">
+                  <th scope="row"><code>sync</code></th>
+                  <td><span class="scope-badge" data-scope="persist">Persist</span></td>
+                  <td>Incrementally store new messages for one chat; default limit 5000.<code class="command-syntax">tg sync @team --delay 1 --json</code></td>
+                </tr>
+                <tr data-command="sync-all">
+                  <th scope="row"><code>sync-all</code></th>
+                  <td><span class="scope-badge" data-scope="persist">Persist</span></td>
+                  <td>Incrementally synchronize multiple dialogs; projected output omits failure details.<code class="command-syntax">tg sync-all --max-chats 20 --limit 5000</code></td>
+                </tr>
+                <tr data-command="refresh">
+                  <th scope="row"><code>refresh</code></th>
+                  <td><span class="scope-badge" data-scope="persist">Persist</span></td>
+                  <td>Bulk-sync dialogs and retain per-chat failures in <code>data.failures</code>.<code class="command-syntax">tg refresh --max-chats 20 --json</code></td>
+                </tr>
+                <tr data-command="info">
+                  <th scope="row"><code>info</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live</span></td>
+                  <td>Show metadata for a Telegram chat.<code class="command-syntax">tg info @team --account work --json</code></td>
+                </tr>
+                <tr data-command="send">
+                  <th scope="row"><code>send</code></th>
+                  <td><span class="scope-badge" data-scope="write">Write</span></td>
+                  <td>Send text, files, a captioned media group, or a reply; no confirmation prompt.<code class="command-syntax">tg send @team "Hello" --file ./photo.jpg --json</code></td>
+                </tr>
+                <tr data-command="edit">
+                  <th scope="row"><code>edit</code></th>
+                  <td><span class="scope-badge" data-scope="write">Write</span></td>
+                  <td>Edit a Telegram message’s text.<code class="command-syntax">tg edit @team 814 "Updated text" --json</code></td>
+                </tr>
+                <tr data-command="delete">
+                  <th scope="row"><code>delete</code></th>
+                  <td><span class="scope-badge" data-scope="write">Write</span></td>
+                  <td>Delete one or more Telegram messages.<code class="command-syntax">tg delete @team 814 815 --json</code></td>
+                </tr>
+                <tr data-command="listen">
+                  <th scope="row"><code>listen</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live stream</span></td>
+                  <td>Stream incoming messages interactively or as plain text; no finite-output flags.<code class="command-syntax">tg listen @team --persist --auto-download</code></td>
+                </tr>
+                <tr data-command="contact">
+                  <th scope="row"><code>contact</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live</span></td>
+                  <td>List Telegram contacts or resolve one by ID, username, or phone.<code class="command-syntax">tg contact info @alice --json</code></td>
+                </tr>
+                <tr data-command="inbox">
+                  <th scope="row"><code>inbox</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live</span></td>
+                  <td>List unread dialogs without marking their messages read.<code class="command-syntax">tg inbox --limit 50 --markdown</code></td>
+                </tr>
+                <tr data-command="read">
+                  <th scope="row"><code>read</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live</span></td>
+                  <td>Read a bounded online message range without persisting it.<code class="command-syntax">tg read @team --since 7d --until 2d --json</code></td>
+                </tr>
+                <tr data-command="search-online">
+                  <th scope="row"><code>search-online</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live</span></td>
+                  <td>Search Telegram globally or in one chat without storing results.<code class="command-syntax">tg search-online "incident" --chat @team --json</code></td>
+                </tr>
+                <tr data-command="dialog">
+                  <th scope="row"><code>dialog</code></th>
+                  <td><span class="scope-badge" data-scope="live">Live</span></td>
+                  <td>Alternate family for inbox, read, online search, and managed groups.<code class="command-syntax">tg dialog search "incident" --chat @team --json</code></td>
+                </tr>
+                <tr data-command="group">
+                  <th scope="row"><code>group</code></th>
+                  <td><span class="scope-badge" data-scope="live">Inspect</span> <span class="scope-badge" data-scope="write">Manage</span></td>
+                  <td>Inspect groups, members, and audit events, or run the 48 management actions below.<code class="command-syntax">tg group members @team --type admins --json</code></td>
+                </tr>
+                <tr data-command="folder">
+                  <th scope="row"><code>folder</code></th>
+                  <td><span class="scope-badge" data-scope="live">Inspect</span> <span class="scope-badge" data-scope="write">Manage</span></td>
+                  <td>List and inspect folders, or add/remove explicit chat membership.<code class="command-syntax">tg folder chat add 3 @team --json</code></td>
+                </tr>
+                <tr data-command="notification">
+                  <th scope="row"><code>notification</code></th>
+                  <td><span class="scope-badge" data-scope="live">Inspect</span> <span class="scope-badge" data-scope="write">Manage</span></td>
+                  <td>Inspect, mute, or unmute a chat’s notification settings.<code class="command-syntax">tg notification mute @team 8h --json</code></td>
+                </tr>
+                <tr data-command="account">
+                  <th scope="row"><code>account</code></th>
+                  <td><span class="scope-badge" data-scope="local">Registry</span> <span class="scope-badge" data-scope="live">Session</span></td>
+                  <td>Add, list, select, log out, reauthenticate, or remove isolated accounts.<code class="command-syntax">tg account list --json</code></td>
+                </tr>
+                <tr data-command="config">
+                  <th scope="row"><code>config</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span></td>
+                  <td>Save credentials/proxy settings, inspect effective config, and control write access.<code class="command-syntax">tg config write-access status --json</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <aside class="callout callout-info">
+            <h3>Global conventions</h3>
+            <p>Use <code>--account &lt;name&gt;</code> to select a registered account for one invocation and exactly one of <code>--json</code>, <code>--yaml</code>, or <code>--markdown</code> on finite commands. The CLI accepts <code>-v</code>/<code>--verbose</code>, but v0.4.0 does not yet connect it to debug logging, so automation must not rely on it. Nested help remains the source of truth for subcommand options.</p>
+          </aside>
+
+          <nav class="section-pager docs-pagination" aria-label="Command reference section navigation">
+            <a href="#accounts-config"><span aria-hidden="true">←</span> Accounts &amp; config</a>
+            <a href="#group-management">Next: group management <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="group-management" class="doc-section docs-section doc-section-wide" aria-labelledby="group-management-title">
+          <header class="doc-section-heading">
+            <p class="section-index docs-kicker">06 · Groups</p>
+            <h2 id="group-management-title">Inspect first. Manage deliberately.</h2>
+            <p>The group surface combines read-only inspection with generated actions for members, administrators, chat settings, invitations, forum topics, and messages.</p>
+          </header>
+
+          <div class="inspection-strip">
+            <article>
+              <span class="scope-badge" data-scope="live">Read-only</span>
+              <h3>Group and member state</h3>
+              <pre class="command-block compact" translate="no" dir="ltr"><code>tg group info @team --json
+tg group list --admin --limit 100
+tg group members @team --type admins --query alice --limit 50
+tg group member info @team @alice --json</code></pre>
+            </article>
+            <article>
+              <span class="scope-badge" data-scope="live">Admin read</span>
+              <h3>Audit events</h3>
+              <pre class="command-block compact" translate="no" dir="ltr"><code>tg group audit @team \
+  --user @alice \
+  --type member_invited \
+  --type invite_changed \
+  --limit 100 --json</code></pre>
+            </article>
+          </div>
+
+          <aside class="callout callout-warning">
+            <h3>Use the canonical member route</h3>
+            <p>Prefer <code>tg group member info &lt;chat&gt; &lt;user&gt;</code>. The legacy <code>tg group member &lt;chat&gt; &lt;user&gt;</code> remains available, but a chat named like a reserved action—such as <code>ban</code>, <code>mute</code>, or <code>info</code>—is ambiguous.</p>
+          </aside>
+
+          <p><code>group members</code> defaults to type <code>recent</code> and 100 results, with a maximum of 200. Its seven types are <code>recent</code>, <code>all</code>, <code>admins</code>, <code>banned</code>, <code>restricted</code>, <code>bots</code>, and <code>contacts</code>. Telegram may return fewer rows than its reported total.</p>
+          <p><code>group audit</code> requires administrator rights, defaults to 100 events, and accepts up to 500. Repeat <code>--user</code> for action authors and <code>--type</code> for event groups including chat/settings changes, member actions, admin changes, message changes, invites, topics, and <code>other</code>.</p>
+
+          <div class="group-command-intro">
+            <div>
+              <span class="scope-badge" data-scope="write">Remote actions</span>
+              <h3>Generated action grammar</h3>
+            </div>
+            <pre class="command-block compact" translate="no" dir="ltr"><code>tg group &lt;family&gt; &lt;action&gt; &lt;chat&gt; [arguments] [options]</code></pre>
+          </div>
+
+          <p>Every action below is part of the v0.4.0 catalog. “Confirm” actions reject execution without <code>--yes</code>. “Direct” writes have no built-in prompt, but still require authorization and enabled write access. The four actions labeled “Read” do not mutate Telegram.</p>
+
+          <div class="group-family-grid">
+            <article class="group-family-card group-family">
+              <header>
+                <span class="family-count">7 actions</span>
+                <h3><code>member</code></h3>
+                <p>Targets must be explicit <code>@username</code> values or numeric user IDs.</p>
+              </header>
+              <ul class="group-action-list group-actions">
+                <li data-group-command="member add">
+                  <div><code>member add &lt;chat&gt; &lt;users...&gt;</code><span>Add one or more members.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="member kick">
+                  <div><code>member kick &lt;chat&gt; &lt;user&gt;</code><span>Remove a member.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="member ban">
+                  <div><code>member ban &lt;chat&gt; &lt;user&gt;</code><span>Ban a member.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="member unban">
+                  <div><code>member unban &lt;chat&gt; &lt;user&gt;</code><span>Lift a member ban.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="member mute">
+                  <div><code>member mute &lt;chat&gt; &lt;user&gt; [duration]</code><span>Restrict sending temporarily or indefinitely.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="member unmute">
+                  <div><code>member unmute &lt;chat&gt; &lt;user&gt;</code><span>Restore member permissions.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="member purge">
+                  <div><code>member purge &lt;chat&gt; &lt;user&gt;</code><span>Delete all messages from a member.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+              </ul>
+            </article>
+
+            <article class="group-family-card group-family">
+              <header>
+                <span class="family-count">4 actions</span>
+                <h3><code>admin</code></h3>
+                <p>Requires administrator rights; ownership transfer requires the creator role.</p>
+              </header>
+              <ul class="group-action-list group-actions">
+                <li data-group-command="admin promote">
+                  <div><code>admin promote &lt;chat&gt; &lt;user&gt; [permissions]</code><span>Promote a member.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="admin demote">
+                  <div><code>admin demote &lt;chat&gt; &lt;user&gt;</code><span>Remove administrator privileges.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="admin rank">
+                  <div><code>admin rank &lt;chat&gt; &lt;user&gt; &lt;text...&gt;</code><span>Set a custom administrator title.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="admin transfer-owner">
+                  <div><code>admin transfer-owner &lt;chat&gt; &lt;user&gt;</code><span>Transfer ownership after a secure 2FA prompt.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+              </ul>
+            </article>
+
+            <article class="group-family-card group-family group-family-card-wide">
+              <header>
+                <span class="family-count">13 actions</span>
+                <h3><code>chat</code></h3>
+                <p>Capabilities vary: some settings require a supergroup, creator, or administrator role.</p>
+              </header>
+              <ul class="group-action-list group-actions">
+                <li data-group-command="chat title">
+                  <div><code>chat title &lt;chat&gt; &lt;text...&gt;</code><span>Change the chat title.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="chat description">
+                  <div><code>chat description &lt;chat&gt; &lt;text...&gt;</code><span>Change the description.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="chat username">
+                  <div><code>chat username &lt;chat&gt; &lt;username&gt;</code><span>Change the public username.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="chat photo">
+                  <div><code>chat photo &lt;chat&gt; &lt;path&gt;</code><span>Set a photo from a local file.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="chat slowmode">
+                  <div><code>chat slowmode &lt;chat&gt; &lt;duration&gt;</code><span>Set slow mode; use <code>off</code> to disable.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="chat ttl">
+                  <div><code>chat ttl &lt;chat&gt; &lt;duration&gt;</code><span>Set message auto-delete.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="chat protect">
+                  <div><code>chat protect &lt;chat&gt; &lt;enabled&gt;</code><span>Toggle content protection.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="chat join-requests">
+                  <div><code>chat join-requests &lt;chat&gt; &lt;enabled&gt;</code><span>Toggle approval for new members.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="chat join-to-send">
+                  <div><code>chat join-to-send &lt;chat&gt; &lt;enabled&gt;</code><span>Require membership before posting.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="chat default-permissions">
+                  <div><code>chat default-permissions &lt;chat&gt; &lt;permissions&gt;</code><span>Set default member rights.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="chat sticker-set">
+                  <div><code>chat sticker-set &lt;chat&gt; &lt;sticker|off&gt;</code><span>Set or remove the sticker set.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="chat leave">
+                  <div><code>chat leave &lt;chat&gt;</code><span>Leave the selected chat.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="chat delete">
+                  <div><code>chat delete &lt;chat&gt;</code><span>Permanently delete the chat.</span></div>
+                  <span class="risk-label risk-title">Title + yes</span>
+                </li>
+              </ul>
+            </article>
+
+            <article class="group-family-card group-family group-family-card-wide">
+              <header>
+                <span class="family-count">10 actions</span>
+                <h3><code>invite</code></h3>
+                <p>Inspection is read-only; creation, changes, revocation, and join-request decisions are writes.</p>
+              </header>
+              <ul class="group-action-list group-actions">
+                <li data-group-command="invite list">
+                  <div><code>invite list &lt;chat&gt;</code><span>List invite links.</span></div>
+                  <span class="risk-label risk-read">Read</span>
+                </li>
+                <li data-group-command="invite show">
+                  <div><code>invite show &lt;chat&gt; &lt;invite&gt;</code><span>Show invite details.</span></div>
+                  <span class="risk-label risk-read">Read</span>
+                </li>
+                <li data-group-command="invite create">
+                  <div><code>invite create &lt;chat&gt; [options]</code><span>Create a link with optional title, expiry, limit, or approval.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="invite edit">
+                  <div><code>invite edit &lt;chat&gt; &lt;invite&gt; [options]</code><span>Edit an existing link.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="invite revoke">
+                  <div><code>invite revoke &lt;chat&gt; &lt;invite&gt;</code><span>Revoke a link.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="invite members">
+                  <div><code>invite members &lt;chat&gt; &lt;invite&gt;</code><span>List members who used a link.</span></div>
+                  <span class="risk-label risk-read">Read</span>
+                </li>
+                <li data-group-command="invite approve">
+                  <div><code>invite approve &lt;chat&gt; &lt;user&gt;</code><span>Approve one join request.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="invite decline">
+                  <div><code>invite decline &lt;chat&gt; &lt;user&gt;</code><span>Decline one join request.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="invite approve-all">
+                  <div><code>invite approve-all &lt;chat&gt;</code><span>Approve every pending request.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="invite decline-all">
+                  <div><code>invite decline-all &lt;chat&gt;</code><span>Decline every pending request.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+              </ul>
+              <p class="family-note">For create/edit, options include <code>--title</code>, <code>--expire</code>, <code>--limit</code>, and <code>--request-needed</code>.</p>
+            </article>
+
+            <article class="group-family-card group-family group-family-card-wide">
+              <header>
+                <span class="family-count">10 actions</span>
+                <h3><code>topic</code></h3>
+                <p>Forum-only capabilities. Topic deletion also removes that topic’s messages.</p>
+              </header>
+              <ul class="group-action-list group-actions">
+                <li data-group-command="topic list">
+                  <div><code>topic list &lt;chat&gt;</code><span>List forum topics.</span></div>
+                  <span class="risk-label risk-read">Read</span>
+                </li>
+                <li data-group-command="topic create">
+                  <div><code>topic create &lt;chat&gt; &lt;title...&gt;</code><span>Create a topic.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="topic edit">
+                  <div><code>topic edit &lt;chat&gt; &lt;id&gt; &lt;title...&gt;</code><span>Edit a topic title.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="topic close">
+                  <div><code>topic close &lt;chat&gt; &lt;id&gt;</code><span>Close a topic.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="topic reopen">
+                  <div><code>topic reopen &lt;chat&gt; &lt;id&gt;</code><span>Reopen a topic.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="topic pin">
+                  <div><code>topic pin &lt;chat&gt; &lt;id&gt;</code><span>Pin a topic.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="topic unpin">
+                  <div><code>topic unpin &lt;chat&gt; &lt;id&gt;</code><span>Unpin a topic.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="topic reorder">
+                  <div><code>topic reorder &lt;chat&gt; &lt;ids...&gt;</code><span>Order pinned topics.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="topic delete">
+                  <div><code>topic delete &lt;chat&gt; &lt;id&gt;</code><span>Delete a topic and its messages.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="topic general-hidden">
+                  <div><code>topic general-hidden &lt;chat&gt; &lt;hidden&gt;</code><span>Toggle the general topic’s visibility.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+              </ul>
+            </article>
+
+            <article class="group-family-card group-family">
+              <header>
+                <span class="family-count">4 actions</span>
+                <h3><code>message</code></h3>
+                <p>Administrative message pinning and deletion inside the selected chat.</p>
+              </header>
+              <ul class="group-action-list group-actions">
+                <li data-group-command="message pin">
+                  <div><code>message pin &lt;chat&gt; &lt;id&gt;</code><span>Pin a message.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="message unpin">
+                  <div><code>message unpin &lt;chat&gt; &lt;id&gt;</code><span>Unpin one message.</span></div>
+                  <span class="risk-label risk-direct">Direct</span>
+                </li>
+                <li data-group-command="message unpin-all">
+                  <div><code>message unpin-all &lt;chat&gt;</code><span>Unpin every message.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+                <li data-group-command="message delete">
+                  <div><code>message delete &lt;chat&gt; &lt;ids...&gt;</code><span>Delete messages from the chat.</span></div>
+                  <span class="risk-label risk-confirm">Confirm</span>
+                </li>
+              </ul>
+            </article>
+          </div>
+
+          <aside class="callout callout-danger">
+            <h3>Ownership transfer stays human</h3>
+            <p>After <code>--yes</code>, <code>admin transfer-owner</code> securely prompts the current creator for the Telegram 2FA password. The password is never a command argument, environment value, or piped stdin input. A non-TTY run fails with an interaction error; do not automate this prompt.</p>
+          </aside>
+
+          <p>Interactive <code>listen</code> exposes the same catalog as slash commands without repeating the selected chat—for example, <code>/member mute @alice 2h</code>. With more than one listened chat, set <code>--send-to &lt;chat&gt;</code> before group actions. Permission and availability checks remain active, and risky actions open a confirmation modal.</p>
+
+          <nav class="section-pager docs-pagination" aria-label="Group management section navigation">
+            <a href="#command-reference"><span aria-hidden="true">←</span> Command reference</a>
+            <a href="#automation">Next: automation <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="automation" class="doc-section docs-section" aria-labelledby="automation-title">
+          <header class="doc-section-heading">
+            <p class="section-index docs-kicker">07 · Machines</p>
+            <h2 id="automation-title">Structured output and exit behavior.</h2>
+            <p>Use JSON or YAML envelopes for automation. Human tables and Markdown are designed to be read, not parsed.</p>
+          </header>
+
+          <div class="output-choice-grid">
+            <article>
+              <h3>Explicit flag</h3>
+              <p>Choose exactly one format on a finite command.</p>
+              <code translate="no">--json · --yaml · --markdown</code>
+            </article>
+            <article>
+              <h3>Environment default</h3>
+              <p>An explicit flag wins over the environment.</p>
+              <code translate="no">OUTPUT=json|yaml|markdown|rich</code>
+            </article>
+            <article>
+              <h3>Automatic default</h3>
+              <p>TTY output is rich; non-interactive output defaults to YAML.</p>
+              <code translate="no">OUTPUT=markdown tg inbox</code>
+            </article>
+          </div>
+
+          <h3>Stable success envelope</h3>
+          <pre class="command-block code-json" translate="no" dir="ltr"><code>{
+  "ok": true,
+  "schema_version": "1",
+  "data": {}
+}</code></pre>
+
+          <h3>Stable failure envelope</h3>
+          <pre class="command-block code-json" translate="no" dir="ltr"><code>{
+  "ok": false,
+  "schema_version": "1",
+  "error": {
+    "code": "chat_not_found",
+    "message": "..."
+  }
+}</code></pre>
+
+          <div class="automation-rules">
+            <article>
+              <span class="rule-number">01</span>
+              <h3>Trust exit status</h3>
+              <p>Every failure sets a nonzero process status. Successful finite output goes to stdout.</p>
+            </article>
+            <article>
+              <span class="rule-number">02</span>
+              <h3>Read by code</h3>
+              <p>Branch on <code>error.code</code>, not the human message. Inspect operation-specific <code>error.details</code>.</p>
+            </article>
+            <article>
+              <span class="rule-number">03</span>
+              <h3>Know the stream</h3>
+              <p><code>listen</code> is unbounded and has no JSON, YAML, or Markdown flags; use <code>--no-interactive</code> for plain streaming text.</p>
+            </article>
+          </div>
+
+          <p>JSON/YAML structured failures are written to stdout in the requested format. Human-readable and Markdown failures go to stderr. Output-format conflicts also fail nonzero and use a stable YAML envelope on stdout. Do not combine output flags.</p>
+
+          <aside class="callout callout-warning">
+            <h3>Partial archive failure is still failure</h3>
+            <p>A chat or attachment failure produces <code>archive_partial_failure</code>, exits with status 1, preserves successful work, and exposes accounting under <code>error.details.completed</code>, <code>failed</code>, and <code>warnings</code>. Attachment warnings use <code>archive_media_failed</code>. Markdown omits the full structured details, so use JSON or YAML.</p>
+            <pre class="command-block code-json compact" translate="no" dir="ltr"><code>{
+  "ok": false,
+  "schema_version": "1",
+  "error": {
+    "code": "archive_partial_failure",
+    "details": {
+      "completed": ["@team"],
+      "failed": ["@ops"],
+      "warnings": []
+    }
+  }
+}</code></pre>
+          </aside>
+
+          <aside class="callout callout-info">
+            <h3>Batch sync has two contracts</h3>
+            <p><code>refresh</code> may report <code>ok: true</code> while some chats failed, so always inspect <code>data.failures</code>. <code>sync-all</code> intentionally returns only <code>new_messages</code>, <code>chats</code>, and <code>results</code>; use <code>refresh</code> when failure accounting is required.</p>
+          </aside>
+
+          <nav class="section-pager docs-pagination" aria-label="Automation section navigation">
+            <a href="#group-management"><span aria-hidden="true">←</span> Group management</a>
+            <a href="#safety">Next: safety <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="safety" class="doc-section docs-section" aria-labelledby="safety-doc-title">
+          <header class="doc-section-heading">
+            <p class="section-index docs-kicker">08 · Guardrails</p>
+            <h2 id="safety-doc-title">Keep remote writes intentional.</h2>
+            <p>The write-access switch is a local preflight gate for Telegram mutations. It does not replace explicit authorization, Telegram permissions, or command-specific confirmation.</p>
+          </header>
+
+          <div class="safety-gate-card">
+            <div>
+              <span class="scope-badge" data-scope="write">Remote boundary</span>
+              <h3>Inspect, enable, or disable</h3>
+              <p>When disabled, gated commands fail with <code>write_access_disabled</code> before connecting for the mutation.</p>
+            </div>
+            <pre class="command-block" translate="no" dir="ltr"><code>tg config write-access status --json
+tg config write-access off
+tg config write-access on</code></pre>
+          </div>
+
+          <aside class="callout callout-danger">
+            <h3>Enabling the gate is not authorization</h3>
+            <p>Changing the local gate requires user authorization, and a separate explicit authorization is still required immediately before the specific Telegram write.</p>
+          </aside>
+
+          <div class="table-scroll table-wrap" role="region" aria-label="Safety behavior by operation" tabindex="0">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Operation</th>
+                  <th scope="col">Write gate</th>
+                  <th scope="col">Built-in confirmation</th>
+                  <th scope="col">Important caveat</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row"><code>send</code>, <code>edit</code>, <code>delete</code></th>
+                  <td>Required</td>
+                  <td>None</td>
+                  <td>Sending does not update SQLite.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Notification mute/unmute</th>
+                  <td>Required</td>
+                  <td>None</td>
+                  <td>Omitted mute duration means forever.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Folder chat add/remove</th>
+                  <td>Required</td>
+                  <td>None</td>
+                  <td>Prefer numeric folder IDs; titles can be ambiguous.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Group direct actions</th>
+                  <td>Required</td>
+                  <td>None</td>
+                  <td>“No prompt” does not mean low impact.</td>
+                </tr>
+                <tr>
+                  <th scope="row">Group risky actions</th>
+                  <td>Required</td>
+                  <td><code>--yes</code></td>
+                  <td>Chat deletion also needs exact <code>--confirm-title</code>.</td>
+                </tr>
+                <tr>
+                  <th scope="row"><code>purge</code></th>
+                  <td>Not applicable</td>
+                  <td><code>--yes</code></td>
+                  <td>Deletes local SQLite rows, not Telegram messages.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>What the gate does not block</h3>
+          <p>Online reads, synchronization, history, archives, local queries, exports, local purge, account lifecycle, and configuration changes remain available. The gate is scoped only to remote mutations by message, notification, folder, and non-read-only group actions.</p>
+
+          <div class="safety-checklist">
+            <article>
+              <h3>Protect credentials</h3>
+              <p>Never commit <code>.env</code>, API values, authenticated sessions, proxy secrets, SQLite databases, or archive exports.</p>
+            </article>
+            <article>
+              <h3>Respect rate limits</h3>
+              <p>Large global searches, histories, and media archives can trigger <code>FLOOD_WAIT</code>. Respect the reported delay and keep request spacing.</p>
+            </article>
+            <article>
+              <h3>Verify the target</h3>
+              <p>Use numeric chat, folder, message, and user identifiers in automation to avoid ambiguous names.</p>
+            </article>
+            <article>
+              <h3>Keep secrets interactive</h3>
+              <p>Login codes, account 2FA, and ownership-transfer passwords belong only in secure TTY prompts—not arguments, environment values, or logs.</p>
+            </article>
+          </div>
+
+          <nav class="section-pager docs-pagination" aria-label="Safety section navigation">
+            <a href="#automation"><span aria-hidden="true">←</span> Automation</a>
+            <a href="#troubleshooting">Next: troubleshooting <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="troubleshooting" class="doc-section docs-section" aria-labelledby="troubleshooting-title">
+          <header class="doc-section-heading">
+            <p class="section-index docs-kicker">09 · Recovery</p>
+            <h2 id="troubleshooting-title">Troubleshoot by error code.</h2>
+            <p>Structured errors are stable enough for branching. Human messages add context, but code—not message text—should select the recovery path.</p>
+          </header>
+
+          <div class="troubleshooting-list">
+            <details open>
+              <summary><code>account_required</code> or <code>account_not_found</code></summary>
+              <div>
+                <p>Add the first account, or inspect registered names and correct <code>--account</code>. The first account becomes current automatically.</p>
+                <pre class="command-block compact" translate="no" dir="ltr"><code>tg account add
+tg account list --json
+tg account switch &lt;name&gt;</code></pre>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>account_logged_out</code> or <code>interaction_required</code></summary>
+              <div>
+                <p>Local SQLite commands still work for a logged-out registration. Run login directly in an interactive terminal; never pipe the phone number, code, or 2FA password.</p>
+                <pre class="command-block compact" translate="no" dir="ltr"><code>tg account login &lt;name&gt;</code></pre>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>telegram_account_session_expired</code> or <code>AUTH_KEY_UNREGISTERED</code></summary>
+              <div>
+                <p>The local session is no longer valid. Remove that registration and authenticate again. Removal deletes its local session/data, so preserve anything needed first.</p>
+                <pre class="command-block compact" translate="no" dir="ltr"><code>tg account remove &lt;name&gt; --force
+tg account add</code></pre>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>account_identity_mismatch</code></summary>
+              <div>
+                <p>The authenticated identity does not match the registered account. Stop, verify the intended account, and rerun interactive login for the correct name. Preserve any reported recovery paths.</p>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>chat_not_found</code> or <code>ambiguous_chat</code></summary>
+              <div>
+                <p>For a local query, synchronize the chat into the same account database first. If a name matches more than one stored dialog, use the numeric chat ID from <code>tg chats --json</code>.</p>
+                <pre class="command-block compact" translate="no" dir="ltr"><code>tg chats --account work --json
+tg sync &lt;numeric-chat-id&gt; --account work
+tg search "keyword" --chat &lt;numeric-chat-id&gt; --account work</code></pre>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>contact_not_found</code></summary>
+              <div>
+                <p>Telegram could not resolve the supplied numeric ID, <code>@username</code>, or phone number. Verify the value and remember that <code>chats --type user</code> lists private dialogs, while <code>contact list</code> lists contacts.</p>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>invalid_notification_duration</code></summary>
+              <div>
+                <p>Use a positive integer with <code>s</code>, <code>m</code>, <code>h</code>, <code>d</code>, or <code>w</code>, or use <code>forever</code>. An omitted duration also means forever.</p>
+                <pre class="command-block compact" translate="no" dir="ltr"><code>tg notification mute @team 8h
+tg notification mute @team forever</code></pre>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>folder_not_found</code>, <code>ambiguous_folder</code>, or <code>folder_operation_unsupported</code></summary>
+              <div>
+                <p>List folders and use the returned numeric ID. If Telegram reports the operation unsupported, do not retry the same change automatically.</p>
+                <pre class="command-block compact" translate="no" dir="ltr"><code>tg folder list --json
+tg folder info 3 --json</code></pre>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>archive_account_mismatch</code>, <code>archive_failed</code>, or <code>archive_partial_failure</code></summary>
+              <div>
+                <p>An archive root belongs to one account. Use a separate output directory after an account mismatch. For partial failures, keep completed files, inspect completed/failed/warnings in structured details, and retry only failed work or missing media.</p>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>write_access_disabled</code></summary>
+              <div>
+                <p>The local gate stopped a Telegram mutation before it connected for that write. Obtain authorization before enabling the gate, then obtain separate authorization for the specific mutation.</p>
+                <pre class="command-block compact" translate="no" dir="ltr"><code>tg config write-access status --json
+tg config write-access on</code></pre>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>password_required</code>, <code>password_invalid</code>, <code>password_too_fresh</code>, or <code>session_too_fresh</code></summary>
+              <div>
+                <p>Ownership transfer must be completed by the creator in an interactive TTY. Prompt again after missing/invalid credentials. For freshness errors, report Telegram’s wait details and do not retry early.</p>
+              </div>
+            </details>
+
+            <details>
+              <summary><code>flood_wait</code> or <code>FLOOD_WAIT</code></summary>
+              <div>
+                <p>Stop aggressive retries, respect the reported delay, retain page/chat delays, narrow the request, and configure personal API credentials if you are using the restricted defaults.</p>
+              </div>
+            </details>
+          </div>
+
+          <aside class="callout callout-info">
+            <h3>Default-credential warning is not a login failure</h3>
+            <p>The built-in credentials remain usable, but have stricter flood limits. Configure both personal values to remove the warning. A malformed saved configuration—or only one of the two environment values—is an error and does not fall back to defaults.</p>
+            <pre class="command-block compact" translate="no" dir="ltr"><code>tg config set --api-id &lt;id&gt; --api-hash '&lt;hash&gt;'</code></pre>
+          </aside>
+
+          <nav class="section-pager docs-pagination" aria-label="Troubleshooting section navigation">
+            <a href="#safety"><span aria-hidden="true">←</span> Safety</a>
+            <a href="#quick-start">Back to quick start <span aria-hidden="true">↑</span></a>
+          </nav>
+        </section>
+      </article>
+
+      <aside class="docs-status-card docs-page-outline" data-command-count="32" data-group-command-count="48" aria-label="Page status">
+        <p class="mini-label">This page</p>
+        <strong>v0.4.0</strong>
+        <dl>
+          <div>
+            <dt>Top-level</dt>
+            <dd>32 commands</dd>
+          </div>
+          <div>
+            <dt>Group catalog</dt>
+            <dd>48 actions</dd>
+          </div>
+          <div>
+            <dt>Rendering</dt>
+            <dd>No JavaScript</dd>
+          </div>
+        </dl>
+        <div class="status-scope-list">
+          <a href="#execution-model"><span class="scope-dot scope-live" aria-hidden="true"></span><span><strong>Live</strong><small>Telegram read</small></span></a>
+          <a href="#execution-model"><span class="scope-dot scope-persist" aria-hidden="true"></span><span><strong>Persist</strong><small>Telegram → SQLite</small></span></a>
+          <a href="#execution-model"><span class="scope-dot scope-local" aria-hidden="true"></span><span><strong>Local</strong><small>SQLite / config</small></span></a>
+          <a href="#execution-model"><span class="scope-dot scope-files" aria-hidden="true"></span><span><strong>Files</strong><small>Markdown / media</small></span></a>
+          <a href="#safety"><span class="scope-dot scope-write" aria-hidden="true"></span><span><strong>Write</strong><small>Remote mutation</small></span></a>
+        </div>
+        <a class="status-help-link" href="https://github.com/will-17173/telegram-cli/issues">Report a docs issue <span aria-hidden="true">↗</span></a>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="site-footer docs-footer">
+    <div class="container footer-inner">
+      <a class="brand footer-brand" href="../" aria-label="Telegram CLI home">
+        <span class="brand-mark" aria-hidden="true">tg›</span>
+        <span><strong>Telegram CLI</strong><small>Open-source terminal client</small></span>
+      </a>
+      <nav class="footer-nav" aria-label="Footer navigation">
+        <a href="../">Overview</a>
+        <a href="#quick-start">Documentation</a>
+        <a href="https://www.npmjs.com/package/@will-17173/telegram-cli">npm</a>
+        <a href="https://github.com/will-17173/telegram-cli/issues">Issues</a>
+        <a href="https://github.com/will-17173/telegram-cli/blob/main/LICENSE">License</a>
+      </nav>
+    </div>
+    <div class="container footer-legal">GPL-3.0-only · Independent open-source software. Not affiliated with Telegram.</div>
+  </footer>
+</body>
+</html>

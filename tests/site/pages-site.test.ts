@@ -1,12 +1,25 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-const SITE_FILES = [
+import { createApp } from '../../src/cli/app.js'
+import { GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
+
+const SITE_PAGES = [
   'site/index.html',
   'site/zh-CN/index.html',
+  'site/docs/index.html',
+  'site/zh-CN/docs/index.html',
+]
+
+const DOC_PAGES = SITE_PAGES.slice(2)
+
+const SITE_FILES = [
+  ...SITE_PAGES,
   'site/assets/styles.css',
+  'site/assets/docs.css',
   'site/assets/favicon.svg',
+  'site/.nojekyll',
   'site/robots.txt',
   'site/sitemap.xml',
   '.github/workflows/pages.yml',
@@ -33,6 +46,17 @@ function contrastRatio(first: string, second: string): number {
   return (values[0] + 0.05) / (values[1] + 0.05)
 }
 
+function resolvedLocalTarget(pagePath: string, reference: string): string {
+  const target = resolve(dirname(pagePath), reference.split(/[?#]/)[0])
+  if (existsSync(target) && statSync(target).isDirectory()) return join(target, 'index.html')
+  return target
+}
+
+function attributeValues(page: string, attribute: string): string[] {
+  return [...page.matchAll(new RegExp(`\\b${attribute}="([^"]+)"`, 'g'))]
+    .map(match => match[1])
+}
+
 describe('GitHub Pages site', () => {
   it('ships a complete static Pages artifact', () => {
     for (const path of SITE_FILES) {
@@ -45,9 +69,11 @@ describe('GitHub Pages site', () => {
     const chinese = readRequiredFile('site/zh-CN/index.html')
 
     expect(english).toContain('<html lang="en">')
+    expect(english).toContain('href="./docs/"')
     expect(english).toContain('href="./zh-CN/"')
     expect(english).toContain('hreflang="zh-CN"')
     expect(chinese).toContain('<html lang="zh-CN">')
+    expect(chinese).toContain('href="./docs/"')
     expect(chinese).toContain('href="../"')
     expect(chinese).toContain('hreflang="en"')
     expect(english).toContain('Structured on demand')
@@ -65,16 +91,73 @@ describe('GitHub Pages site', () => {
     }
   })
 
-  it('uses project-path-safe assets and accessible page foundations', () => {
-    const pages: Array<[string, string]> = [
-      ['site/index.html', readRequiredFile('site/index.html')],
-      ['site/zh-CN/index.html', readRequiredFile('site/zh-CN/index.html')],
+  it('publishes equivalent detailed documentation for both locales', () => {
+    const english = readRequiredFile('site/docs/index.html')
+    const chinese = readRequiredFile('site/zh-CN/docs/index.html')
+
+    expect(english).toContain('<html lang="en">')
+    expect(english).toContain('<link rel="canonical" href="https://will-17173.github.io/telegram-cli/docs/">')
+    expect(english).toContain('href="../zh-CN/docs/"')
+    expect(english).toContain('hreflang="zh-CN"')
+    expect(chinese).toContain('<html lang="zh-CN">')
+    expect(chinese).toContain('<link rel="canonical" href="https://will-17173.github.io/telegram-cli/zh-CN/docs/">')
+    expect(chinese).toContain('href="../../docs/"')
+    expect(chinese).toContain('hreflang="en"')
+
+    const sectionIds = [
+      'quick-start',
+      'execution-model',
+      'workflows',
+      'accounts-config',
+      'command-reference',
+      'group-management',
+      'automation',
+      'safety',
+      'troubleshooting',
     ]
+
+    for (const page of [english, chinese]) {
+      for (const id of sectionIds) expect(page).toContain(`id="${id}"`)
+      expect(page).toContain('data-scope="live"')
+      expect(page).toContain('data-scope="persist"')
+      expect(page).toContain('data-scope="local"')
+      expect(page).toContain('data-scope="write"')
+      expect(page).toContain('"schema_version"')
+      expect(page).toContain('archive_partial_failure')
+      expect(page).toContain('write_access_disabled')
+      expect(page).toContain('tg config write-access off')
+      expect(page).toContain('OUTPUT=markdown')
+
+      const archiveRow = page.match(/<tr data-command="archive">[\s\S]*?<\/tr>/)
+      expect(archiveRow, 'archive should have a command-reference row').not.toBeNull()
+      expect(archiveRow![0]).toContain('data-scope="filesystem"')
+    }
+
+    expect(chinese.match(/<dl class="definition-grid">/g)).toHaveLength(2)
+    expect(chinese).not.toMatch(/<div class="definition-grid">\s*<div>\s*<dt>/s)
+  })
+
+  it('keeps both documentation locales aligned with the real command catalogs', () => {
+    const commandNames = createApp().commands.map(command => command.name()).sort()
+    const groupCommands = GROUP_COMMANDS.map(definition => definition.path.join(' ')).sort()
+
+    for (const path of DOC_PAGES) {
+      const page = readRequiredFile(path)
+
+      expect(attributeValues(page, 'data-command').sort(), `${path} top-level command markers`).toEqual(commandNames)
+      expect(attributeValues(page, 'data-group-command').sort(), `${path} group command markers`).toEqual(groupCommands)
+      expect(page).toContain(`data-command-count="${commandNames.length}"`)
+      expect(page).toContain(`data-group-command-count="${groupCommands.length}"`)
+    }
+  })
+
+  it('uses project-path-safe assets and accessible page foundations', () => {
+    const pages: Array<[string, string]> = SITE_PAGES.map(path => [path, readRequiredFile(path)])
     const styles = readRequiredFile('site/assets/styles.css')
 
     for (const [path, page] of pages) {
       expect(page).toContain('class="skip-link"')
-      expect(page).toContain('<main id="main-content">')
+      expect(page).toMatch(/<main\b[^>]*\bid="main-content"[^>]*>/)
       expect(page).toContain('aria-label=')
       expect(page).not.toMatch(/(?:href|src)="\/(?!\/)/)
 
@@ -82,7 +165,7 @@ describe('GitHub Pages site', () => {
         .map(match => match[1])
         .filter(reference => !reference.startsWith('http') && !reference.startsWith('#'))
       for (const reference of localReferences) {
-        const target = resolve(dirname(path), reference.split(/[?#]/)[0])
+        const target = resolvedLocalTarget(path, reference)
         expect(existsSync(target), `${path} should resolve ${reference}`).toBe(true)
       }
     }
@@ -102,10 +185,36 @@ describe('GitHub Pages site', () => {
     expect(contrastRatio(cssVariable(styles, 'surface'), cssVariable(styles, 'blue-800'))).toBeGreaterThanOrEqual(3)
   })
 
+  it('adds a responsive, no-script documentation reading layout', () => {
+    const styles = readRequiredFile('site/assets/docs.css')
+
+    expect(styles).toContain('.docs-layout')
+    expect(styles).toContain('.docs-signal-rail')
+    expect(styles).toContain('.mobile-docs-nav')
+    expect(styles).toContain('.scope-badge')
+    expect(styles).toContain('@media (max-width: 1120px)')
+    expect(styles).toContain('@media (max-width: 760px)')
+    expect(styles).toContain('@media (forced-colors: active)')
+    expect(styles).toContain('.docs-page summary:focus-visible')
+  })
+
+  it('lists every localized route in the sitemap', () => {
+    const sitemap = readRequiredFile('site/sitemap.xml')
+
+    expect(sitemap).toContain('<loc>https://will-17173.github.io/telegram-cli/docs/</loc>')
+    expect(sitemap).toContain('<loc>https://will-17173.github.io/telegram-cli/zh-CN/docs/</loc>')
+    expect(sitemap.match(/hreflang="en"/g)).toHaveLength(4)
+    expect(sitemap.match(/hreflang="zh-CN"/g)).toHaveLength(4)
+  })
+
   it('deploys only the static site with the official Pages actions', () => {
     const workflow = readRequiredFile('.github/workflows/pages.yml')
 
     expect(workflow).toContain('branches: [main]')
+    expect(workflow).toContain("- 'tests/site/pages-site.test.ts'")
+    expect(workflow).toContain("- 'src/cli/app.ts'")
+    expect(workflow).toContain("- 'src/commands/**'")
+    expect(workflow).toContain("- 'src/group-commands/**'")
     expect(workflow).toContain('uses: actions/checkout@v7')
     expect(workflow).toContain('uses: pnpm/action-setup@v6')
     expect(workflow).toContain('uses: actions/setup-node@v7')

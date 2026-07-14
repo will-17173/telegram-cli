@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'tests/site/pages-site.test.ts'
+      - 'src/cli/app.ts'
+      - 'src/commands/**'
+      - 'src/group-commands/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 

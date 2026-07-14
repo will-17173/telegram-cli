@@ -11,4 +11,14 @@
     <xhtml:link rel="alternate" hreflang="en" href="https://will-17173.github.io/telegram-cli/" />
     <xhtml:link rel="alternate" hreflang="zh-CN" href="https://will-17173.github.io/telegram-cli/zh-CN/" />
   </url>
+  <url>
+    <loc>https://will-17173.github.io/telegram-cli/docs/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://will-17173.github.io/telegram-cli/docs/" />
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://will-17173.github.io/telegram-cli/zh-CN/docs/" />
+  </url>
+  <url>
+    <loc>https://will-17173.github.io/telegram-cli/zh-CN/docs/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://will-17173.github.io/telegram-cli/docs/" />
+    <xhtml:link rel="alternate" hreflang="zh-CN" href="https://will-17173.github.io/telegram-cli/zh-CN/docs/" />
+  </url>
 </urlset>

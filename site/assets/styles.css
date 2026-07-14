@@ -1555,7 +1555,7 @@ button:focus-visible,
     gap: 9px;
   }
 
-  .primary-nav > a:nth-child(-n + 3) {
+  .primary-nav > .landing-section-link {
     display: none;
   }
 

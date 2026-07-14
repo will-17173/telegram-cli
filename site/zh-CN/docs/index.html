@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Telegram CLI v0.4.0 简体中文文档：安装认证、在线读取、本地同步与搜索、群组管理、结构化自动化和安全操作。">
+  <meta name="theme-color" content="#eef6fb">
+  <meta name="color-scheme" content="light">
+  <title>Telegram CLI 文档 — 从在线消息到本地工作流</title>
+  <link rel="canonical" href="https://will-17173.github.io/telegram-cli/zh-CN/docs/">
+  <link rel="alternate" hreflang="en" href="https://will-17173.github.io/telegram-cli/docs/">
+  <link rel="alternate" hreflang="zh-CN" href="https://will-17173.github.io/telegram-cli/zh-CN/docs/">
+  <link rel="alternate" hreflang="x-default" href="https://will-17173.github.io/telegram-cli/docs/">
+  <link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../../assets/styles.css">
+  <link rel="stylesheet" href="../../assets/docs.css">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Telegram CLI 简体中文文档">
+  <meta property="og:description" content="先看清命令运行在哪里、会保存什么，再放心地读取、同步、搜索和管理 Telegram。">
+  <meta property="og:url" content="https://will-17173.github.io/telegram-cli/zh-CN/docs/">
+  <meta property="og:site_name" content="Telegram CLI">
+  <meta name="twitter:card" content="summary">
+</head>
+<body class="docs-page">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="../" aria-label="返回 Telegram CLI 中文首页">
+        <span class="brand-mark" aria-hidden="true">tg›</span>
+        <span class="brand-name">Telegram CLI</span>
+      </a>
+
+      <nav class="primary-nav docs-top-nav" aria-label="文档主导航">
+        <a href="#quick-start">快速开始</a>
+        <a href="#command-reference">命令参考</a>
+        <a href="#safety">安全</a>
+        <a class="language-link" href="../../docs/" lang="en" hreflang="en">English</a>
+        <a class="github-link" href="https://github.com/will-17173/telegram-cli">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="docs-intro docs-hero" aria-labelledby="docs-title">
+      <div class="container docs-intro-inner docs-hero-inner">
+        <div>
+          <p class="docs-breadcrumb"><a href="../">Telegram CLI</a><span aria-hidden="true">/</span><span>中文文档</span></p>
+          <h1 id="docs-title">先看清数据边界，<br><span>再敲下命令。</span></h1>
+          <p class="docs-lede docs-hero-lede">Telegram CLI 把在线读取、SQLite 持久化、本地分析和远端修改放在同一套命令界面里。这份文档帮你快速判断：命令连不连接 Telegram、结果会不会落盘、是否会改变远端状态。</p>
+          <div class="docs-scope-strip" aria-label="命令执行范围图例">
+            <span class="scope-badge" data-scope="live">在线读取</span>
+            <span class="scope-badge" data-scope="persist">写入本地</span>
+            <span class="scope-badge" data-scope="local">仅本地</span>
+            <span class="scope-badge" data-scope="filesystem">文件归档</span>
+            <span class="scope-badge" data-scope="write">远端写入</span>
+          </div>
+        </div>
+        <aside class="docs-version-card" aria-label="文档版本">
+          <span>Current release</span>
+          <strong>v0.4.0</strong>
+          <p>静态页面 · 无需 JavaScript<br>语法以 <code translate="no">tg &lt;command&gt; --help</code> 为准</p>
+        </aside>
+      </div>
+    </section>
+
+    <div class="container mobile-docs-nav-wrap">
+      <details class="mobile-docs-nav">
+        <summary>浏览本页</summary>
+        <nav aria-label="移动端文档目录">
+          <a href="#quick-start">快速开始</a>
+          <a href="#execution-model">执行模型</a>
+          <a href="#workflows">常用工作流</a>
+          <a href="#accounts-config">账号与配置</a>
+          <a href="#command-reference">命令参考</a>
+          <a href="#group-management">群组管理</a>
+          <a href="#automation">自动化</a>
+          <a href="#safety">安全边界</a>
+          <a href="#troubleshooting">故障排查</a>
+        </nav>
+      </details>
+    </div>
+
+    <div class="container docs-layout">
+      <aside class="docs-signal-rail" aria-label="文档章节">
+        <p class="docs-rail-label rail-label" aria-hidden="true">tg› DOCS</p>
+        <nav class="docs-rail-nav" aria-label="本页目录">
+          <a href="#quick-start">快速开始</a>
+          <a href="#execution-model">执行模型</a>
+          <a href="#workflows">常用工作流</a>
+          <a href="#accounts-config">账号与配置</a>
+          <a href="#command-reference">命令参考</a>
+          <a href="#group-management">群组管理</a>
+          <a href="#automation">自动化</a>
+          <a href="#safety">安全边界</a>
+          <a href="#troubleshooting">故障排查</a>
+        </nav>
+        <a class="rail-home" href="../">← 返回中文首页</a>
+      </aside>
+
+      <article class="docs-article">
+        <section id="quick-start" class="doc-section docs-section" aria-labelledby="quick-start-title">
+          <p class="section-kicker docs-kicker">01 · Start</p>
+          <h2 id="quick-start-title">快速开始</h2>
+          <p class="section-lede">先完成一次交互式认证，再选择聊天同步到本地。之后，本地搜索不需要连接 Telegram。</p>
+
+          <div class="step-grid docs-grid">
+            <article class="step-card docs-card">
+              <p class="step-number">01</p>
+              <h3>安装</h3>
+              <p>需要 Node.js 22 或更高版本。全局安装后，生产命令是 <code translate="no">tg</code>。</p>
+              <pre class="command-block" dir="ltr" translate="no"><code>npm install -g @will-17173/telegram-cli
+tg --version</code></pre>
+            </article>
+            <article class="step-card docs-card">
+              <p class="step-number">02</p>
+              <h3>认证账号</h3>
+              <p>认证可能需要手机号、登录验证码和 2FA 密码，因此必须由人在交互式终端完成。</p>
+              <pre class="command-block" dir="ltr" translate="no"><code>tg account add
+tg status
+tg whoami</code></pre>
+            </article>
+            <article class="step-card docs-card">
+              <p class="step-number">03</p>
+              <h3>找到聊天</h3>
+              <p>脚本中优先使用 JSON 返回的数字 ID。聊天类型包括 <code translate="no">user</code>、<code translate="no">group</code>、<code translate="no">supergroup</code>、<code translate="no">channel</code> 和 <code translate="no">unknown</code>。</p>
+              <pre class="command-block" dir="ltr" translate="no"><code>tg chats --account work --json
+tg chats --type channel --account work --json</code></pre>
+            </article>
+            <article class="step-card docs-card">
+              <p class="step-number">04</p>
+              <h3>同步，再搜索</h3>
+              <p><code translate="no">sync</code> 把消息写入所选账号的 SQLite；<code translate="no">search</code> 只查询这份本地数据库。</p>
+              <pre class="command-block" dir="ltr" translate="no"><code>tg sync @team --account work --json
+tg search "release" --chat @team --account work --json</code></pre>
+            </article>
+          </div>
+
+          <aside class="callout callout-note">
+            <h3>从仓库运行</h3>
+            <p>开发环境先运行 <code translate="no">pnpm install</code>，再用 <code translate="no">pnpm dev --help</code> 或 <code translate="no">pnpm dev search --help</code>。不要写成 <code translate="no">pnpm dev -- &lt;args&gt;</code>；额外的分隔符会作为参数传给 Commander。</p>
+          </aside>
+
+          <nav class="section-pagination docs-pagination" aria-label="章节导航">
+            <span></span>
+            <a href="#execution-model">下一节：执行模型 <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="execution-model" class="doc-section docs-section" aria-labelledby="execution-model-title">
+          <p class="section-kicker docs-kicker">02 · Model</p>
+          <h2 id="execution-model-title">执行模型：命令到底运行在哪里</h2>
+          <p class="section-lede">“读取”不等于“保存”，“写到本地”也不等于“修改 Telegram”。先按下面五种范围选命令。</p>
+
+          <div class="scope-model-grid docs-grid">
+            <article class="scope-model-card scope-card" data-scope="live">
+              <span class="scope-badge" data-scope="live">在线读取</span>
+              <h3>查询 Telegram，不保存消息</h3>
+              <p><code translate="no">inbox</code>、<code translate="no">read</code>、<code translate="no">search-online</code>、联系人和多数检查命令需要有效会话，但返回结果不会进入 SQLite。</p>
+              <code dir="ltr" translate="no">tg read @ops --since 2h --json</code>
+            </article>
+            <article class="scope-model-card scope-card" data-scope="persist">
+              <span class="scope-badge" data-scope="persist">写入本地</span>
+              <h3>从 Telegram 获取并持久化</h3>
+              <p><code translate="no">history</code>、<code translate="no">sync</code>、<code translate="no">sync-all</code> 和 <code translate="no">refresh</code> 会把消息写入所选账号的 SQLite。</p>
+              <code dir="ltr" translate="no">tg sync @ops --limit 5000 --delay 1</code>
+            </article>
+            <article class="scope-model-card scope-card" data-scope="local">
+              <span class="scope-badge" data-scope="local">仅本地</span>
+              <h3>只访问 SQLite</h3>
+              <p><code translate="no">search</code>、<code translate="no">recent</code>、<code translate="no">stats</code>、<code translate="no">export</code> 和 <code translate="no">purge</code> 不连接 Telegram。新鲜度取决于上次同步。</p>
+              <code dir="ltr" translate="no">tg recent --hours 24 --limit 50</code>
+            </article>
+            <article class="scope-model-card scope-card" data-scope="write">
+              <span class="scope-badge" data-scope="write">远端写入</span>
+              <h3>改变 Telegram 状态</h3>
+              <p><code translate="no">send</code>、<code translate="no">edit</code>、<code translate="no">delete</code>、通知静音、文件夹成员变更和群组管理操作都受写入总开关约束。</p>
+              <code dir="ltr" translate="no">tg config write-access status --json</code>
+            </article>
+            <article class="scope-model-card scope-card" data-scope="filesystem">
+              <span class="scope-badge" data-scope="filesystem">文件归档</span>
+              <h3>在线读取，写入 Markdown</h3>
+              <p><code translate="no">archive</code> 把 Telegram 历史增量写入 Markdown 和可选媒体文件，但不会填充 SQLite。</p>
+              <code dir="ltr" translate="no">tg archive @ops --download-media</code>
+            </article>
+          </div>
+
+          <h3>两个容易混淆的本地落点</h3>
+          <dl class="definition-grid">
+            <div>
+              <dt>SQLite 持久化</dt>
+              <dd><code translate="no">history</code> 是按条数上限回填历史，默认最多 1000 条；<code translate="no">sync</code> 是增量更新。一个聊天尚未出现在本地数据库时，<code translate="no">sync</code>、<code translate="no">sync-all</code> 和 <code translate="no">refresh</code> 的首次抓取最多 500 条，即使传入更大的 <code translate="no">--limit</code>。</dd>
+            </div>
+            <div>
+              <dt>Markdown 文件归档</dt>
+              <dd><code translate="no">archive</code> 在线读取历史并写入文件系统，但不会填充 SQLite。首次未指定范围时归档此前七天；后续根据 manifest 与 Markdown 内的消息标记增量追加。</dd>
+            </div>
+          </dl>
+
+          <aside class="callout warning callout-warning">
+            <h3>在线读过，不代表本地搜得到</h3>
+            <p><code translate="no">read</code>、<code translate="no">search-online</code> 和 <code translate="no">send</code> 都不会自动插入本地消息行。需要本地查询时，再运行 <code translate="no">sync</code> 或 <code translate="no">history</code>。</p>
+          </aside>
+
+          <nav class="section-pagination docs-pagination" aria-label="章节导航">
+            <a href="#quick-start"><span aria-hidden="true">←</span> 上一节：快速开始</a>
+            <a href="#workflows">下一节：常用工作流 <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="workflows" class="doc-section docs-section" aria-labelledby="workflows-title">
+          <p class="section-kicker docs-kicker">03 · Workflows</p>
+          <h2 id="workflows-title">常用工作流</h2>
+          <p class="section-lede">下面的组合刻意把在线、持久化、本地和远端写入分开，适合直接改成自己的账号名和聊天 ID。</p>
+
+          <article class="workflow-recipe workflow-doc-card">
+            <div class="recipe-heading">
+              <span class="scope-badge" data-scope="live">在线读取</span>
+              <h3>只看最新情况，不落盘</h3>
+            </div>
+            <pre class="command-block" dir="ltr" translate="no"><code>tg inbox --limit 50 --account work --json
+tg read @ops --since 2h --account work --json
+tg search-online "incident" --chat @ops --until "2026-07-14T10:00:00+08:00" --account work --yaml</code></pre>
+            <p><code translate="no">inbox</code> 不会把消息标记为已读。相对时间必须是正数加 <code translate="no">s/m/h/d/w</code>；绝对时间必须带时区，且 <code translate="no">--since</code> 早于 <code translate="no">--until</code>。</p>
+          </article>
+
+          <article class="workflow-recipe workflow-doc-card">
+            <div class="recipe-heading">
+              <span class="scope-badge" data-scope="persist">写入本地</span>
+              <span class="scope-badge" data-scope="local">仅本地</span>
+              <h3>同步后做可重复分析</h3>
+            </div>
+            <pre class="command-block" dir="ltr" translate="no"><code>tg refresh --max-chats 20 --delay 1 --account work --json
+tg search "error|failed" --regex --hours 168 --account work --json
+tg top --chat @ops --hours 168 --limit 20 --account work --json
+tg timeline --chat @ops --hours 168 --by hour --account work --json</code></pre>
+            <p><code translate="no">refresh</code> 的顶层结果可以成功，但个别聊天仍可能失败；自动化必须检查 <code translate="no">data.failures</code>。<code translate="no">sync-all</code> 只投影 <code translate="no">new_messages</code>、<code translate="no">chats</code> 和 <code translate="no">results</code>，需要可靠识别部分失败时应选 <code translate="no">refresh</code>。</p>
+          </article>
+
+          <article class="workflow-recipe workflow-doc-card">
+            <div class="recipe-heading">
+              <span class="scope-badge" data-scope="write">远端写入</span>
+              <h3>发送消息，再同步本地副本</h3>
+            </div>
+            <pre class="command-block" dir="ltr" translate="no"><code>tg config write-access status --json
+tg send @team "Release is ready" --file ./report.pdf --account work --json
+tg sync @team --account work --json</code></pre>
+            <p><code translate="no">send</code> 没有确认提示。重复的 <code translate="no">--file</code> 会按顺序组成一个 Telegram 媒体组，文本成为说明文字；Telegram 决定可接受的文件组合与数量。</p>
+          </article>
+
+          <article class="workflow-recipe workflow-doc-card">
+            <div class="recipe-heading">
+              <span class="scope-badge" data-scope="live">在线流</span>
+              <h3>监听、回复和下载附件</h3>
+            </div>
+            <pre class="command-block" dir="ltr" translate="no"><code>tg listen @team --persist --retry-seconds 5 --account work
+tg listen @team --no-interactive --no-media --auto-download --account work
+tg listen @team @ops --send-to @team --account work</code></pre>
+            <p><code translate="no">listen</code> 是无界数据流，不提供 JSON、YAML 或 Markdown 格式选项。交互式 TTY 使用 Ink；<code translate="no">--no-interactive</code> 输出纯文本。<code translate="no">--auto-download</code> 默认写入 <code translate="no">~/Downloads/telegram-cli</code>，即使 <code translate="no">--no-media</code> 隐藏附件摘要，下载仍会执行。</p>
+          </article>
+
+          <article class="workflow-recipe workflow-doc-card">
+            <div class="recipe-heading">
+              <span class="scope-badge" data-scope="persist">文件归档</span>
+              <h3>增量归档为 Markdown</h3>
+            </div>
+            <pre class="command-block" dir="ltr" translate="no"><code>tg archive @ops --download-media --account work --json
+tg archive @ops --since "2026-07-12T10:00:00+08:00" --until "2026-07-14T10:00:00+08:00" --account work --json
+tg archive --all --full --output ./telegram-archive --account work --markdown</code></pre>
+            <p>传入一个或多个聊天，或者使用 <code translate="no">--all</code>，不能同时使用。<code translate="no">--full</code> 与 <code translate="no">--since</code> 冲突；<code translate="no">--rebuild</code> 会替换聊天文件，并在没有新范围时沿用初始范围。</p>
+            <aside class="callout warning callout-warning">
+              <p>任一聊天或媒体失败都会以非零状态退出，并返回 <code translate="no">archive_partial_failure</code>。成功的聊天仍保留在磁盘上；脚本要检查 <code translate="no">error.details.completed</code>、<code translate="no">failed</code> 和 <code translate="no">warnings</code>，不要从 Markdown 输出推断部分失败明细。</p>
+            </aside>
+          </article>
+
+          <nav class="section-pagination docs-pagination" aria-label="章节导航">
+            <a href="#execution-model"><span aria-hidden="true">←</span> 上一节：执行模型</a>
+            <a href="#accounts-config">下一节：账号与配置 <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="accounts-config" class="doc-section docs-section" aria-labelledby="accounts-config-title">
+          <p class="section-kicker docs-kicker">04 · Accounts</p>
+          <h2 id="accounts-config-title">账号与配置</h2>
+          <p class="section-lede">每个账号的 Telegram 会话和消息数据库彼此隔离；API 凭据与持久化代理配置则由所有账号共享。</p>
+
+          <h3>账号生命周期</h3>
+          <pre class="command-block" dir="ltr" translate="no"><code>tg account add
+tg account list --json
+tg account current --json
+tg account switch work --json
+tg account logout work --yes --json
+tg account login work --json
+tg account remove work --force --json</code></pre>
+          <ul>
+            <li>第一个添加的账号会成为当前账号；之后新增账号不会自动切换。</li>
+            <li><code translate="no">logout</code> 会使 Telegram 会话失效，但保留账号注册信息和消息数据库；已登出的账号仍能运行本地 SQLite 查询。</li>
+            <li><code translate="no">login</code> 会安全替换会话并保留数据库。非 TTY 返回 <code translate="no">interaction_required</code> 时，请在人类终端重试，不要通过管道传入凭据。</li>
+            <li>自动化优先在每次调用中显式传入 <code translate="no">--account work</code>，避免依赖或改变当前账号。</li>
+          </ul>
+
+          <h3>API 凭据和代理</h3>
+          <pre class="command-block" dir="ltr" translate="no"><code>tg config set --api-id &lt;id&gt; --api-hash "&lt;hash&gt;"
+tg config set --proxy socks5://127.0.0.1:1080
+tg config list --json
+TG_PROXY=http://127.0.0.1:8080 tg status</code></pre>
+          <dl class="definition-grid">
+            <div>
+              <dt>凭据优先级</dt>
+              <dd><code translate="no">TG_API_ID</code> 与 <code translate="no">TG_API_HASH</code> 必须一起设置，并覆盖已保存值。两者都不存在时可以使用受限的内置默认凭据，但更容易遇到 flood wait。</dd>
+            </div>
+            <div>
+              <dt>代理优先级</dt>
+              <dd><code translate="no">TG_PROXY</code> 覆盖已保存代理。支持 SOCKS4、SOCKS5、HTTP、HTTPS 和 MTProxy，且代理会用于登录和所有需要 Telegram 连接的命令。</dd>
+            </div>
+            <div>
+              <dt>脱敏规则</dt>
+              <dd><code translate="no">config list</code> 默认隐藏 API hash。<code translate="no">--show-secrets</code> 只显示完整 API hash；代理用户名、密码和凭据查询参数始终显示为 <code translate="no">***</code>。</dd>
+            </div>
+            <div>
+              <dt>恢复文件</dt>
+              <dd>账号登录失败若返回 <code translate="no">error.details.recovery_path</code> 或 <code translate="no">recovery_paths</code>，请安全保留并报告这些路径，恢复前不要删除或覆盖。</dd>
+            </div>
+          </dl>
+
+          <h3>本地路径</h3>
+          <p><code translate="no">DATA_DIR</code> 可替换操作系统默认数据根目录；<code translate="no">DB_PATH</code> 主要用于测试时覆盖数据库。典型布局如下：</p>
+          <pre class="command-block file-tree" dir="ltr" translate="no"><code>config.json
+accounts.json
+accounts/&lt;name&gt;/session
+accounts/&lt;name&gt;/messages.db
+accounts/&lt;name&gt;/archive/</code></pre>
+
+          <nav class="section-pagination docs-pagination" aria-label="章节导航">
+            <a href="#workflows"><span aria-hidden="true">←</span> 上一节：常用工作流</a>
+            <a href="#command-reference">下一节：命令参考 <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="command-reference" class="doc-section docs-section" aria-labelledby="command-reference-title">
+          <p class="section-kicker docs-kicker">05 · Reference</p>
+          <h2 id="command-reference-title">32 个顶层命令</h2>
+          <p class="section-lede">这是 <code translate="no">tg</code> v0.4.0 的完整顶层 Commander 命令清单。范围徽标描述主要行为；带子命令的命令组可能同时包含读取和写入操作。</p>
+
+          <div class="table-scroll table-wrap" tabindex="0" role="region" aria-label="完整顶层命令参考，可横向滚动">
+            <table class="command-reference-table">
+              <caption>Telegram CLI v0.4.0 顶层命令</caption>
+              <thead>
+                <tr>
+                  <th scope="col">命令</th>
+                  <th scope="col">范围</th>
+                  <th scope="col">用途与关键行为</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-command="search">
+                  <th scope="row"><code dir="ltr" translate="no">tg search &lt;keyword&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="local">仅本地</span></td>
+                  <td>按关键词、聊天、发送者、小时范围或正则搜索已同步消息。</td>
+                </tr>
+                <tr data-command="recent">
+                  <th scope="row"><code dir="ltr" translate="no">tg recent</code></th>
+                  <td><span class="scope-badge" data-scope="local">仅本地</span></td>
+                  <td>查看近期存储的消息；默认最近 24 小时、最多 50 条。</td>
+                </tr>
+                <tr data-command="stats">
+                  <th scope="row"><code dir="ltr" translate="no">tg stats</code></th>
+                  <td><span class="scope-badge" data-scope="local">仅本地</span></td>
+                  <td>统计本地消息与聊天数量。</td>
+                </tr>
+                <tr data-command="top">
+                  <th scope="row"><code dir="ltr" translate="no">tg top</code></th>
+                  <td><span class="scope-badge" data-scope="local">仅本地</span></td>
+                  <td>列出本地消息中最活跃的发送者，可限制聊天和时间范围。</td>
+                </tr>
+                <tr data-command="timeline">
+                  <th scope="row"><code dir="ltr" translate="no">tg timeline</code></th>
+                  <td><span class="scope-badge" data-scope="local">仅本地</span></td>
+                  <td>按小时或其他时间粒度汇总本地消息活动。</td>
+                </tr>
+                <tr data-command="today">
+                  <th scope="row"><code dir="ltr" translate="no">tg today</code></th>
+                  <td><span class="scope-badge" data-scope="local">仅本地</span></td>
+                  <td>查看本地数据库中今天存储的消息。</td>
+                </tr>
+                <tr data-command="filter">
+                  <th scope="row"><code dir="ltr" translate="no">tg filter &lt;keywords&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="local">仅本地</span></td>
+                  <td>用多关键词及聊天、小时等条件筛选已存储消息。</td>
+                </tr>
+                <tr data-command="archive">
+                  <th scope="row"><code dir="ltr" translate="no">tg archive [chats...]</code></th>
+                  <td><span class="scope-badge" data-scope="filesystem">文件归档</span></td>
+                  <td>从 Telegram 读取历史并增量写入 Markdown，可下载媒体；不会填充 SQLite。</td>
+                </tr>
+                <tr data-command="export">
+                  <th scope="row"><code dir="ltr" translate="no">tg export &lt;chat&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="local">仅本地</span></td>
+                  <td>把本地消息导出为选定格式；<code translate="no">--format</code> 控制文件内容，<code translate="no">--json</code> 控制命令信封。</td>
+                </tr>
+                <tr data-command="purge">
+                  <th scope="row"><code dir="ltr" translate="no">tg purge &lt;chat&gt; --yes</code></th>
+                  <td><span class="scope-badge" data-scope="local">本地删除</span></td>
+                  <td>确认后删除该聊天的本地消息，不会删除 Telegram 远端消息。</td>
+                </tr>
+                <tr data-command="status">
+                  <th scope="row"><code dir="ltr" translate="no">tg status</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线读取</span></td>
+                  <td>检查所选账号的 Telegram 身份验证状态。</td>
+                </tr>
+                <tr data-command="whoami">
+                  <th scope="row"><code dir="ltr" translate="no">tg whoami</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线读取</span></td>
+                  <td>显示当前已认证 Telegram 身份的基本信息。</td>
+                </tr>
+                <tr data-command="chats">
+                  <th scope="row"><code dir="ltr" translate="no">tg chats</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线读取</span></td>
+                  <td>列出对话，可按 <code translate="no">user/group/supergroup/channel/unknown</code> 类型筛选。</td>
+                </tr>
+                <tr data-command="history">
+                  <th scope="row"><code dir="ltr" translate="no">tg history &lt;chat&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="persist">写入本地</span></td>
+                  <td>按条数上限回填并保存聊天历史；默认上限 1000，不接受时间范围选项。</td>
+                </tr>
+                <tr data-command="sync">
+                  <th scope="row"><code dir="ltr" translate="no">tg sync &lt;chat&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="persist">写入本地</span></td>
+                  <td>按本地进度增量同步一个聊天的新消息。</td>
+                </tr>
+                <tr data-command="sync-all">
+                  <th scope="row"><code dir="ltr" translate="no">tg sync-all</code></th>
+                  <td><span class="scope-badge" data-scope="persist">写入本地</span></td>
+                  <td>批量增量同步多个对话；输出投影不保留完整失败明细。</td>
+                </tr>
+                <tr data-command="refresh">
+                  <th scope="row"><code dir="ltr" translate="no">tg refresh</code></th>
+                  <td><span class="scope-badge" data-scope="persist">写入本地</span></td>
+                  <td>批量刷新聊天；脚本应在顶层成功时继续检查 <code translate="no">data.failures</code>。</td>
+                </tr>
+                <tr data-command="info">
+                  <th scope="row"><code dir="ltr" translate="no">tg info &lt;chat&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线读取</span></td>
+                  <td>查询 Telegram 聊天元信息。</td>
+                </tr>
+                <tr data-command="send">
+                  <th scope="row"><code dir="ltr" translate="no">tg send &lt;chat&gt; [message]</code></th>
+                  <td><span class="scope-badge" data-scope="write">远端写入</span></td>
+                  <td>发送文本、文件或带说明文字的媒体组；没有确认提示，也不会写入本地消息库。</td>
+                </tr>
+                <tr data-command="edit">
+                  <th scope="row"><code dir="ltr" translate="no">tg edit &lt;chat&gt; &lt;msgId&gt; &lt;text&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="write">远端写入</span></td>
+                  <td>编辑一条 Telegram 消息。</td>
+                </tr>
+                <tr data-command="delete">
+                  <th scope="row"><code dir="ltr" translate="no">tg delete &lt;chat&gt; &lt;msgIds...&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="write">远端写入</span></td>
+                  <td>删除一条或多条 Telegram 消息。</td>
+                </tr>
+                <tr data-command="listen">
+                  <th scope="row"><code dir="ltr" translate="no">tg listen [chats...]</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线流</span></td>
+                  <td>持续监听消息；交互模式可回复或执行群操作，不支持有限结果的格式标志。</td>
+                </tr>
+                <tr data-command="contact">
+                  <th scope="row"><code dir="ltr" translate="no">tg contact</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线读取</span></td>
+                  <td><code translate="no">list</code> 列出通讯录联系人，<code translate="no">info</code> 按 ID、用户名或手机号解析联系人。</td>
+                </tr>
+                <tr data-command="inbox">
+                  <th scope="row"><code dir="ltr" translate="no">tg inbox</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线读取</span></td>
+                  <td>列出有未读消息的对话，不把消息标记为已读，也不持久化。</td>
+                </tr>
+                <tr data-command="read">
+                  <th scope="row"><code dir="ltr" translate="no">tg read &lt;chat&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线读取</span></td>
+                  <td>按数量或时间范围读取近期 Telegram 消息，不写入 SQLite。</td>
+                </tr>
+                <tr data-command="search-online">
+                  <th scope="row"><code dir="ltr" translate="no">tg search-online &lt;query&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线读取</span></td>
+                  <td>全局或指定聊天搜索 Telegram 在线消息，不保存结果。</td>
+                </tr>
+                <tr data-command="dialog">
+                  <th scope="row"><code dir="ltr" translate="no">tg dialog</code></th>
+                  <td><span class="scope-badge" data-scope="live">在线读取</span></td>
+                  <td>提供 <code translate="no">inbox/read/search/groups</code> 的对话族路由；自动化优先使用较短的顶层同类命令。</td>
+                </tr>
+                <tr data-command="group">
+                  <th scope="row"><code dir="ltr" translate="no">tg group</code></th>
+                  <td><span class="scope-badge" data-scope="live">检查</span> <span class="scope-badge" data-scope="write">管理</span></td>
+                  <td>检查群组、成员与审计日志，或管理成员、管理员、设置、邀请、话题和消息。</td>
+                </tr>
+                <tr data-command="folder">
+                  <th scope="row"><code dir="ltr" translate="no">tg folder</code></th>
+                  <td><span class="scope-badge" data-scope="live">检查</span> <span class="scope-badge" data-scope="write">管理</span></td>
+                  <td>列出或查看聊天文件夹；显式添加、移除聊天会修改 Telegram。</td>
+                </tr>
+                <tr data-command="notification">
+                  <th scope="row"><code dir="ltr" translate="no">tg notification</code></th>
+                  <td><span class="scope-badge" data-scope="live">检查</span> <span class="scope-badge" data-scope="write">管理</span></td>
+                  <td>查看通知设置，或临时、永久静音与取消静音。</td>
+                </tr>
+                <tr data-command="account">
+                  <th scope="row"><code dir="ltr" translate="no">tg account</code></th>
+                  <td><span class="scope-badge" data-scope="live">认证</span> <span class="scope-badge" data-scope="local">选择</span></td>
+                  <td>添加、登录、登出、列出、切换或移除隔离账号。</td>
+                </tr>
+                <tr data-command="config">
+                  <th scope="row"><code dir="ltr" translate="no">tg config</code></th>
+                  <td><span class="scope-badge" data-scope="local">本地配置</span></td>
+                  <td>管理 API 凭据、代理和远端写入总开关；改变开关不等于授权具体写操作。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="table-note">所有有限结果命令都可使用全局 <code translate="no">--account</code>（适用时）与 <code translate="no">--markdown</code>；各命令的 JSON/YAML 支持和专用参数请用 <code translate="no">tg &lt;command&gt; --help</code> 核对。</p>
+
+          <nav class="section-pagination docs-pagination" aria-label="章节导航">
+            <a href="#accounts-config"><span aria-hidden="true">←</span> 上一节：账号与配置</a>
+            <a href="#group-management">下一节：群组管理 <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="group-management" class="doc-section docs-section" aria-labelledby="group-management-title">
+          <p class="section-kicker docs-kicker">06 · Groups</p>
+          <h2 id="group-management-title">群组检查与 48 个管理操作</h2>
+          <p class="section-lede">先用只读路由确认聊天、成员和权限，再执行具体操作。下面每条完整 CLI 语法都把 <code translate="no">&lt;chat&gt;</code> 放在操作之后、操作参数之前。</p>
+
+          <h3>先检查，不修改</h3>
+          <pre class="command-block" dir="ltr" translate="no"><code>tg group info &lt;chat&gt; --account work --json
+tg group members &lt;chat&gt; --type admins --query alice --limit 50 --account work --json
+tg group member info &lt;chat&gt; &lt;@username-or-user-id&gt; --account work --json
+tg group audit &lt;chat&gt; --user &lt;user&gt; --type member_invited --limit 100 --account work --json
+tg group list --admin --limit 100 --account work --json</code></pre>
+          <aside class="callout callout-note">
+            <h3>成员详情使用规范路由</h3>
+            <p>优先使用 <code translate="no">tg group member info &lt;chat&gt; &lt;user&gt;</code>。旧形式 <code translate="no">tg group member &lt;chat&gt; &lt;user&gt;</code> 仍可用，但聊天名若等于 <code translate="no">ban</code>、<code translate="no">mute</code>、<code translate="no">info</code> 等保留操作名，就会产生歧义。成员写操作目标必须是 <code translate="no">@username</code> 或数字用户 ID。</p>
+          </aside>
+
+          <div class="group-family-grid">
+            <article class="group-family-card group-family docs-card">
+              <header>
+                <p>7 个操作</p>
+                <h3><code translate="no">member</code> · 成员</h3>
+              </header>
+              <ul class="group-command-list group-actions">
+                <li data-group-command="member add"><code dir="ltr" translate="no">tg group member add &lt;chat&gt; &lt;users...&gt;</code><span>添加一个或多个成员。</span></li>
+                <li data-group-command="member kick"><code dir="ltr" translate="no">tg group member kick &lt;chat&gt; &lt;user&gt; --yes</code><span>移出成员。</span></li>
+                <li data-group-command="member ban"><code dir="ltr" translate="no">tg group member ban &lt;chat&gt; &lt;user&gt; --yes</code><span>封禁成员。</span></li>
+                <li data-group-command="member unban"><code dir="ltr" translate="no">tg group member unban &lt;chat&gt; &lt;user&gt; --yes</code><span>解除封禁。</span></li>
+                <li data-group-command="member mute"><code dir="ltr" translate="no">tg group member mute &lt;chat&gt; &lt;user&gt; [duration] --yes</code><span>按可选时长禁言。</span></li>
+                <li data-group-command="member unmute"><code dir="ltr" translate="no">tg group member unmute &lt;chat&gt; &lt;user&gt; --yes</code><span>恢复发言权限。</span></li>
+                <li data-group-command="member purge"><code dir="ltr" translate="no">tg group member purge &lt;chat&gt; &lt;user&gt; --yes</code><span>删除该成员在群内的全部消息。</span></li>
+              </ul>
+            </article>
+
+            <article class="group-family-card group-family docs-card">
+              <header>
+                <p>4 个操作</p>
+                <h3><code translate="no">admin</code> · 管理员</h3>
+              </header>
+              <ul class="group-command-list group-actions">
+                <li data-group-command="admin promote"><code dir="ltr" translate="no">tg group admin promote &lt;chat&gt; &lt;user&gt; [permissions] --yes</code><span>提升为管理员。</span></li>
+                <li data-group-command="admin demote"><code dir="ltr" translate="no">tg group admin demote &lt;chat&gt; &lt;user&gt; --yes</code><span>移除管理员权限。</span></li>
+                <li data-group-command="admin rank"><code dir="ltr" translate="no">tg group admin rank &lt;chat&gt; &lt;user&gt; &lt;text...&gt; --yes</code><span>设置管理员自定义头衔。</span></li>
+                <li data-group-command="admin transfer-owner"><code dir="ltr" translate="no">tg group admin transfer-owner &lt;chat&gt; &lt;user&gt; --yes</code><span>把群主身份转移给另一名成员。</span></li>
+              </ul>
+            </article>
+
+            <article class="group-family-card group-family group-family-wide docs-card">
+              <header>
+                <p>13 个操作</p>
+                <h3><code translate="no">chat</code> · 群设置</h3>
+              </header>
+              <ul class="group-command-list group-actions">
+                <li data-group-command="chat title"><code dir="ltr" translate="no">tg group chat title &lt;chat&gt; &lt;text...&gt;</code><span>修改群名。</span></li>
+                <li data-group-command="chat description"><code dir="ltr" translate="no">tg group chat description &lt;chat&gt; &lt;text...&gt;</code><span>修改群描述。</span></li>
+                <li data-group-command="chat username"><code dir="ltr" translate="no">tg group chat username &lt;chat&gt; &lt;username&gt;</code><span>修改公开用户名；需要超级群组能力。</span></li>
+                <li data-group-command="chat photo"><code dir="ltr" translate="no">tg group chat photo &lt;chat&gt; &lt;path&gt;</code><span>从本地文件设置群头像。</span></li>
+                <li data-group-command="chat slowmode"><code dir="ltr" translate="no">tg group chat slowmode &lt;chat&gt; &lt;duration&gt;</code><span>设置慢速模式，支持 <code translate="no">off</code>。</span></li>
+                <li data-group-command="chat ttl"><code dir="ltr" translate="no">tg group chat ttl &lt;chat&gt; &lt;duration&gt; --yes</code><span>设置消息自动删除时间。</span></li>
+                <li data-group-command="chat protect"><code dir="ltr" translate="no">tg group chat protect &lt;chat&gt; &lt;enabled&gt;</code><span>开关内容保护。</span></li>
+                <li data-group-command="chat join-requests"><code dir="ltr" translate="no">tg group chat join-requests &lt;chat&gt; &lt;enabled&gt;</code><span>开关新成员审批。</span></li>
+                <li data-group-command="chat join-to-send"><code dir="ltr" translate="no">tg group chat join-to-send &lt;chat&gt; &lt;enabled&gt;</code><span>开关加入后才能发言。</span></li>
+                <li data-group-command="chat default-permissions"><code dir="ltr" translate="no">tg group chat default-permissions &lt;chat&gt; &lt;permissions&gt; --yes</code><span>设置成员默认权限。</span></li>
+                <li data-group-command="chat sticker-set"><code dir="ltr" translate="no">tg group chat sticker-set &lt;chat&gt; &lt;sticker-or-off&gt;</code><span>设置或关闭群贴纸包。</span></li>
+                <li data-group-command="chat leave"><code dir="ltr" translate="no">tg group chat leave &lt;chat&gt; --yes</code><span>退出当前群组。</span></li>
+                <li data-group-command="chat delete"><code dir="ltr" translate="no">tg group chat delete &lt;chat&gt; --yes --confirm-title "&lt;exact title&gt;"</code><span>永久删除群组；仅群主可执行。</span></li>
+              </ul>
+            </article>
+
+            <article class="group-family-card group-family group-family-wide docs-card">
+              <header>
+                <p>10 个操作</p>
+                <h3><code translate="no">invite</code> · 邀请与入群申请</h3>
+              </header>
+              <ul class="group-command-list group-actions">
+                <li data-group-command="invite list"><code dir="ltr" translate="no">tg group invite list &lt;chat&gt;</code><span>只读：列出邀请链接。</span></li>
+                <li data-group-command="invite show"><code dir="ltr" translate="no">tg group invite show &lt;chat&gt; &lt;invite&gt;</code><span>只读：查看一个邀请链接。</span></li>
+                <li data-group-command="invite create"><code dir="ltr" translate="no">tg group invite create &lt;chat&gt; [--title ...] [--expire ...]</code><span>创建邀请链接，可设置次数与审批。</span></li>
+                <li data-group-command="invite edit"><code dir="ltr" translate="no">tg group invite edit &lt;chat&gt; &lt;invite&gt; [options]</code><span>修改邀请链接。</span></li>
+                <li data-group-command="invite revoke"><code dir="ltr" translate="no">tg group invite revoke &lt;chat&gt; &lt;invite&gt; --yes</code><span>撤销邀请链接。</span></li>
+                <li data-group-command="invite members"><code dir="ltr" translate="no">tg group invite members &lt;chat&gt; &lt;invite&gt;</code><span>只读：列出通过该链接加入的成员。</span></li>
+                <li data-group-command="invite approve"><code dir="ltr" translate="no">tg group invite approve &lt;chat&gt; &lt;user&gt;</code><span>批准一条入群申请。</span></li>
+                <li data-group-command="invite decline"><code dir="ltr" translate="no">tg group invite decline &lt;chat&gt; &lt;user&gt;</code><span>拒绝一条入群申请。</span></li>
+                <li data-group-command="invite approve-all"><code dir="ltr" translate="no">tg group invite approve-all &lt;chat&gt; --yes</code><span>批准全部待处理申请。</span></li>
+                <li data-group-command="invite decline-all"><code dir="ltr" translate="no">tg group invite decline-all &lt;chat&gt; --yes</code><span>拒绝全部待处理申请。</span></li>
+              </ul>
+            </article>
+
+            <article class="group-family-card group-family group-family-wide docs-card">
+              <header>
+                <p>10 个操作</p>
+                <h3><code translate="no">topic</code> · 论坛话题</h3>
+              </header>
+              <ul class="group-command-list group-actions">
+                <li data-group-command="topic list"><code dir="ltr" translate="no">tg group topic list &lt;chat&gt;</code><span>只读：列出论坛话题。</span></li>
+                <li data-group-command="topic create"><code dir="ltr" translate="no">tg group topic create &lt;chat&gt; &lt;title...&gt;</code><span>创建话题。</span></li>
+                <li data-group-command="topic edit"><code dir="ltr" translate="no">tg group topic edit &lt;chat&gt; &lt;id&gt; &lt;title...&gt;</code><span>修改话题标题。</span></li>
+                <li data-group-command="topic close"><code dir="ltr" translate="no">tg group topic close &lt;chat&gt; &lt;id&gt;</code><span>关闭话题。</span></li>
+                <li data-group-command="topic reopen"><code dir="ltr" translate="no">tg group topic reopen &lt;chat&gt; &lt;id&gt;</code><span>重新打开话题。</span></li>
+                <li data-group-command="topic pin"><code dir="ltr" translate="no">tg group topic pin &lt;chat&gt; &lt;id&gt;</code><span>置顶话题。</span></li>
+                <li data-group-command="topic unpin"><code dir="ltr" translate="no">tg group topic unpin &lt;chat&gt; &lt;id&gt;</code><span>取消置顶话题。</span></li>
+                <li data-group-command="topic reorder"><code dir="ltr" translate="no">tg group topic reorder &lt;chat&gt; &lt;ids...&gt;</code><span>重排置顶话题。</span></li>
+                <li data-group-command="topic delete"><code dir="ltr" translate="no">tg group topic delete &lt;chat&gt; &lt;id&gt; --yes</code><span>删除话题及其中消息。</span></li>
+                <li data-group-command="topic general-hidden"><code dir="ltr" translate="no">tg group topic general-hidden &lt;chat&gt; &lt;hidden&gt;</code><span>开关“常规”话题的可见性。</span></li>
+              </ul>
+            </article>
+
+            <article class="group-family-card group-family docs-card">
+              <header>
+                <p>4 个操作</p>
+                <h3><code translate="no">message</code> · 消息</h3>
+              </header>
+              <ul class="group-command-list group-actions">
+                <li data-group-command="message pin"><code dir="ltr" translate="no">tg group message pin &lt;chat&gt; &lt;id&gt;</code><span>置顶一条消息。</span></li>
+                <li data-group-command="message unpin"><code dir="ltr" translate="no">tg group message unpin &lt;chat&gt; &lt;id&gt;</code><span>取消置顶一条消息。</span></li>
+                <li data-group-command="message unpin-all"><code dir="ltr" translate="no">tg group message unpin-all &lt;chat&gt; --yes</code><span>取消全部置顶。</span></li>
+                <li data-group-command="message delete"><code dir="ltr" translate="no">tg group message delete &lt;chat&gt; &lt;ids...&gt; --yes</code><span>删除一条或多条群消息。</span></li>
+              </ul>
+            </article>
+          </div>
+
+          <aside class="callout warning callout-danger">
+            <h3>所有权转移不能自动化</h3>
+            <p>当前账号必须是群主。传入 <code translate="no">--yes</code> 后，CLI 会在交互式 TTY 安全提示 Telegram 2FA 密码。不要在参数、环境变量、stdin、日志或聊天中提供密码，也不要自动操作这个提示。非 TTY 会返回交互错误，请让人直接在终端完成。</p>
+          </aside>
+
+          <nav class="section-pagination docs-pagination" aria-label="章节导航">
+            <a href="#command-reference"><span aria-hidden="true">←</span> 上一节：命令参考</a>
+            <a href="#automation">下一节：自动化 <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="automation" class="doc-section docs-section" aria-labelledby="automation-title">
+          <p class="section-kicker docs-kicker">07 · Automation</p>
+          <h2 id="automation-title">结构化输出与自动化</h2>
+          <p class="section-lede">有限结果命令提供稳定信封和错误码；不要解析人类表格，也不要把流式 <code translate="no">listen</code> 当作有限结果命令。</p>
+
+          <div class="automation-grid docs-grid">
+            <article class="docs-card">
+              <h3>显式选择格式</h3>
+              <pre class="command-block" dir="ltr" translate="no"><code>tg stats --account work --json
+tg stats --account work --yaml
+tg inbox --account work --markdown
+OUTPUT=markdown tg recent --account work</code></pre>
+              <p><code translate="no">--json</code>、<code translate="no">--yaml</code>、<code translate="no">--markdown</code> 三选一，显式参数优先。环境变量 <code translate="no">OUTPUT=json|yaml|markdown|rich</code> 可设置默认值。未指定时，TTY 使用富文本，非 TTY 默认 YAML。</p>
+            </article>
+            <article class="docs-card">
+              <h3>按退出状态和错误码分支</h3>
+              <p>成功的有限结果写入 stdout。JSON/YAML 结构化失败按请求格式写入 stdout；格式冲突也在 stdout 返回稳定 YAML 信封。人类可读和 Markdown 失败写入 stderr。所有失败都设置非零退出状态。</p>
+            </article>
+          </div>
+
+          <h3>成功信封</h3>
+          <pre class="command-block structured-example" dir="ltr" translate="no"><code>{
+  "ok": true,
+  "schema_version": "1",
+  "data": {}
+}</code></pre>
+
+          <h3>失败信封</h3>
+          <pre class="command-block structured-example" dir="ltr" translate="no"><code>{
+  "ok": false,
+  "schema_version": "1",
+  "error": {
+    "code": "archive_partial_failure",
+    "message": "Some chats or media could not be archived",
+    "details": {
+      "completed": [],
+      "failed": [],
+      "warnings": []
+    }
+  }
+}</code></pre>
+
+          <div class="check-grid docs-grid">
+            <article class="docs-card">
+              <h3>自动化检查清单</h3>
+              <ul class="check-list">
+                <li>始终传入 <code translate="no">--account &lt;name&gt;</code>。</li>
+                <li>机器处理优先用 JSON 或 YAML。</li>
+                <li>先看进程退出状态，再看 <code translate="no">ok</code> 与 <code translate="no">error.code</code>。</li>
+                <li><code translate="no">archive_partial_failure</code> 仍可能包含已完成结果。</li>
+                <li><code translate="no">refresh</code> 顶层成功时继续检查 <code translate="no">data.failures</code>。</li>
+                <li>不要用 Markdown 还原完整 <code translate="no">error.details</code>。</li>
+              </ul>
+            </article>
+            <article class="docs-card">
+              <h3>交互仍然是交互</h3>
+              <p>给 <code translate="no">account add</code> 或 <code translate="no">account login</code> 加 <code translate="no">--json</code>，只会结构化最终结果，不会绕过手机号、验证码或 2FA 输入。收到 <code translate="no">interaction_required</code> 后，把任务交给人类 TTY。</p>
+            </article>
+          </div>
+
+          <nav class="section-pagination docs-pagination" aria-label="章节导航">
+            <a href="#group-management"><span aria-hidden="true">←</span> 上一节：群组管理</a>
+            <a href="#safety">下一节：安全边界 <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="safety" class="doc-section docs-section" aria-labelledby="safety-title">
+          <p class="section-kicker docs-kicker">08 · Safety</p>
+          <h2 id="safety-title">远端写入与本地隐私</h2>
+          <p class="section-lede">写入总开关是一道本地技术闸门，不是授权。打开闸门后，仍要在执行每个具体远端修改前取得明确许可。</p>
+
+          <pre class="command-block" dir="ltr" translate="no"><code>tg config write-access status --json
+tg config write-access off --json
+tg config write-access on --json</code></pre>
+
+          <div class="safety-boundary-grid docs-grid">
+            <article class="docs-card">
+              <span class="scope-badge" data-scope="write">受总开关阻止</span>
+              <h3>Telegram 远端修改</h3>
+              <p><code translate="no">send</code>、<code translate="no">edit</code>、<code translate="no">delete</code>、通知 <code translate="no">mute/unmute</code>、文件夹 <code translate="no">chat add/remove</code>，以及所有非只读群操作。关闭时会在执行远端修改前返回 <code translate="no">write_access_disabled</code>。</p>
+            </article>
+            <article class="docs-card">
+              <span class="scope-badge" data-scope="local">不受总开关阻止</span>
+              <h3>读取、持久化和本地维护</h3>
+              <p>Telegram 读取、本地查询、导出、<code translate="no">purge</code>、同步、历史、归档、账号生命周期和配置修改仍可运行。开启总开关本身也需要授权，但它不会授权下一条远端写命令。</p>
+            </article>
+          </div>
+
+          <h3>确认规则</h3>
+          <ul>
+            <li>标记为高风险的群命令缺少 <code translate="no">--yes</code> 时会拒绝执行，不会为了该修改而连接 Telegram。</li>
+            <li>永久删除群组还必须传入 <code translate="no">--confirm-title "&lt;exact title&gt;"</code>，内容与当前群名完全一致。</li>
+            <li>没有内置确认提示的操作仍是远端写入；不要把“无需 <code translate="no">--yes</code>”理解为“无需授权”。</li>
+            <li>Telegram 自身的管理员权限、群主身份、超级群组或论坛能力和速率限制始终适用。</li>
+          </ul>
+
+          <aside class="callout warning callout-danger">
+            <h3>会话和数据库都是敏感数据</h3>
+            <p>不要把 <code translate="no">.env</code>、API 凭据、代理凭据、<code translate="no">accounts/&lt;name&gt;/session</code>、<code translate="no">messages.db</code>、导出文件或包含敏感消息的归档提交到版本控制、粘贴到工单或写入日志。避免在 shell 历史和进程参数中暴露秘密，也谨慎使用 <code translate="no">config list --show-secrets</code>。</p>
+          </aside>
+
+          <nav class="section-pagination docs-pagination" aria-label="章节导航">
+            <a href="#automation"><span aria-hidden="true">←</span> 上一节：自动化</a>
+            <a href="#troubleshooting">下一节：故障排查 <span aria-hidden="true">→</span></a>
+          </nav>
+        </section>
+
+        <section id="troubleshooting" class="doc-section docs-section" aria-labelledby="troubleshooting-title">
+          <p class="section-kicker docs-kicker">09 · Recovery</p>
+          <h2 id="troubleshooting-title">故障排查</h2>
+          <p class="section-lede">v0.4.0 的自动化应匹配 <code translate="no">error.code</code>，不要匹配可能变化的消息文本。先判断账号与数据范围，再决定是否重试。</p>
+
+          <div class="troubleshooting-list">
+            <details open>
+              <summary><code translate="no">account_required</code> / <code translate="no">account_not_found</code></summary>
+              <p>没有可用账号时运行 <code translate="no">tg account add</code>；名称错误时先运行 <code translate="no">tg account list --json</code>，再修正 <code translate="no">--account</code>。自动化不要依赖交互式账号选择。</p>
+            </details>
+            <details>
+              <summary><code translate="no">account_logged_out</code> / <code translate="no">interaction_required</code></summary>
+              <p>已登出的账号仍可做本地查询，但 Telegram 命令需要在人类 TTY 运行 <code translate="no">tg account login &lt;name&gt;</code>。不要用 stdin 管道传验证码或 2FA 密码。</p>
+            </details>
+            <details>
+              <summary><code translate="no">telegram_account_session_expired</code> / <code translate="no">AUTH_KEY_UNREGISTERED</code></summary>
+              <p>远端会话已经失效。确认账号名后运行 <code translate="no">tg account remove &lt;name&gt; --force</code>，再交互式重新认证。删除前先确认不需要保留该账号本地数据。</p>
+            </details>
+            <details>
+              <summary><code translate="no">account_identity_mismatch</code></summary>
+              <p>重新登录得到的 Telegram 身份与已注册账号不一致。停止覆盖会话，核对账号选择，并保留错误返回的恢复路径。</p>
+            </details>
+            <details>
+              <summary><code translate="no">chat_not_found</code> / <code translate="no">ambiguous_chat</code></summary>
+              <p>本地命令只认识所选账号数据库中的聊天。先同步正确账号；如果名称匹配多个聊天，改用 <code translate="no">tg chats --json</code> 返回的数字 ID。</p>
+            </details>
+            <details>
+              <summary>本地搜索为空</summary>
+              <p>确认 <code translate="no">--account</code> 和 <code translate="no">--chat</code>，再运行 <code translate="no">tg sync &lt;chat&gt;</code>。在线 <code translate="no">read</code>、<code translate="no">search-online</code> 和发送操作不会自动更新 SQLite。</p>
+            </details>
+            <details>
+              <summary><code translate="no">contact_not_found</code></summary>
+              <p>Telegram 无法用所给数字 ID、用户名或手机号解析联系人。检查格式；<code translate="no">chats --type user</code> 列出的是私聊对话，不等同于 <code translate="no">contact list</code> 通讯录。</p>
+            </details>
+            <details>
+              <summary><code translate="no">invalid_notification_duration</code></summary>
+              <p>静音时长使用正整数加 <code translate="no">s/m/h/d/w</code>，或使用 <code translate="no">forever</code>；省略时默认永久静音。</p>
+            </details>
+            <details>
+              <summary><code translate="no">folder_not_found</code> / <code translate="no">ambiguous_folder</code></summary>
+              <p>文件夹标题可以重复。运行 <code translate="no">tg folder list --json</code>，再把数字文件夹 ID 用于 <code translate="no">info</code>、<code translate="no">chat add</code> 或 <code translate="no">chat remove</code>。收到 <code translate="no">folder_operation_unsupported</code> 后不要盲目重试不受支持的修改。</p>
+            </details>
+            <details>
+              <summary><code translate="no">archive_account_mismatch</code> / <code translate="no">archive_partial_failure</code></summary>
+              <p>归档根目录属于另一账号时，选择独立输出目录。部分失败时保留已完成文件，检查 <code translate="no">completed</code>、<code translate="no">failed</code> 和 <code translate="no">warnings</code>；单个附件警告码是 <code translate="no">archive_media_failed</code>。</p>
+            </details>
+            <details>
+              <summary><code translate="no">password_required</code> / <code translate="no">password_invalid</code></summary>
+              <p>群所有权转移必须由群主在交互式终端重新输入 2FA 密码。<code translate="no">password_too_fresh</code> 或 <code translate="no">session_too_fresh</code> 会带等待信息；不要提前重试。</p>
+            </details>
+            <details>
+              <summary><code translate="no">write_access_disabled</code></summary>
+              <p>先确认用户确实授权了当前具体写操作，再单独取得修改写入开关的授权。打开总开关后仍需重新确认目标聊天、账号和操作参数。</p>
+            </details>
+            <details>
+              <summary><code translate="no">flood_wait</code> / <code translate="no">FLOOD_WAIT</code></summary>
+              <p>停止密集重试，遵守错误中报告的等待时间，保留 <code translate="no">--delay</code>，并考虑配置个人 API 凭据。全局在线搜索、大量历史和媒体下载更容易触发限制。</p>
+            </details>
+            <details>
+              <summary><code translate="no">invalid_output_format</code></summary>
+              <p>不要组合 <code translate="no">--json</code>、<code translate="no">--yaml</code> 与 <code translate="no">--markdown</code>。脚本若通过 <code translate="no">OUTPUT</code> 设置默认格式，显式参数仍会覆盖它。</p>
+            </details>
+          </div>
+
+          <aside class="callout callout-note">
+            <h3>仍无法判断时</h3>
+            <p>先保存结构化错误信封（注意脱敏），再运行 <code translate="no">tg &lt;command&gt; --help</code> 核对参数。不要删除恢复文件、会话或数据库来“试试看”；在 GitHub 提交问题时也不要附带凭据、会话文件或真实消息。</p>
+          </aside>
+
+          <nav class="section-pagination docs-pagination" aria-label="章节导航">
+            <a href="#safety"><span aria-hidden="true">←</span> 上一节：安全边界</a>
+            <a href="#main-content">回到页首 <span aria-hidden="true">↑</span></a>
+          </nav>
+        </section>
+      </article>
+
+      <aside class="docs-status-card docs-page-outline" data-command-count="32" data-group-command-count="48" aria-label="本页范围说明">
+        <p class="status-card-label docs-outline-label">THIS PAGE</p>
+        <h2>命令信号</h2>
+        <dl class="scope-key">
+          <div data-scope="live">
+            <dt>LIVE</dt>
+            <dd>连接 Telegram，查询云端状态</dd>
+          </div>
+          <div data-scope="persist">
+            <dt>PERSIST</dt>
+            <dd>从 Telegram 写入 SQLite</dd>
+          </div>
+          <div data-scope="local">
+            <dt>LOCAL</dt>
+            <dd>只访问本机数据与配置</dd>
+          </div>
+          <div data-scope="filesystem">
+            <dt>FILES</dt>
+            <dd>写入 Markdown 与媒体文件</dd>
+          </div>
+          <div data-scope="write">
+            <dt>WRITE</dt>
+            <dd>改变 Telegram 远端状态</dd>
+          </div>
+        </dl>
+        <div class="status-card-counts">
+          <p><strong>32</strong><span>顶层命令</span></p>
+          <p><strong>48</strong><span>群管理操作</span></p>
+          <p><strong>1</strong><span>稳定 schema</span></p>
+        </div>
+        <p class="status-card-version">当前文档：<strong>v0.4.0</strong></p>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <a class="brand footer-brand" href="../" aria-label="返回 Telegram CLI 中文首页">
+        <span class="brand-mark" aria-hidden="true">tg›</span>
+        <span><strong>Telegram CLI</strong><small>v0.4.0 中文文档</small></span>
+      </a>
+      <nav class="footer-nav" aria-label="页脚导航">
+        <a href="#quick-start">快速开始</a>
+        <a href="../../docs/" lang="en" hreflang="en">English docs</a>
+        <a href="https://www.npmjs.com/package/@will-17173/telegram-cli">npm</a>
+        <a href="https://github.com/will-17173/telegram-cli/issues">问题反馈</a>
+        <a href="https://github.com/will-17173/telegram-cli/blob/main/LICENSE">GPL-3.0-only</a>
+      </nav>
+    </div>
+    <div class="container footer-legal">独立开源软件，与 Telegram 无隶属关系。命令可能修改远端状态，请先确认范围与授权。</div>
+  </footer>
+</body>
+</html>
