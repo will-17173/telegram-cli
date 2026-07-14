@@ -109,6 +109,18 @@ describe('handleApiRequest', () => {
     })
   })
 
+  it('rejects Host headers with extra port segments', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/health', { host: `127.0.0.1:${port}:evil` })
+
+    expect(response.status).toBe(403)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'forbidden_origin' },
+    })
+  })
+
   it('returns not_found for unknown routes', async () => {
     const root = makeRoot()
 
@@ -147,5 +159,32 @@ describe('handleApiRequest', () => {
       ok: false,
       error: { code: 'forbidden_origin' },
     })
+  })
+
+  it('rejects Origin headers that do not match the Host header', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/health', {
+      host: `127.0.0.1:${port}`,
+      headers: { origin: `http://localhost:${port}` },
+    })
+
+    expect(response.status).toBe(403)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'forbidden_origin' },
+    })
+  })
+
+  it('accepts localhost Host with matching localhost Origin', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/health', {
+      host: `localhost:${port}`,
+      headers: { origin: `http://localhost:${port}` },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await json(response)).toEqual({ ok: true, data: { status: 'ok' } })
   })
 })
