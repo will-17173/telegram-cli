@@ -43,6 +43,18 @@ describe('MtcuteContacts', () => {
     expect(client.getUser).toHaveBeenCalledWith(resolvedPeer)
   })
 
+  it('treats a long bare numeric selector as a user ID', async () => {
+    const user = telegramUser()
+    const client = mockClient({
+      getUser: vi.fn().mockResolvedValue(user),
+      getFullUser: vi.fn().mockRejectedValue(new Error('BIO_PRIVATE')),
+    })
+
+    await expect(new MtcuteContacts(client, ready()).info('1044990788')).resolves.toMatchObject({ id: 42 })
+    expect(client.resolvePhoneNumber).not.toHaveBeenCalled()
+    expect(client.getUser).toHaveBeenCalledWith(1044990788)
+  })
+
   it('returns the basic contact when full user information is unavailable', async () => {
     const user = telegramUser()
     const client = mockClient({

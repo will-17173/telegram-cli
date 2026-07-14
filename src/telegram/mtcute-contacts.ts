@@ -85,7 +85,7 @@ function normalizeContactId(userOrPhone: string | number): string | number {
 function normalizedPhone(userOrPhone: string | number): string | null {
   if (typeof userOrPhone === 'number') return null
   const compact = userOrPhone.trim().replace(/[\s()-]/g, '')
-  if (!/^\+?\d{7,15}$/.test(compact)) return null
+  if (!/^\+\d{7,15}$/.test(compact)) return null
   return compact
 }
 
