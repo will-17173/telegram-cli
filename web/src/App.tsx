@@ -14,6 +14,25 @@ const DEFAULT_MESSAGE_PAGE_SIZE = 50
 const MESSAGE_PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 const SYNC_LIMIT = 500
 
+type MessageFilterOverrides = {
+  senderId?: string
+  senderName?: string
+  text?: string
+  since?: string
+  until?: string
+}
+
+const SENDER_AVATAR_BACKGROUNDS = [
+  'linear-gradient(135deg, #ff8a65 0%, #f4511e 100%)',
+  'linear-gradient(135deg, #f6bf26 0%, #f29900 100%)',
+  'linear-gradient(135deg, #4dd0a9 0%, #0aa37f 100%)',
+  'linear-gradient(135deg, #4fc3f7 0%, #1e88e5 100%)',
+  'linear-gradient(135deg, #7e9cff 0%, #5865d9 100%)',
+  'linear-gradient(135deg, #ba68c8 0%, #8e24aa 100%)',
+  'linear-gradient(135deg, #f06292 0%, #d81b60 100%)',
+  'linear-gradient(135deg, #90a4ae 0%, #546e7a 100%)',
+]
+
 export function App() {
   const [accounts, setAccounts] = useState<AccountData>({ current_account: null, accounts: [] })
   const [account, setAccount] = useState('')
@@ -123,18 +142,18 @@ export function App() {
   const totalMessagePages = Math.max(1, Math.ceil(messageTotal / messagePageSize))
   const visibleMessagePages = paginationWindow(messagePage, totalMessagePages)
 
-  async function loadMessages(pageNumber: number) {
+  async function loadMessages(pageNumber: number, filterOverrides: MessageFilterOverrides = {}) {
     if (!account || selectedChat == null) return
     const targetPage = Math.max(1, Math.trunc(pageNumber))
     const requestId = messageRequestId.current + 1
     messageRequestId.current = requestId
     const requestAccount = account
     const requestChat = selectedChat
-    const requestSenderId = senderId.trim()
-    const requestSenderName = senderName.trim()
-    const requestText = text.trim()
-    const requestSince = since
-    const requestUntil = until
+    const requestSenderId = (filterOverrides.senderId ?? senderId).trim()
+    const requestSenderName = (filterOverrides.senderName ?? senderName).trim()
+    const requestText = (filterOverrides.text ?? text).trim()
+    const requestSince = filterOverrides.since ?? since
+    const requestUntil = filterOverrides.until ?? until
     setLoadingMessages(true)
     setError('')
     try {
@@ -170,6 +189,37 @@ export function App() {
       return
     }
     void loadMessages(Math.min(pageNumber, totalMessagePages))
+  }
+
+  function resetMessageFilters() {
+    const cleared = { senderId: '', senderName: '', text: '', since: '', until: '' }
+    setSenderId('')
+    setSenderName('')
+    setText('')
+    setSince('')
+    setUntil('')
+    setMessagePage(1)
+    setMessagePageInput('1')
+    void loadMessages(1, cleared)
+  }
+
+  function filterByMessageSender(message: MessageRow) {
+    if (message.sender_id == null) return
+    const filters = {
+      senderId: String(message.sender_id),
+      senderName: '',
+      text: '',
+      since: '',
+      until: '',
+    }
+    setSenderId(filters.senderId)
+    setSenderName('')
+    setText('')
+    setSince('')
+    setUntil('')
+    setMessagePage(1)
+    setMessagePageInput('1')
+    void loadMessages(1, filters)
   }
 
   async function downloadAttachments(attachments: MessageAttachment[]) {
@@ -337,12 +387,16 @@ export function App() {
               <button onClick={() => void loadMessages(1)} disabled={selectedChat == null || loadingMessages} type="button">
                 Search
               </button>
+              <button className="secondary-action" onClick={resetMessageFilters} disabled={selectedChat == null || loadingMessages} type="button">
+                Reset
+              </button>
             </div>
           </section>
 
           <ol className="message-list" aria-busy={loadingMessages}>
             {messages.map((message) => {
               const downloadable = message.attachments.filter((attachment) => attachment.downloadable)
+              const avatar = senderAvatar(message.sender_name, message.sender_id)
               return (
                 <li key={message.id} className="message-row">
                   <div className="message-meta">
@@ -350,9 +404,32 @@ export function App() {
                     <span>{messageIdLabel(message)}</span>
                   </div>
                   <div className="message-body">
-                    <div className="sender-line">
-                      <strong>{message.sender_name ?? 'Unknown'}</strong>
-                      <span>ID {message.sender_id ?? 'unknown'}</span>
+                    <div className="sender-head">
+                      <span className="sender-avatar" style={{ background: avatar.background }} aria-hidden="true">
+                        {avatar.label}
+                      </span>
+                      <div className="sender-line">
+                        <strong>{message.sender_name ?? 'Unknown'}</strong>
+                        <span>ID {message.sender_id ?? 'unknown'}</span>
+                        {message.sender_id != null && (
+                          <button
+                            className="sender-filter-action"
+                            type="button"
+                            onClick={() => filterByMessageSender(message)}
+                            disabled={loadingMessages}
+                            title="Filter messages by this sender"
+                            aria-label={`Filter messages by ${message.sender_name ?? `ID ${message.sender_id}`} in this chat`}
+                          >
+                            <svg aria-hidden="true" viewBox="0 0 24 24">
+                              <path d="M7.5 10.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+                              <path d="M3.5 18.5a4.5 4.5 0 0 1 8 0" />
+                              <path d="M14 6.5h6.5" />
+                              <path d="M14 11.5h5" />
+                              <path d="M14 16.5h6.5" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {message.reply_context && (
                       <div className={message.reply_context.resolved ? 'reply-snippet' : 'reply-snippet reply-snippet-missing'}>
@@ -546,6 +623,36 @@ function replyMessageIdLabel(context: MessageRow['reply_context']): string {
 
 export function displayChatId(chatId: number): string {
   return chatId > 1_000_000_000 ? `-100${chatId}` : String(chatId)
+}
+
+export function senderAvatar(senderName: string | null, senderId: number | null): { label: string; background: string } {
+  const displayName = senderName?.trim() ?? ''
+  const hashKey = senderId == null ? displayName : String(senderId)
+  const hash = stableHash(hashKey || '?')
+  return {
+    label: senderAvatarLabel(displayName),
+    background: SENDER_AVATAR_BACKGROUNDS[hash % SENDER_AVATAR_BACKGROUNDS.length]!,
+  }
+}
+
+function senderAvatarLabel(displayName: string): string {
+  const parts = displayName.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    return parts
+      .slice(0, 2)
+      .map((part) => Array.from(part)[0] ?? '')
+      .join('')
+      .toUpperCase()
+  }
+  return Array.from(displayName)[0]?.toUpperCase() ?? '?'
+}
+
+function stableHash(value: string): number {
+  let hash = 0
+  for (const char of value) {
+    hash = ((hash << 5) - hash + char.codePointAt(0)!) >>> 0
+  }
+  return hash
 }
 
 function errorText(error: unknown): string {
