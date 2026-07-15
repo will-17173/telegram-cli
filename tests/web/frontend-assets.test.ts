@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { displayChatId } from '../../web/src/App.js'
 
 describe('web frontend source', () => {
   it('defines the management UI shell', () => {
@@ -18,5 +19,12 @@ describe('web frontend source', () => {
     expect(app).not.toContain('Message {message.reply_context.message_id}')
     expect(app).not.toContain('Send message')
     expect(app).not.toContain('Delete')
+  })
+
+  it('formats local supergroup identifiers as Telegram peer IDs', () => {
+    expect(displayChatId(3688621340)).toBe('-1003688621340')
+    expect(displayChatId(-1003688621340)).toBe('-1003688621340')
+    expect(displayChatId(10)).toBe('10')
+    expect(displayChatId(-123)).toBe('-123')
   })
 })

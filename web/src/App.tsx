@@ -273,7 +273,7 @@ export function App() {
               <span className="panel-kicker">Message stream</span>
               <div className="chat-title-row">
                 <h1>{selectedChatName}</h1>
-                {selectedChat != null && <span className="selected-chat-id">Chat ID {selectedChat.chat_id}</span>}
+                {selectedChat != null && <span className="selected-chat-id">Chat ID {displayChatId(selectedChat.chat_id)}</span>}
               </div>
               <p>{selectedSummary}</p>
             </div>
@@ -433,6 +433,10 @@ function replyContentLabel(context: MessageRow['reply_context']): string {
 
 function replyMessageIdLabel(context: MessageRow['reply_context']): string {
   return context == null ? '' : `#${context.message_id}`
+}
+
+export function displayChatId(chatId: number): string {
+  return chatId > 1_000_000_000 ? `-100${chatId}` : String(chatId)
 }
 
 function errorText(error: unknown): string {
