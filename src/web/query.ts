@@ -44,7 +44,7 @@ export class WebQueryService {
     }
   }
 
-  messages(input: { account?: string; chatId: number; q?: string; senderId?: number; senderName?: string; text?: string; since?: string; until?: string; limit?: number; cursor?: string }): WebPage<WebMessage> {
+  messages(input: { account?: string; chatId: number; q?: string; senderId?: number; senderName?: string; text?: string; since?: string; until?: string; limit?: number; offset?: number; cursor?: string }): WebPage<WebMessage> {
     const context = resolveAccountContext({ explicitName: input.account, dataDir: this.options.dataDir })
     const db = new MessageDB(context.dbPath, { readonly: true })
     try {
@@ -57,6 +57,7 @@ export class WebQueryService {
         since: input.since,
         until: input.until,
         limit: input.limit,
+        offset: input.offset,
         cursor: input.cursor,
       })
       const logicalMessages = groupLogicalMessages(page.items)
@@ -93,6 +94,7 @@ export class WebQueryService {
             }
           }),
         next_cursor: page.next_cursor,
+        total: page.total,
       }
     } finally {
       db.close()

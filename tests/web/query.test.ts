@@ -443,6 +443,31 @@ describe('WebQueryService', () => {
     expect(page.items).toHaveLength(50)
     expect(page.items[0].content).toBe('message 55')
     expect(page.items[49].content).toBe('message 6')
+    expect(page.total).toBe(55)
+    expect(page.next_cursor).not.toBeNull()
+  })
+
+  it('uses message offsets to jump directly to arbitrary pages', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedManyMessages(join(root, 'accounts', 'work', 'messages.db'), 55)
+    const service = new WebQueryService({ dataDir: root })
+
+    const page = service.messages({ account: 'work', chatId: 10, limit: 10, offset: 20 })
+
+    expect(page.items.map((message) => message.content)).toEqual([
+      'message 35',
+      'message 34',
+      'message 33',
+      'message 32',
+      'message 31',
+      'message 30',
+      'message 29',
+      'message 28',
+      'message 27',
+      'message 26',
+    ])
+    expect(page.total).toBe(55)
     expect(page.next_cursor).not.toBeNull()
   })
 

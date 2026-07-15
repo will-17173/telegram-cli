@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { displayChatId } from '../../web/src/App.js'
+import { displayChatId, paginationWindow } from '../../web/src/App.js'
 
 describe('web frontend source', () => {
   it('defines the management UI shell', () => {
@@ -8,7 +8,13 @@ describe('web frontend source', () => {
 
     expect(app).toContain('Telegram CLI')
     expect(app).toContain('Sync current chat')
-    expect(app).toContain('Load earlier')
+    expect(app).toContain('First')
+    expect(app).toContain('Last')
+    expect(app).toContain('Jump to')
+    expect(app).toContain('Page size')
+    expect(app).toContain('messagePageSize')
+    expect(app).toContain('messagePageInput')
+    expect(app).toContain('totalMessagePages')
     expect(app).toContain('reply-snippet')
     expect(app).toContain('replyMessageIdLabel')
     expect(app).toContain('syncErrorText')
@@ -31,10 +37,25 @@ describe('web frontend source', () => {
     expect(css).toContain('scrollbar-gutter: stable;')
   })
 
+  it('keeps long chat names from overlapping sidebar metadata', () => {
+    const css = readFileSync('web/src/styles.css', 'utf8')
+
+    expect(css).toContain('grid-template-rows: minmax(0, auto) auto;')
+    expect(css).toContain('-webkit-line-clamp: 2;')
+    expect(css).toContain('text-overflow: ellipsis;')
+  })
+
   it('formats local supergroup identifiers as Telegram peer IDs', () => {
     expect(displayChatId(3688621340)).toBe('-1003688621340')
     expect(displayChatId(-1003688621340)).toBe('-1003688621340')
     expect(displayChatId(10)).toBe('10')
     expect(displayChatId(-123)).toBe('-123')
+  })
+
+  it('builds a numbered pagination range with ellipses', () => {
+    expect(paginationWindow(1, 100)).toEqual([1, 2, 3, 4, 'ellipsis-right', 100])
+    expect(paginationWindow(50, 100)).toEqual([1, 'ellipsis-left', 48, 49, 50, 51, 52, 'ellipsis-right', 100])
+    expect(paginationWindow(99, 100)).toEqual([1, 'ellipsis-left', 97, 98, 99, 100])
+    expect(paginationWindow(3, 5)).toEqual([1, 2, 3, 4, 5])
   })
 })

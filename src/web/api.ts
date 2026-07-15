@@ -61,6 +61,7 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
           since: stringParam(url, 'since'),
           until: stringParam(url, 'until'),
           limit: optionalPositiveIntParam(url, 'limit') ?? 50,
+          offset: optionalNonNegativeIntParam(url, 'offset') ?? 0,
           cursor: stringParam(url, 'cursor'),
         }))
       case '/api/sync-task':

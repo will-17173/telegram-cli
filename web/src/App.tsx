@@ -10,7 +10,8 @@ import {
   type SyncTaskState,
 } from './api.js'
 
-const MESSAGE_LIMIT = 50
+const DEFAULT_MESSAGE_PAGE_SIZE = 50
+const MESSAGE_PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 const SYNC_LIMIT = 500
 
 export function App() {
@@ -20,7 +21,10 @@ export function App() {
   const [chats, setChats] = useState<ChatSummary[]>([])
   const [selectedChat, setSelectedChat] = useState<ChatSummary | null>(null)
   const [messages, setMessages] = useState<MessageRow[]>([])
-  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [messageTotal, setMessageTotal] = useState(0)
+  const [messagePage, setMessagePage] = useState(1)
+  const [messagePageInput, setMessagePageInput] = useState('1')
+  const [messagePageSize, setMessagePageSize] = useState(DEFAULT_MESSAGE_PAGE_SIZE)
   const [senderId, setSenderId] = useState('')
   const [senderName, setSenderName] = useState('')
   const [text, setText] = useState('')
@@ -55,7 +59,9 @@ export function App() {
       setChats([])
       setSelectedChat(null)
       setMessages([])
-      setNextCursor(null)
+      setMessageTotal(0)
+      setMessagePage(1)
+      setMessagePageInput('1')
       return
     }
     setLoadingChats(true)
@@ -70,7 +76,9 @@ export function App() {
         if (page.items.length === 0) {
           messageRequestId.current += 1
           setMessages([])
-          setNextCursor(null)
+          setMessageTotal(0)
+          setMessagePage(1)
+          setMessagePageInput('1')
         }
         const current = selectedChatRef.current
         const next = current != null && page.items.some((item) => item.chat_id === current.chat_id)
@@ -79,7 +87,9 @@ export function App() {
         if (next?.chat_id !== current?.chat_id) {
           messageRequestId.current += 1
           setMessages([])
-          setNextCursor(null)
+          setMessageTotal(0)
+          setMessagePage(1)
+          setMessagePageInput('1')
         }
         setSelectedChat(next)
       })
@@ -95,12 +105,14 @@ export function App() {
     if (!account || selectedChat == null) {
       messageRequestId.current += 1
       setMessages([])
-      setNextCursor(null)
+      setMessageTotal(0)
+      setMessagePage(1)
+      setMessagePageInput('1')
       setLoadingMessages(false)
       return
     }
-    void loadMessages(null)
-  }, [account, selectedChat?.chat_id])
+    void loadMessages(1)
+  }, [account, selectedChat?.chat_id, messagePageSize])
 
   const selectedSummary = useMemo(() => {
     if (selectedChat == null) return 'No chat selected'
@@ -108,9 +120,12 @@ export function App() {
   }, [selectedChat])
 
   const selectedChatName = selectedChat?.chat_name ?? (selectedChat == null ? 'Select a chat' : `Chat ${selectedChat.chat_id}`)
+  const totalMessagePages = Math.max(1, Math.ceil(messageTotal / messagePageSize))
+  const visibleMessagePages = paginationWindow(messagePage, totalMessagePages)
 
-  async function loadMessages(cursor: string | null) {
+  async function loadMessages(pageNumber: number) {
     if (!account || selectedChat == null) return
+    const targetPage = Math.max(1, Math.trunc(pageNumber))
     const requestId = messageRequestId.current + 1
     messageRequestId.current = requestId
     const requestAccount = account
@@ -126,24 +141,35 @@ export function App() {
       const params = new URLSearchParams({
         account: requestAccount,
         chatId: String(requestChat.chat_id),
-        limit: String(MESSAGE_LIMIT),
+        limit: String(messagePageSize),
+        offset: String((targetPage - 1) * messagePageSize),
       })
       if (requestSenderId) params.set('senderId', requestSenderId)
       if (requestSenderName) params.set('senderName', requestSenderName)
       if (requestText) params.set('text', requestText)
       if (requestSince) params.set('since', new Date(requestSince).toISOString())
       if (requestUntil) params.set('until', new Date(requestUntil).toISOString())
-      if (cursor) params.set('cursor', cursor)
 
       const page = await getJson<Page<MessageRow>>(`/api/messages?${params}`)
       if (requestId !== messageRequestId.current) return
-      setMessages((current) => cursor ? current.concat(page.items) : page.items)
-      setNextCursor(page.next_cursor ?? null)
+      setMessages(page.items)
+      setMessageTotal(page.total ?? page.items.length)
+      setMessagePage(targetPage)
+      setMessagePageInput(String(targetPage))
     } catch (caught) {
       if (requestId === messageRequestId.current) setError(errorText(caught))
     } finally {
       if (requestId === messageRequestId.current) setLoadingMessages(false)
     }
+  }
+
+  function goToMessagePage() {
+    const pageNumber = Number.parseInt(messagePageInput, 10)
+    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+      setMessagePageInput(String(messagePage))
+      return
+    }
+    void loadMessages(Math.min(pageNumber, totalMessagePages))
   }
 
   async function downloadAttachments(attachments: MessageAttachment[]) {
@@ -205,7 +231,7 @@ export function App() {
         return
       }
       if (accountRef.current === syncAccount && selectedChatRef.current?.chat_id === syncChat.chat_id) {
-        await loadMessages(null)
+        await loadMessages(messagePage)
       }
     } catch (caught) {
       setSyncTask({ status: 'idle' })
@@ -225,7 +251,7 @@ export function App() {
         </div>
         <label className="account-picker">
           <span>Account</span>
-          <select value={account} onChange={(event) => { setAccount(event.target.value); setSelectedChat(null); setMessages([]) }}>
+          <select value={account} onChange={(event) => { setAccount(event.target.value); setSelectedChat(null); setMessages([]); setMessageTotal(0); setMessagePage(1); setMessagePageInput('1') }}>
             {accounts.accounts.map((item) => (
               <option key={item.name} value={item.name}>
                 {item.display_name || item.username || item.name}
@@ -285,7 +311,7 @@ export function App() {
           <section className="filter-panel" aria-label="Message filters">
             <div className="filter-panel-heading">
               <span className="panel-kicker">Filters</span>
-              <span>{loadingMessages ? 'Reading local cache' : `${messages.length} shown`}</span>
+              <span>{loadingMessages ? 'Reading local cache' : `${messages.length} of ${messageTotal} shown`}</span>
             </div>
             <div className="filters">
               <label>
@@ -308,7 +334,7 @@ export function App() {
                 <span>Until</span>
                 <input type="datetime-local" value={until} onChange={(event) => setUntil(event.target.value)} />
               </label>
-              <button onClick={() => void loadMessages(null)} disabled={selectedChat == null || loadingMessages} type="button">
+              <button onClick={() => void loadMessages(1)} disabled={selectedChat == null || loadingMessages} type="button">
                 Search
               </button>
             </div>
@@ -389,15 +415,98 @@ export function App() {
           </ol>
 
           {!loadingMessages && selectedChat != null && messages.length === 0 && <p className="empty-note">No messages match the current filters.</p>}
-          {nextCursor && (
-            <button className="load-more" onClick={() => void loadMessages(nextCursor)} disabled={loadingMessages} type="button">
-              Load earlier
-            </button>
+          {selectedChat != null && (
+            <nav className="message-pager" aria-label="Message pages">
+              <label className="pager-size">
+                <span>Page size</span>
+                <select
+                  value={messagePageSize}
+                  onChange={(event) => {
+                    setMessagePageSize(Number.parseInt(event.target.value, 10))
+                    setMessagePage(1)
+                    setMessagePageInput('1')
+                  }}
+                >
+                  {MESSAGE_PAGE_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}
+                </select>
+              </label>
+              <div className="pager-main">
+                <button onClick={() => void loadMessages(1)} disabled={loadingMessages || messagePage <= 1} type="button">
+                  First
+                </button>
+                <button onClick={() => void loadMessages(messagePage - 1)} disabled={loadingMessages || messagePage <= 1} type="button">
+                  Previous
+                </button>
+                <div className="pager-pages" aria-label="Page numbers">
+                  {visibleMessagePages.map((pageItem) => (
+                    typeof pageItem === 'number'
+                      ? (
+                        <button
+                          className={pageItem === messagePage ? 'pager-page pager-page-current' : 'pager-page'}
+                          key={pageItem}
+                          onClick={() => void loadMessages(pageItem)}
+                          disabled={loadingMessages || pageItem === messagePage}
+                          aria-current={pageItem === messagePage ? 'page' : undefined}
+                          type="button"
+                        >
+                          {pageItem}
+                        </button>
+                      )
+                      : <span className="pager-ellipsis" key={pageItem}>...</span>
+                  ))}
+                </div>
+                <button onClick={() => void loadMessages(messagePage + 1)} disabled={loadingMessages || messagePage >= totalMessagePages} type="button">
+                  Next
+                </button>
+                <button onClick={() => void loadMessages(totalMessagePages)} disabled={loadingMessages || messagePage >= totalMessagePages} type="button">
+                  Last
+                </button>
+              </div>
+              <div className="pager-jump-group">
+                <label className="pager-jump">
+                  <span>Jump to</span>
+                  <input
+                    value={messagePageInput}
+                    onChange={(event) => setMessagePageInput(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === 'Enter') goToMessagePage() }}
+                    inputMode="numeric"
+                    aria-label="Jump to message page"
+                  />
+                </label>
+                <span className="pager-count">/ {totalMessagePages}</span>
+                <button onClick={goToMessagePage} disabled={loadingMessages} type="button">
+                  Go
+                </button>
+              </div>
+            </nav>
           )}
         </section>
       </section>
     </main>
   )
+}
+
+type PaginationItem = number | 'ellipsis-left' | 'ellipsis-right'
+
+export function paginationWindow(currentPage: number, totalPages: number): PaginationItem[] {
+  const safeTotal = Math.max(1, Math.trunc(totalPages))
+  const safeCurrent = Math.min(Math.max(1, Math.trunc(currentPage)), safeTotal)
+  if (safeTotal <= 7) return Array.from({ length: safeTotal }, (_, index) => index + 1)
+
+  if (safeCurrent <= 4) return [1, 2, 3, 4, 'ellipsis-right', safeTotal]
+  if (safeCurrent >= safeTotal - 3) return [1, 'ellipsis-left', safeTotal - 3, safeTotal - 2, safeTotal - 1, safeTotal]
+
+  return [
+    1,
+    'ellipsis-left',
+    safeCurrent - 2,
+    safeCurrent - 1,
+    safeCurrent,
+    safeCurrent + 1,
+    safeCurrent + 2,
+    'ellipsis-right',
+    safeTotal,
+  ]
 }
 
 function formatDate(value: string): string {

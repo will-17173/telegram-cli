@@ -47,6 +47,7 @@ export type MessagePageOptions = {
   since?: string
   until?: string
   limit?: number
+  offset?: number
   cursor?: string
 }
 
@@ -221,7 +222,7 @@ export class MessageDB {
     `).all(...params, options.limit ?? 100) as StoredMessage[]
   }
 
-  getMessagesPage(options: MessagePageOptions): { items: StoredMessage[]; next_cursor: string | null } {
+  getMessagesPage(options: MessagePageOptions): { items: StoredMessage[]; total: number; next_cursor: string | null } {
     const params: unknown[] = [canonicalChatId(options.chatId)]
     const conditions = ['chat_id = ?']
     const q = options.q?.trim()
@@ -257,18 +258,24 @@ export class MessageDB {
       params.push(cursor.timestamp, cursor.id)
     }
 
+    const total = (this.db.prepare(`
+      SELECT COUNT(*) AS count FROM messages INDEXED BY idx_messages_chat_recent
+      WHERE ${conditions.join(' AND ')}
+    `).get(...params) as { count: number }).count
     const limit = clampInteger(options.limit, 50, 1, 100)
+    const offset = Math.max(0, Math.trunc(options.offset ?? 0))
     const rows = this.db.prepare(`
       SELECT * FROM messages INDEXED BY idx_messages_chat_recent
       WHERE ${conditions.join(' AND ')}
       ORDER BY timestamp DESC, id DESC
       LIMIT ?
-    `).all(...params, limit + 1) as StoredMessage[]
+      OFFSET ?
+    `).all(...params, limit + 1, offset) as StoredMessage[]
     const items = rows.slice(0, limit)
     const next_cursor = rows.length > limit && items.length > 0
       ? encodeMessageCursor(items[items.length - 1])
       : null
-    return { items, next_cursor }
+    return { items, total, next_cursor }
   }
 
   getMessagesByKeys(keys: Array<{ chatId: number; msgId: number }>): StoredMessage[] {

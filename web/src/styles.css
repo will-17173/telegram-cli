@@ -249,7 +249,8 @@ input::placeholder {
   color: inherit;
   display: grid;
   gap: 6px;
-  min-height: 70px;
+  grid-template-rows: minmax(0, auto) auto;
+  min-height: 82px;
   padding: 12px;
   position: relative;
   text-align: left;
@@ -279,9 +280,16 @@ input::placeholder {
 }
 
 .chat-name {
+  display: -webkit-box;
   font-weight: 800;
   line-height: 1.25;
+  max-height: 2.5em;
+  min-width: 0;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .chat-meta {
@@ -351,7 +359,7 @@ input::placeholder {
 
 .primary-action,
 .filters button,
-.load-more {
+.message-pager button {
   background: var(--ink);
   border: 1px solid var(--ink);
   border-radius: 8px;
@@ -695,19 +703,107 @@ input::placeholder {
   width: 100%;
 }
 
-.load-more {
+.empty-note {
+  margin: 18px 0;
+}
+
+.message-pager {
+  align-items: center;
+  display: grid;
+  gap: 10px 14px;
+  grid-template-columns: minmax(150px, auto) minmax(0, 1fr) minmax(250px, auto);
   margin-top: 18px;
 }
 
-.empty-note {
-  margin: 18px 0;
+.pager-main {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.message-pager label {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.message-pager label span,
+.pager-count {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.message-pager input,
+.message-pager select {
+  min-height: 40px;
+}
+
+.message-pager input {
+  width: 78px;
+}
+
+.message-pager select {
+  width: 92px;
+}
+
+.pager-count {
+  align-self: center;
+}
+
+.pager-pages {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.pager-ellipsis {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  min-width: 26px;
+  text-align: center;
+}
+
+.message-pager .pager-page {
+  background: #ffffff;
+  border-color: var(--line-strong);
+  box-shadow: none;
+  color: var(--telegram-dark);
+  min-width: 40px;
+}
+
+.message-pager .pager-page-current {
+  background: var(--telegram-dark);
+  border-color: var(--telegram-dark);
+  color: #ffffff;
+}
+
+.pager-size,
+.pager-jump {
+  flex: 0 0 auto;
+}
+
+.pager-size {
+  justify-self: start;
+}
+
+.pager-jump-group {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 7px;
+  justify-self: end;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .chat-row,
   .primary-action,
   .filters button,
-  .load-more,
+  .message-pager button,
   .attachment-action,
   .download-all {
     transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
@@ -716,7 +812,7 @@ input::placeholder {
   .chat-row:hover,
   .primary-action:hover:not(:disabled),
   .filters button:hover:not(:disabled),
-  .load-more:hover:not(:disabled),
+  .message-pager button:hover:not(:disabled),
   .attachment-action:hover:not(:disabled),
   .download-all:hover:not(:disabled) {
     transform: translateY(-1px);
@@ -726,6 +822,16 @@ input::placeholder {
 @media (max-width: 1080px) {
   .filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .message-pager {
+    grid-template-columns: 1fr;
+  }
+
+  .pager-size,
+  .pager-main,
+  .pager-jump-group {
+    justify-self: start;
   }
 }
 
