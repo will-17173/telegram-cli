@@ -250,7 +250,7 @@ input::placeholder {
   display: grid;
   gap: 6px;
   grid-template-rows: minmax(0, auto) auto;
-  min-height: 82px;
+  min-height: 90px;
   padding: 12px;
   position: relative;
   text-align: left;
@@ -282,11 +282,11 @@ input::placeholder {
 .chat-name {
   display: -webkit-box;
   font-weight: 800;
-  line-height: 1.25;
-  max-height: 2.5em;
+  line-height: 1.32;
   min-width: 0;
   overflow: hidden;
   overflow-wrap: anywhere;
+  padding-bottom: 3px;
   text-overflow: ellipsis;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;

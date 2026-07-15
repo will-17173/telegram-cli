@@ -48,6 +48,9 @@ describe('web frontend source', () => {
 
     expect(css).toContain('grid-template-rows: minmax(0, auto) auto;')
     expect(css).toContain('-webkit-line-clamp: 2;')
+    expect(css).toContain('min-height: 90px;')
+    expect(css).toContain('line-height: 1.32;')
+    expect(css).toContain('padding-bottom: 3px;')
     expect(css).toContain('text-overflow: ellipsis;')
   })
 
