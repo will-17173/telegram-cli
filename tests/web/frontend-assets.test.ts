@@ -20,8 +20,10 @@ describe('web frontend source', () => {
     expect(app).toContain('filterByMessageSender')
     expect(app).toContain('sender-filter-action')
     expect(app).toContain('Filter messages by this sender')
+    expect(app).toContain('data-tooltip="Filter messages by this sender"')
     expect(app).toContain('sender-block-action')
     expect(app).toContain('Hide messages from this sender')
+    expect(app).toContain('data-tooltip="Hide messages from this sender"')
     expect(app).toContain('manage-sender-blacklist')
     expect(app).toContain('Sender blacklist')
     expect(app).toContain('removeBlockedSender')
@@ -65,6 +67,14 @@ describe('web frontend source', () => {
     expect(css).toContain('font-family: Inter, ui-sans-serif, system-ui')
     expect(css).toContain('font-weight: 700;')
     expect(css).toContain('letter-spacing: 0;')
+  })
+
+  it('shows tooltips for sender action icon buttons', () => {
+    const css = readFileSync('web/src/styles.css', 'utf8')
+
+    expect(css).toContain('[data-tooltip]::after')
+    expect(css).toContain('[data-tooltip]:hover::after')
+    expect(css).toContain('[data-tooltip]:focus-visible::after')
   })
 
   it('formats local supergroup identifiers as Telegram peer IDs', () => {

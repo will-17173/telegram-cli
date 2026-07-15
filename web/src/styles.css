@@ -553,8 +553,56 @@ input::placeholder {
   justify-content: center;
   margin-left: 2px;
   padding: 0;
+  position: relative;
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
   width: 26px;
+}
+
+[data-tooltip]::after {
+  background: var(--ink);
+  border-radius: 7px;
+  bottom: calc(100% + 8px);
+  box-shadow: 0 10px 24px rgba(22, 32, 42, 0.18);
+  color: #ffffff;
+  content: attr(data-tooltip);
+  font-size: 12px;
+  font-weight: 700;
+  left: 50%;
+  line-height: 1.25;
+  max-width: 220px;
+  opacity: 0;
+  padding: 6px 8px;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, 4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: nowrap;
+  z-index: 20;
+}
+
+[data-tooltip]::before {
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+  bottom: calc(100% - 2px);
+  content: "";
+  left: 50%;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease;
+  z-index: 20;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+[data-tooltip]:hover::before,
+[data-tooltip]:focus-visible::before {
+  opacity: 1;
 }
 
 .sender-filter-action:hover:not(:disabled) {

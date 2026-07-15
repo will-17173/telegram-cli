@@ -481,6 +481,7 @@ export function App() {
                             onClick={() => filterByMessageSender(message)}
                             disabled={loadingMessages}
                             title="Filter messages by this sender"
+                            data-tooltip="Filter messages by this sender"
                             aria-label={`Filter messages by ${message.sender_name ?? `ID ${message.sender_id}`} in this chat`}
                           >
                             <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -499,6 +500,7 @@ export function App() {
                             onClick={() => blockMessageSender(message)}
                             disabled={loadingMessages}
                             title="Hide messages from this sender"
+                            data-tooltip="Hide messages from this sender"
                             aria-label={`Hide messages from ${senderDisplayLabel(message.sender_name, message.sender_id)} in this chat`}
                           >
                             <svg aria-hidden="true" viewBox="0 0 24 24">
