@@ -2,7 +2,19 @@
 
 [Project website](https://will-17173.github.io/telegram-cli/) · [Telegram CLI documentation](https://will-17173.github.io/telegram-cli/docs/) · [简体中文 README](README.zh-CN.md)
 
-Telegram CLI is a TypeScript command-line interface (CLI) for live Telegram data, local SQLite search, and remote management. Use one `tg` command from a terminal, a script, or a coding agent. Account sessions and synced messages stay on your machine.
+Telegram CLI is a TypeScript command-line interface (CLI) for live Telegram data, local SQLite search, and remote management. It aims to be the most capable Telegram CLI for people and artificial intelligence (AI) agents that need dependable Telegram access from one `tg` command. Account sessions and synced messages stay on your machine.
+
+## Why Telegram CLI stands out
+
+Telegram CLI combines online reads, local persistence, file archives, live listeners, remote writes, group administration, account isolation, a local web UI, and structured output in one tool.
+
+It is designed for AI agents:
+
+- **Stable command contracts**: finite commands support JSON, YAML, Markdown, exit statuses, and stable error codes
+- **Local-first data access**: synced messages stay in SQLite so agents can search and analyze Telegram history without repeated network reads
+- **Explicit account control**: `--account` selects the intended session for one command
+- **Write safety**: a write-access gate separates read-only automation from commands that modify Telegram
+- **Agent skill support**: the `using-telegram-cli` skill teaches supported agents how to authenticate, sync, query, and avoid unsafe writes
 
 ## Read the documentation
 
