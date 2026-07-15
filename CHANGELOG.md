@@ -7,9 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-15
+
 ### Added
 
 - Add `tg web`, a local-only React management UI for browsing stored messages and triggering read-only sync for the selected chat.
+
+### Changed
+
+- Show `tg sync` progress every 100 fetched messages for long-running chat synchronization.
+- Continue `tg sync` backfilling older messages after the first-sync cap once newer messages are already current.
+
+### Fixed
+
+- Retry transient `CHANNEL_INVALID` history fetch failures before failing a sync.
+- Backfill older sync pages using Telegram history offsets so repeated sync runs continue past the first 500 stored messages.
 
 ## [0.4.1] - 2026-07-14
 
