@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { displayChatId, paginationWindow, senderAvatar } from '../../web/src/App.js'
+import { displayChatId, paginationWindow, senderAvatar, senderBlacklistKey, visibleMessagesForBlacklist } from '../../web/src/App.js'
 
 describe('web frontend source', () => {
   it('defines the management UI shell', () => {
@@ -20,6 +20,11 @@ describe('web frontend source', () => {
     expect(app).toContain('filterByMessageSender')
     expect(app).toContain('sender-filter-action')
     expect(app).toContain('Filter messages by this sender')
+    expect(app).toContain('sender-block-action')
+    expect(app).toContain('Hide messages from this sender')
+    expect(app).toContain('manage-sender-blacklist')
+    expect(app).toContain('Sender blacklist')
+    expect(app).toContain('removeBlockedSender')
     expect(app).toContain('sender-avatar')
     expect(app).toContain('reply-snippet')
     expect(app).toContain('replyMessageIdLabel')
@@ -86,5 +91,16 @@ describe('web frontend source', () => {
     expect(senderAvatar('Sam Smith', 100).label).toBe('SS')
     expect(senderAvatar('  sam   smith  ', 100).label).toBe('SS')
     expect(senderAvatar(' ', null).label).toBe('?')
+  })
+
+  it('filters blacklisted senders without deleting messages', () => {
+    const messages = [
+      { id: 1, sender_id: 7, sender_name: 'Alice' },
+      { id: 2, sender_id: 8, sender_name: 'Bob' },
+      { id: 3, sender_id: 7, sender_name: 'Alice Renamed' },
+    ]
+    const blocked = new Set([senderBlacklistKey('Alice', 7)])
+
+    expect(visibleMessagesForBlacklist(messages, blocked).map((message) => message.id)).toEqual([2])
   })
 })

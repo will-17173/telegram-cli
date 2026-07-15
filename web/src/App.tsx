@@ -22,6 +22,14 @@ type MessageFilterOverrides = {
   until?: string
 }
 
+type BlockedSender = {
+  key: string
+  sender_id: number | null
+  sender_name: string | null
+  label: string
+  blocked_at: string
+}
+
 const SENDER_AVATAR_BACKGROUNDS = [
   'linear-gradient(135deg, #ff8a65 0%, #f4511e 100%)',
   'linear-gradient(135deg, #f6bf26 0%, #f29900 100%)',
@@ -49,6 +57,8 @@ export function App() {
   const [text, setText] = useState('')
   const [since, setSince] = useState('')
   const [until, setUntil] = useState('')
+  const [blockedSenders, setBlockedSenders] = useState<BlockedSender[]>([])
+  const [blacklistOpen, setBlacklistOpen] = useState(false)
   const [syncTask, setSyncTask] = useState<SyncTaskState>({ status: 'idle' })
   const [downloadStatus, setDownloadStatus] = useState<Record<string, string>>({})
   const [loadingChats, setLoadingChats] = useState(false)
@@ -133,6 +143,11 @@ export function App() {
     void loadMessages(1)
   }, [account, selectedChat?.chat_id, messagePageSize])
 
+  useEffect(() => {
+    setBlockedSenders(readBlockedSenders(senderBlacklistStorageKey(account, selectedChat?.chat_id ?? null)))
+    setBlacklistOpen(false)
+  }, [account, selectedChat?.chat_id])
+
   const selectedSummary = useMemo(() => {
     if (selectedChat == null) return 'No chat selected'
     return `${selectedChat.msg_count} messages from ${formatDate(selectedChat.first_msg)} to ${formatDate(selectedChat.last_msg)}`
@@ -141,6 +156,9 @@ export function App() {
   const selectedChatName = selectedChat?.chat_name ?? (selectedChat == null ? 'Select a chat' : `Chat ${selectedChat.chat_id}`)
   const totalMessagePages = Math.max(1, Math.ceil(messageTotal / messagePageSize))
   const visibleMessagePages = paginationWindow(messagePage, totalMessagePages)
+  const blockedSenderKeys = useMemo(() => new Set(blockedSenders.map((sender) => sender.key)), [blockedSenders])
+  const visibleMessages = useMemo(() => visibleMessagesForBlacklist(messages, blockedSenderKeys), [messages, blockedSenderKeys])
+  const hiddenMessageCount = messages.length - visibleMessages.length
 
   async function loadMessages(pageNumber: number, filterOverrides: MessageFilterOverrides = {}) {
     if (!account || selectedChat == null) return
@@ -220,6 +238,36 @@ export function App() {
     setMessagePage(1)
     setMessagePageInput('1')
     void loadMessages(1, filters)
+  }
+
+  function blockMessageSender(message: MessageRow) {
+    const key = senderBlacklistKey(message.sender_name, message.sender_id)
+    if (key == null) return
+    updateBlockedSenders((current) => {
+      if (current.some((sender) => sender.key === key)) return current
+      return [
+        ...current,
+        {
+          key,
+          sender_id: message.sender_id,
+          sender_name: message.sender_name,
+          label: senderDisplayLabel(message.sender_name, message.sender_id),
+          blocked_at: new Date().toISOString(),
+        },
+      ]
+    })
+  }
+
+  function removeBlockedSender(key: string) {
+    updateBlockedSenders((current) => current.filter((sender) => sender.key !== key))
+  }
+
+  function updateBlockedSenders(updater: (current: BlockedSender[]) => BlockedSender[]) {
+    setBlockedSenders((current) => {
+      const next = updater(current)
+      writeBlockedSenders(senderBlacklistStorageKey(account, selectedChat?.chat_id ?? null), next)
+      return next
+    })
   }
 
   async function downloadAttachments(attachments: MessageAttachment[]) {
@@ -361,7 +409,21 @@ export function App() {
           <section className="filter-panel" aria-label="Message filters">
             <div className="filter-panel-heading">
               <span className="panel-kicker">Filters</span>
-              <span>{loadingMessages ? 'Reading local cache' : `${messages.length} of ${messageTotal} shown`}</span>
+              <div className="filter-panel-heading-actions">
+                <span>
+                  {loadingMessages
+                    ? 'Reading local cache'
+                    : `${visibleMessages.length} of ${messageTotal} shown${hiddenMessageCount > 0 ? `, ${hiddenMessageCount} hidden` : ''}`}
+                </span>
+                <button
+                  className="manage-sender-blacklist secondary-action"
+                  type="button"
+                  onClick={() => setBlacklistOpen(true)}
+                  disabled={selectedChat == null}
+                >
+                  Blacklist {blockedSenders.length}
+                </button>
+              </div>
             </div>
             <div className="filters">
               <label>
@@ -394,9 +456,10 @@ export function App() {
           </section>
 
           <ol className="message-list" aria-busy={loadingMessages}>
-            {messages.map((message) => {
+            {visibleMessages.map((message) => {
               const downloadable = message.attachments.filter((attachment) => attachment.downloadable)
               const avatar = senderAvatar(message.sender_name, message.sender_id)
+              const canBlockSender = senderBlacklistKey(message.sender_name, message.sender_id) != null
               return (
                 <li key={message.id} className="message-row">
                   <div className="message-meta">
@@ -426,6 +489,23 @@ export function App() {
                               <path d="M14 6.5h6.5" />
                               <path d="M14 11.5h5" />
                               <path d="M14 16.5h6.5" />
+                            </svg>
+                          </button>
+                        )}
+                        {canBlockSender && (
+                          <button
+                            className="sender-block-action"
+                            type="button"
+                            onClick={() => blockMessageSender(message)}
+                            disabled={loadingMessages}
+                            title="Hide messages from this sender"
+                            aria-label={`Hide messages from ${senderDisplayLabel(message.sender_name, message.sender_id)} in this chat`}
+                          >
+                            <svg aria-hidden="true" viewBox="0 0 24 24">
+                              <path d="M7.5 10.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+                              <path d="M3.5 18.5a4.5 4.5 0 0 1 8 0" />
+                              <path d="M15 8.5 21 14.5" />
+                              <path d="M21 8.5 15 14.5" />
                             </svg>
                           </button>
                         )}
@@ -492,6 +572,9 @@ export function App() {
           </ol>
 
           {!loadingMessages && selectedChat != null && messages.length === 0 && <p className="empty-note">No messages match the current filters.</p>}
+          {!loadingMessages && selectedChat != null && messages.length > 0 && visibleMessages.length === 0 && (
+            <p className="empty-note">All messages on this page are hidden by blacklist.</p>
+          )}
           {selectedChat != null && (
             <nav className="message-pager" aria-label="Message pages">
               <label className="pager-size">
@@ -559,6 +642,47 @@ export function App() {
           )}
         </section>
       </section>
+      {blacklistOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="blacklist-modal" role="dialog" aria-modal="true" aria-labelledby="sender-blacklist-title">
+            <div className="blacklist-modal-heading">
+              <div>
+                <span className="panel-kicker">Message visibility</span>
+                <h2 id="sender-blacklist-title">Sender blacklist</h2>
+              </div>
+              <button className="modal-close" type="button" onClick={() => setBlacklistOpen(false)} aria-label="Close sender blacklist">
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M6 6 18 18" />
+                  <path d="M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+            {blockedSenders.length === 0
+              ? <p className="empty-note">No senders are hidden in this chat.</p>
+              : (
+                <ul className="blacklist-list">
+                  {blockedSenders.map((sender) => {
+                    const avatar = senderAvatar(sender.sender_name, sender.sender_id)
+                    return (
+                      <li key={sender.key} className="blacklist-row">
+                        <span className="sender-avatar" style={{ background: avatar.background }} aria-hidden="true">
+                          {avatar.label}
+                        </span>
+                        <span className="blacklist-copy">
+                          <strong>{sender.label}</strong>
+                          <small>{sender.sender_id == null ? 'Name match' : `ID ${sender.sender_id}`}</small>
+                        </span>
+                        <button type="button" onClick={() => removeBlockedSender(sender.key)}>
+                          Remove
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+          </section>
+        </div>
+      )}
     </main>
   )
 }
@@ -635,6 +759,22 @@ export function senderAvatar(senderName: string | null, senderId: number | null)
   }
 }
 
+export function senderBlacklistKey(senderName: string | null, senderId: number | null): string | null {
+  if (senderId != null) return `id:${senderId}`
+  const normalizedName = senderName?.trim()
+  return normalizedName == null || normalizedName === '' ? null : `name:${normalizedName.toLocaleLowerCase()}`
+}
+
+export function visibleMessagesForBlacklist<T extends { sender_id: number | null; sender_name: string | null }>(
+  messages: readonly T[],
+  blockedSenderKeys: ReadonlySet<string | null>,
+): T[] {
+  return messages.filter((message) => {
+    const key = senderBlacklistKey(message.sender_name, message.sender_id)
+    return key == null || !blockedSenderKeys.has(key)
+  })
+}
+
 function senderAvatarLabel(displayName: string): string {
   const parts = displayName.split(/\s+/).filter(Boolean)
   if (parts.length >= 2) {
@@ -645,6 +785,40 @@ function senderAvatarLabel(displayName: string): string {
       .toUpperCase()
   }
   return Array.from(displayName)[0]?.toUpperCase() ?? '?'
+}
+
+function senderDisplayLabel(senderName: string | null, senderId: number | null): string {
+  return senderName?.trim() || (senderId == null ? 'Unknown sender' : `ID ${senderId}`)
+}
+
+function senderBlacklistStorageKey(account: string, chatId: number | null): string | null {
+  if (account.trim() === '' || chatId == null) return null
+  return `tg-web:sender-blacklist:${account}:${chatId}`
+}
+
+function readBlockedSenders(key: string | null): BlockedSender[] {
+  if (key == null || typeof window === 'undefined') return []
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(key) ?? '[]')
+    return Array.isArray(parsed) ? parsed.filter(isBlockedSender) : []
+  } catch {
+    return []
+  }
+}
+
+function writeBlockedSenders(key: string | null, senders: BlockedSender[]): void {
+  if (key == null || typeof window === 'undefined') return
+  window.localStorage.setItem(key, JSON.stringify(senders))
+}
+
+function isBlockedSender(value: unknown): value is BlockedSender {
+  if (value == null || typeof value !== 'object') return false
+  const candidate = value as Partial<BlockedSender>
+  return typeof candidate.key === 'string'
+    && (typeof candidate.sender_id === 'number' || candidate.sender_id == null)
+    && (typeof candidate.sender_name === 'string' || candidate.sender_name == null)
+    && typeof candidate.label === 'string'
+    && typeof candidate.blocked_at === 'string'
 }
 
 function stableHash(value: string): number {

@@ -397,10 +397,22 @@ input::placeholder {
   margin-bottom: 12px;
 }
 
+.filter-panel-heading-actions {
+  align-items: center;
+  display: inline-flex;
+  gap: 10px;
+}
+
 .filter-panel-heading span:last-child {
   color: var(--muted);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
+}
+
+.manage-sender-blacklist {
+  box-shadow: none;
+  min-height: 32px;
+  padding: 6px 10px;
 }
 
 .filters {
@@ -528,7 +540,8 @@ input::placeholder {
   font-size: 12px;
 }
 
-.sender-filter-action {
+.sender-filter-action,
+.sender-block-action {
   align-items: center;
   background: #ffffff;
   border: 1px solid var(--line-strong);
@@ -550,12 +563,20 @@ input::placeholder {
   color: var(--telegram);
 }
 
-.sender-filter-action:disabled {
+.sender-block-action:hover:not(:disabled) {
+  background: rgba(184, 74, 66, 0.08);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.sender-filter-action:disabled,
+.sender-block-action:disabled {
   cursor: wait;
   opacity: 0.55;
 }
 
-.sender-filter-action svg {
+.sender-filter-action svg,
+.sender-block-action svg {
   fill: none;
   height: 15px;
   stroke: currentColor;
@@ -563,6 +584,111 @@ input::placeholder {
   stroke-linejoin: round;
   stroke-width: 2;
   width: 15px;
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgba(22, 32, 42, 0.32);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 30;
+}
+
+.blacklist-modal {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(22, 32, 42, 0.25);
+  max-height: min(620px, 88vh);
+  max-width: min(560px, 100%);
+  overflow: auto;
+  padding: 18px;
+  width: 560px;
+}
+
+.blacklist-modal-heading {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding-bottom: 14px;
+}
+
+.blacklist-modal h2 {
+  font-size: 22px;
+  line-height: 1.15;
+  margin: 5px 0 0;
+}
+
+.modal-close {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--telegram-dark);
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  width: 34px;
+}
+
+.modal-close svg {
+  fill: none;
+  height: 16px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+  width: 16px;
+}
+
+.blacklist-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+}
+
+.blacklist-row {
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  min-height: 58px;
+  padding: 9px;
+}
+
+.blacklist-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.blacklist-copy strong {
+  overflow-wrap: anywhere;
+}
+
+.blacklist-copy small {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.blacklist-row button {
+  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--danger);
+  font-weight: 800;
+  min-height: 34px;
+  padding: 7px 10px;
 }
 
 .reply-snippet {
