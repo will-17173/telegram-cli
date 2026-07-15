@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Detailed Telegram CLI v0.5.0 documentation: installation, execution scopes, all commands, group management, automation, safety, and troubleshooting.">
+  <meta name="description" content="Detailed Telegram CLI v0.5.1 documentation: installation, execution scopes, all commands, group management, automation, safety, and troubleshooting.">
   <meta name="theme-color" content="#eef6fb">
   <meta name="color-scheme" content="light">
   <title>Documentation — Telegram CLI</title>
@@ -50,7 +50,7 @@
             <span aria-hidden="true">/</span>
             <span aria-current="page">Documentation</span>
           </nav>
-          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Complete guide · v0.5.0</p>
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Complete guide · v0.5.1</p>
           <h1 id="docs-title">Know where every<br><span>command runs.</span></h1>
           <p class="docs-lede">Telegram CLI moves between the Telegram network, a private SQLite database, local files, and deliberate remote writes. This guide makes that boundary visible while documenting the complete <code translate="no">tg</code> surface.</p>
           <div class="docs-hero-actions">
@@ -116,7 +116,7 @@
             <li><a href="#troubleshooting"><span aria-hidden="true">09</span> Troubleshooting</a></li>
           </ol>
         </nav>
-        <p class="signal-rail-version">Reference for <strong>v0.5.0</strong></p>
+        <p class="signal-rail-version">Reference for <strong>v0.5.1</strong></p>
       </aside>
 
       <article class="docs-article">
@@ -686,7 +686,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
 
           <aside class="callout callout-info">
             <h3>Global conventions</h3>
-            <p>Use <code>--account &lt;name&gt;</code> to select a registered account for one invocation and exactly one of <code>--json</code>, <code>--yaml</code>, or <code>--markdown</code> on finite commands. The CLI accepts <code>-v</code>/<code>--verbose</code>, but v0.5.0 does not yet connect it to debug logging, so automation must not rely on it. Nested help remains the source of truth for subcommand options.</p>
+            <p>Use <code>--account &lt;name&gt;</code> to select a registered account for one invocation and exactly one of <code>--json</code>, <code>--yaml</code>, or <code>--markdown</code> on finite commands. The CLI accepts <code>-v</code>/<code>--verbose</code>, but v0.5.1 does not yet connect it to debug logging, so automation must not rely on it. Nested help remains the source of truth for subcommand options.</p>
           </aside>
 
           <nav class="section-pager docs-pagination" aria-label="Command reference section navigation">
@@ -738,7 +738,7 @@ tg group member info @team @alice --json</code></pre>
             <pre class="command-block compact" translate="no" dir="ltr"><code>tg group &lt;family&gt; &lt;action&gt; &lt;chat&gt; [arguments] [options]</code></pre>
           </div>
 
-          <p>Every action below is part of the v0.5.0 catalog. “Confirm” actions reject execution without <code>--yes</code>. “Direct” writes have no built-in prompt, but still require authorization and enabled write access. The four actions labeled “Read” do not mutate Telegram.</p>
+          <p>Every action below is part of the v0.5.1 catalog. “Confirm” actions reject execution without <code>--yes</code>. “Direct” writes have no built-in prompt, but still require authorization and enabled write access. The four actions labeled “Read” do not mutate Telegram.</p>
 
           <div class="group-family-grid">
             <article class="group-family-card group-family">
@@ -1328,7 +1328,7 @@ tg config write-access on</code></pre>
 
       <aside class="docs-status-card docs-page-outline" data-command-count="33" data-group-command-count="48" aria-label="Page status">
         <p class="mini-label">This page</p>
-        <strong>v0.5.0</strong>
+        <strong>v0.5.1</strong>
         <dl>
           <div>
             <dt>Top-level</dt>

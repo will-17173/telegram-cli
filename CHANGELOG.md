@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-15
+
+### Changed
+
+- Redesign the `tg web` message browser with a denser local-console layout, improved attachment cards, and clearer sync error details.
+- Show replied-to message context in `tg web`, including local sender, timestamp, message ID, text, and attachment previews when the original message has no text.
+
+### Fixed
+
+- Restore Telegram supergroup peer IDs when `tg web` syncs chats stored locally with canonicalized positive IDs.
+
 ## [0.5.0] - 2026-07-15
 
 ### Added

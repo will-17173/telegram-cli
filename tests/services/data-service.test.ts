@@ -52,6 +52,7 @@ describe('DataService', () => {
         content: 'Hello',
         timestamp: '2026-03-09T10:00:00.000Z',
         raw_json: null,
+        preview_jpeg_base64: null,
       }],
       human: { kind: 'text', text: '[2026-03-09T10:00:00] Alice: Hello' },
     })
