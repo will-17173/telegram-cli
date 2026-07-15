@@ -21,6 +21,16 @@ describe('web frontend source', () => {
     expect(app).not.toContain('Delete')
   })
 
+  it('constrains the chat sidebar to its own scroll area', () => {
+    const css = readFileSync('web/src/styles.css', 'utf8')
+
+    expect(css).toContain('height: calc(100vh - 68px);')
+    expect(css).toContain('overflow: hidden;')
+    expect(css).toContain('flex: 1 1 auto;')
+    expect(css).toContain('overflow-y: auto;')
+    expect(css).toContain('scrollbar-gutter: stable;')
+  })
+
   it('formats local supergroup identifiers as Telegram peer IDs', () => {
     expect(displayChatId(3688621340)).toBe('-1003688621340')
     expect(displayChatId(-1003688621340)).toBe('-1003688621340')

@@ -202,7 +202,9 @@ input::placeholder {
 .workspace {
   display: grid;
   grid-template-columns: minmax(270px, 360px) minmax(0, 1fr);
-  min-height: calc(100vh - 68px);
+  height: calc(100vh - 68px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -210,6 +212,7 @@ input::placeholder {
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -229,10 +232,14 @@ input::placeholder {
 
 .chat-list {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 6px;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px;
+  scrollbar-gutter: stable;
 }
 
 .chat-row {
@@ -293,6 +300,7 @@ input::placeholder {
 
 .messages-pane {
   min-width: 0;
+  overflow: auto;
   padding: clamp(18px, 3vw, 34px);
 }
 
@@ -737,6 +745,9 @@ input::placeholder {
 
   .workspace {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: calc(100vh - 68px);
+    overflow: visible;
   }
 
   .sidebar {
