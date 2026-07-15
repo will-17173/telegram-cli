@@ -232,6 +232,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     if (failure) throw failure
     const rows = this.messagesFor(options.chat, chat)
       .filter((message) => message.msg_id > (options.minId ?? 0))
+      .filter((message) => options.maxId == null || message.msg_id < options.maxId)
       .slice(0, options.limit)
     options.onProgress?.(rows.length)
     return rows

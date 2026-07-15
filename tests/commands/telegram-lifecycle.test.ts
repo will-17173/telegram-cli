@@ -442,6 +442,32 @@ describe('Telegram command lifecycle', () => {
     expect(client.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({ pageDelay: 2.5 }))
   })
 
+  it('prints sync progress for each completed history page', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: Parameters<typeof process.stderr.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+    client.fetchHistory.mockImplementationOnce(async ({ chat, onProgress }: { chat: string | number; onProgress?: (count: number) => void }) => {
+      onProgress?.(1)
+      onProgress?.(100)
+      onProgress?.(101)
+      onProgress?.(200)
+      return [{
+        platform: 'telegram', chat_id: Number(chat) || 42, chat_name: String(chat), msg_id: 1,
+        sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
+      }]
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'sync', 'General', '--limit', '250'])
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(writes.join('')).toBe('fetched 100 messages...\nfetched 200 messages...\n')
+  })
+
   it.each([
     ['history', '1oops'],
     ['history', 'Infinity'],

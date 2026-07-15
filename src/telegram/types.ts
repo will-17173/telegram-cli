@@ -28,6 +28,7 @@ export type FetchHistoryOptions = {
   chat: string | number
   limit: number
   minId?: number
+  maxId?: number
   pageDelay?: number
   onProgress?: (count: number) => void
 }

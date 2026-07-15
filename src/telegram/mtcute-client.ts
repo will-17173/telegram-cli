@@ -145,8 +145,9 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     while (rows.length < options.limit) {
       const pageOptions = {
         limit: Math.min(100, options.limit - rows.length),
-        minId: options.minId,
         offset,
+        ...(options.minId == null ? {} : { minId: options.minId }),
+        ...(options.maxId == null ? {} : { maxId: options.maxId }),
       }
       let page
       while (true) {

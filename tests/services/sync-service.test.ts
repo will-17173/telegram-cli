@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MessageDB } from '../../src/storage/message-db.js'
 import { SyncService } from '../../src/services/sync-service.js'
 import { FakeTelegramClient } from '../../src/telegram/fake-client.js'
@@ -97,7 +97,7 @@ describe('SyncService', () => {
     sync.close()
   })
 
-  it('sync forwards minId when the chat already has messages', async () => {
+  it('sync forwards minId and backfills older messages when the chat already has messages', async () => {
     const { sync, db, fake } = service()
     db.insertBatch([message({ msg_id: 7 })])
 
@@ -105,17 +105,29 @@ describe('SyncService', () => {
 
     expect(result).toEqual({
       ok: true,
-      data: { synced: 0, chat: 'TestGroup' },
+      data: { synced: 2, chat: 'TestGroup' },
       human: {
         kind: 'detail',
         title: 'Sync Complete',
         fields: [
           { label: 'chat', value: 'TestGroup' },
-          { label: 'synced', value: '0' },
+          { label: 'synced', value: '2' },
         ],
       },
     })
-    expect(fake.fetchHistoryCalls.at(-1)).toMatchObject({ chat: 'TestGroup', limit: 100, minId: 7, pageDelay: 2.5 })
+    expect(fake.fetchHistoryCalls[0]).toMatchObject({ chat: 'TestGroup', limit: 100, minId: 7, pageDelay: 2.5 })
+    expect(fake.fetchHistoryCalls[1]).toMatchObject({ chat: 'TestGroup', limit: 100, maxId: 7, pageDelay: 2.5 })
+    sync.close()
+  })
+
+  it('forwards sync progress from the Telegram adapter', async () => {
+    const { sync, fake } = service()
+    const onProgress = vi.fn()
+
+    await sync.sync({ chat: 'TestGroup', limit: 100, pageDelay: 1, onProgress })
+
+    expect(fake.fetchHistoryCalls.at(-1)?.onProgress).toEqual(expect.any(Function))
+    expect(onProgress).toHaveBeenCalledWith(2)
     sync.close()
   })
 
@@ -125,6 +137,23 @@ describe('SyncService', () => {
     await sync.sync({ chat: 'TestGroup', limit: 5000, pageDelay: 1 })
 
     expect(fake.fetchHistoryCalls.at(-1)).toMatchObject({ chat: 'TestGroup', limit: 500, minId: 0 })
+    sync.close()
+  })
+
+  it('continues backfilling older messages after the first sync cap', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-')), 'messages.db'))
+    const messages = Array.from({ length: 700 }, (_, index) => message({ msg_id: index + 1 }))
+    const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
+    const sync = new SyncService(fake, db)
+    db.insertBatch(messages.slice(200))
+
+    const result = await sync.sync({ chat: 'TestGroup', limit: 500, pageDelay: 1 })
+
+    expect(result).toMatchObject({ ok: true, data: { synced: 200, chat: 'TestGroup' } })
+    expect(fake.fetchHistoryCalls).toHaveLength(2)
+    expect(fake.fetchHistoryCalls[0]).toMatchObject({ chat: 'TestGroup', limit: 500, minId: 700 })
+    expect(fake.fetchHistoryCalls[1]).toMatchObject({ chat: 'TestGroup', limit: 500, maxId: 201 })
+    expect(db.count()).toBe(700)
     sync.close()
   })
 

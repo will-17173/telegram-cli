@@ -405,6 +405,11 @@ export class MessageDB {
     return row.value
   }
 
+  getFirstMsgId(chatId: number): number | null {
+    const row = this.db.prepare('SELECT MIN(msg_id) as value FROM messages WHERE chat_id = ?').get(canonicalChatId(chatId)) as { value: number | null }
+    return row.value
+  }
+
   count(chatId?: number): number {
     const row = chatId == null
       ? this.db.prepare('SELECT COUNT(*) as value FROM messages').get() as { value: number }

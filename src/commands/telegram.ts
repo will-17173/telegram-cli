@@ -141,7 +141,8 @@ export function registerTelegramCommands(app: Command): void {
     .action(async (chat: string, options: SyncFlags, command: Command) => {
       const limit = Number.parseInt(options.limit ?? '0', 10)
       const pageDelay = parsePageDelay(options.delay)
-      await renderSyncResult(options, async (service) => service.sync({ chat, limit, pageDelay }), command)
+      const onProgress = createSyncProgressReporter(options)
+      await renderSyncResult(options, async (service) => service.sync({ chat, limit, pageDelay, onProgress }), command)
     })
 
   app.command('sync-all')
@@ -455,6 +456,19 @@ function parsePageDelay(value: string | undefined): number {
 function parseChat(chat: string): string | number {
   const parsed = Number.parseInt(chat, 10)
   return Number.isNaN(parsed) || String(parsed) !== chat.trim() ? chat : parsed
+}
+
+function createSyncProgressReporter(options: SyncFlags): ((count: number) => void) | undefined {
+  if (options.json || options.yaml || options.markdown) return undefined
+  let reported = 0
+  return (count) => {
+    const next = Math.floor(count / 100) * 100
+    if (next <= reported) return
+    for (let current = reported + 100; current <= next; current += 100) {
+      process.stderr.write(`fetched ${current} messages...\n`)
+    }
+    reported = next
+  }
 }
 
 async function renderSyncResult(

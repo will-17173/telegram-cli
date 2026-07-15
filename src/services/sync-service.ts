@@ -14,6 +14,13 @@ type RefreshResult = {
   failures: Record<string, string>
 }
 
+type SyncOptions = {
+  chat: string
+  limit: number
+  pageDelay: number
+  onProgress?: (count: number) => void
+}
+
 export class SyncService {
   private readonly db: MessageDB
 
@@ -21,11 +28,16 @@ export class SyncService {
     this.db = db ?? new MessageDB()
   }
 
-  async history(options: { chat: string; limit: number; pageDelay: number }): Promise<HandlerResult> {
+  async history(options: SyncOptions): Promise<HandlerResult> {
     const invalid = validateHistoryOptions(options)
     if (invalid) return invalid
     try {
-      const messages = await this.tg.fetchHistory({ chat: parseChat(options.chat), limit: options.limit, pageDelay: options.pageDelay })
+      const messages = await this.tg.fetchHistory({
+        chat: parseChat(options.chat),
+        limit: options.limit,
+        pageDelay: options.pageDelay,
+        onProgress: options.onProgress,
+      })
       const stored = this.db.insertBatch(messages)
       const data = { stored, chat: options.chat }
       return { ok: true, data, human: actionDetail('History Synced', { chat: data.chat, stored: data.stored }) }
@@ -34,14 +46,41 @@ export class SyncService {
     }
   }
 
-  async sync(options: { chat: string; limit: number; pageDelay: number }): Promise<HandlerResult> {
+  async sync(options: SyncOptions): Promise<HandlerResult> {
     const invalid = validateHistoryOptions(options)
     if (invalid) return invalid
     const chatId = this.db.resolveChatId(options.chat)
     const minId = chatId == null ? 0 : this.db.getLastMsgId(chatId) ?? 0
     const limit = minId === 0 && options.limit > FIRST_SYNC_LIMIT ? FIRST_SYNC_LIMIT : options.limit
     try {
-      const messages = await this.tg.fetchHistory({ chat: parseChat(options.chat), limit, minId, pageDelay: options.pageDelay })
+      const messages: Awaited<ReturnType<TelegramClientAdapter['fetchHistory']>> = []
+      let progressBase = 0
+      const onProgress = options.onProgress == null
+        ? undefined
+        : (count: number) => options.onProgress?.(progressBase + count)
+      const newer = await this.tg.fetchHistory({
+        chat: parseChat(options.chat),
+        limit,
+        minId,
+        pageDelay: options.pageDelay,
+        onProgress,
+      })
+      messages.push(...newer)
+      progressBase = messages.length
+
+      const resolvedChatId = chatId ?? this.db.resolveChatId(options.chat)
+      const remaining = limit - messages.length
+      const firstId = resolvedChatId == null ? null : this.db.getFirstMsgId(resolvedChatId)
+      if (remaining > 0 && firstId != null) {
+        const older = await this.tg.fetchHistory({
+          chat: parseChat(options.chat),
+          limit: remaining,
+          maxId: firstId,
+          pageDelay: options.pageDelay,
+          onProgress,
+        })
+        messages.push(...older)
+      }
       const stored = this.db.insertBatch(messages)
       const data = { synced: stored, chat: options.chat }
       return { ok: true, data, human: actionDetail('Sync Complete', { chat: data.chat, synced: data.synced }) }
