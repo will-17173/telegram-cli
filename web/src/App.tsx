@@ -107,6 +107,8 @@ export function App() {
     return `${selectedChat.msg_count} messages from ${formatDate(selectedChat.first_msg)} to ${formatDate(selectedChat.last_msg)}`
   }, [selectedChat])
 
+  const selectedChatName = selectedChat?.chat_name ?? (selectedChat == null ? 'Select a chat' : `Chat ${selectedChat.chat_id}`)
+
   async function loadMessages(cursor: string | null) {
     if (!account || selectedChat == null) return
     const requestId = messageRequestId.current + 1
@@ -198,6 +200,10 @@ export function App() {
         limit: SYNC_LIMIT,
       })
       setSyncTask(state)
+      if (state.status === 'error') {
+        setError(syncErrorText(state))
+        return
+      }
       if (accountRef.current === syncAccount && selectedChatRef.current?.chat_id === syncChat.chat_id) {
         await loadMessages(null)
       }
@@ -212,7 +218,10 @@ export function App() {
       <header className="topbar">
         <div className="brand-block">
           <span className="brand-mark">tg</span>
-          <strong>Telegram CLI</strong>
+          <div>
+            <strong>Telegram CLI</strong>
+            <span>Local message console</span>
+          </div>
         </div>
         <label className="account-picker">
           <span>Account</span>
@@ -224,7 +233,7 @@ export function App() {
             ))}
           </select>
         </label>
-        <span className={`sync-pill sync-pill-${syncTask.status}`} role="status" aria-live="polite">Sync: {syncTask.status}</span>
+        <span className={`sync-pill sync-pill-${syncTask.status}`} role="status" aria-live="polite" title={syncTask.status === 'error' ? syncErrorText(syncTask) : undefined}>Sync {syncTask.status}</span>
       </header>
 
       {error && <div className="error-strip" role="alert">{error}</div>}
@@ -232,8 +241,8 @@ export function App() {
       <section className="workspace" aria-label="Telegram message browser">
         <aside className="sidebar">
           <div className="sidebar-tools">
+            <div className="panel-kicker">Chats</div>
             <label>
-              <span>Chats</span>
               <input value={chatQuery} onChange={(event) => setChatQuery(event.target.value)} placeholder="Search chats" />
             </label>
           </div>
@@ -248,7 +257,10 @@ export function App() {
                 type="button"
               >
                 <span className="chat-name">{chat.chat_name ?? `Chat ${chat.chat_id}`}</span>
-                <span className="chat-meta">{chat.msg_count} · {formatDate(chat.last_msg)}</span>
+                <span className="chat-meta">
+                  <span>{chat.msg_count} messages</span>
+                  <time dateTime={chat.last_msg}>{formatDate(chat.last_msg)}</time>
+                </span>
               </button>
             ))}
             {!loadingChats && chats.length === 0 && <p className="empty-note">No local chats found.</p>}
@@ -258,7 +270,8 @@ export function App() {
         <section className="messages-pane">
           <div className="chat-header">
             <div>
-              <h1>{selectedChat?.chat_name ?? (selectedChat == null ? 'Select a chat' : `Chat ${selectedChat.chat_id}`)}</h1>
+              <span className="panel-kicker">Message stream</span>
+              <h1>{selectedChatName}</h1>
               <p>{selectedSummary}</p>
             </div>
             <button className="primary-action" onClick={syncCurrentChat} disabled={selectedChat == null || syncTask.status === 'running'} type="button">
@@ -266,31 +279,37 @@ export function App() {
             </button>
           </div>
 
-          <div className="filters">
-            <label>
-              <span>Sender ID</span>
-              <input value={senderId} onChange={(event) => setSenderId(event.target.value)} inputMode="numeric" placeholder="123456789" />
-            </label>
-            <label>
-              <span>Sender name</span>
-              <input value={senderName} onChange={(event) => setSenderName(event.target.value)} placeholder="name" />
-            </label>
-            <label>
-              <span>Text</span>
-              <input value={text} onChange={(event) => setText(event.target.value)} placeholder="message text" />
-            </label>
-            <label>
-              <span>Since</span>
-              <input type="datetime-local" value={since} onChange={(event) => setSince(event.target.value)} />
-            </label>
-            <label>
-              <span>Until</span>
-              <input type="datetime-local" value={until} onChange={(event) => setUntil(event.target.value)} />
-            </label>
-            <button onClick={() => void loadMessages(null)} disabled={selectedChat == null || loadingMessages} type="button">
-              Search
-            </button>
-          </div>
+          <section className="filter-panel" aria-label="Message filters">
+            <div className="filter-panel-heading">
+              <span className="panel-kicker">Filters</span>
+              <span>{loadingMessages ? 'Reading local cache' : `${messages.length} shown`}</span>
+            </div>
+            <div className="filters">
+              <label>
+                <span>Sender ID</span>
+                <input value={senderId} onChange={(event) => setSenderId(event.target.value)} inputMode="numeric" placeholder="123456789" />
+              </label>
+              <label>
+                <span>Sender name</span>
+                <input value={senderName} onChange={(event) => setSenderName(event.target.value)} placeholder="name" />
+              </label>
+              <label>
+                <span>Text</span>
+                <input value={text} onChange={(event) => setText(event.target.value)} placeholder="message text" />
+              </label>
+              <label>
+                <span>Since</span>
+                <input type="datetime-local" value={since} onChange={(event) => setSince(event.target.value)} />
+              </label>
+              <label>
+                <span>Until</span>
+                <input type="datetime-local" value={until} onChange={(event) => setUntil(event.target.value)} />
+              </label>
+              <button onClick={() => void loadMessages(null)} disabled={selectedChat == null || loadingMessages} type="button">
+                Search
+              </button>
+            </div>
+          </section>
 
           <ol className="message-list" aria-busy={loadingMessages}>
             {messages.map((message) => {
@@ -306,6 +325,29 @@ export function App() {
                       <strong>{message.sender_name ?? 'Unknown'}</strong>
                       <span>ID {message.sender_id ?? 'unknown'}</span>
                     </div>
+                    {message.reply_context && (
+                      <div className={message.reply_context.resolved ? 'reply-snippet' : 'reply-snippet reply-snippet-missing'}>
+                        <div className="reply-snippet-meta">
+                          {message.reply_context.resolved && <time dateTime={message.reply_context.timestamp}>{formatDate(message.reply_context.timestamp)}</time>}
+                          <span>{replySenderLabel(message.reply_context)}</span>
+                          <span>{replyMessageIdLabel(message.reply_context)}</span>
+                        </div>
+                        {replyContentLabel(message.reply_context) && <p>{replyContentLabel(message.reply_context)}</p>}
+                        {message.reply_context.resolved && message.reply_context.attachments.length > 0 && (
+                          <div className="reply-attachment-list">
+                            {message.reply_context.attachments.map((attachment) => (
+                              <div className="reply-attachment" key={attachment.key}>
+                                {attachment.preview_jpeg_base64
+                                  ? <img alt="" src={`data:image/jpeg;base64,${attachment.preview_jpeg_base64}`} />
+                                  : <span className="reply-attachment-thumb" aria-hidden="true">{attachment.kind.slice(0, 3).toUpperCase()}</span>}
+                                <span>{attachment.kind}</span>
+                                <small>{attachment.file_name}</small>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <p>{message.content ?? ''}</p>
                     {message.media_summary && <div className="media-summary">{message.media_summary}</div>}
                     {message.attachments.length > 0 && (
@@ -315,12 +357,13 @@ export function App() {
                             {attachment.preview_jpeg_base64
                               ? <img alt="" src={`data:image/jpeg;base64,${attachment.preview_jpeg_base64}`} />
                               : <span className="attachment-thumb" aria-hidden="true">{attachment.kind.slice(0, 3).toUpperCase()}</span>}
-                            <div>
+                            <div className="attachment-copy">
                               <span className="attachment-label">{attachment.kind}</span>
                               <small>{attachment.file_name}</small>
                               {downloadStatus[attachment.key] && <small>{downloadStatus[attachment.key]}</small>}
                             </div>
                             <button
+                              className="attachment-action"
                               type="button"
                               onClick={() => void downloadAttachments([attachment])}
                               disabled={!attachment.downloadable || downloadStatus[attachment.key] === 'Downloading'}
@@ -372,6 +415,29 @@ function messageIdLabel(message: MessageRow): string {
     : `Message ${message.msg_id}`
 }
 
+function replySenderLabel(context: MessageRow['reply_context']): string {
+  if (context == null) return 'message'
+  if (!context.resolved) return 'message'
+  return context.sender_name?.trim() || (context.sender_id == null ? 'Unknown' : `ID ${context.sender_id}`)
+}
+
+function replyContentLabel(context: MessageRow['reply_context']): string {
+  if (context == null) return ''
+  if (!context.resolved) return 'Message not found in the local cache.'
+  if ((context.content == null || context.content.trim() === '') && context.attachments.length > 0) return ''
+  return context.content?.trim() || '(no text)'
+}
+
+function replyMessageIdLabel(context: MessageRow['reply_context']): string {
+  return context == null ? '' : `#${context.message_id}`
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function syncErrorText(state: SyncTaskState): string {
+  return state.status === 'error'
+    ? `Sync failed (${state.error.code}): ${state.error.message}`
+    : ''
 }

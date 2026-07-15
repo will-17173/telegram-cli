@@ -328,6 +328,98 @@ describe('WebQueryService', () => {
     })
   })
 
+  it('includes local reply context for replied-to messages', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
+    db.insertBatch([
+      {
+        platform: 'telegram',
+        chat_id: 10,
+        chat_name: 'General',
+        msg_id: 40,
+        sender_id: 1,
+        sender_name: 'Alice',
+        content: 'original answer',
+        timestamp: '2026-07-14T08:00:00.000Z',
+        raw_json: null,
+      },
+      {
+        platform: 'telegram',
+        chat_id: 10,
+        chat_name: 'General',
+        msg_id: 41,
+        sender_id: 2,
+        sender_name: 'Bob',
+        content: 'replying with context',
+        timestamp: '2026-07-14T08:01:00.000Z',
+        raw_json: { replyTo: { replyToMsgId: 40 } },
+      },
+    ])
+    db.close()
+    const service = new WebQueryService({ dataDir: root })
+
+    const page = service.messages({ account: 'work', chatId: 10 })
+
+    expect(page.items[0]).toMatchObject({
+      msg_id: 41,
+      reply_context: {
+        message_id: 40,
+        resolved: true,
+        sender_name: 'Alice',
+        content: 'original answer',
+      },
+    })
+  })
+
+  it('includes attachment metadata for replied-to messages without text', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
+    db.insertBatch([
+      {
+        platform: 'telegram',
+        chat_id: 10,
+        chat_name: 'General',
+        msg_id: 50,
+        sender_id: 1,
+        sender_name: 'Alice',
+        content: null,
+        timestamp: '2026-07-14T08:00:00.000Z',
+        raw_json: {
+          media: {
+            _: 'messageMediaPhoto',
+            photo: { thumbnails: [{ type: 'i', location: [255, 216, 255] }] },
+          },
+        },
+      },
+      {
+        platform: 'telegram',
+        chat_id: 10,
+        chat_name: 'General',
+        msg_id: 51,
+        sender_id: 2,
+        sender_name: 'Bob',
+        content: 'replying to photo',
+        timestamp: '2026-07-14T08:01:00.000Z',
+        raw_json: { replyTo: { replyToMsgId: 50 } },
+      },
+    ])
+    db.close()
+    const service = new WebQueryService({ dataDir: root })
+
+    const page = service.messages({ account: 'work', chatId: 10 })
+
+    expect(page.items[0]?.reply_context).toMatchObject({
+      message_id: 50,
+      resolved: true,
+      content: null,
+      attachments: [
+        expect.objectContaining({ msg_id: 50, kind: 'Photo', file_name: '10-50.jpg', preview_jpeg_base64: '/9j/' }),
+      ],
+    })
+  })
+
   it('treats whitespace-only message queries as no filter', () => {
     const root = makeRoot()
     seedAccount(root)

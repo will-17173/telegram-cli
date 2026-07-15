@@ -65,10 +65,11 @@ export class SyncTaskRunner {
       client = createTelegramClient(accountContext.sessionPath)
       const db = new MessageDB(accountContext.dbPath)
       service = new SyncService(client, db)
+      const syncChat = telegramPeerIdForSync(input.chatId)
 
       try {
         const result = await service.sync({
-          chat: String(input.chatId),
+          chat: String(syncChat),
           limit: input.limit,
           pageDelay: 1,
         })
@@ -129,6 +130,10 @@ function isSafePositiveInteger(value: number): boolean {
 
 function isSafeNonZeroInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value !== 0
+}
+
+function telegramPeerIdForSync(chatId: number): number {
+  return chatId > 1_000_000_000 ? Number(`-100${chatId}`) : chatId
 }
 
 function syncedCount(data: unknown): number {

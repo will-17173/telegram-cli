@@ -32,8 +32,21 @@ export type MessageRow = {
   content: string | null
   timestamp: string
   media_summary: string | null
+  reply_context?: ReplyContext
   attachments: MessageAttachment[]
 }
+
+export type ReplyContext =
+  | { message_id: number; resolved: false }
+  | {
+    message_id: number
+    resolved: true
+    timestamp: string
+    sender_id: number | null
+    sender_name: string | null
+    content: string | null
+    attachments: MessageAttachment[]
+  }
 
 export type MessageAttachment = {
   key: string

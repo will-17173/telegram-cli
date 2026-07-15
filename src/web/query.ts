@@ -1,11 +1,12 @@
 import { join } from 'node:path'
 import { AccountStore } from '../account/account-store.js'
 import { resolveAccountContext } from '../account/account-context.js'
-import { MessageDB } from '../storage/message-db.js'
+import { MessageDB, type StoredMessageInput } from '../storage/message-db.js'
 import { attachmentFileName, discoverListenAttachments } from '../services/listen-attachment.js'
+import { buildReplyContext, type ReplyContext } from '../services/reply-context.js'
 import { groupLogicalMessages, summarizeLogicalMedia } from '../presenters/logical-message.js'
 import { strippedPhotoPreviewBase64FromRawMessage } from '../telegram/raw-media-location.js'
-import type { WebAccountSummary, WebChatSummary, WebMessage, WebPage } from './types.js'
+import type { WebAccountSummary, WebChatSummary, WebMessage, WebMessageAttachment, WebPage, WebReplyContext } from './types.js'
 
 export class WebQueryService {
   constructor(private readonly options: { dataDir: string }) {}
@@ -58,27 +59,18 @@ export class WebQueryService {
         limit: input.limit,
         cursor: input.cursor,
       })
+      const logicalMessages = groupLogicalMessages(page.items)
+      const replyTargets = new Map(db.getMessagesByKeys(logicalMessages
+        .filter((message) => message.replyToMessageId != null && message.first.platform === 'telegram')
+        .map((message) => ({ chatId: message.first.chat_id, msgId: message.replyToMessageId! })))
+        .map((message) => [`${message.chat_id}:${message.msg_id}`, message]))
+
       return {
-        items: groupLogicalMessages(page.items)
+        items: logicalMessages
           .reverse()
           .map((message) => {
             const first = message.first
-            const attachments = message.messages.flatMap((row) => (
-              discoverListenAttachments({
-                ...row,
-                preview_jpeg_base64: row.preview_jpeg_base64 ?? extractPreviewJpegBase64(row.raw_json),
-              }).map((attachment, index) => ({
-                key: `${attachment.chatId}:${attachment.messageId}:${index}`,
-                chat_id: attachment.chatId,
-                msg_id: attachment.messageId,
-                kind: attachment.kind,
-                label: attachment.label,
-                file_name: attachmentFileName(attachment),
-                mime_type: attachment.mimeType,
-                downloadable: attachment.downloadable,
-                ...(attachment.previewJpegBase64 == null ? {} : { preview_jpeg_base64: attachment.previewJpegBase64 }),
-              }))
-            ))
+            const attachments = toWebAttachments(message.messages)
             return {
               id: first.id,
               platform: first.platform,
@@ -91,6 +83,12 @@ export class WebQueryService {
               content: message.content,
               timestamp: first.timestamp,
               media_summary: summarizeLogicalMedia(message),
+              ...(message.replyToMessageId == null
+                ? {}
+                : { reply_context: toWebReplyContext(
+                  buildReplyContext(message.replyToMessageId, replyTargets.get(`${first.chat_id}:${message.replyToMessageId}`)),
+                  replyTargets.get(`${first.chat_id}:${message.replyToMessageId}`),
+                ) }),
               attachments,
             }
           }),
@@ -100,6 +98,38 @@ export class WebQueryService {
       db.close()
     }
   }
+}
+
+function toWebReplyContext(context: ReplyContext, target?: StoredMessageInput): WebReplyContext {
+  if (!context.resolved) return { message_id: context.messageId, resolved: false }
+  return {
+    message_id: context.messageId,
+    resolved: true,
+    timestamp: context.timestamp,
+    sender_id: context.senderId,
+    sender_name: context.senderName,
+    content: context.content,
+    attachments: target == null ? [] : toWebAttachments([target]),
+  }
+}
+
+function toWebAttachments(messages: StoredMessageInput[]): WebMessageAttachment[] {
+  return messages.flatMap((row) => (
+    discoverListenAttachments({
+      ...row,
+      preview_jpeg_base64: row.preview_jpeg_base64 ?? extractPreviewJpegBase64(row.raw_json),
+    }).map((attachment, index) => ({
+      key: `${attachment.chatId}:${attachment.messageId}:${index}`,
+      chat_id: attachment.chatId,
+      msg_id: attachment.messageId,
+      kind: attachment.kind,
+      label: attachment.label,
+      file_name: attachmentFileName(attachment),
+      mime_type: attachment.mimeType,
+      downloadable: attachment.downloadable,
+      ...(attachment.previewJpegBase64 == null ? {} : { preview_jpeg_base64: attachment.previewJpegBase64 }),
+    }))
+  ))
 }
 
 function extractPreviewJpegBase64(raw: unknown): string | undefined {
