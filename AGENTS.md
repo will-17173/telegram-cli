@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+## Skill Usage
+
+Do not use the `using-telegram-cli` skill in this repository. That skill is for operating the Telegram CLI as a user, not for developing this project.
+
 ## Project Structure & Module Organization
 
 This repository contains a Node.js 22+ TypeScript Telegram CLI published as `@will-17173/telegram-cli`, with the `tg` binary. `src/index.ts` is the production entry point and `src/dev.ts` loads local development configuration before invoking it.

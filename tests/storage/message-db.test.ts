@@ -48,7 +48,7 @@ describe('MessageDB', () => {
     store.close()
   })
 
-  it('accepts transient photo previews without persisting them', () => {
+  it('persists photo previews for web thumbnails', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'tg-cli-')), 'messages.db')
     const store = new MessageDB(path)
     const input = {
@@ -58,13 +58,39 @@ describe('MessageDB', () => {
 
     expect(store.insertMessage(input)).toBe(true)
     const [stored] = store.getRecent()
-    expect(Object.hasOwn(stored, 'preview_jpeg_base64')).toBe(false)
+    expect(stored?.preview_jpeg_base64).toBe('/9j/2Q==')
     store.close()
 
     const sqlite = new Database(path, { readonly: true })
     const columns = sqlite.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
-    expect(columns.map((column) => column.name)).not.toContain('preview_jpeg_base64')
+    expect(columns.map((column) => column.name)).toContain('preview_jpeg_base64')
     sqlite.close()
+  })
+
+  it('adds the preview column to existing writable databases', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'tg-cli-')), 'messages.db')
+    const sqlite = new Database(path)
+    sqlite.exec(`
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        platform TEXT NOT NULL DEFAULT 'telegram',
+        chat_id INTEGER NOT NULL,
+        chat_name TEXT,
+        msg_id INTEGER NOT NULL,
+        sender_id INTEGER,
+        sender_name TEXT,
+        content TEXT,
+        timestamp TEXT NOT NULL,
+        raw_json TEXT,
+        UNIQUE(platform, chat_id, msg_id)
+      )
+    `)
+    sqlite.close()
+
+    const store = new MessageDB(path)
+    expect(store.insertMessage({ ...message({ msg_id: 102 }), preview_jpeg_base64: '/9j/2Q==' })).toBe(true)
+    expect(store.getRecent()[0]?.preview_jpeg_base64).toBe('/9j/2Q==')
+    store.close()
   })
 
   it('searches content by keyword and sender', () => {

@@ -20,7 +20,7 @@ import type { TelegramFolderAdapter } from './folder-types.js'
 import { createFoldersAdapter } from './mtcute-folders.js'
 import type { TelegramNotificationAdapter } from './notification-types.js'
 import { createNotificationsAdapter } from './mtcute-notifications.js'
-import { MtcuteArchive } from './mtcute-archive.js'
+import { downloadableLocation, MtcuteArchive } from './mtcute-archive.js'
 import type { TelegramArchiveAdapter } from './archive-types.js'
 
 type PeerShape = {
@@ -190,11 +190,11 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   async downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void> {
     await this.ensureReady()
     const chat = normalizeChatId(options.chat)
-    let media = this.listenedMedia.get(messageMediaKey(chat, options.msgId))
+    let media = downloadableLocation(options.location) ?? this.listenedMedia.get(messageMediaKey(chat, options.msgId))
     if (media == null) {
       const [message] = await this.client.getMessages(chat, options.msgId)
       if (message == null) throw new Error(`Message ${options.msgId} was not found`)
-      media = message.media instanceof FileLocation ? message.media : undefined
+      media = downloadableLocation(message.media) ?? undefined
     }
     if (!(media instanceof FileLocation)) throw new Error('This attachment cannot be downloaded')
     await this.client.downloadToFile(options.destination, media, {

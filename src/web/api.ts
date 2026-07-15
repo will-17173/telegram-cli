@@ -1,4 +1,12 @@
+import { existsSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname } from 'node:path'
+import { resolveAuthenticatedAccountContext } from '../account/account-context.js'
 import { getDataDir } from '../config/env.js'
+import { resolveAttachmentDestination } from '../services/attachment-download.js'
+import { MessageDB } from '../storage/message-db.js'
+import { createTelegramClient } from '../telegram/client-factory.js'
+import { fileLocationFromRawMessage } from '../telegram/raw-media-location.js'
 import { validateLocalRequest } from './security.js'
 import { SyncTaskRunner } from './sync-task.js'
 import { WebQueryService } from './query.js'
@@ -47,15 +55,21 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
           account: stringParam(url, 'account'),
           chatId: requiredNonZeroIntParam(url, 'chatId'),
           q: stringParam(url, 'q'),
+          senderId: optionalIntParam(url, 'senderId'),
+          senderName: stringParam(url, 'senderName'),
+          text: stringParam(url, 'text'),
           since: stringParam(url, 'since'),
           until: stringParam(url, 'until'),
           limit: optionalPositiveIntParam(url, 'limit') ?? 50,
           cursor: stringParam(url, 'cursor'),
         }))
       case '/api/sync-task':
-        if (request.method === 'POST') return syncTaskPost(request, context)
+        if (request.method === 'POST') return await syncTaskPost(request, context)
         if (request.method !== 'GET') return notFound()
         return success(context.syncTask.getState())
+      case '/api/download-media':
+        if (request.method !== 'POST') return notFound()
+        return await downloadMediaPost(request, { dataDir })
       default:
         return notFound()
     }
@@ -116,6 +130,86 @@ async function syncTaskPost(request: Request, context: ApiContext): Promise<Resp
   if (result.error.code === 'sync_task_running') return jsonResponse(409, result)
   if (result.error.code === 'invalid_request' || isAccountErrorCode(result.error.code)) return jsonResponse(400, result)
   return jsonResponse(500, result)
+}
+
+async function downloadMediaPost(request: Request, context: { dataDir: string }): Promise<Response> {
+  if (!isJsonRequest(request)) {
+    return failure(400, 'invalid_request', 'Content-Type must include application/json.')
+  }
+
+  const body = await parseJsonBody(request)
+  if (!isRecord(body)) return failure(400, 'invalid_request', 'Request body must be a JSON object.')
+
+  const account = typeof body.account === 'string' ? body.account.trim() : ''
+  if (account === '') return failure(400, 'invalid_request', 'account must be a non-empty string.')
+  if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
+    return failure(400, 'invalid_request', 'attachments must be a non-empty array.')
+  }
+
+  try {
+    const attachments = body.attachments.map(parseDownloadAttachment)
+    const reserved = new Set<string>()
+    const clientContext = resolveAuthenticatedAccountContext({ explicitName: account, dataDir: context.dataDir })
+    const storedMessages = readStoredDownloadMessages(clientContext.dbPath, attachments)
+    const client = createTelegramClient(clientContext.sessionPath)
+    const results = []
+    try {
+      for (const attachment of attachments) {
+        const destination = resolveAttachmentDestination({
+          homeDir: homedir(),
+          fileName: attachment.fileName,
+          exists: existsSync,
+          reserved,
+        })
+        reserved.add(destination)
+        mkdirSync(dirname(destination), { recursive: true })
+        await client.downloadMessageMedia({
+          chat: attachment.chatId,
+          msgId: attachment.msgId,
+          destination,
+          location: storedMessages.get(downloadMessageKey(attachment.chatId, attachment.msgId)),
+        })
+        results.push({
+          chat_id: attachment.chatId,
+          msg_id: attachment.msgId,
+          file_name: attachment.fileName,
+          path: destination,
+        })
+      }
+    } finally {
+      await client.close()
+    }
+    return success({ downloaded: results })
+  } catch (error) {
+    const message = errorMessage(error)
+    if (isKnownValidationMessage(message)) return failure(400, 'invalid_request', message)
+    return failure(500, 'download_failed', message)
+  }
+}
+
+function readStoredDownloadMessages(dbPath: string, attachments: Array<{ chatId: number; msgId: number }>): Map<string, unknown> {
+  const db = new MessageDB(dbPath, { readonly: true })
+  try {
+    return new Map(db.getMessagesByKeys(attachments).map((message) => [
+      downloadMessageKey(message.chat_id, message.msg_id),
+      fileLocationFromRawMessage(message.raw_json),
+    ]))
+  } finally {
+    db.close()
+  }
+}
+
+function downloadMessageKey(chatId: number, msgId: number): string {
+  return `${chatId}:${msgId}`
+}
+
+function parseDownloadAttachment(value: unknown): { chatId: number; msgId: number; fileName: string } {
+  if (!isRecord(value)) throw invalidRequest('Each attachment must be a JSON object.')
+  if (!isSafeNonZeroInteger(value.chat_id)) throw invalidRequest('attachment.chat_id must be a non-zero integer.')
+  if (!isSafePositiveInteger(value.msg_id)) throw invalidRequest('attachment.msg_id must be a positive integer.')
+  const fileName = typeof value.file_name === 'string' ? value.file_name.trim() : ''
+  if (fileName === '') throw invalidRequest('attachment.file_name must be a non-empty string.')
+  return { chatId: value.chat_id, msgId: value.msg_id, fileName }
 }
 
 function isJsonRequest(request: Request): boolean {
@@ -180,6 +274,14 @@ function optionalNonNegativeIntParam(url: URL, name: string): number | undefined
   return value
 }
 
+function optionalIntParam(url: URL, name: string): number | undefined {
+  const raw = url.searchParams.get(name)
+  if (raw == null || raw.trim() === '') return undefined
+  const value = parseInteger(raw)
+  if (value == null) throw invalidRequest(`${name} must be an integer.`)
+  return value
+}
+
 function parseInteger(raw: string | null): number | undefined {
   if (raw == null) return undefined
   const value = raw.trim()
@@ -215,6 +317,7 @@ function isKnownValidationMessage(message: string): boolean {
     || message.startsWith('account_required:')
     || message.startsWith('account_not_found:')
     || message.startsWith('account_logged_out:')
+    || message.startsWith('account_session_missing:')
 }
 
 function errorMessage(error: unknown): string {

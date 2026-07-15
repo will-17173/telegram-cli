@@ -257,6 +257,77 @@ describe('WebQueryService', () => {
     expect(page.next_cursor).toBeNull()
   })
 
+  it('filters messages by sender id, sender name, and text', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedMessages(join(root, 'accounts', 'work', 'messages.db'))
+    const service = new WebQueryService({ dataDir: root })
+
+    const page = service.messages({
+      account: 'work',
+      chatId: 10,
+      senderId: 2,
+      senderName: 'bob',
+      text: 'beta',
+    })
+
+    expect(page.items.map((message) => message.content)).toEqual(['second beta'])
+  })
+
+  it('groups media albums and exposes attachment metadata', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
+    db.insertBatch([
+      {
+        platform: 'telegram',
+        chat_id: 10,
+        chat_name: 'General',
+        msg_id: 10,
+        sender_id: 1,
+        sender_name: 'Alice',
+        content: 'album caption',
+        timestamp: '2026-07-14T08:00:00.000Z',
+        raw_json: {
+          grouped_id: 'album-1',
+          media: {
+            _: 'messageMediaPhoto',
+            photo: { thumbnails: [{ type: 'i', location: [255, 216, 255] }] },
+          },
+        },
+      },
+      {
+        platform: 'telegram',
+        chat_id: 10,
+        chat_name: 'General',
+        msg_id: 11,
+        sender_id: 1,
+        sender_name: 'Alice',
+        content: null,
+        timestamp: '2026-07-14T08:00:01.000Z',
+        raw_json: {
+          grouped_id: 'album-1',
+          media: { _: 'messageMediaDocument', document: { fileName: 'report.pdf', mimeType: 'application/pdf' } },
+        },
+      },
+    ])
+    db.close()
+    const service = new WebQueryService({ dataDir: root })
+
+    const page = service.messages({ account: 'work', chatId: 10 })
+
+    expect(page.items).toHaveLength(1)
+    expect(page.items[0]).toMatchObject({
+      msg_ids: [10, 11],
+      content: 'album caption',
+      media_summary: expect.stringContaining('Photo'),
+      attachments: [
+        expect.objectContaining({ msg_id: 10, kind: 'Photo', downloadable: true, preview_jpeg_base64: '/9j/' }),
+        expect.objectContaining({ msg_id: 11, kind: 'Document', file_name: 'report.pdf', downloadable: true }),
+      ],
+    })
+  })
+
   it('treats whitespace-only message queries as no filter', () => {
     const root = makeRoot()
     seedAccount(root)

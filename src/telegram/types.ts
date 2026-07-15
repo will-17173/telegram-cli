@@ -38,6 +38,7 @@ export type DownloadMessageMediaOptions = {
   chat: string | number
   msgId: number
   destination: string
+  location?: unknown
   onProgress?: (downloaded: number, total: number) => void
 }
 

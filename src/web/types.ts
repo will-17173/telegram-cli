@@ -26,10 +26,25 @@ export type WebMessage = {
   chat_id: number
   chat_name: string | null
   msg_id: number
+  msg_ids: number[]
   sender_id: number | null
   sender_name: string | null
   content: string | null
   timestamp: string
+  media_summary: string | null
+  attachments: WebMessageAttachment[]
+}
+
+export type WebMessageAttachment = {
+  key: string
+  chat_id: number
+  msg_id: number
+  kind: string
+  label: string
+  file_name: string
+  mime_type: string | null
+  downloadable: boolean
+  preview_jpeg_base64?: string
 }
 
 export type WebPage<T> = {

@@ -26,10 +26,25 @@ export type ChatSummary = {
 export type MessageRow = {
   id: number
   msg_id: number
+  msg_ids: number[]
   sender_name: string | null
   sender_id: number | null
   content: string | null
   timestamp: string
+  media_summary: string | null
+  attachments: MessageAttachment[]
+}
+
+export type MessageAttachment = {
+  key: string
+  chat_id: number
+  msg_id: number
+  kind: string
+  label: string
+  file_name: string
+  mime_type: string | null
+  downloadable: boolean
+  preview_jpeg_base64?: string
 }
 
 export type Page<T> = {
@@ -59,6 +74,11 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function unwrap<T>(response: Response): Promise<T> {
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.toLowerCase().includes('application/json')) {
+    const text = await response.text()
+    throw new Error(text.trim() || `HTTP ${response.status}`)
+  }
   const payload = await response.json() as ApiResult<T>
   if (!payload.ok) throw new Error(`${payload.error.code}: ${payload.error.message}`)
   return payload.data

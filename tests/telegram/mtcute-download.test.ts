@@ -47,6 +47,55 @@ describe('MtcuteTelegramClient media downloads', () => {
     controller.abort()
     await listening
   })
+
+  it('downloads media fetched from message location fields', async () => {
+    const media = new FileLocation(new Uint8Array([4, 5, 6]), 6)
+    const getMessages = vi.fn().mockResolvedValue([message(42, { location: media })])
+    const downloadToFile = vi.fn().mockResolvedValue(undefined)
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getMessages,
+      downloadToFile,
+    } as unknown as TelegramClient
+    const telegram = new MtcuteTelegramClient(client)
+
+    await telegram.downloadMessageMedia({
+      chat: 100,
+      msgId: 42,
+      destination: '/tmp/photo.jpg',
+    })
+
+    expect(getMessages).toHaveBeenCalledWith(100, 42)
+    expect(downloadToFile).toHaveBeenCalledWith('/tmp/photo.jpg', media, {
+      progressCallback: undefined,
+    })
+  })
+
+  it('downloads media from an explicit stored file location without fetching the peer', async () => {
+    const media = new FileLocation(new Uint8Array([7, 8, 9]), 3)
+    const getMessages = vi.fn().mockRejectedValue(new tl.RpcError(400, 'PEER_ID_INVALID'))
+    const downloadToFile = vi.fn().mockResolvedValue(undefined)
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getMessages,
+      downloadToFile,
+    } as unknown as TelegramClient
+    const telegram = new MtcuteTelegramClient(client)
+
+    await telegram.downloadMessageMedia({
+      chat: 100,
+      msgId: 42,
+      destination: '/tmp/photo.jpg',
+      location: media,
+    })
+
+    expect(getMessages).not.toHaveBeenCalled()
+    expect(downloadToFile).toHaveBeenCalledWith('/tmp/photo.jpg', media, {
+      progressCallback: undefined,
+    })
+  })
 })
 
 function event<T>() {
@@ -62,7 +111,7 @@ function event<T>() {
   }
 }
 
-function message(id: number, media: FileLocation): Message {
+function message(id: number, media: unknown): Message {
   return {
     id,
     chat: { id: -100123, type: 'chat', title: 'Engineering' },

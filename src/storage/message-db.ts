@@ -17,11 +17,12 @@ export type StoredMessage = {
   content: string | null
   timestamp: string
   raw_json: string | null
+  preview_jpeg_base64?: string | null
 }
 
-export type StoredMessageInput = Omit<StoredMessage, 'id' | 'raw_json'> & {
+export type StoredMessageInput = Omit<StoredMessage, 'id' | 'raw_json' | 'preview_jpeg_base64'> & {
   raw_json?: unknown
-  preview_jpeg_base64?: string
+  preview_jpeg_base64?: string | null
 }
 
 export type SearchOptions = {
@@ -40,6 +41,9 @@ export type ChatListOptions = {
 export type MessagePageOptions = {
   chatId: number
   q?: string
+  senderId?: number
+  senderName?: string
+  text?: string
   since?: string
   until?: string
   limit?: number
@@ -122,6 +126,7 @@ export class MessageDB {
         content TEXT,
         timestamp TEXT NOT NULL,
         raw_json TEXT,
+        preview_jpeg_base64 TEXT,
         UNIQUE(platform, chat_id, msg_id)
       );
       CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_id, timestamp);
@@ -130,6 +135,7 @@ export class MessageDB {
       CREATE INDEX IF NOT EXISTS idx_messages_content ON messages(content);
       CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
     `)
+    this.ensurePreviewColumn()
   }
 
   static async openReadonly(path: string): Promise<MessageDB> {
@@ -146,8 +152,8 @@ export class MessageDB {
     if (messages.length === 0) return 0
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO messages
-      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json)
-      VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @raw_json)
+      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json, preview_jpeg_base64)
+      VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @raw_json, @preview_jpeg_base64)
     `)
     let inserted = 0
     const tx = this.db.transaction((rows: StoredMessageInput[]) => {
@@ -162,8 +168,8 @@ export class MessageDB {
   insertMessage(message: StoredMessageInput): boolean {
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO messages
-      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json)
-      VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @raw_json)
+      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json, preview_jpeg_base64)
+      VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @raw_json, @preview_jpeg_base64)
     `)
     return this.insertPrepared(stmt, message) === 1
   }
@@ -218,10 +224,24 @@ export class MessageDB {
   getMessagesPage(options: MessagePageOptions): { items: StoredMessage[]; next_cursor: string | null } {
     const params: unknown[] = [canonicalChatId(options.chatId)]
     const conditions = ['chat_id = ?']
-    const filter = options.q?.trim()
-    if (filter) {
+    const q = options.q?.trim()
+    if (q) {
+      conditions.push('(content LIKE ? OR sender_name LIKE ? OR CAST(sender_id AS TEXT) LIKE ?)')
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`)
+    }
+    if (options.senderId != null) {
+      conditions.push('sender_id = ?')
+      params.push(options.senderId)
+    }
+    const senderName = options.senderName?.trim()
+    if (senderName) {
+      conditions.push('sender_name LIKE ?')
+      params.push(`%${senderName}%`)
+    }
+    const text = options.text?.trim()
+    if (text) {
       conditions.push('content LIKE ?')
-      params.push(`%${filter}%`)
+      params.push(`%${text}%`)
     }
     if (options.since) {
       conditions.push('timestamp >= ?')
@@ -466,13 +486,18 @@ export class MessageDB {
   }
 
   private insertPrepared(stmt: Database.Statement, row: StoredMessageInput): number {
-    const { preview_jpeg_base64, ...persisted } = row
-    void preview_jpeg_base64
     return stmt.run({
-      ...persisted,
+      ...row,
       chat_id: canonicalChatId(row.chat_id),
       raw_json: row.raw_json == null ? null : JSON.stringify(row.raw_json),
+      preview_jpeg_base64: row.preview_jpeg_base64 ?? null,
     }).changes
+  }
+
+  private ensurePreviewColumn(): void {
+    const columns = this.db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
+    if (columns.some((column) => column.name === 'preview_jpeg_base64')) return
+    this.db.exec('ALTER TABLE messages ADD COLUMN preview_jpeg_base64 TEXT')
   }
 
   private addFilters(conditions: string[], params: unknown[], options: FilterOptions, tableAlias?: string): void {

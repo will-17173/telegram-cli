@@ -287,6 +287,43 @@ describe('handleApiRequest', () => {
     })
   })
 
+  it('maps async download media validation errors to JSON', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+
+    const response = await api(root, '/api/download-media', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        account: 'missing',
+        attachments: [{ chat_id: 10, msg_id: 1, file_name: 'photo.jpg' }],
+      }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get('content-type')).toContain('application/json')
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request', message: 'account_not_found: account "missing"' },
+    })
+  })
+
+  it('rejects malformed download media requests as JSON', async () => {
+    const root = makeRoot()
+
+    const response = await api(root, '/api/download-media', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'work', attachments: [] }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
   it('starts a sync task from a valid POST request', async () => {
     const root = makeRoot()
     const result = {

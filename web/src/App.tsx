@@ -4,6 +4,7 @@ import {
   postJson,
   type AccountData,
   type ChatSummary,
+  type MessageAttachment,
   type MessageRow,
   type Page,
   type SyncTaskState,
@@ -20,10 +21,13 @@ export function App() {
   const [selectedChat, setSelectedChat] = useState<ChatSummary | null>(null)
   const [messages, setMessages] = useState<MessageRow[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
-  const [keyword, setKeyword] = useState('')
+  const [senderId, setSenderId] = useState('')
+  const [senderName, setSenderName] = useState('')
+  const [text, setText] = useState('')
   const [since, setSince] = useState('')
   const [until, setUntil] = useState('')
   const [syncTask, setSyncTask] = useState<SyncTaskState>({ status: 'idle' })
+  const [downloadStatus, setDownloadStatus] = useState<Record<string, string>>({})
   const [loadingChats, setLoadingChats] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [error, setError] = useState('')
@@ -109,7 +113,9 @@ export function App() {
     messageRequestId.current = requestId
     const requestAccount = account
     const requestChat = selectedChat
-    const requestKeyword = keyword.trim()
+    const requestSenderId = senderId.trim()
+    const requestSenderName = senderName.trim()
+    const requestText = text.trim()
     const requestSince = since
     const requestUntil = until
     setLoadingMessages(true)
@@ -120,7 +126,9 @@ export function App() {
         chatId: String(requestChat.chat_id),
         limit: String(MESSAGE_LIMIT),
       })
-      if (requestKeyword) params.set('q', requestKeyword)
+      if (requestSenderId) params.set('senderId', requestSenderId)
+      if (requestSenderName) params.set('senderName', requestSenderName)
+      if (requestText) params.set('text', requestText)
       if (requestSince) params.set('since', new Date(requestSince).toISOString())
       if (requestUntil) params.set('until', new Date(requestUntil).toISOString())
       if (cursor) params.set('cursor', cursor)
@@ -133,6 +141,41 @@ export function App() {
       if (requestId === messageRequestId.current) setError(errorText(caught))
     } finally {
       if (requestId === messageRequestId.current) setLoadingMessages(false)
+    }
+  }
+
+  async function downloadAttachments(attachments: MessageAttachment[]) {
+    if (!account || attachments.length === 0) return
+    const keys = attachments.map((attachment) => attachment.key)
+    setDownloadStatus((current) => {
+      const next = { ...current }
+      for (const key of keys) next[key] = 'Downloading'
+      return next
+    })
+    setError('')
+    try {
+      const result = await postJson<{ downloaded: Array<{ path: string }> }>('/api/download-media', {
+        account,
+        attachments: attachments.map((attachment) => ({
+          chat_id: attachment.chat_id,
+          msg_id: attachment.msg_id,
+          file_name: attachment.file_name,
+        })),
+      })
+      const destination = result.downloaded.length === 1 ? result.downloaded[0]?.path : `${result.downloaded.length} files`
+      setDownloadStatus((current) => {
+        const next = { ...current }
+        for (const key of keys) next[key] = destination == null ? 'Downloaded' : `Downloaded to ${destination}`
+        return next
+      })
+    } catch (caught) {
+      const message = errorText(caught)
+      setError(message)
+      setDownloadStatus((current) => {
+        const next = { ...current }
+        for (const key of keys) next[key] = message
+        return next
+      })
     }
   }
 
@@ -225,8 +268,16 @@ export function App() {
 
           <div className="filters">
             <label>
-              <span>Keyword</span>
-              <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="sender or text" />
+              <span>Sender ID</span>
+              <input value={senderId} onChange={(event) => setSenderId(event.target.value)} inputMode="numeric" placeholder="123456789" />
+            </label>
+            <label>
+              <span>Sender name</span>
+              <input value={senderName} onChange={(event) => setSenderName(event.target.value)} placeholder="name" />
+            </label>
+            <label>
+              <span>Text</span>
+              <input value={text} onChange={(event) => setText(event.target.value)} placeholder="message text" />
             </label>
             <label>
               <span>Since</span>
@@ -242,16 +293,53 @@ export function App() {
           </div>
 
           <ol className="message-list" aria-busy={loadingMessages}>
-            {messages.map((message) => (
-              <li key={message.id} className="message-row">
-                <time dateTime={message.timestamp}>{formatDate(message.timestamp)}</time>
-                <div>
-                  <strong>{message.sender_name ?? message.sender_id ?? 'Unknown'}</strong>
-                  <p>{message.content ?? ''}</p>
-                  <small>Telegram message {message.msg_id}</small>
-                </div>
-              </li>
-            ))}
+            {messages.map((message) => {
+              const downloadable = message.attachments.filter((attachment) => attachment.downloadable)
+              return (
+                <li key={message.id} className="message-row">
+                  <div className="message-meta">
+                    <time dateTime={message.timestamp}>{formatDate(message.timestamp)}</time>
+                    <span>{messageIdLabel(message)}</span>
+                  </div>
+                  <div className="message-body">
+                    <div className="sender-line">
+                      <strong>{message.sender_name ?? 'Unknown'}</strong>
+                      <span>ID {message.sender_id ?? 'unknown'}</span>
+                    </div>
+                    <p>{message.content ?? ''}</p>
+                    {message.media_summary && <div className="media-summary">{message.media_summary}</div>}
+                    {message.attachments.length > 0 && (
+                      <div className="attachment-list">
+                        {message.attachments.map((attachment) => (
+                          <div className="attachment-row" key={attachment.key}>
+                            {attachment.preview_jpeg_base64
+                              ? <img alt="" src={`data:image/jpeg;base64,${attachment.preview_jpeg_base64}`} />
+                              : <span className="attachment-thumb" aria-hidden="true">{attachment.kind.slice(0, 3).toUpperCase()}</span>}
+                            <div>
+                              <span className="attachment-label">{attachment.kind}</span>
+                              <small>{attachment.file_name}</small>
+                              {downloadStatus[attachment.key] && <small>{downloadStatus[attachment.key]}</small>}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void downloadAttachments([attachment])}
+                              disabled={!attachment.downloadable || downloadStatus[attachment.key] === 'Downloading'}
+                            >
+                              Download
+                            </button>
+                          </div>
+                        ))}
+                        {downloadable.length > 1 && (
+                          <button className="download-all" type="button" onClick={() => void downloadAttachments(downloadable)}>
+                            Download all
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
           </ol>
 
           {!loadingMessages && selectedChat != null && messages.length === 0 && <p className="empty-note">No messages match the current filters.</p>}
@@ -270,11 +358,18 @@ function formatDate(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
     month: 'short',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   }).format(date)
+}
+
+function messageIdLabel(message: MessageRow): string {
+  return message.msg_ids.length > 1
+    ? `Messages ${message.msg_ids.join(', ')}`
+    : `Message ${message.msg_id}`
 }
 
 function errorText(error: unknown): string {

@@ -2,6 +2,9 @@ import { join } from 'node:path'
 import { AccountStore } from '../account/account-store.js'
 import { resolveAccountContext } from '../account/account-context.js'
 import { MessageDB } from '../storage/message-db.js'
+import { attachmentFileName, discoverListenAttachments } from '../services/listen-attachment.js'
+import { groupLogicalMessages, summarizeLogicalMedia } from '../presenters/logical-message.js'
+import { strippedPhotoPreviewBase64FromRawMessage } from '../telegram/raw-media-location.js'
 import type { WebAccountSummary, WebChatSummary, WebMessage, WebPage } from './types.js'
 
 export class WebQueryService {
@@ -40,34 +43,122 @@ export class WebQueryService {
     }
   }
 
-  messages(input: { account?: string; chatId: number; q?: string; since?: string; until?: string; limit?: number; cursor?: string }): WebPage<WebMessage> {
+  messages(input: { account?: string; chatId: number; q?: string; senderId?: number; senderName?: string; text?: string; since?: string; until?: string; limit?: number; cursor?: string }): WebPage<WebMessage> {
     const context = resolveAccountContext({ explicitName: input.account, dataDir: this.options.dataDir })
     const db = new MessageDB(context.dbPath, { readonly: true })
     try {
       const page = db.getMessagesPage({
         chatId: input.chatId,
         q: input.q,
+        senderId: input.senderId,
+        senderName: input.senderName,
+        text: input.text,
         since: input.since,
         until: input.until,
         limit: input.limit,
         cursor: input.cursor,
       })
       return {
-        items: page.items.map((message) => ({
-          id: message.id,
-          platform: message.platform,
-          chat_id: message.chat_id,
-          chat_name: message.chat_name,
-          msg_id: message.msg_id,
-          sender_id: message.sender_id,
-          sender_name: message.sender_name,
-          content: message.content,
-          timestamp: message.timestamp,
-        })),
+        items: groupLogicalMessages(page.items)
+          .reverse()
+          .map((message) => {
+            const first = message.first
+            const attachments = message.messages.flatMap((row) => (
+              discoverListenAttachments({
+                ...row,
+                preview_jpeg_base64: row.preview_jpeg_base64 ?? extractPreviewJpegBase64(row.raw_json),
+              }).map((attachment, index) => ({
+                key: `${attachment.chatId}:${attachment.messageId}:${index}`,
+                chat_id: attachment.chatId,
+                msg_id: attachment.messageId,
+                kind: attachment.kind,
+                label: attachment.label,
+                file_name: attachmentFileName(attachment),
+                mime_type: attachment.mimeType,
+                downloadable: attachment.downloadable,
+                ...(attachment.previewJpegBase64 == null ? {} : { preview_jpeg_base64: attachment.previewJpegBase64 }),
+              }))
+            ))
+            return {
+              id: first.id,
+              platform: first.platform,
+              chat_id: first.chat_id,
+              chat_name: first.chat_name,
+              msg_id: first.msg_id,
+              msg_ids: message.messages.map((row) => row.msg_id),
+              sender_id: first.sender_id,
+              sender_name: first.sender_name,
+              content: message.content,
+              timestamp: first.timestamp,
+              media_summary: summarizeLogicalMedia(message),
+              attachments,
+            }
+          }),
         next_cursor: page.next_cursor,
       }
     } finally {
       db.close()
     }
   }
+}
+
+function extractPreviewJpegBase64(raw: unknown): string | undefined {
+  const root = parseRaw(raw)
+  if (root == null) return undefined
+  const direct = firstString(root.preview_jpeg_base64, root.previewJpegBase64)
+  if (direct != null) return direct
+  const stripped = strippedPhotoPreviewBase64FromRawMessage(raw)
+  if (stripped != null) return stripped
+  const media = recordValue(root.media) ?? root
+  const photo = recordValue(media.photo) ?? media
+  const thumbnails = Array.isArray(photo.thumbnails) ? photo.thumbnails : []
+  for (const item of thumbnails) {
+    if (!isRecord(item)) continue
+    const type = firstString(item.type)
+    if (type != null && type !== 'i' && type !== 'stripped') continue
+    const location = item.location
+    const encoded = bytesLikeToBase64(location) ?? firstString(location)
+    if (encoded != null) return encoded
+  }
+  return undefined
+}
+
+function parseRaw(raw: unknown): Record<string, unknown> | null {
+  if (typeof raw === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(raw)
+      return isRecord(parsed) ? parsed : null
+    } catch {
+      return null
+    }
+  }
+  return isRecord(raw) ? raw : null
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim() !== '') return value.trim()
+  }
+  return undefined
+}
+
+function bytesLikeToBase64(value: unknown): string | undefined {
+  const bytes = Array.isArray(value)
+    ? value
+    : isRecord(value) ? Object.keys(value)
+      .filter((key) => /^\d+$/.test(key))
+      .sort((left, right) => Number(left) - Number(right))
+      .map((key) => value[key])
+      : null
+  if (bytes == null || bytes.length === 0) return undefined
+  if (!bytes.every((item): item is number => typeof item === 'number' && Number.isInteger(item) && item >= 0 && item <= 255)) return undefined
+  return Buffer.from(bytes).toString('base64')
 }
