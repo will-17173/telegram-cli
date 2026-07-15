@@ -138,7 +138,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   async fetchHistory(options: FetchHistoryOptions): Promise<StoredMessageInput[]> {
     await this.ensureReady()
     const rows: StoredMessageInput[] = []
-    let offset: NonNullable<Parameters<TelegramClient['getHistory']>[1]>['offset']
+    let offset: NonNullable<Parameters<TelegramClient['getHistory']>[1]>['offset'] = options.offset
     let floodRetries = 0
     let transientRetries = 0
 

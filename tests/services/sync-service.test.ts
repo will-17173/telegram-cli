@@ -116,7 +116,12 @@ describe('SyncService', () => {
       },
     })
     expect(fake.fetchHistoryCalls[0]).toMatchObject({ chat: 'TestGroup', limit: 100, minId: 7, pageDelay: 2.5 })
-    expect(fake.fetchHistoryCalls[1]).toMatchObject({ chat: 'TestGroup', limit: 100, maxId: 7, pageDelay: 2.5 })
+    expect(fake.fetchHistoryCalls[1]).toMatchObject({
+      chat: 'TestGroup',
+      limit: 100,
+      offset: { id: 7, date: Math.floor(Date.parse('2026-03-09T10:00:00.000Z') / 1000) },
+      pageDelay: 2.5,
+    })
     sync.close()
   })
 
@@ -152,7 +157,11 @@ describe('SyncService', () => {
     expect(result).toMatchObject({ ok: true, data: { synced: 200, chat: 'TestGroup' } })
     expect(fake.fetchHistoryCalls).toHaveLength(2)
     expect(fake.fetchHistoryCalls[0]).toMatchObject({ chat: 'TestGroup', limit: 500, minId: 700 })
-    expect(fake.fetchHistoryCalls[1]).toMatchObject({ chat: 'TestGroup', limit: 500, maxId: 201 })
+    expect(fake.fetchHistoryCalls[1]).toMatchObject({
+      chat: 'TestGroup',
+      limit: 500,
+      offset: { id: 201, date: Math.floor(Date.parse(messages[200]!.timestamp) / 1000) },
+    })
     expect(db.count()).toBe(700)
     sync.close()
   })

@@ -410,6 +410,19 @@ export class MessageDB {
     return row.value
   }
 
+  getFirstMsgOffset(chatId: number): { id: number; date: number } | null {
+    const row = this.db.prepare(`
+      SELECT msg_id, timestamp
+      FROM messages
+      WHERE chat_id = ?
+      ORDER BY msg_id ASC
+      LIMIT 1
+    `).get(canonicalChatId(chatId)) as { msg_id: number; timestamp: string } | undefined
+    if (row == null) return null
+    const date = Math.floor(Date.parse(row.timestamp) / 1000)
+    return Number.isFinite(date) ? { id: row.msg_id, date } : null
+  }
+
   count(chatId?: number): number {
     const row = chatId == null
       ? this.db.prepare('SELECT COUNT(*) as value FROM messages').get() as { value: number }

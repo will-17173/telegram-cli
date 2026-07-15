@@ -29,6 +29,7 @@ export type FetchHistoryOptions = {
   limit: number
   minId?: number
   maxId?: number
+  offset?: { id: number; date: number }
   pageDelay?: number
   onProgress?: (count: number) => void
 }

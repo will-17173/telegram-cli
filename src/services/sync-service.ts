@@ -70,12 +70,12 @@ export class SyncService {
 
       const resolvedChatId = chatId ?? this.db.resolveChatId(options.chat)
       const remaining = limit - messages.length
-      const firstId = resolvedChatId == null ? null : this.db.getFirstMsgId(resolvedChatId)
-      if (remaining > 0 && firstId != null) {
+      const firstOffset = resolvedChatId == null ? null : this.db.getFirstMsgOffset(resolvedChatId)
+      if (remaining > 0 && firstOffset != null) {
         const older = await this.tg.fetchHistory({
           chat: parseChat(options.chat),
           limit: remaining,
-          maxId: firstId,
+          offset: firstOffset,
           pageDelay: options.pageDelay,
           onProgress,
         })
