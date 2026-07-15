@@ -468,6 +468,86 @@ describe('Telegram command lifecycle', () => {
     expect(writes.join('')).toBe('fetched 100 messages...\nfetched 200 messages...\n')
   })
 
+  it('prints sync-all progress with the current chat name', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: Parameters<typeof process.stderr.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+    client.fetchHistory.mockImplementationOnce(async ({ chat, onProgress }: { chat: string | number; onProgress?: (count: number) => void }) => {
+      onProgress?.(1)
+      onProgress?.(100)
+      onProgress?.(101)
+      onProgress?.(200)
+      return [{
+        platform: 'telegram', chat_id: Number(chat) || 42, chat_name: 'General', msg_id: 1,
+        sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
+      }]
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'sync-all', '--limit', '250', '--delay', '0'])
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(writes.join('')).toBe([
+      'General: syncing...\n',
+      'General: fetched 100 messages...\n',
+      'General: fetched 200 messages...\n',
+      'General: synced 1 new messages.\n',
+    ].join(''))
+  })
+
+  it('prints sync-all start and completion when fewer than 100 messages are synced', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: Parameters<typeof process.stderr.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'sync-all', '--limit', '10', '--delay', '0'])
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(writes.join('')).toBe('General: syncing...\nGeneral: synced 1 new messages.\n')
+  })
+
+  it('stops sync-all after the current chat when interrupted', async () => {
+    const writes: string[] = []
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: Parameters<typeof process.stderr.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+    client.listChats.mockResolvedValueOnce([
+      { id: 42, name: 'General', type: 'group', unread: 0 },
+      { id: 43, name: 'Random', type: 'group', unread: 0 },
+    ])
+    client.fetchHistory.mockImplementationOnce(async ({ chat }: { chat: string | number }) => {
+      process.emit('SIGINT')
+      return [{
+        platform: 'telegram', chat_id: Number(chat) || 42, chat_name: 'General', msg_id: 1,
+        sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
+      }]
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'sync-all', '--limit', '10', '--delay', '0'])
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(client.fetchHistory).toHaveBeenCalledTimes(1)
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({ new_messages: 1, chats: 1, results: { General: 1 } }),
+    }), expect.any(Object))
+    expect(writes.join('')).toContain('sync-all interrupted; finishing current chat before stopping...\n')
+    expect(process.exitCode).toBe(130)
+  })
+
   it.each([
     ['history', '1oops'],
     ['history', 'Infinity'],
@@ -523,7 +603,12 @@ describe('Telegram command lifecycle', () => {
       sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
     }]).mockRejectedValueOnce(new Error('history unavailable'))
 
-    await createApp().exitOverride().parseAsync(['node', 'tg', 'sync-all', '--limit', '10', '--delay', '0'])
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'sync-all', '--limit', '10', '--delay', '0'])
+    } finally {
+      write.mockRestore()
+    }
 
     expect(renderResult).toHaveBeenCalledWith({
       ok: true,

@@ -303,6 +303,14 @@ input::placeholder {
   justify-content: space-between;
 }
 
+.chat-title-row {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  max-width: 980px;
+}
+
 .chat-header h1 {
   font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
   font-size: clamp(30px, 4vw, 52px);
@@ -311,6 +319,16 @@ input::placeholder {
   margin: 7px 0 0;
   max-width: 980px;
   overflow-wrap: anywhere;
+}
+
+.selected-chat-id {
+  border-left: 2px solid var(--trace);
+  color: var(--telegram-dark);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 800;
+  padding-left: 10px;
+  white-space: nowrap;
 }
 
 .chat-header p,

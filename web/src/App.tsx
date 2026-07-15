@@ -271,7 +271,10 @@ export function App() {
           <div className="chat-header">
             <div>
               <span className="panel-kicker">Message stream</span>
-              <h1>{selectedChatName}</h1>
+              <div className="chat-title-row">
+                <h1>{selectedChatName}</h1>
+                {selectedChat != null && <span className="selected-chat-id">Chat ID {selectedChat.chat_id}</span>}
+              </div>
               <p>{selectedSummary}</p>
             </div>
             <button className="primary-action" onClick={syncCurrentChat} disabled={selectedChat == null || syncTask.status === 'running'} type="button">

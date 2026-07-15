@@ -21,6 +21,16 @@ type SyncOptions = {
   onProgress?: (count: number) => void
 }
 
+type RefreshOptions = {
+  limit: number
+  delay: number
+  maxChats?: number
+  onChatStart?: (chatName: string) => void
+  onChatComplete?: (chatName: string, count: number, error?: string) => void
+  onProgress?: (chatName: string, count: number) => void
+  stopSignal?: AbortSignal
+}
+
 export class SyncService {
   private readonly db: MessageDB
 
@@ -89,7 +99,7 @@ export class SyncService {
     }
   }
 
-  async refresh(options: { limit: number; delay: number; maxChats?: number }): Promise<HandlerResult<RefreshResult>> {
+  async refresh(options: RefreshOptions): Promise<HandlerResult<RefreshResult>> {
     const invalid = validateRefreshOptions(options)
     if (invalid) return invalid
 
@@ -103,17 +113,24 @@ export class SyncService {
     const results: Record<string, number> = {}
     const failures: Record<string, string> = {}
     for (let index = 0; index < selected.length; index += 1) {
+      if (options.stopSignal?.aborted) break
       const dialog = selected[index]
       const lastId = this.db.getLastMsgId(dialog.id) ?? 0
       const limit = lastId === 0 && options.limit > FIRST_SYNC_LIMIT ? FIRST_SYNC_LIMIT : options.limit
+      const onProgress = options.onProgress == null
+        ? undefined
+        : (count: number) => options.onProgress?.(dialog.name, count)
+      options.onChatStart?.(dialog.name)
       try {
-        const messages = await this.tg.fetchHistory({ chat: dialog.id, limit, minId: lastId, pageDelay: 1 })
+        const messages = await this.tg.fetchHistory({ chat: dialog.id, limit, minId: lastId, pageDelay: 1, onProgress })
         results[dialog.name] = this.db.insertBatch(messages)
+        options.onChatComplete?.(dialog.name, results[dialog.name])
       } catch (error) {
         results[dialog.name] = 0
         failures[dialog.name] = errorMessage(error)
+        options.onChatComplete?.(dialog.name, 0, failures[dialog.name])
       }
-      if (options.delay > 0 && index < selected.length - 1) {
+      if (!options.stopSignal?.aborted && options.delay > 0 && index < selected.length - 1) {
         const jitter = options.delay * (Math.random() * 0.4 - 0.2)
         await delayMs((options.delay + jitter) * 1000)
       }
@@ -124,7 +141,7 @@ export class SyncService {
       .map(([name]) => name)
     const data = {
       new_messages: Object.values(results).reduce((sum, count) => sum + count, 0),
-      chats: selected.length,
+      chats: Object.keys(results).length,
       updated_chats,
       results,
       failures,

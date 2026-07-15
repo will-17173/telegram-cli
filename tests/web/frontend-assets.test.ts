@@ -12,6 +12,8 @@ describe('web frontend source', () => {
     expect(app).toContain('replyMessageIdLabel')
     expect(app).toContain('syncErrorText')
     expect(app).toContain('Sync failed')
+    expect(app).toContain('selected-chat-id')
+    expect(app).toContain('Chat ID')
     expect(app).not.toContain('Reply to {replySenderLabel')
     expect(app).not.toContain('Message {message.reply_context.message_id}')
     expect(app).not.toContain('Send message')

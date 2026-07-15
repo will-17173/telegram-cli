@@ -156,19 +156,34 @@ export function registerTelegramCommands(app: Command): void {
       const limit = Number.parseInt(options.limit ?? '0', 10)
       const delay = Number.parseFloat(options.delay ?? '0')
       const maxChats = options.maxChats == null ? undefined : Number.parseInt(options.maxChats, 10)
-      await renderSyncResult(options, async (service) => {
-        const result = await service.refresh({ limit, delay, maxChats })
-        if (!result.ok) return result
-        return {
-          ok: true,
-          data: {
-            new_messages: result.data.new_messages,
-            chats: result.data.chats,
-            results: result.data.results,
-          },
-          human: syncSummary(result.data),
-        }
-      }, command)
+      const reporter = createRefreshStatusReporter(options)
+      const stop = createInterruptibleSyncAllStop(options)
+      try {
+        await renderSyncResult(options, async (service) => {
+          const result = await service.refresh({
+            limit,
+            delay,
+            maxChats,
+            onChatStart: reporter?.onChatStart,
+            onChatComplete: reporter?.onChatComplete,
+            onProgress: reporter?.onProgress,
+            stopSignal: stop.signal,
+          })
+          if (!result.ok) return result
+          return {
+            ok: true,
+            data: {
+              new_messages: result.data.new_messages,
+              chats: result.data.chats,
+              results: result.data.results,
+            },
+            human: syncSummary(result.data),
+          }
+        }, command)
+      } finally {
+        stop.dispose()
+      }
+      if (stop.interrupted) process.exitCode = 130
     })
 
   app.command('refresh')
@@ -468,6 +483,63 @@ function createSyncProgressReporter(options: SyncFlags): ((count: number) => voi
       process.stderr.write(`fetched ${current} messages...\n`)
     }
     reported = next
+  }
+}
+
+type RefreshStatusReporter = {
+  onChatStart: (chatName: string) => void
+  onChatComplete: (chatName: string, count: number, error?: string) => void
+  onProgress: (chatName: string, count: number) => void
+}
+
+function createRefreshStatusReporter(options: SyncFlags): RefreshStatusReporter | undefined {
+  if (options.json || options.yaml || options.markdown) return undefined
+  const reportedByChat = new Map<string, number>()
+  return {
+    onChatStart: (chatName) => {
+      process.stderr.write(`${chatName}: syncing...\n`)
+    },
+    onChatComplete: (chatName, count, error) => {
+      if (error == null) {
+        process.stderr.write(`${chatName}: synced ${count} new messages.\n`)
+      } else {
+        process.stderr.write(`${chatName}: failed (${error})\n`)
+      }
+    },
+    onProgress: (chatName, count) => {
+      const reported = reportedByChat.get(chatName) ?? 0
+      const next = Math.floor(count / 100) * 100
+      if (next <= reported) return
+      for (let current = reported + 100; current <= next; current += 100) {
+        process.stderr.write(`${chatName}: fetched ${current} messages...\n`)
+      }
+      reportedByChat.set(chatName, next)
+    },
+  }
+}
+
+function createInterruptibleSyncAllStop(options: SyncFlags): { signal: AbortSignal; interrupted: boolean; dispose: () => void } {
+  const controller = new AbortController()
+  let interrupted = false
+  const requestStop = () => {
+    if (controller.signal.aborted) return
+    interrupted = true
+    controller.abort()
+    if (!options.json && !options.yaml && !options.markdown) {
+      process.stderr.write('sync-all interrupted; finishing current chat before stopping...\n')
+    }
+  }
+  process.once('SIGINT', requestStop)
+  process.once('SIGTERM', requestStop)
+  return {
+    signal: controller.signal,
+    get interrupted() {
+      return interrupted
+    },
+    dispose: () => {
+      process.off('SIGINT', requestStop)
+      process.off('SIGTERM', requestStop)
+    },
   }
 }
 
