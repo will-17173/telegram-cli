@@ -6,6 +6,7 @@ import { attachmentFileName, discoverListenAttachments } from '../services/liste
 import { buildReplyContext, type ReplyContext } from '../services/reply-context.js'
 import { groupLogicalMessages, summarizeLogicalMedia } from '../presenters/logical-message.js'
 import { strippedPhotoPreviewBase64FromRawMessage } from '../telegram/raw-media-location.js'
+import { extractGroupedId } from '../telegram/raw-message.js'
 import type { WebAccountSummary, WebChatSummary, WebMessage, WebMessageAttachment, WebPage, WebReplyContext } from './types.js'
 
 export class WebQueryService {
@@ -79,6 +80,7 @@ export class WebQueryService {
               chat_name: first.chat_name,
               msg_id: first.msg_id,
               msg_ids: message.messages.map((row) => row.msg_id),
+              grouped_id: extractGroupedId(first.raw_json),
               sender_id: first.sender_id,
               sender_name: first.sender_name,
               content: message.content,

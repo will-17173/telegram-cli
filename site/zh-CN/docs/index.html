@@ -458,6 +458,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <td><span class="scope-badge" data-scope="write">远端写入</span></td>
                   <td>删除一条或多条 Telegram 消息。</td>
                 </tr>
+                <tr data-command="download">
+                  <th scope="row"><code dir="ltr" translate="no">tg download --chat &lt;chat&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="filesystem">文件下载</span></td>
+                  <td>下载单条消息、按 grouped_id 下载相册、消息范围、指定日期或整个聊天中的媒体，可指定目录和并发数。</td>
+                </tr>
                 <tr data-command="listen">
                   <th scope="row"><code dir="ltr" translate="no">tg listen [chats...]</code></th>
                   <td><span class="scope-badge" data-scope="live">在线流</span></td>
@@ -851,7 +856,7 @@ tg config write-access on --json</code></pre>
         </section>
       </article>
 
-      <aside class="docs-status-card docs-page-outline" data-command-count="33" data-group-command-count="48" aria-label="本页范围说明">
+      <aside class="docs-status-card docs-page-outline" data-command-count="34" data-group-command-count="48" aria-label="本页范围说明">
         <p class="status-card-label docs-outline-label">THIS PAGE</p>
         <h2>命令信号</h2>
         <dl class="scope-key">

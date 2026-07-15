@@ -1,10 +1,17 @@
 import type { Command } from 'commander'
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { CommandFailure, HandlerResult } from './types.js'
 import { MessageDB } from '../storage/message-db.js'
+import type { StoredMessage } from '../storage/message-db.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import type { TelegramChatType, TelegramClientAdapter, TelegramUser } from '../telegram/types.js'
+import type { ArchiveMessage } from '../telegram/archive-types.js'
 import { MessageService } from '../services/message-service.js'
 import { SyncService } from '../services/sync-service.js'
+import { DownloadService, type DownloadInput } from '../services/download-service.js'
+import { attachmentFileName, discoverListenAttachments } from '../services/listen-attachment.js'
 import { ListenAlbumAggregator } from '../services/listen-album-aggregator.js'
 import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../services/auto-download-coordinator.js'
 import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '../presenters/human.js'
@@ -13,6 +20,7 @@ import { renderInteractiveListen } from '../presenters/ink/listen.js'
 import { runWithAuthenticatedAccountContext, type AccountCommandOptions } from './account-options.js'
 import { hideBenignUpdateWarnings, runTelegramCommand, runTelegramWriteCommand } from './telegram-runner.js'
 import { createListenReplyResolver } from '../services/listen-reply-resolver.js'
+import { parseTimeRange } from './time-range.js'
 
 type MachineOptions = AccountCommandOptions
 
@@ -34,6 +42,23 @@ type EditFlags = MachineOptions & {
 }
 
 type DeleteFlags = MachineOptions
+
+type DownloadFlags = MachineOptions & {
+  chat?: string
+  msgId?: string
+  msg_id?: string
+  attachment?: string
+  groupedId?: string
+  grouped_id?: string
+  from?: string
+  to?: string
+  date?: string
+  since?: string
+  until?: string
+  all?: boolean
+  output?: string
+  concurrency?: string
+}
 
 type SyncFlags = MachineOptions & {
   limit?: string
@@ -264,6 +289,51 @@ export function registerTelegramCommands(app: Command): void {
       }), command)
     })
 
+  app.command('download')
+    .description('Download media attached to Telegram messages')
+    .argument('[chat]')
+    .argument('[msgId]')
+    .option('--chat <chat>', 'Chat id, username, or title')
+    .option('--msg-id <msgId>', 'Download one Telegram message id')
+    .option('--msg_id <msgId>', 'Alias for --msg-id')
+    .option('-a, --attachment <number>', 'Download one attachment number from a single message')
+    .option('--grouped-id <id>', 'Download all media in a Telegram album grouped_id')
+    .option('--grouped_id <id>', 'Alias for --grouped-id')
+    .option('--from <msgId>', 'First message id in an inclusive range')
+    .option('--to <msgId>', 'Last message id in an inclusive range')
+    .option('--date <date>', 'Download media for a local date (YYYY-MM-DD)')
+    .option('--since <since>', 'Only download media after this time')
+    .option('--until <until>', 'Only download media before this time')
+    .option('--all', 'Download all media from the chat, newest to oldest')
+    .option('-o, --output <path>', 'Download directory')
+    .option('-j, --concurrency <count>', 'Concurrent downloads', '3')
+    .option('--json')
+    .option('--yaml')
+    .action(async (chat: string, msgId: string | undefined, options: DownloadFlags, command: Command) => {
+      const input = buildDownloadInput(chat, msgId, options)
+      if (!input.ok) {
+        await runWithAuthenticatedAccountContext(options, async () => input, command)
+        return
+      }
+
+      await runTelegramCommand(options, async (client, context) => {
+        const groupedMessages = localGroupedDownloadMessages(context.dbPath, input.data)
+        if (input.data.groupedId != null && groupedMessages.length === 0) {
+          return {
+            ok: false,
+            error: {
+              code: 'download_grouped_id_not_found',
+              message: `Grouped album ${input.data.groupedId} was not found in the local cache for ${String(input.data.chat)}. Sync or refresh the chat first, then retry.`,
+            },
+          }
+        }
+        return new DownloadService(client.archive).download({
+          ...input.data,
+          ...(groupedMessages.length === 0 ? {} : { groupedMessages }),
+        })
+      }, command)
+    })
+
   app.command('listen')
     .description('Listen for new Telegram messages')
     .argument('[chats...]')
@@ -452,6 +522,158 @@ function printAutoDownloadEvent(event: AutoDownloadEvent): void {
   } else if (event.status === 'failed') {
     process.stdout.write(`download failed: ${event.key.split(':').slice(0, -1).join(':')}: ${event.error}\n`)
   }
+}
+
+function buildDownloadInput(
+  chat: string,
+  msgId: string | undefined,
+  options: DownloadFlags,
+): HandlerResult<DownloadInput> {
+  const effectiveChat = options.chat ?? chat
+  if (effectiveChat == null || effectiveChat.trim() === '') return invalidOption('chat must be a non-empty string.')
+  if (options.chat != null && chat != null && chat.trim() !== '') return invalidOption('chat argument cannot be combined with --chat.')
+  const effectiveMsgId = options.msgId ?? options.msg_id ?? msgId
+  if ((options.msgId != null || options.msg_id != null) && msgId != null) return invalidOption('message id argument cannot be combined with --msg-id.')
+  const parsedMessageId = effectiveMsgId == null ? undefined : parsePositiveInteger(effectiveMsgId)
+  if (effectiveMsgId != null && parsedMessageId == null) return invalidOption('message id must be a positive integer.')
+  const groupedId = options.groupedId ?? options.grouped_id
+  const attachment = options.attachment == null ? undefined : parsePositiveInteger(options.attachment)
+  if (options.attachment != null && attachment == null) return invalidOption('attachment must be a positive integer.')
+  const fromId = options.from == null ? undefined : parsePositiveInteger(options.from)
+  if (options.from != null && fromId == null) return invalidOption('from id must be a positive integer.')
+  const toId = options.to == null ? undefined : parsePositiveInteger(options.to)
+  if (options.to != null && toId == null) return invalidOption('to id must be a positive integer.')
+  const concurrency = options.concurrency == null ? undefined : parsePositiveInteger(options.concurrency)
+  if (options.concurrency != null && concurrency == null) return invalidOption('concurrency must be a positive integer.')
+
+  let since: Date | undefined
+  let until: Date | undefined
+  if (options.date != null) {
+    if (options.since != null || options.until != null) {
+      return invalidOption('--date cannot be combined with --since or --until.')
+    }
+    const parsedDate = parseLocalDate(options.date)
+    if (parsedDate == null) return invalidOption('--date must use YYYY-MM-DD.')
+    since = parsedDate
+    until = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate() + 1)
+  } else {
+    try {
+      const range = parseTimeRange({ since: options.since, until: options.until })
+      since = range.since
+      until = range.until
+    } catch {
+      return invalidOption('Use positive relative durations or ISO timestamps with zones; --since must be earlier than --until.')
+    }
+  }
+
+  const scopes = [
+    parsedMessageId != null,
+    groupedId != null,
+    fromId != null || toId != null,
+    since != null || until != null,
+    options.all === true,
+  ].filter(Boolean).length
+  if (scopes !== 1) {
+    return invalidOption('Select exactly one download scope: message id, --grouped-id, --from/--to, --date/--since/--until, or --all.')
+  }
+  if (groupedId != null && groupedId.trim() === '') {
+    return invalidOption('grouped id must be a non-empty string.')
+  }
+  if (attachment != null && parsedMessageId == null && groupedId == null) {
+    return invalidOption('--attachment can only be used with a single message id or --grouped-id.')
+  }
+
+  return {
+    ok: true,
+    data: {
+      chat: parseChat(effectiveChat),
+      ...(parsedMessageId == null ? {} : { messageId: parsedMessageId }),
+      ...(groupedId == null ? {} : { groupedId }),
+      ...(attachment == null ? {} : { attachment }),
+      ...(fromId == null ? {} : { fromId }),
+      ...(toId == null ? {} : { toId }),
+      ...(since == null ? {} : { since }),
+      ...(until == null ? {} : { until }),
+      ...(options.all === true ? { all: true } : {}),
+      output: options.output ?? defaultDownloadOutput(),
+      ...(concurrency == null ? {} : { concurrency }),
+    },
+  }
+}
+
+function localGroupedDownloadMessages(
+  dbPath: string,
+  input: DownloadInput,
+): ArchiveMessage[] {
+  if (input.groupedId == null || !existsSync(dbPath)) return []
+  const db = new MessageDB(dbPath, { readonly: true })
+  try {
+    const chatId = typeof input.chat === 'number'
+      ? input.chat
+      : db.resolveChatId(String(input.chat))
+    if (chatId == null) return []
+    const messages = db.findMessagesByGroupedId(chatId, input.groupedId)
+    return messages.map(toDownloadArchiveMessage)
+  } finally {
+    db.close()
+  }
+}
+
+function toDownloadArchiveMessage(message: StoredMessage): ArchiveMessage {
+  const [attachment] = discoverListenAttachments({
+    platform: message.platform,
+    chat_id: message.chat_id,
+    chat_name: message.chat_name,
+    msg_id: message.msg_id,
+    sender_id: message.sender_id,
+    sender_name: message.sender_name,
+    content: message.content,
+    timestamp: message.timestamp,
+    raw_json: message.raw_json,
+    preview_jpeg_base64: message.preview_jpeg_base64,
+  })
+  return {
+    chat_id: message.chat_id,
+    msg_id: message.msg_id,
+    timestamp: message.timestamp,
+    sender_id: message.sender_id,
+    sender_name: message.sender_name,
+    text: message.content,
+    reply_to_msg_id: null,
+    media_group_id: null,
+    attachment: attachment == null
+      ? null
+      : {
+        type: attachment.kind,
+        file_name: attachmentFileName(attachment),
+        file_size: null,
+        downloadable: attachment.downloadable,
+      },
+  }
+}
+
+function parsePositiveInteger(value: string): number | undefined {
+  const parsed = Number.parseInt(value, 10)
+  return String(parsed) === value.trim() && parsed > 0 ? parsed : undefined
+}
+
+function parseLocalDate(value: string): Date | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim())
+  if (match == null) return undefined
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(year, month - 1, day)
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return undefined
+  return date
+}
+
+function defaultDownloadOutput(): string {
+  return join(homedir(), 'Downloads', 'telegram-cli')
+}
+
+function invalidOption(message: string): HandlerResult<never> {
+  return { ok: false, error: { code: 'invalid_option', message } }
 }
 
 function parseChats(values: string[] | undefined): string[] | undefined {

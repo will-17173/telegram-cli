@@ -27,6 +27,7 @@ export type WebMessage = {
   chat_name: string | null
   msg_id: number
   msg_ids: number[]
+  grouped_id: string | null
   sender_id: number | null
   sender_name: string | null
   content: string | null

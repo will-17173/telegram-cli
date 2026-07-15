@@ -318,6 +318,7 @@ describe('WebQueryService', () => {
 
     expect(page.items).toHaveLength(1)
     expect(page.items[0]).toMatchObject({
+      grouped_id: 'album-1',
       msg_ids: [10, 11],
       content: 'album caption',
       media_summary: expect.stringContaining('Photo'),

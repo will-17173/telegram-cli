@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { getDbPath } from '../config/env.js'
 import { canonicalChatId } from './chat-resolver.js'
+import { extractGroupedId } from '../telegram/raw-message.js'
 
 export type StoredMessage = {
   id: number
@@ -290,6 +291,15 @@ export class MessageDB {
       return messages
     })
     return read(keys)
+  }
+
+  findMessagesByGroupedId(chatId: number, groupedId: string): StoredMessage[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM messages
+      WHERE platform = 'telegram' AND chat_id = ? AND raw_json IS NOT NULL
+      ORDER BY msg_id ASC
+    `).all(canonicalChatId(chatId)) as StoredMessage[]
+    return rows.filter((row) => extractGroupedId(row.raw_json) === groupedId)
   }
 
   getToday(options: TodayOptions = {}): StoredMessage[] {

@@ -66,6 +66,17 @@ The `listen` command streams new messages from one chat or many chats. It can do
 tg listen @team --auto-download
 ```
 
+### Download historical media
+
+Use `download` for existing messages: a single message, one attachment, an inclusive message range, one local date, or a whole chat from newest to oldest. Use `--output` to choose the directory and `--concurrency` to cap parallel downloads.
+
+```sh
+tg download --chat @team --msg-id 814 --output ./media
+tg download --chat @team --date 2026-07-15 --concurrency 2
+tg download --chat @channel --grouped-id 2637798265 --output ./album-media
+tg download --chat @channel --all --output ./channel-media
+```
+
 ### Keep a Markdown archive
 
 The `archive` command writes incremental Markdown and optional media files. It tracks archive progress separately and does not populate SQLite.

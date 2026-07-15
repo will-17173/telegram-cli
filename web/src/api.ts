@@ -27,6 +27,7 @@ export type MessageRow = {
   id: number
   msg_id: number
   msg_ids: number[]
+  grouped_id: string | null
   sender_name: string | null
   sender_id: number | null
   content: string | null

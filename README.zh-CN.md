@@ -66,6 +66,17 @@ tg web
 tg listen @team --auto-download
 ```
 
+### 下载历史媒体
+
+`download` 用于已存在的消息：可下载单条消息、单个附件、连续消息范围、某个本地日期，或从最新到最旧下载整个聊天的媒体。用 `--output` 指定目录，用 `--concurrency` 控制并发数。
+
+```sh
+tg download --chat @team --msg-id 814 --output ./media
+tg download --chat @team --date 2026-07-15 --concurrency 2
+tg download --chat @channel --grouped-id 2637798265 --output ./album-media
+tg download --chat @channel --all --output ./channel-media
+```
+
 ### 保存增量 Markdown 归档
 
 `archive` 将消息增量写入 Markdown，并可同时下载媒体文件。它单独记录归档进度，不会填充 SQLite。

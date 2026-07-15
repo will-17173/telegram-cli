@@ -331,6 +331,33 @@ describe('MessageDB', () => {
     store.close()
   })
 
+  it('finds telegram album messages by grouped id without remote history scans', () => {
+    const store = db()
+    store.insertBatch([
+      message({
+        chat_id: -1001234567890,
+        msg_id: 10,
+        content: 'album caption',
+        raw_json: { grouped_id: { low: '443463141', high: '3323118' } },
+      }),
+      message({
+        chat_id: -1001234567890,
+        msg_id: 11,
+        content: null,
+        raw_json: { grouped_id: { low: '443463141', high: '3323118' } },
+      }),
+      message({
+        chat_id: -1001234567890,
+        msg_id: 12,
+        content: 'other',
+        raw_json: { grouped_id: 'other' },
+      }),
+    ])
+
+    expect(store.findMessagesByGroupedId(-1001234567890, '443463141:3323118').map((row) => row.msg_id)).toEqual([10, 11])
+    store.close()
+  })
+
   it('only looks up telegram reply messages when platform keys overlap', () => {
     const store = db()
     store.insertBatch([

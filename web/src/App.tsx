@@ -464,7 +464,7 @@ export function App() {
                 <li key={message.id} className="message-row">
                   <div className="message-meta">
                     <time dateTime={message.timestamp}>{formatDate(message.timestamp)}</time>
-                    <span>{messageIdLabel(message)}</span>
+                    {messageIdLabels(message).map((label) => <span key={label}>{label}</span>)}
                   </div>
                   <div className="message-body">
                     <div className="sender-head">
@@ -548,6 +548,7 @@ export function App() {
                             <div className="attachment-copy">
                               <span className="attachment-label">{attachment.kind}</span>
                               <small>{attachment.file_name}</small>
+                              <small className="attachment-message-id">Message {attachment.msg_id}</small>
                               {downloadStatus[attachment.key] && <small>{downloadStatus[attachment.key]}</small>}
                             </div>
                             <button
@@ -724,10 +725,14 @@ function formatDate(value: string): string {
   }).format(date)
 }
 
-function messageIdLabel(message: MessageRow): string {
-  return message.msg_ids.length > 1
-    ? `Messages ${message.msg_ids.join(', ')}`
-    : `Message ${message.msg_id}`
+function messageIdLabels(message: MessageRow): string[] {
+  if (message.grouped_id != null) {
+    return [
+      `Grouped ID ${message.grouped_id}`,
+      message.msg_ids.length > 1 ? `Messages ${message.msg_ids.join(', ')}` : `Message ${message.msg_id}`,
+    ]
+  }
+  return [`Message ${message.msg_id}`]
 }
 
 function replySenderLabel(context: MessageRow['reply_context']): string {

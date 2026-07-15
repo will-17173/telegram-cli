@@ -928,6 +928,11 @@ input::placeholder {
   overflow-wrap: anywhere;
 }
 
+.attachment-message-id {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
 .attachment-action,
 .download-all {
   background: #ffffff;

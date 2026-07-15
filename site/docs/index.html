@@ -620,6 +620,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <td><span class="scope-badge" data-scope="write">Write</span></td>
                   <td>Delete one or more Telegram messages.<code class="command-syntax">tg delete @team 814 815 --json</code></td>
                 </tr>
+                <tr data-command="download">
+                  <th scope="row"><code>download</code></th>
+                  <td><span class="scope-badge scope-files" data-scope="filesystem">Files</span></td>
+                  <td>Download media from one message, a grouped album, a range, a date, or an entire chat.<code class="command-syntax">tg download --chat @team --msg-id 814 --output ./media</code></td>
+                </tr>
                 <tr data-command="listen">
                   <th scope="row"><code>listen</code></th>
                   <td><span class="scope-badge" data-scope="live">Live stream</span></td>
@@ -1326,7 +1331,7 @@ tg config write-access on</code></pre>
         </section>
       </article>
 
-      <aside class="docs-status-card docs-page-outline" data-command-count="33" data-group-command-count="48" aria-label="Page status">
+      <aside class="docs-status-card docs-page-outline" data-command-count="34" data-group-command-count="48" aria-label="Page status">
         <p class="mini-label">This page</p>
         <strong>v0.5.1</strong>
         <dl>
