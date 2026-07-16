@@ -52,6 +52,7 @@ import { MessageDB } from '../../src/storage/message-db.js'
 import type { ListenMessageRow } from '../../src/presenters/listen-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
 import type { NormalizedMessage } from '../../src/telegram/media-types.js'
+import { attachment } from '../fixtures/messages.js'
 
 describe('runInteractiveListen', () => {
   it('uses alternate scrolling without mouse reporting and restores the terminal afterward', async () => {
@@ -1397,6 +1398,81 @@ describe('interactive auto-download lifecycle', () => {
     expect(calls).toEqual([
       'resume', 'first-listen', 'pause', 'active-drained', 'first-close',
       'resume', 'second-listen', 'idle-drained', 'second-close',
+    ])
+  })
+
+  it('persists interactive listen messages before dedupe, display, and auto-download side effects', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-ink-persist-'))
+    const dbPath = join(dataDir, 'messages.db')
+    const db = new MessageDB(dbPath)
+    const calls: string[] = []
+    const message: NormalizedMessage = {
+      ...storedPhoto(77, 'interactive persisted'),
+      raw_json: {
+        _: 'message',
+        media: [
+          { _: 'messageMediaPhoto', photo: { file_name: 'first.jpg' } },
+          { _: 'messageMediaDocument', document: { file_name: 'second.pdf' } },
+        ],
+      },
+      attachments: [
+        attachment({ attachment_index: 1, kind: 'photo', file_name: 'first.jpg' }),
+        attachment({ attachment_index: 2, kind: 'document', file_name: 'second.pdf', mime_type: 'application/pdf' }),
+      ],
+    }
+    const coordinator = {
+      setClient: vi.fn(), enqueue: vi.fn(() => {
+        calls.push(`enqueue:${db.getMessagesByKeys([{ chatId: 100, msgId: 77 }])[0]?.attachments.length ?? 0}`)
+        return true
+      }), waitForIdle: vi.fn(async () => { calls.push('idle-drained') }), waitForActive: vi.fn(async () => undefined), stop: vi.fn(),
+    }
+
+    try {
+      await runInteractiveAutoDownloadLifecycle({
+        autoDownload: true,
+        chats: undefined,
+        persist: false,
+        retrySeconds: 0,
+        signal: new AbortController().signal,
+        createClient: () => ({
+          listen: vi.fn(async (options: { onMessage: (message: NormalizedMessage) => void }) => {
+            calls.push('interactive-persist-listen')
+            options.onMessage(message)
+            return 'stopped' as const
+          }),
+          close: vi.fn(async () => { calls.push('interactive-persist-close') }),
+        } as unknown as import('../../src/telegram/types.js').TelegramClientAdapter),
+        createCoordinator: () => coordinator,
+        persistMessage: (received) => {
+          db.upsertMessage(received)
+          calls.push('persist')
+        },
+        acceptMessage: (received) => {
+          calls.push(`accept:${db.getMessagesByKeys([{ chatId: received.chat_id, msgId: received.msg_id }])[0]?.attachments.length ?? 0}`)
+          return true
+        },
+        onBeforeEnqueue: (received) => {
+          calls.push(`before-enqueue:${db.getMessagesByKeys([{ chatId: received.chat_id, msgId: received.msg_id }])[0]?.attachments.length ?? 0}`)
+        },
+        onMessage: (received) => {
+          calls.push(`display:${db.getMessagesByKeys([{ chatId: received.chat_id, msgId: received.msg_id }])[0]?.attachments.length ?? 0}`)
+        },
+        sleep: async () => undefined,
+      })
+    } finally {
+      db.close()
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+
+    expect(calls).toEqual([
+      'interactive-persist-listen',
+      'persist',
+      'accept:2',
+      'before-enqueue:2',
+      'enqueue:2',
+      'display:2',
+      'idle-drained',
+      'interactive-persist-close',
     ])
   })
 

@@ -3,6 +3,7 @@ import type { HandlerResult } from '../commands/types.js'
 import { actionDetail, syncSummary } from '../presenters/human.js'
 import { MessageDB } from '../storage/message-db.js'
 import type { TelegramChat, TelegramClientAdapter } from '../telegram/types.js'
+import type { NormalizedMessage } from '../telegram/media-types.js'
 
 const FIRST_SYNC_LIMIT = 500
 
@@ -44,18 +45,24 @@ export class SyncService {
     const chatId = this.db.resolveChatId(options.chat)
     const offset = chatId == null ? null : this.db.getFirstMsgOffset(chatId)
     try {
+      let stored = 0
+      let wrotePages = false
       const messages = await this.tg.fetchHistory({
         chat: parseChat(options.chat),
         limit: options.limit,
         ...(offset == null ? {} : { offset }),
         pageDelay: options.pageDelay,
+        onPage: (page) => {
+          wrotePages = true
+          stored += this.upsertPage(page).inserted
+        },
         onProgress: options.onProgress,
       })
-      const stored = this.db.upsertBatch(messages).inserted
+      if (!wrotePages) stored += this.upsertPage(messages).inserted
       const data = { stored, chat: options.chat }
       return { ok: true, data, human: actionDetail('History Synced', { chat: data.chat, stored: data.stored }) }
     } catch (error) {
-      return telegramFailure(error)
+      return syncFailure(error)
     }
   }
 
@@ -66,8 +73,9 @@ export class SyncService {
     const minId = chatId == null ? 0 : this.db.getLastMsgId(chatId) ?? 0
     const limit = minId === 0 && options.limit > FIRST_SYNC_LIMIT ? FIRST_SYNC_LIMIT : options.limit
     try {
-      const messages: Awaited<ReturnType<TelegramClientAdapter['fetchHistory']>> = []
+      let synced = 0
       let progressBase = 0
+      let newerWrotePages = false
       const onProgress = options.onProgress == null
         ? undefined
         : (count: number) => options.onProgress?.(progressBase + count)
@@ -76,29 +84,37 @@ export class SyncService {
         limit,
         minId,
         pageDelay: options.pageDelay,
+        onPage: (page) => {
+          newerWrotePages = true
+          synced += this.upsertPage(page).inserted
+        },
         onProgress,
       })
-      messages.push(...newer)
-      progressBase = messages.length
+      if (!newerWrotePages) synced += this.upsertPage(newer).inserted
+      progressBase = newer.length
 
-      const resolvedChatId = chatId ?? this.db.resolveChatId(options.chat)
-      const remaining = limit - messages.length
+      const resolvedChatId = chatId
+      const remaining = limit - newer.length
       const firstOffset = resolvedChatId == null ? null : this.db.getFirstMsgOffset(resolvedChatId)
       if (remaining > 0 && firstOffset != null) {
+        let olderWrotePages = false
         const older = await this.tg.fetchHistory({
           chat: parseChat(options.chat),
           limit: remaining,
           offset: firstOffset,
           pageDelay: options.pageDelay,
+          onPage: (page) => {
+            olderWrotePages = true
+            synced += this.upsertPage(page).inserted
+          },
           onProgress,
         })
-        messages.push(...older)
+        if (!olderWrotePages) synced += this.upsertPage(older).inserted
       }
-      const stored = this.db.upsertBatch(messages).inserted
-      const data = { synced: stored, chat: options.chat }
+      const data = { synced, chat: options.chat }
       return { ok: true, data, human: actionDetail('Sync Complete', { chat: data.chat, synced: data.synced }) }
     } catch (error) {
-      return telegramFailure(error)
+      return syncFailure(error)
     }
   }
 
@@ -125,8 +141,21 @@ export class SyncService {
         : (count: number) => options.onProgress?.(dialog.name, count)
       options.onChatStart?.(dialog.name)
       try {
-        const messages = await this.tg.fetchHistory({ chat: dialog.id, limit, minId: lastId, pageDelay: 1, onProgress })
-        results[dialog.name] = this.db.upsertBatch(messages).inserted
+        let inserted = 0
+        let wrotePages = false
+        const messages = await this.tg.fetchHistory({
+          chat: dialog.id,
+          limit,
+          minId: lastId,
+          pageDelay: 1,
+          onPage: (page) => {
+            wrotePages = true
+            inserted += this.upsertPage(page).inserted
+          },
+          onProgress,
+        })
+        if (!wrotePages) inserted += this.upsertPage(messages).inserted
+        results[dialog.name] = inserted
         options.onChatComplete?.(dialog.name, results[dialog.name])
       } catch (error) {
         results[dialog.name] = 0
@@ -158,6 +187,21 @@ export class SyncService {
 
   close(): void {
     this.db.close()
+  }
+
+  private upsertPage(page: NormalizedMessage[]) {
+    try {
+      return this.db.upsertBatch(page)
+    } catch (error) {
+      throw new LocalStorageError(error)
+    }
+  }
+}
+
+class LocalStorageError extends Error {
+  constructor(readonly cause: unknown) {
+    super(errorMessage(cause), { cause })
+    this.name = 'LocalStorageError'
   }
 }
 
@@ -196,6 +240,13 @@ function telegramFailure(error: unknown): HandlerResult<never> {
       ? { code: 'telegram_error', message: errorMessage(error) }
       : { code: 'telegram_error', message: errorMessage(error), details },
   }
+}
+
+function syncFailure(error: unknown): HandlerResult<never> {
+  if (error instanceof LocalStorageError) {
+    return { ok: false, error: { code: 'local_storage_error', message: error.message } }
+  }
+  return telegramFailure(error)
 }
 
 function errorMessage(error: unknown): string {

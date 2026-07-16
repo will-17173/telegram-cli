@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
 import type { DownloadMessageMediaOptions } from '../../src/telegram/types.js'
 import { accountDbPath } from '../../src/account/account-presets.js'
+import { attachment } from '../fixtures/messages.js'
 
 const renderInteractiveListen = vi.hoisted(() => vi.fn(async (_options: any) => undefined))
 
@@ -285,6 +286,127 @@ describe('listen command', () => {
     expect(output).toContain('listening completed\n')
   })
 
+  it('persists a multi-attachment plain listen message before output and auto-download callbacks', async () => {
+    const delivered = multiAttachmentMessage(41, 'persist me first')
+    const dbPath = accountDbPath(dataDir, 'alice')
+    const observations: string[] = []
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage(delivered)
+      return 'stopped'
+    })
+    client.downloadMessageMedia.mockImplementation(async ({ destination }: DownloadMessageMediaOptions) => {
+      const db = new MessageDB(dbPath)
+      try {
+        observations.push(`download:${db.getMessagesByKeys([{ chatId: 100, msgId: 41 }])[0]?.attachments.length ?? 0}`)
+      } finally {
+        db.close()
+      }
+      writeFileSync(destination, 'downloaded')
+    })
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      const text = String(chunk)
+      if (text.includes('persist me first')) {
+        const db = new MessageDB(dbPath)
+        try {
+          observations.push(`output:${db.getMessagesByKeys([{ chatId: 100, msgId: 41 }])[0]?.attachments.length ?? 0}`)
+        } finally {
+          db.close()
+        }
+      }
+      writes.push(text)
+      return true
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--auto-download'])
+    } finally {
+      write.mockRestore()
+    }
+
+    const db = new MessageDB(dbPath)
+    try {
+      const [stored] = db.getMessagesByKeys([{ chatId: 100, msgId: 41 }])
+      expect(stored?.attachments.map((item) => item.file_name)).toEqual(['first.jpg', 'second.pdf'])
+    } finally {
+      db.close()
+    }
+    expect(observations).toContain('download:2')
+    expect(observations).toContain('output:2')
+    expect(writes.join('')).toContain('persist me first')
+  })
+
+  it('persists attachment rows even when plain listen hides media summaries', async () => {
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage(multiAttachmentMessage(42, 'hidden media still stored'))
+      return 'stopped'
+    })
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--no-media'])
+
+    const db = new MessageDB(accountDbPath(dataDir, 'alice'))
+    try {
+      expect(db.getMessagesByKeys([{ chatId: 100, msgId: 42 }])[0]?.attachments).toHaveLength(2)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('persists reconnect duplicates before suppressing duplicate display', async () => {
+    vi.useFakeTimers()
+    const dbPath = accountDbPath(dataDir, 'alice')
+    const writes: string[] = []
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+    client.listen
+      .mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+        onMessage(multiAttachmentMessage(51, 'shown once', 'old.jpg'))
+        return 'disconnected'
+      })
+      .mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+        onMessage(multiAttachmentMessage(51, 'shown once edited', 'new.jpg'))
+        return 'stopped'
+      })
+
+    try {
+      const listening = createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--persist'])
+      await vi.advanceTimersByTimeAsync(5000)
+      await listening
+    } finally {
+      write.mockRestore()
+      vi.useRealTimers()
+    }
+
+    const db = new MessageDB(dbPath)
+    try {
+      const [stored] = db.getMessagesByKeys([{ chatId: 100, msgId: 51 }])
+      expect(stored?.content).toBe('shown once edited')
+      expect(stored?.attachments.map((item) => item.file_name)).toEqual(['new.jpg', 'second.pdf'])
+    } finally {
+      db.close()
+    }
+    expect(writes.join('').split('shown once\n').length - 1).toBe(1)
+  })
+
+  it('aborts plain listen and closes resources when a local message write fails', async () => {
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage(multiAttachmentMessage(61, 'bad local write', 'bad.jpg', { invalid: undefined } as never))
+      return 'stopped'
+    })
+
+    await expect(createApp().exitOverride().parseAsync(['node', 'tg', 'listen'])).rejects.toThrow('metadata must be JSON-safe')
+
+    const db = new MessageDB(accountDbPath(dataDir, 'alice'))
+    try {
+      expect(db.getMessagesByKeys([{ chatId: 100, msgId: 61 }])).toEqual([])
+    } finally {
+      db.close()
+    }
+    expect(client.close).toHaveBeenCalledOnce()
+  })
+
   it('omits chat names when a specific chat is provided', async () => {
     const writes: string[] = []
     const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
@@ -383,7 +505,7 @@ describe('listen command', () => {
     expect(client.fetchHistory).not.toHaveBeenCalled()
   })
 
-  it('resolves a reply from the active account database without persisting live messages', async () => {
+  it('resolves a reply from the active account database while persisting live messages', async () => {
     const dbPath = accountDbPath(dataDir, 'alice')
     const db = new MessageDB(dbPath)
     db.upsertMessage({ ...fixtureMessage(), msg_id: 7, content: 'stored original', raw_json: { _: 'message' } })
@@ -403,7 +525,7 @@ describe('listen command', () => {
       write.mockRestore()
     }
     const check = new MessageDB(dbPath)
-    expect(check.count()).toBe(1)
+    expect(check.count()).toBe(2)
     check.close()
     expect(writes.join('')).toContain('Alice (#7): stored original')
     expect(client.fetchHistory).not.toHaveBeenCalled()
@@ -550,5 +672,29 @@ function replyMessage(msgId: number, replyToMsgId: number): StoredMessageInput {
     msg_id: msgId,
     content: 'live reply',
     raw_json: { _: 'message', replyTo: { replyToMsgId } },
+  }
+}
+
+function multiAttachmentMessage(
+  msgId: number,
+  content: string,
+  firstFile = 'first.jpg',
+  metadata: StoredMessageInput['attachments'][number]['metadata'] = {},
+): StoredMessageInput {
+  return {
+    ...fixtureMessage(),
+    msg_id: msgId,
+    content,
+    raw_json: {
+      _: 'message',
+      media: [
+        { _: 'messageMediaPhoto', photo: { file_name: firstFile } },
+        { _: 'messageMediaDocument', document: { file_name: 'second.pdf', mime_type: 'application/pdf' } },
+      ],
+    },
+    attachments: [
+      attachment({ attachment_index: 1, kind: 'photo', file_name: firstFile, metadata }),
+      attachment({ attachment_index: 2, kind: 'document', file_name: 'second.pdf', mime_type: 'application/pdf' }),
+    ],
   }
 }

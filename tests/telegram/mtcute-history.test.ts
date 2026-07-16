@@ -63,6 +63,62 @@ describe('MtcuteTelegramClient history', () => {
     expect(progress).toHaveBeenLastCalledWith(250)
   })
 
+  it('publishes each normalized Telegram page before progress and accumulation', async () => {
+    const firstOffset = { id: 107, date: 1_752_355_200 }
+    const pages = [
+      page(8, 2, firstOffset),
+      page(10, 1),
+    ]
+    const getHistory = vi.fn(async () => pages.shift()!)
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getHistory,
+    } as unknown as TelegramClient
+    const events: string[] = []
+
+    const rows = await new MtcuteTelegramClient(client).fetchHistory({
+      chat: -100123,
+      limit: 3,
+      onPage: (page) => {
+        events.push(`page:${page.map((row) => row.msg_id).join(',')}`)
+      },
+      onProgress: (count) => {
+        events.push(`progress:${count}`)
+      },
+    })
+
+    expect(rows.map((row) => row.msg_id)).toEqual([8, 9, 10])
+    expect(events).toEqual([
+      'page:8,9',
+      'progress:1',
+      'progress:2',
+      'page:10',
+      'progress:3',
+    ])
+  })
+
+  it('stops fetching when the page callback throws', async () => {
+    const firstOffset = { id: 107, date: 1_752_355_200 }
+    const failure = new Error('sqlite rejected page')
+    const getHistory = vi.fn()
+      .mockResolvedValueOnce(page(8, 1, firstOffset))
+      .mockResolvedValueOnce(page(9, 1))
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getHistory,
+    } as unknown as TelegramClient
+
+    await expect(new MtcuteTelegramClient(client).fetchHistory({
+      chat: -100123,
+      limit: 2,
+      onPage: () => { throw failure },
+    })).rejects.toBe(failure)
+
+    expect(getHistory).toHaveBeenCalledOnce()
+  })
+
   it('skips the page timer when pageDelay is zero', async () => {
     const pages = [page(8, 100, { id: 107, date: 1_752_355_200 }), page(108, 1)]
     const getHistory = vi.fn(async () => pages.shift()!)

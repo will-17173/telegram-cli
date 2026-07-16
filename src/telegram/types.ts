@@ -31,6 +31,7 @@ export type FetchHistoryOptions = {
   maxId?: number
   offset?: { id: number; date: number }
   pageDelay?: number
+  onPage?: (page: NormalizedMessage[]) => void
   onProgress?: (count: number) => void
 }
 

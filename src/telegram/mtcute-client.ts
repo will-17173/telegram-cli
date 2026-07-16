@@ -170,8 +170,10 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
           throw error
         }
       }
-      for (const message of page) {
-        rows.push(normalizeMtcuteMessage(message))
+      const normalizedPage = page.map((message) => normalizeMtcuteMessage(message))
+      options.onPage?.(normalizedPage)
+      for (const message of normalizedPage) {
+        rows.push(message)
         options.onProgress?.(rows.length)
       }
 
@@ -276,11 +278,25 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
         resolve(result)
       }
 
-      const handleMessage = async (message: Message): Promise<void> => {
+      const fail = (error: unknown) => {
+        if (settled) return
+        settled = true
+        this.client.onNewMessage.remove(handleMessage)
+        this.client.onConnectionState.remove(handleConnectionState)
+        options.signal.removeEventListener('abort', handleAbort)
+        void this.client.stopUpdatesLoop().catch(() => undefined)
+        reject(error)
+      }
+
+      const handleMessage = (message: Message): void => {
         if (settled || options.signal.aborted) return
         if (!matchesChatFilter(options.chats, message)) return
-        this.rememberListenedMedia(message)
-        options.onMessage(normalizeMtcuteMessage(message))
+        try {
+          this.rememberListenedMedia(message)
+          options.onMessage(normalizeMtcuteMessage(message))
+        } catch (error) {
+          fail(error)
+        }
       }
 
       const handleConnectionState = (state: 'offline' | 'connecting' | 'updating' | 'connected') => {
@@ -302,12 +318,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
           if (options.signal.aborted) void done('stopped')
         })
         .catch((error) => {
-          if (settled) return
-          settled = true
-          this.client.onNewMessage.remove(handleMessage)
-          this.client.onConnectionState.remove(handleConnectionState)
-          options.signal.removeEventListener('abort', handleAbort)
-          reject(error)
+          fail(error)
         })
     })
   }

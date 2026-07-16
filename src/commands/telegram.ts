@@ -371,114 +371,129 @@ export function registerTelegramCommands(app: Command): void {
       try {
         await runWithAuthenticatedAccountContext(options, async (context) => {
           const createClient = () => createTelegramClient(context.sessionPath)
-
-          if (useInteractive) {
-            await renderInteractiveListen({
-              dbPath: context.dbPath,
-              chats: parsedChats,
-              persist,
-              retrySeconds,
-              sendTo,
-              showMedia,
-              autoDownload,
-              showChatName,
-              createClient,
-              stopSignal: controller.signal,
-              shutdownRequests: {
-                subscribe: (listener) => {
-                  shutdownListeners.add(listener)
-                  return () => shutdownListeners.delete(listener)
-                },
-              },
-              onRequestStop: stopListening,
-            })
-            return
+          const listenDb = new MessageDB(context.dbPath)
+          const persistListenMessage = (message: Parameters<typeof listenDb.upsertMessage>[0]) => {
+            try {
+              listenDb.upsertMessage(message)
+            } catch (error) {
+              throw new ListenPersistenceError(error)
+            }
           }
 
-          const replyResolver = createListenReplyResolver(context.dbPath)
-          let listenOutputError: unknown
-          const albumAggregator = new ListenAlbumAggregator({
-            emit: (messages) => {
-              const replyContext = replyResolver.resolve(messages)
-              process.stdout.write(formatListenLine(messages, {
-                showMedia,
-                showChatName,
-                replyContext,
-              }))
-              replyResolver.remember(messages)
-            },
-            onError: (error) => {
-              listenOutputError ??= error
-              controller.abort()
-            },
-          })
-
           try {
-            if (autoDownload) {
-              autoDownloader = new AutoDownloadCoordinator({
-                onEvent: printAutoDownloadEvent,
+            if (useInteractive) {
+              await renderInteractiveListen({
+                dbPath: context.dbPath,
+                chats: parsedChats,
+                persist,
+                retrySeconds,
+                sendTo,
+                showMedia,
+                autoDownload,
+                showChatName,
+                createClient,
+                stopSignal: controller.signal,
+                shutdownRequests: {
+                  subscribe: (listener) => {
+                    shutdownListeners.add(listener)
+                    return () => shutdownListeners.delete(listener)
+                  },
+                },
+                onRequestStop: stopListening,
+                persistMessage: persistListenMessage,
               })
+              return
             }
 
-            while (true) {
-              const client = createClient()
-              let retry = false
-              let clientClosed = false
-              const closeClient = async () => {
-                if (clientClosed) return
-                clientClosed = true
-                await client.close().catch(() => undefined)
-              }
-              autoDownloader?.setClient(client)
-              try {
-                const result = await client.listen({
-                  chats: parsedChats,
-                  signal: controller.signal,
-                  onMessage: (message) => {
-                    const key = `${message.chat_id}:${message.msg_id}`
-                    if (seenMessages.has(key)) return
-                    seenMessages.add(key)
-                    seenMessageOrder.push(key)
-                    if (seenMessages.size > 5000) {
-                      const oldest = seenMessageOrder.shift()
-                      if (oldest != null) seenMessages.delete(oldest)
-                    }
-                    autoDownloader?.enqueue(message)
-                    albumAggregator.add(message)
-                  },
+            const replyResolver = createListenReplyResolver(context.dbPath)
+            let listenOutputError: unknown
+            const albumAggregator = new ListenAlbumAggregator({
+              emit: (messages) => {
+                const replyContext = replyResolver.resolve(messages)
+                process.stdout.write(formatListenLine(messages, {
+                  showMedia,
+                  showChatName,
+                  replyContext,
+                }))
+                replyResolver.remember(messages)
+              },
+              onError: (error) => {
+                listenOutputError ??= error
+                controller.abort()
+              },
+            })
+
+            try {
+              if (autoDownload) {
+                autoDownloader = new AutoDownloadCoordinator({
+                  onEvent: printAutoDownloadEvent,
                 })
-                if (!persist || result === 'stopped') break
-                if (result === 'disconnected') retry = true
-              } catch (error) {
-                if (!persist) throw error
-                retry = true
-              } finally {
-                albumAggregator.flush()
-                if (autoDownloader != null) {
-                  if (controller.signal.aborted) {
-                    autoDownloader.stop()
-                    await closeClient()
-                    await autoDownloader.waitForActive()
-                  } else if (retry) {
-                    autoDownloader.setClient(null)
-                    await autoDownloader.waitForActive()
-                  } else {
-                    await autoDownloader.waitForIdle()
-                    autoDownloader.setClient(null)
-                  }
+              }
+
+              while (true) {
+                const client = createClient()
+                let retry = false
+                let clientClosed = false
+                const closeClient = async () => {
+                  if (clientClosed) return
+                  clientClosed = true
+                  await client.close().catch(() => undefined)
                 }
-                await closeClient()
+                autoDownloader?.setClient(client)
+                try {
+                  const result = await client.listen({
+                    chats: parsedChats,
+                    signal: controller.signal,
+                    onMessage: (message) => {
+                      persistListenMessage(message)
+                      const key = `${message.chat_id}:${message.msg_id}`
+                      if (seenMessages.has(key)) return
+                      seenMessages.add(key)
+                      seenMessageOrder.push(key)
+                      if (seenMessages.size > 5000) {
+                        const oldest = seenMessageOrder.shift()
+                        if (oldest != null) seenMessages.delete(oldest)
+                      }
+                      autoDownloader?.enqueue(message)
+                      albumAggregator.add(message)
+                    },
+                  })
+                  if (!persist || result === 'stopped') break
+                  if (result === 'disconnected') retry = true
+                } catch (error) {
+                  if (error instanceof ListenPersistenceError) throw error.cause
+                  if (!persist) throw error
+                  retry = true
+                } finally {
+                  albumAggregator.flush()
+                  if (autoDownloader != null) {
+                    if (controller.signal.aborted) {
+                      autoDownloader.stop()
+                      await closeClient()
+                      await autoDownloader.waitForActive()
+                    } else if (retry) {
+                      autoDownloader.setClient(null)
+                      await autoDownloader.waitForActive()
+                    } else {
+                      await autoDownloader.waitForIdle()
+                      autoDownloader.setClient(null)
+                    }
+                  }
+                  await closeClient()
+                }
+                if (retry) {
+                  await sleep(retrySeconds)
+                  continue
+                }
+                break
               }
-              if (retry) {
-                await sleep(retrySeconds)
-                continue
-              }
-              break
+              if (listenOutputError != null) throw listenOutputError
+            } finally {
+              albumAggregator.dispose()
+              replyResolver.close()
             }
-            if (listenOutputError != null) throw listenOutputError
           } finally {
-            albumAggregator.dispose()
-            replyResolver.close()
+            listenDb.close()
           }
         }, command)
       } finally {
@@ -490,6 +505,13 @@ export function registerTelegramCommands(app: Command): void {
       }
       process.stdout.write('listening completed\n')
     })
+}
+
+class ListenPersistenceError extends Error {
+  constructor(readonly cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause })
+    this.name = 'ListenPersistenceError'
+  }
 }
 
 function collectOption(value: string, previous: string[]): string[] {

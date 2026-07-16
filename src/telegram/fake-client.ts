@@ -236,8 +236,10 @@ export class FakeTelegramClient implements TelegramClientAdapter {
       .filter((message) => options.maxId == null || message.msg_id < options.maxId)
       .filter((message) => options.offset == null || message.msg_id < options.offset.id)
       .slice(0, options.limit)
+      .map(toNormalizedHistoryMessage)
+    options.onPage?.(rows)
     options.onProgress?.(rows.length)
-    return rows.map(toNormalizedHistoryMessage)
+    return rows
   }
 
   async downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void> {

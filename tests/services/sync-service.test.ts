@@ -6,6 +6,8 @@ import { MessageDB } from '../../src/storage/message-db.js'
 import { SyncService } from '../../src/services/sync-service.js'
 import { FakeTelegramClient } from '../../src/telegram/fake-client.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
+import type { TelegramClientAdapter, FetchHistoryOptions } from '../../src/telegram/types.js'
+import { attachment } from '../fixtures/messages.js'
 
 function service(): { sync: SyncService; db: MessageDB; fake: FakeTelegramClient } {
   const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-')), 'messages.db'))
@@ -31,6 +33,39 @@ describe('SyncService', () => {
     })
     expect(db.count()).toBe(2)
     expect(fake.fetchHistoryCalls.at(-1)).toMatchObject({ chat: 'TestGroup', limit: 100, pageDelay: 2.5 })
+    sync.close()
+  })
+
+  it('commits successful history pages and reports local page write failures without rolling back previous pages', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-pages-')), 'messages.db'))
+    const pageOne = [message({ msg_id: 1, content: 'committed page one' })]
+    const pageTwo = [message({
+      msg_id: 2,
+      content: 'invalid page two',
+      attachments: [attachment({ metadata: { invalid: undefined } as never })],
+    })]
+    const client = {
+      fetchHistory: vi.fn(async (options: FetchHistoryOptions) => {
+        options.onPage?.(pageOne)
+        options.onPage?.(pageTwo)
+        return [...pageOne, ...pageTwo]
+      }),
+    } as unknown as TelegramClientAdapter
+    const sync = new SyncService(client, db)
+
+    const result = await sync.history({ chat: 'TestGroup', limit: 100, pageDelay: 1 })
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'local_storage_error',
+        message: 'metadata must be JSON-safe',
+      },
+    })
+    expect(client.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({ onPage: expect.any(Function) }))
+    expect(db.count()).toBe(1)
+    expect(db.getMessagesByKeys([{ chatId: 100, msgId: 1 }])[0]?.content).toBe('committed page one')
+    expect(db.getMessagesByKeys([{ chatId: 100, msgId: 2 }])).toEqual([])
     sync.close()
   })
 
