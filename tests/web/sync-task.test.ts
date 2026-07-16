@@ -43,7 +43,7 @@ function seedAccount(root: string): void {
 
 function seedOldMessage(root: string): void {
   const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-  db.insertBatch([message(1, 'old message')])
+  db.upsertBatch([message(1, 'old message')])
   db.close()
 }
 
@@ -151,7 +151,7 @@ describe('SyncTaskRunner', () => {
     const root = makeRoot()
     seedAccount(root)
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-    db.insertBatch([{
+    db.upsertBatch([{
       platform: 'telegram',
       chat_id: -1003688621340,
       chat_name: 'Supergroup',

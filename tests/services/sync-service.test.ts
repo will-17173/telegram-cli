@@ -45,7 +45,7 @@ describe('SyncService', () => {
     })
     const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
     const sync = new SyncService(fake, db)
-    db.insertBatch(messages.filter((item) => item.msg_id >= 5000 && item.msg_id <= 8000))
+    db.upsertBatch(messages.filter((item) => item.msg_id >= 5000 && item.msg_id <= 8000))
 
     const result = await sync.history({ chat: 'TestGroup', limit: 1000, pageDelay: 2.5 })
 
@@ -127,7 +127,7 @@ describe('SyncService', () => {
 
   it('sync forwards minId and backfills older messages when the chat already has messages', async () => {
     const { sync, db, fake } = service()
-    db.insertBatch([message({ msg_id: 7 })])
+    db.upsertBatch([message({ msg_id: 7 })])
 
     const result = await sync.sync({ chat: 'TestGroup', limit: 100, pageDelay: 2.5 })
 
@@ -178,7 +178,7 @@ describe('SyncService', () => {
     const messages = Array.from({ length: 700 }, (_, index) => message({ msg_id: index + 1 }))
     const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
     const sync = new SyncService(fake, db)
-    db.insertBatch(messages.slice(200))
+    db.upsertBatch(messages.slice(200))
 
     const result = await sync.sync({ chat: 'TestGroup', limit: 500, pageDelay: 1 })
 

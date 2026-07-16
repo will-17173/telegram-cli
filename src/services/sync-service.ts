@@ -51,7 +51,7 @@ export class SyncService {
         pageDelay: options.pageDelay,
         onProgress: options.onProgress,
       })
-      const stored = this.db.insertBatch(messages)
+      const stored = this.db.upsertBatch(messages).inserted
       const data = { stored, chat: options.chat }
       return { ok: true, data, human: actionDetail('History Synced', { chat: data.chat, stored: data.stored }) }
     } catch (error) {
@@ -94,7 +94,7 @@ export class SyncService {
         })
         messages.push(...older)
       }
-      const stored = this.db.insertBatch(messages)
+      const stored = this.db.upsertBatch(messages).inserted
       const data = { synced: stored, chat: options.chat }
       return { ok: true, data, human: actionDetail('Sync Complete', { chat: data.chat, synced: data.synced }) }
     } catch (error) {
@@ -126,7 +126,7 @@ export class SyncService {
       options.onChatStart?.(dialog.name)
       try {
         const messages = await this.tg.fetchHistory({ chat: dialog.id, limit, minId: lastId, pageDelay: 1, onProgress })
-        results[dialog.name] = this.db.insertBatch(messages)
+        results[dialog.name] = this.db.upsertBatch(messages).inserted
         options.onChatComplete?.(dialog.name, results[dialog.name])
       } catch (error) {
         results[dialog.name] = 0

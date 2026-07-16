@@ -398,7 +398,7 @@ describe('v0.4.0 capability matrix', () => {
   it('allows logged-out accounts to query their local message database', async () => {
     const dataDir = process.env.DATA_DIR!
     const db = new MessageDB(accountDbPath(dataDir))
-    db.insertMessage({
+    db.upsertMessage({
       platform: 'telegram',
       chat_id: -100,
       chat_name: 'Team',

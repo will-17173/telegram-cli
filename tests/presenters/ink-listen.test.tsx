@@ -566,7 +566,7 @@ describe('InteractiveListen slash commands', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-listen-sync-'))
     const dbPath = join(dataDir, 'messages.db')
     const db = new MessageDB(dbPath)
-    db.insertBatch([storedText(88, 'already stored')])
+    db.upsertBatch([storedText(88, 'already stored')])
     db.close()
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })

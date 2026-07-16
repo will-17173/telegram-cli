@@ -4,6 +4,7 @@ import { access, copyFile, mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { getDbPath } from '../config/env.js'
+import { MEDIA_KINDS, type Attachment, type JsonValue, type NormalizedMessage } from '../telegram/media-types.js'
 import { canonicalChatId } from './chat-resolver.js'
 
 export const MESSAGE_DB_SCHEMA_VERSION = 1
@@ -41,25 +42,26 @@ export function isDataResetRequiredError(
     (candidate.actualVersion === null || Number.isInteger(candidate.actualVersion))
 }
 
-export type StoredMessage = {
-  id: number
+export type StoredMessageInput = Omit<NormalizedMessage, 'platform' | 'chat_name' | 'reply_to_msg_id' | 'media_group_id' | 'raw_json' | 'attachments'> & {
   platform: string
-  chat_id: number
   chat_name: string | null
-  msg_id: number
-  sender_id: number | null
-  sender_name: string | null
-  content: string | null
-  timestamp: string
   reply_to_msg_id?: number | null
   media_group_id?: string | null
-  raw_json: string | null
+  raw_json?: unknown
+  attachments?: Attachment[]
   preview_jpeg_base64?: string | null
 }
 
-export type StoredMessageInput = Omit<StoredMessage, 'id' | 'raw_json' | 'preview_jpeg_base64'> & {
-  raw_json?: unknown
-  preview_jpeg_base64?: string | null
+export type StoredMessage = Omit<StoredMessageInput, 'raw_json' | 'attachments'> & {
+  id: number
+  raw_json: string | null
+  attachments?: Attachment[]
+}
+
+export type MessageWriteSummary = {
+  inserted: number
+  updated: number
+  total: number
 }
 
 export type SearchOptions = {
@@ -94,6 +96,14 @@ export type RecentPageOptions = SearchOptions & {
 
 type FilterOptions = SearchOptions & {
   since?: string
+}
+
+type MessageRow = Omit<StoredMessage, 'attachments'>
+
+type AttachmentRow = Omit<Attachment, 'downloadable' | 'metadata'> & {
+  message_id: number
+  downloadable: 0 | 1
+  metadata_json: string
 }
 
 export type TodayOptions = {
@@ -176,48 +186,86 @@ export class MessageDB {
     }
   }
 
-  insertBatch(messages: StoredMessageInput[]): number {
-    if (messages.length === 0) return 0
-    const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO messages
-      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, reply_to_msg_id, media_group_id, raw_json)
-      VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @reply_to_msg_id, @media_group_id, @raw_json)
-    `)
-    let inserted = 0
-    const tx = this.db.transaction((rows: StoredMessageInput[]) => {
-      for (const row of rows) {
-        inserted += this.insertPrepared(stmt, row)
-      }
-    })
-    tx(messages)
-    return inserted
+  upsertMessage(input: StoredMessageInput): 'inserted' | 'updated' {
+    const result = this.upsertBatch([input])
+    return result.inserted === 1 ? 'inserted' : 'updated'
   }
 
-  insertMessage(message: StoredMessageInput): boolean {
-    const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO messages
+  upsertBatch(inputs: StoredMessageInput[]): MessageWriteSummary {
+    if (inputs.length === 0) return { inserted: 0, updated: 0, total: 0 }
+    const rows = inputs.map((input) => normalizeMessageInput(input))
+    for (const row of rows) validateMessageInput(row)
+
+    const insertMessage = this.db.prepare(`
+      INSERT INTO messages
       (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, reply_to_msg_id, media_group_id, raw_json)
       VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @reply_to_msg_id, @media_group_id, @raw_json)
+      ON CONFLICT(platform, chat_id, msg_id) DO NOTHING
     `)
-    return this.insertPrepared(stmt, message) === 1
+    const updateMessage = this.db.prepare(`
+      UPDATE messages
+      SET chat_name = @chat_name,
+        sender_id = @sender_id,
+        sender_name = @sender_name,
+        content = @content,
+        timestamp = @timestamp,
+        reply_to_msg_id = @reply_to_msg_id,
+        media_group_id = @media_group_id,
+        raw_json = @raw_json
+      WHERE platform = @platform AND chat_id = @chat_id AND msg_id = @msg_id
+    `)
+    const selectMessageId = this.db.prepare(`
+      SELECT id FROM messages
+      WHERE platform = @platform AND chat_id = @chat_id AND msg_id = @msg_id
+    `)
+    const deleteAttachments = this.db.prepare('DELETE FROM attachments WHERE message_id = ?')
+    const insertAttachment = this.db.prepare(`
+      INSERT INTO attachments
+      (message_id, attachment_index, parent_attachment_index, role, kind, subtype, file_id, unique_file_id,
+        file_name, mime_type, file_size, width, height, duration_seconds, downloadable, preview_jpeg_base64, metadata_json)
+      VALUES
+      (@message_id, @attachment_index, @parent_attachment_index, @role, @kind, @subtype, @file_id, @unique_file_id,
+        @file_name, @mime_type, @file_size, @width, @height, @duration_seconds, @downloadable, @preview_jpeg_base64, @metadata_json)
+    `)
+    const tx = this.db.transaction((messages: ReturnType<typeof normalizeMessageInput>[]) => {
+      const summary: MessageWriteSummary = { inserted: 0, updated: 0, total: messages.length }
+      for (const message of messages) {
+        const writeRow = messageWriteRow(message)
+        const inserted = insertMessage.run(writeRow).changes === 1
+        if (inserted) {
+          summary.inserted += 1
+        } else {
+          updateMessage.run(writeRow)
+          summary.updated += 1
+        }
+        const found = selectMessageId.get(writeRow) as { id: number } | undefined
+        if (found == null) throw new Error('Failed to load upserted message id')
+        deleteAttachments.run(found.id)
+        for (const attachment of message.attachments) {
+          insertAttachment.run(attachmentWriteRow(found.id, attachment))
+        }
+      }
+      return summary
+    })
+    return tx(rows)
   }
 
   search(keyword: string, options: SearchOptions = {}): StoredMessage[] {
     const query = this.filteredQuery('content LIKE ?', [`%${keyword}%`], options)
-    return normalizeStoredMessages(this.db.prepare(`${query.sql} ORDER BY timestamp DESC LIMIT ?`).all(...query.params, options.limit ?? 50) as StoredMessage[])
+    return this.hydrateMessages(this.db.prepare(`${query.sql} ORDER BY timestamp DESC LIMIT ?`).all(...query.params, options.limit ?? 50) as MessageRow[])
   }
 
   searchRegex(pattern: string, options: SearchOptions = {}): StoredMessage[] {
     const regex = new RegExp(pattern, 'i')
     const limit = options.limit ?? 50
     const query = this.filteredQuery('content IS NOT NULL', [], options)
-    const matches: StoredMessage[] = []
-    const rows = this.db.prepare(`${query.sql} ORDER BY timestamp DESC`).iterate(...query.params) as Iterable<StoredMessage>
+    const matches: MessageRow[] = []
+    const rows = this.db.prepare(`${query.sql} ORDER BY timestamp DESC`).iterate(...query.params) as Iterable<MessageRow>
     for (const row of rows) {
-      if (regex.test(row.content ?? '')) matches.push(normalizeStoredMessage(row))
+      if (regex.test(row.content ?? '')) matches.push(row)
       if (matches.length >= limit) break
     }
-    return matches
+    return this.hydrateMessages(matches)
   }
 
   getRecent(options: SearchOptions = {}): StoredMessage[] {
@@ -225,11 +273,11 @@ export class MessageDB {
     const conditions: string[] = ['1=1']
     this.addFilters(conditions, params, options)
     const limit = options.limit ?? 500
-    return normalizeStoredMessages(this.db.prepare(`
+    return this.hydrateMessages(this.db.prepare(`
       SELECT * FROM (
         SELECT * FROM messages WHERE ${conditions.join(' AND ')} ORDER BY timestamp DESC, id DESC LIMIT ?
       ) ORDER BY timestamp ASC, id ASC
-    `).all(...params, limit) as StoredMessage[])
+    `).all(...params, limit) as MessageRow[])
   }
 
   getRecentPage(options: RecentPageOptions = {}): StoredMessage[] {
@@ -241,12 +289,12 @@ export class MessageDB {
       params.push(options.before.timestamp, options.before.id)
     }
     const pagingIndex = options.chatId == null ? 'idx_messages_recent' : 'idx_messages_chat_recent'
-    return normalizeStoredMessages(this.db.prepare(`
+    return this.hydrateMessages(this.db.prepare(`
       SELECT * FROM messages INDEXED BY ${pagingIndex}
       WHERE ${conditions.join(' AND ')}
       ORDER BY timestamp DESC, id DESC
       LIMIT ?
-    `).all(...params, options.limit ?? 100) as StoredMessage[])
+    `).all(...params, options.limit ?? 100) as MessageRow[])
   }
 
   getMessagesPage(options: MessagePageOptions): { items: StoredMessage[]; total: number; next_cursor: string | null } {
@@ -291,13 +339,13 @@ export class MessageDB {
     `).get(...params) as { count: number }).count
     const limit = clampInteger(options.limit, 50, 1, 100)
     const offset = Math.max(0, Math.trunc(options.offset ?? 0))
-    const rows = normalizeStoredMessages(this.db.prepare(`
+    const rows = this.hydrateMessages(this.db.prepare(`
       SELECT * FROM messages INDEXED BY idx_messages_chat_recent
       WHERE ${conditions.join(' AND ')}
       ORDER BY timestamp DESC, id DESC
       LIMIT ?
       OFFSET ?
-    `).all(...params, limit + 1, offset) as StoredMessage[])
+    `).all(...params, limit + 1, offset) as MessageRow[])
     const items = rows.slice(0, limit)
     const next_cursor = rows.length > limit && items.length > 0
       ? encodeMessageCursor(items[items.length - 1])
@@ -309,22 +357,22 @@ export class MessageDB {
     if (keys.length === 0) return []
     const stmt = this.db.prepare(`SELECT * FROM messages WHERE platform = 'telegram' AND chat_id = ? AND msg_id = ?`)
     const read = this.db.transaction((requested: Array<{ chatId: number; msgId: number }>) => {
-      const messages: StoredMessage[] = []
+      const messages: MessageRow[] = []
       for (const key of requested) {
-        const row = stmt.get(canonicalChatId(key.chatId), key.msgId) as StoredMessage | undefined
-        if (row) messages.push(normalizeStoredMessage(row))
+        const row = stmt.get(canonicalChatId(key.chatId), key.msgId) as MessageRow | undefined
+        if (row) messages.push(row)
       }
-      return messages
+      return this.hydrateMessages(messages)
     })
     return read(keys)
   }
 
   findMessagesByGroupedId(chatId: number, groupedId: string): StoredMessage[] {
-    return normalizeStoredMessages(this.db.prepare(`
+    return this.hydrateMessages(this.db.prepare(`
       SELECT * FROM messages
       WHERE platform = 'telegram' AND chat_id = ? AND media_group_id = ?
       ORDER BY msg_id ASC
-    `).all(canonicalChatId(chatId), groupedId) as StoredMessage[])
+    `).all(canonicalChatId(chatId), groupedId) as MessageRow[])
   }
 
   getToday(options: TodayOptions = {}): StoredMessage[] {
@@ -332,12 +380,12 @@ export class MessageDB {
     const params: unknown[] = [start, nextStart]
     const conditions = ['timestamp >= ?', 'timestamp < ?']
     this.addFilters(conditions, params, { chatId: options.chatId })
-    return normalizeStoredMessages(this.db.prepare(`
+    return this.hydrateMessages(this.db.prepare(`
       SELECT * FROM messages
       WHERE ${conditions.join(' AND ')}
       ORDER BY chat_name COLLATE NOCASE ASC, timestamp ASC
       LIMIT ?
-    `).all(...params, options.limit ?? 500) as StoredMessage[])
+    `).all(...params, options.limit ?? 500) as MessageRow[])
   }
 
   findChats(chat: string): Array<{ chat_id: number; chat_name: string | null; msg_count: number; first_msg: string; last_msg: string }> {
@@ -527,15 +575,29 @@ export class MessageDB {
     return { sql: `SELECT * FROM messages WHERE ${conditions.join(' AND ')}`, params }
   }
 
-  private insertPrepared(stmt: Database.Statement, row: StoredMessageInput): number {
-    return stmt.run({
-      ...row,
-      chat_id: canonicalChatId(row.chat_id),
-      chat_name: row.chat_name ?? '',
-      reply_to_msg_id: row.reply_to_msg_id ?? null,
-      media_group_id: row.media_group_id ?? null,
-      raw_json: row.raw_json == null ? null : JSON.stringify(row.raw_json),
-    }).changes
+  private hydrateMessages(rows: MessageRow[]): StoredMessage[] {
+    if (rows.length === 0) return []
+    const attachmentsByMessageId = new Map<number, Attachment[]>()
+    for (const chunk of chunks(rows.map((row) => row.id), 500)) {
+      const placeholders = chunk.map(() => '?').join(', ')
+      const attachmentRows = this.db.prepare(`
+        SELECT message_id, attachment_index, parent_attachment_index, role, kind, subtype, file_id, unique_file_id,
+          file_name, mime_type, file_size, width, height, duration_seconds, downloadable, preview_jpeg_base64, metadata_json
+        FROM attachments
+        WHERE message_id IN (${placeholders})
+        ORDER BY message_id ASC, attachment_index ASC
+      `).all(...chunk) as AttachmentRow[]
+      for (const row of attachmentRows) {
+        const attachment = hydrateAttachment(row)
+        const attachments = attachmentsByMessageId.get(row.message_id) ?? []
+        attachments.push(attachment)
+        attachmentsByMessageId.set(row.message_id, attachments)
+      }
+    }
+    return rows.map((row) => ({
+      ...normalizeStoredMessage(row),
+      attachments: attachmentsByMessageId.get(row.id) ?? [],
+    }))
   }
 
   private addFilters(conditions: string[], params: unknown[], options: FilterOptions, tableAlias?: string): void {
@@ -580,12 +642,177 @@ export class MessageDB {
   }
 }
 
-function normalizeStoredMessages(rows: StoredMessage[]): StoredMessage[] {
-  return rows.map(normalizeStoredMessage)
+function normalizeStoredMessage(row: MessageRow): MessageRow {
+  return row.chat_name === '' ? { ...row, chat_name: null as never } : row
 }
 
-function normalizeStoredMessage(row: StoredMessage): StoredMessage {
-  return row.chat_name === '' ? { ...row, chat_name: null } : row
+function normalizeMessageInput(input: StoredMessageInput): NormalizedStoredMessageInput {
+  return {
+    ...input,
+    chat_id: canonicalChatId(input.chat_id),
+    chat_name: input.chat_name ?? '',
+    reply_to_msg_id: input.reply_to_msg_id ?? null,
+    media_group_id: input.media_group_id ?? null,
+    raw_json: input.raw_json ?? null,
+    attachments: input.attachments ?? [],
+  }
+}
+
+function messageWriteRow(message: NormalizedStoredMessageInput): Omit<MessageRow, 'id'> {
+  return {
+    platform: message.platform,
+    chat_id: message.chat_id,
+    chat_name: message.chat_name,
+    msg_id: message.msg_id,
+    sender_id: message.sender_id,
+    sender_name: message.sender_name,
+    content: message.content,
+    timestamp: message.timestamp,
+    reply_to_msg_id: message.reply_to_msg_id,
+    media_group_id: message.media_group_id,
+    raw_json: message.raw_json == null ? null : JSON.stringify(message.raw_json),
+  }
+}
+
+function attachmentWriteRow(messageId: number, attachment: Attachment): AttachmentRow {
+  return {
+    ...attachment,
+    message_id: messageId,
+    downloadable: attachment.downloadable ? 1 : 0,
+    preview_jpeg_base64: attachment.preview_jpeg_base64 ?? null,
+    metadata_json: JSON.stringify(attachment.metadata),
+  }
+}
+
+function hydrateAttachment(row: AttachmentRow): Attachment {
+  const attachment: Attachment = {
+    attachment_index: row.attachment_index,
+    parent_attachment_index: row.parent_attachment_index,
+    role: row.role,
+    kind: row.kind,
+    subtype: row.subtype,
+    downloadable: row.downloadable === 1,
+    file_id: row.file_id,
+    unique_file_id: row.unique_file_id,
+    file_name: row.file_name,
+    mime_type: row.mime_type,
+    file_size: row.file_size,
+    width: row.width,
+    height: row.height,
+    duration_seconds: row.duration_seconds,
+    thumbnail_file_id: null,
+    thumbnail_unique_file_id: null,
+    thumbnail_width: null,
+    thumbnail_height: null,
+    emoji: null,
+    title: null,
+    performer: null,
+    latitude: null,
+    longitude: null,
+    address: null,
+    phone_number: null,
+    url: null,
+    preview_jpeg_base64: row.preview_jpeg_base64,
+    metadata: parseMetadata(row.metadata_json),
+  }
+  if (row.preview_jpeg_base64 == null) delete (attachment as Partial<Attachment>).preview_jpeg_base64
+  return attachment
+}
+
+function parseMetadata(value: string): JsonValue {
+  const parsed = JSON.parse(value) as JsonValue
+  return parsed
+}
+
+const MEDIA_KIND_SET = new Set<string>(MEDIA_KINDS)
+
+const MESSAGE_NUMERIC_FIELDS = [
+  'chat_id',
+  'msg_id',
+  'sender_id',
+  'reply_to_msg_id',
+] as const
+
+const ATTACHMENT_NUMERIC_FIELDS = [
+  'attachment_index',
+  'parent_attachment_index',
+  'file_size',
+  'width',
+  'height',
+  'duration_seconds',
+  'thumbnail_width',
+  'thumbnail_height',
+  'latitude',
+  'longitude',
+] as const
+
+type NormalizedStoredMessageInput = StoredMessageInput & {
+  reply_to_msg_id: number | null
+  media_group_id: string | null
+  raw_json: unknown
+  attachments: Attachment[]
+}
+
+function validateMessageInput(message: NormalizedStoredMessageInput): void {
+  if (message.platform !== 'telegram') throw new Error('Unsupported message platform')
+  for (const field of MESSAGE_NUMERIC_FIELDS) {
+    const value = message[field]
+    if (value != null && !Number.isFinite(value)) throw new Error('Message numeric fields must be finite')
+  }
+  assertJsonSafe(message.raw_json, 'raw_json')
+  validateAttachments(message.attachments)
+}
+
+function validateAttachments(attachments: Attachment[]): void {
+  const seen = new Set<number>()
+  for (let index = 0; index < attachments.length; index += 1) {
+    const attachment = attachments[index]
+    const expectedIndex = index + 1
+    if (attachment.attachment_index !== expectedIndex || seen.has(attachment.attachment_index)) {
+      throw new Error('attachment_index values must be contiguous from 1 in array order')
+    }
+    seen.add(attachment.attachment_index)
+    if (attachment.parent_attachment_index != null && attachment.parent_attachment_index >= attachment.attachment_index) {
+      throw new Error('parent_attachment_index must reference an earlier attachment')
+    }
+    if (attachment.parent_attachment_index != null && !seen.has(attachment.parent_attachment_index)) {
+      throw new Error('parent_attachment_index must reference an earlier attachment')
+    }
+    if (!MEDIA_KIND_SET.has(attachment.kind)) throw new Error(`Unsupported attachment kind: ${attachment.kind}`)
+    for (const field of ATTACHMENT_NUMERIC_FIELDS) {
+      const value = attachment[field]
+      if (value != null && !Number.isFinite(value)) throw new Error('Attachment numeric fields must be finite')
+    }
+    assertJsonSafe(attachment.metadata, 'metadata')
+  }
+}
+
+function assertJsonSafe(value: unknown, label: string, seen = new Set<object>()): asserts value is JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`${label} must be JSON-safe`)
+    return
+  }
+  if (typeof value === 'bigint' || typeof value === 'undefined' || typeof value === 'function' || typeof value === 'symbol') {
+    throw new Error(`${label} must be JSON-safe`)
+  }
+  if (typeof value !== 'object') throw new Error(`${label} must be JSON-safe`)
+  if (seen.has(value)) throw new Error(`${label} must be JSON-safe`)
+  seen.add(value)
+  if (Array.isArray(value)) {
+    for (const item of value) assertJsonSafe(item, label, seen)
+  } else {
+    for (const item of Object.values(value)) assertJsonSafe(item, label, seen)
+  }
+  seen.delete(value)
+}
+
+function chunks<T>(items: T[], size: number): T[][] {
+  const result: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    result.push(items.slice(index, index + size))
+  }
+  return result
 }
 
 const REQUIRED_MESSAGE_COLUMNS: SchemaColumn[] = [

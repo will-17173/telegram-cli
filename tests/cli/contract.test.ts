@@ -89,7 +89,7 @@ function seed(messages: StoredMessageInput[] = fixtureMessages()): string {
   seededDataDirs.push(dataDir)
   const dbPath = join(dataDir, 'accounts', 'alice', 'messages.db')
   const db = new MessageDB(dbPath)
-  db.insertBatch(messages)
+  db.upsertBatch(messages)
   db.close()
   return dbPath
 }
@@ -384,8 +384,8 @@ describe('local command contracts', () => {
     seededDataDirs.push(dataDir)
     const aliceDb = new MessageDB(join(dataDir, 'accounts', 'alice', 'messages.db'))
     const bobDb = new MessageDB(join(dataDir, 'accounts', 'bob', 'messages.db'))
-    aliceDb.insertBatch([message({ msg_id: 1, chat_name: 'AliceChat', content: 'hello alice' })])
-    bobDb.insertBatch([message({ msg_id: 2, chat_name: 'BobChat', content: 'hello bob' })])
+    aliceDb.upsertBatch([message({ msg_id: 1, chat_name: 'AliceChat', content: 'hello alice' })])
+    bobDb.upsertBatch([message({ msg_id: 2, chat_name: 'BobChat', content: 'hello bob' })])
     aliceDb.close()
     bobDb.close()
     seedAccount(dataDir, 'alice', [

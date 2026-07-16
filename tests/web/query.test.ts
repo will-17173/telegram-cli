@@ -31,7 +31,7 @@ function seedAccount(root: string): void {
 
 function seedMessages(dbPath: string): void {
   const db = new MessageDB(dbPath)
-  db.insertBatch([
+  db.upsertBatch([
     { platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 1, sender_id: 1, sender_name: 'Alice', content: 'first alpha', timestamp: '2026-07-14T08:00:00.000Z' },
     { platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 2, sender_id: 2, sender_name: 'Bob', content: 'second beta', timestamp: '2026-07-14T09:00:00.000Z' },
     { platform: 'telegram', chat_id: 20, chat_name: 'Ops', msg_id: 1, sender_id: 3, sender_name: 'Carol', content: 'incident alpha', timestamp: '2026-07-14T10:00:00.000Z' },
@@ -41,7 +41,7 @@ function seedMessages(dbPath: string): void {
 
 function seedManyMessages(dbPath: string, count: number): void {
   const db = new MessageDB(dbPath)
-  db.insertBatch(Array.from({ length: count }, (_, index) => {
+  db.upsertBatch(Array.from({ length: count }, (_, index) => {
     const msgId = index + 1
     return {
       platform: 'telegram',
@@ -59,7 +59,7 @@ function seedManyMessages(dbPath: string, count: number): void {
 
 function seedTiedMessages(dbPath: string): void {
   const db = new MessageDB(dbPath)
-  db.insertBatch([1, 2, 3, 4].map((msgId) => ({
+  db.upsertBatch([1, 2, 3, 4].map((msgId) => ({
     platform: 'telegram',
     chat_id: 10,
     chat_name: 'General',
@@ -74,7 +74,7 @@ function seedTiedMessages(dbPath: string): void {
 
 function seedManyChats(dbPath: string, count: number): void {
   const db = new MessageDB(dbPath)
-  db.insertBatch(Array.from({ length: count }, (_, index) => {
+  db.upsertBatch(Array.from({ length: count }, (_, index) => {
     const chatId = index + 1
     const timestamp = new Date(Date.UTC(2026, 6, 14, 0, index)).toISOString()
     return {
@@ -93,7 +93,7 @@ function seedManyChats(dbPath: string, count: number): void {
 
 function seedTiedChats(dbPath: string): void {
   const db = new MessageDB(dbPath)
-  db.insertBatch([1, 2, 3].map((chatId) => ({
+  db.upsertBatch([1, 2, 3].map((chatId) => ({
     platform: 'telegram',
     chat_id: chatId,
     chat_name: `Chat ${chatId}`,
@@ -278,7 +278,7 @@ describe('WebQueryService', () => {
     const root = makeRoot()
     seedAccount(root)
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-    db.insertBatch([
+    db.upsertBatch([
       {
         platform: 'telegram',
         chat_id: 10,
@@ -335,7 +335,7 @@ describe('WebQueryService', () => {
     const root = makeRoot()
     seedAccount(root)
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-    db.insertBatch([
+    db.upsertBatch([
       {
         platform: 'telegram',
         chat_id: 10,
@@ -379,7 +379,7 @@ describe('WebQueryService', () => {
     const root = makeRoot()
     seedAccount(root)
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-    db.insertBatch([
+    db.upsertBatch([
       {
         platform: 'telegram',
         chat_id: 10,

@@ -386,7 +386,7 @@ describe('listen command', () => {
   it('resolves a reply from the active account database without persisting live messages', async () => {
     const dbPath = accountDbPath(dataDir, 'alice')
     const db = new MessageDB(dbPath)
-    db.insertMessage({ ...fixtureMessage(), msg_id: 7, content: 'stored original', raw_json: { _: 'message' } })
+    db.upsertMessage({ ...fixtureMessage(), msg_id: 7, content: 'stored original', raw_json: { _: 'message' } })
     db.close()
     client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
       onMessage(replyMessage(8, 7))

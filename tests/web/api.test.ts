@@ -44,7 +44,7 @@ function seedAccount(root: string): void {
 
 function seedMessage(root: string): void {
   const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-  db.insertBatch([
+  db.upsertBatch([
     {
       platform: 'telegram',
       chat_id: 10,
@@ -61,7 +61,7 @@ function seedMessage(root: string): void {
 
 function seedNegativeChatMessage(root: string): void {
   const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-  db.insertBatch([
+  db.upsertBatch([
     {
       platform: 'telegram',
       chat_id: -123,
@@ -324,7 +324,7 @@ describe('handleApiRequest', () => {
     const root = makeRoot()
     seedAccount(root)
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-    db.insertBatch([{
+    db.upsertBatch([{
       platform: 'telegram',
       chat_id: 1220606936,
       chat_name: 'General',

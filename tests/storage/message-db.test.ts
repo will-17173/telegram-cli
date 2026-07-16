@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { describe, expect, it, vi } from 'vitest'
-import { fixtureMessages, message } from '../fixtures/messages.js'
+import { attachment, fixtureMessages, message } from '../fixtures/messages.js'
 import { MessageDB } from '../../src/storage/message-db.js'
 import { canonicalChatId } from '../../src/storage/chat-resolver.js'
 
@@ -12,18 +12,139 @@ function db(): MessageDB {
 }
 
 describe('MessageDB', () => {
-  it('inserts batches and ignores duplicates', () => {
+  it('upserts batches and reports inserted and updated rows', () => {
     const store = db()
-    expect(store.insertBatch(fixtureMessages())).toBe(3)
-    expect(store.insertBatch(fixtureMessages())).toBe(0)
-    expect(store.count()).toBe(3)
+    const first = message({
+      msg_id: 1,
+      content: 'original',
+      attachments: [attachment({ attachment_index: 1, kind: 'photo', file_id: 'photo-1' })],
+    })
+    const replacement = message({
+      msg_id: 1,
+      content: 'replacement',
+      raw_json: { edited: true },
+      attachments: [
+        attachment({
+          attachment_index: 1,
+          kind: 'document',
+          file_id: 'doc-1',
+          file_name: 'report.pdf',
+          metadata: { source: 'replacement', nested: { ok: true } },
+          preview_jpeg_base64: '/9j/2Q==',
+        }),
+        attachment({
+          attachment_index: 2,
+          parent_attachment_index: 1,
+          role: 'thumbnail',
+          kind: 'photo',
+          file_id: 'thumb-1',
+          metadata: ['preview', 1],
+        }),
+      ],
+    })
+
+    expect(store.upsertBatch([first, replacement])).toEqual({
+      inserted: 1,
+      updated: 1,
+      total: 2,
+    })
+    expect(store.count()).toBe(1)
+    const [stored] = store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])
+    expect(stored?.id).toBeGreaterThan(0)
+    expect(stored?.content).toBe('replacement')
+    expect(stored?.raw_json).toBe(JSON.stringify({ edited: true }))
+    expect(stored?.attachments?.[0]).toEqual(replacement.attachments[0])
+    const secondAttachment = { ...replacement.attachments[1] }
+    delete (secondAttachment as Partial<typeof secondAttachment>).preview_jpeg_base64
+    expect(stored?.attachments?.[1]).toEqual(secondAttachment)
+    expect(stored?.attachments?.[1]).not.toHaveProperty('preview_jpeg_base64')
+    store.close()
+  })
+
+  it('validates attachments before writing and rolls back the whole batch', () => {
+    const store = db()
+    store.upsertBatch([message({ msg_id: 1, content: 'existing' })])
+
+    expect(() => store.upsertBatch([
+      message({ msg_id: 2, content: 'valid in failed batch' }),
+      message({
+        msg_id: 3,
+        attachments: [
+          attachment({ attachment_index: 1 }),
+          attachment({ attachment_index: 3 }),
+        ],
+      }),
+    ])).toThrow('attachment_index values must be contiguous from 1 in array order')
+    expect(store.count()).toBe(1)
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 2 }])).toEqual([])
+
+    expect(() => store.upsertMessage(message({
+      msg_id: 4,
+      attachments: [attachment({ attachment_index: 1, parent_attachment_index: 1 })],
+    }))).toThrow('parent_attachment_index must reference an earlier attachment')
+
+    expect(() => store.upsertMessage(message({
+      msg_id: 5,
+      attachments: [attachment({ kind: 'not-real' as never })],
+    }))).toThrow('Unsupported attachment kind')
+
+    expect(() => store.upsertMessage(message({
+      msg_id: 6,
+      attachments: [attachment({ width: Number.NaN })],
+    }))).toThrow('Attachment numeric fields must be finite')
+
+    expect(() => store.upsertMessage(message({
+      msg_id: 7,
+      attachments: [attachment({ metadata: { invalid: undefined } as never })],
+    }))).toThrow('metadata must be JSON-safe')
+    store.close()
+  })
+
+  it('cascades attachment deletion when deleting chats', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'tg-cli-')), 'messages.db')
+    const store = new MessageDB(path)
+    store.upsertBatch([
+      message({ msg_id: 1, attachments: [attachment({ kind: 'photo' })] }),
+      message({ chat_id: 200, msg_id: 1, attachments: [attachment({ kind: 'document' })] }),
+    ])
+    expect(store.deleteChat(100)).toBe(1)
+    store.close()
+
+    const sqlite = new Database(path, { readonly: true })
+    expect((sqlite.prepare('SELECT COUNT(*) AS count FROM attachments').get() as { count: number }).count).toBe(1)
+    sqlite.close()
+  })
+
+  it('hydrates attachments for result sets larger than SQLite bind limits', () => {
+    const store = db()
+    const total = 1100
+    store.upsertBatch(Array.from({ length: total }, (_, index) => message({
+      msg_id: index + 1,
+      timestamp: new Date(Date.UTC(2026, 2, 9, 10, 0, index)).toISOString(),
+      attachments: [attachment({
+        attachment_index: 1,
+        kind: 'document',
+        file_name: `file-${index + 1}.txt`,
+        metadata: { index: index + 1 },
+      })],
+    })))
+
+    const rows = store.getMessagesByKeys(Array.from({ length: total }, (_, index) => ({
+      chatId: 100,
+      msgId: index + 1,
+    })))
+    expect(rows).toHaveLength(total)
+    expect(rows[0].attachments?.[0]?.file_name).toBe('file-1.txt')
+    expect(rows[499].attachments?.[0]?.metadata).toEqual({ index: 500 })
+    expect(rows[500].attachments?.[0]?.file_name).toBe('file-501.txt')
+    expect(rows[1099].attachments?.[0]?.metadata).toEqual({ index: 1100 })
     store.close()
   })
 
   it('uses insertion id as a stable recent limit tie-breaker', () => {
     const store = db()
     const timestamp = new Date().toISOString()
-    store.insertBatch([
+    store.upsertBatch([
       message({ msg_id: 1, timestamp }),
       message({ msg_id: 2, timestamp }),
       message({ msg_id: 3, timestamp }),
@@ -41,9 +162,10 @@ describe('MessageDB', () => {
       content: 'single insert',
     })
 
-    expect(store.insertMessage(input)).toBe(true)
-    expect(store.insertMessage(input)).toBe(false)
+    expect(store.upsertMessage(input)).toBe('inserted')
+    expect(store.upsertMessage({ ...input, content: 'updated single insert' })).toBe('updated')
     expect(store.count(1234567890)).toBe(1)
+    expect(store.getMessagesByKeys([{ chatId: -1001234567890, msgId: 100 }])[0]?.content).toBe('updated single insert')
     expect(store.findChats('-1001234567890')[0]?.chat_name).toBe('SuperGroup')
     store.close()
   })
@@ -53,12 +175,13 @@ describe('MessageDB', () => {
     const store = new MessageDB(path)
     const input = {
       ...message({ msg_id: 101, content: 'photo preview' }),
-      preview_jpeg_base64: '/9j/2Q==',
+      attachments: [attachment({ kind: 'photo', preview_jpeg_base64: '/9j/2Q==' })],
     }
 
-    expect(store.insertMessage(input)).toBe(true)
+    expect(store.upsertMessage(input)).toBe('inserted')
     const [stored] = store.getRecent()
     expect(stored?.preview_jpeg_base64).toBeUndefined()
+    expect(stored?.attachments?.[0]?.preview_jpeg_base64).toBe('/9j/2Q==')
     store.close()
 
     const sqlite = new Database(path, { readonly: true })
@@ -96,7 +219,7 @@ describe('MessageDB', () => {
 
   it('searches content by keyword and sender', () => {
     const store = db()
-    store.insertBatch(fixtureMessages())
+    store.upsertBatch(fixtureMessages())
     expect(store.search('Web3', { sender: 'Ali', limit: 10 })).toHaveLength(1)
     expect(store.searchRegex('Python|Golang', { limit: 10 })).toHaveLength(2)
     store.close()
@@ -104,7 +227,7 @@ describe('MessageDB', () => {
 
   it('resolves chats by id, exact name, and partial name', () => {
     const store = db()
-    store.insertBatch(fixtureMessages())
+    store.upsertBatch(fixtureMessages())
     expect(store.findChats('100')[0]?.chat_name).toBe('TestGroup')
     expect(store.findChats('testgroup')[0]?.chat_id).toBe(100)
     expect(store.findChats('Other')[0]?.chat_id).toBe(200)
@@ -119,7 +242,7 @@ describe('MessageDB', () => {
 
   it('keeps negative non-supergroup chat ids distinct from positive ids', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({ chat_id: -123, chat_name: 'NegativeChat', msg_id: 1, content: 'negative chat' }),
       message({ chat_id: 123, chat_name: 'PositiveChat', msg_id: 1, content: 'positive chat' }),
     ])
@@ -136,7 +259,7 @@ describe('MessageDB', () => {
 
   it('stores canonical chat ids for telegram supergroups', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({
         chat_id: -1001234567890,
         chat_name: 'SuperGroup',
@@ -151,7 +274,7 @@ describe('MessageDB', () => {
 
   it('canonicalizes raw chat ids for direct chat-scoped APIs', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({
         chat_id: -1001234567890,
         chat_name: 'SuperGroup',
@@ -182,7 +305,7 @@ describe('MessageDB', () => {
     const today = new Date(utcMidnight + 60 * 60 * 1000).toISOString()
     const yesterday = new Date(utcMidnight - 60 * 60 * 1000).toISOString()
 
-    store.insertBatch([
+    store.upsertBatch([
       message({
         chat_id: -1001234567890,
         chat_name: 'SuperGroup',
@@ -217,7 +340,7 @@ describe('MessageDB', () => {
     const today = new Date(utcMidnight + 60 * 60 * 1000).toISOString()
     const tomorrow = new Date(utcMidnight + 25 * 60 * 60 * 1000).toISOString()
 
-    store.insertBatch([
+    store.upsertBatch([
       message({ msg_id: 30, content: 'today only', timestamp: today }),
       message({ msg_id: 31, content: 'tomorrow excluded', timestamp: tomorrow }),
     ])
@@ -228,7 +351,7 @@ describe('MessageDB', () => {
 
   it('finds older regex matches beyond the newest limit window', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({ msg_id: 1, content: 'needle appears here', timestamp: '2026-03-08T00:00:00.000Z' }),
       ...Array.from({ length: 11 }, (_, index) => message({
         msg_id: index + 2,
@@ -243,7 +366,7 @@ describe('MessageDB', () => {
 
   it('uses the latest chat name when aggregating chats', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({ msg_id: 1, chat_name: 'OldName', timestamp: '2026-03-09T10:00:00.000Z' }),
       message({ msg_id: 2, chat_name: 'NewName', timestamp: '2026-03-09T11:00:00.000Z' }),
     ])
@@ -254,7 +377,7 @@ describe('MessageDB', () => {
 
   it('uses the latest non-null chat name when aggregating chats', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({ msg_id: 1, chat_name: 'NamedChat', timestamp: '2026-03-09T10:00:00.000Z' }),
       message({ msg_id: 2, chat_name: null, timestamp: '2026-03-09T11:00:00.000Z' }),
     ])
@@ -266,7 +389,7 @@ describe('MessageDB', () => {
 
   it('keeps senders with the same display name separate by sender id', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({ msg_id: 1, sender_id: 1, sender_name: 'Alex', content: 'one' }),
       message({ msg_id: 2, sender_id: 2, sender_name: 'Alex', content: 'two' }),
     ])
@@ -279,7 +402,7 @@ describe('MessageDB', () => {
 
   it('scopes top sender display names to the requested chat', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({
         msg_id: 1,
         chat_id: 100,
@@ -302,7 +425,7 @@ describe('MessageDB', () => {
 
   it('computes top senders and timeline rows', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       ...fixtureMessages(),
       message({ msg_id: 4, sender_name: 'Alice', content: 'again', timestamp: '2026-03-09T12:00:00.000Z' }),
     ])
@@ -316,7 +439,7 @@ describe('MessageDB', () => {
 
   it('looks up reply messages by chat and message id in request order', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({ chat_id: 100, msg_id: 7, content: 'first chat' }),
       message({ chat_id: 200, msg_id: 7, content: 'second chat' }),
       message({ chat_id: -1001234567890, msg_id: 8, content: 'supergroup' }),
@@ -334,7 +457,7 @@ describe('MessageDB', () => {
 
   it('finds telegram album messages by grouped id without remote history scans', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({
         chat_id: -1001234567890,
         msg_id: 10,
@@ -364,10 +487,12 @@ describe('MessageDB', () => {
 
   it('only looks up telegram reply messages when platform keys overlap', () => {
     const store = db()
-    store.insertBatch([
-      message({ platform: 'other', chat_id: 100, msg_id: 7, content: 'other platform' }),
-      message({ platform: 'telegram', chat_id: 100, msg_id: 7, content: 'telegram reply' }),
-    ])
+    const sqlite = (store as unknown as { db: Database.Database }).db
+    sqlite.prepare(`
+      INSERT INTO messages (platform, chat_id, chat_name, msg_id, content, timestamp)
+      VALUES ('other', 100, 'Other', 7, 'other platform', '2026-03-09T10:00:00.000Z')
+    `).run()
+    store.upsertBatch([message({ platform: 'telegram', chat_id: 100, msg_id: 7, content: 'telegram reply' })])
 
     expect(store.getMessagesByKeys([{ chatId: 100, msgId: 7 }]).map((row) => row.content)).toEqual(['telegram reply'])
     store.close()
@@ -435,7 +560,7 @@ describe('MessageDB', () => {
 
   it('pages recent messages stably when timestamps are identical', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({ msg_id: 1, timestamp: '2026-03-09T10:00:00.000Z' }),
       message({ msg_id: 2, timestamp: '2026-03-09T10:00:00.000Z' }),
       message({ msg_id: 3, timestamp: '2026-03-09T10:00:00.000Z' }),
@@ -455,7 +580,7 @@ describe('MessageDB', () => {
 
   it('combines recent paging cursors with existing filters', () => {
     const store = db()
-    store.insertBatch([
+    store.upsertBatch([
       message({ chat_id: 100, msg_id: 1, sender_name: 'Alice', timestamp: '2026-03-09T10:00:00.000Z' }),
       message({ chat_id: 200, msg_id: 2, sender_name: 'Alice', timestamp: '2026-03-09T11:00:00.000Z' }),
       message({ chat_id: 100, msg_id: 3, sender_name: 'Bob', timestamp: '2026-03-09T12:00:00.000Z' }),
@@ -477,7 +602,7 @@ describe('MessageDB', () => {
     vi.setSystemTime(new Date('2026-03-09T12:00:00.000Z'))
     try {
       const store = db()
-      store.insertBatch([
+      store.upsertBatch([
         message({ msg_id: 1, timestamp: '2026-03-09T09:00:00.000Z' }),
         message({ msg_id: 2, timestamp: '2026-03-09T11:30:00.000Z' }),
         message({ msg_id: 3, timestamp: '2026-03-09T11:45:00.000Z' }),
@@ -496,7 +621,7 @@ describe('MessageDB', () => {
 
   it('uses a default recent page limit of 100 and accepts a specified limit', () => {
     const store = db()
-    store.insertBatch(Array.from({ length: 101 }, (_, index) => message({
+    store.upsertBatch(Array.from({ length: 101 }, (_, index) => message({
       msg_id: index + 1,
       timestamp: new Date(Date.UTC(2026, 2, 9, 10, index)).toISOString(),
     })))

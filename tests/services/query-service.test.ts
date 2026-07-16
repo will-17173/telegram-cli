@@ -7,7 +7,7 @@ import { MessageDB, type StoredMessage, type StoredMessageInput } from '../../sr
 
 function setup(messages: StoredMessageInput[] = []): { db: MessageDB; service: QueryService } {
   const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-query-')), 'messages.db'))
-  db.insertBatch(messages)
+  db.upsertBatch(messages)
   return { db, service: new QueryService(db) }
 }
 

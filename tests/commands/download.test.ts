@@ -61,7 +61,7 @@ function seedAccount(dataDir: string): void {
 
 function seedGroupedAlbum(dataDir: string, groupedId = 'album-1'): void {
   const db = new MessageDB(accountDbPath(dataDir, 'alice'))
-  db.insertBatch([
+  db.upsertBatch([
     {
       platform: 'telegram',
       chat_id: -1003155991738,
@@ -240,7 +240,7 @@ describe('download command', () => {
   it('resolves --grouped-id from the local message database before hitting Telegram history', async () => {
     const output = join(dataDir, 'album-media')
     const db = new MessageDB(accountDbPath(dataDir, 'alice'))
-    db.insertBatch([56710, 56711].map((msgId) => ({
+    db.upsertBatch([56710, 56711].map((msgId) => ({
       platform: 'telegram',
       chat_id: -1003155991738,
       chat_name: 'Channel',

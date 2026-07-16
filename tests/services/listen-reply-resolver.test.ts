@@ -22,7 +22,7 @@ describe('listen reply resolver', () => {
 
   it('prefers an earlier in-memory message over different database content', () => {
     const { dbPath, db } = setup()
-    db.insertMessage(message(7, { content: 'database' }))
+    db.upsertMessage(message(7, { content: 'database' }))
     db.close()
     const resolver = createListenReplyResolver(dbPath)
     resolver.remember([message(7, { content: 'memory' })])
@@ -33,7 +33,7 @@ describe('listen reply resolver', () => {
 
   it('falls back to the active account database for Telegram replies', () => {
     const { dbPath, db } = setup()
-    db.insertMessage(message(7, { content: 'database original' }))
+    db.upsertMessage(message(7, { content: 'database original' }))
     db.close()
     const resolver = createListenReplyResolver(dbPath)
 
@@ -43,7 +43,7 @@ describe('listen reply resolver', () => {
 
   it('shares one asynchronous readonly snapshot across database fallbacks', async () => {
     const { dbPath, db } = setup()
-    db.insertMessage(message(7, { content: 'async database' }))
+    db.upsertMessage(message(7, { content: 'async database' }))
     db.close()
     const resolver = createListenReplyResolver(dbPath)
 
@@ -58,7 +58,7 @@ describe('listen reply resolver', () => {
 
   it('does not open a sync snapshot while an async open is pending', async () => {
     const { dbPath, db } = setup()
-    db.insertMessage(message(7, { content: 'database' }))
+    db.upsertMessage(message(7, { content: 'database' }))
     db.close()
     let finishOpen!: (value: MessageDB) => void
     const pendingOpen = new Promise<MessageDB>((resolve) => { finishOpen = resolve })
@@ -80,7 +80,7 @@ describe('listen reply resolver', () => {
 
   it('reuses a synchronously opened snapshot from resolveAsync', async () => {
     const { dbPath, db } = setup()
-    db.insertMessage(message(7, { content: 'database' }))
+    db.upsertMessage(message(7, { content: 'database' }))
     db.close()
     const open = vi.spyOn(MessageDB, 'openReadonly')
     const resolver = createListenReplyResolver(dbPath)
@@ -137,7 +137,7 @@ describe('listen reply resolver', () => {
 
   it('reads an existing database without modifying it or creating SQLite sidecars', () => {
     const { dbPath, db } = setup()
-    db.insertMessage(message(7, { content: 'read only original' }))
+    db.upsertMessage(message(7, { content: 'read only original' }))
     db.close()
     rmSync(`${dbPath}-wal`, { force: true })
     rmSync(`${dbPath}-shm`, { force: true })
@@ -199,7 +199,7 @@ describe('listen reply resolver', () => {
 
   it('does not open a database snapshot when resolving after close', () => {
     const { dbPath, db } = setup()
-    db.insertMessage(message(7, { content: 'database' }))
+    db.upsertMessage(message(7, { content: 'database' }))
     db.close()
     const resolver = createListenReplyResolver(dbPath)
     resolver.remember([message(6, { content: 'memory' })])
