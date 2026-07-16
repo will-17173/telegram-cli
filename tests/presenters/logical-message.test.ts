@@ -36,16 +36,16 @@ describe('logical messages', () => {
   it('does not merge identical albums or ordinary IDs across platforms', () => {
     const grouped = groupLogicalMessages([
       message({ platform: 'telegram', msg_id: 1, raw_json: { grouped_id: 77 } }),
-      message({ platform: 'slack', msg_id: 1, raw_json: { grouped_id: 77 } }),
+      message({ platform: 'slack' as never, msg_id: 1, raw_json: { grouped_id: 77 } }),
       message({ platform: 'telegram', msg_id: 2 }),
-      message({ platform: 'slack', msg_id: 2 }),
+      message({ platform: 'slack' as never, msg_id: 2 }),
     ])
     expect(grouped).toHaveLength(4)
     expect(grouped.map((item) => item.key)).toEqual([
       'telegram:100:77', 'slack:100:77',
       'telegram:100:message:2', 'slack:100:message:2',
     ])
-    expect(logicalMessageKey(message({ platform: 'slack', msg_id: 9 }))).toBe('slack:100:message:9')
+    expect(logicalMessageKey(message({ platform: 'slack' as never, msg_id: 9 }))).toBe('slack:100:message:9')
   })
 
   it('keeps ordinary messages independent and orders logical messages by timestamp then ID', () => {
@@ -104,8 +104,8 @@ function logical(messages: StoredMessageInput[]) {
   }
 }
 
-function media(kind: string, value: Record<string, unknown>): unknown {
-  return { _: 'message', media: { _: kind, ...(kind === 'messageMediaPhoto' ? { photo: value } : { document: value }) } }
+function media(kind: string, value: Record<string, unknown>) {
+  return { _: 'message', media: { _: kind, ...(kind === 'messageMediaPhoto' ? { photo: value } : { document: value }) } } as never
 }
 
 function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInput {
@@ -118,7 +118,10 @@ function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInpu
     sender_name: 'Alice',
     content: null,
     timestamp: '2026-07-10T07:00:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: null,
+    attachments: [],
     ...overrides,
   }
 }

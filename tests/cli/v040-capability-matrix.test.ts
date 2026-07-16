@@ -407,6 +407,10 @@ describe('v0.4.0 capability matrix', () => {
       sender_name: 'Legacy',
       content: 'offline audit needle',
       timestamp: '2026-07-14T10:00:00.000Z',
+      reply_to_msg_id: null,
+      media_group_id: null,
+      raw_json: null,
+      attachments: [],
     })
     db.close()
     writeV2Accounts(dataDir, 'logged_out')

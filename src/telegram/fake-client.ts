@@ -509,7 +509,10 @@ function row(msgId: number, content: string): StoredMessageInput {
     sender_name: 'Alice',
     content,
     timestamp: new Date(`2026-03-09T10:0${msgId}:00.000Z`).toISOString(),
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: null,
+    attachments: [],
   }
 }
 

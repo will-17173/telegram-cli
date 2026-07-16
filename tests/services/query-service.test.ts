@@ -21,6 +21,10 @@ function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInpu
     sender_name: 'Ada',
     content: 'release update',
     timestamp: new Date().toISOString(),
+    reply_to_msg_id: null,
+    media_group_id: null,
+    raw_json: null,
+    attachments: [],
     ...overrides,
   }
 }
@@ -34,7 +38,7 @@ function messageRow(row: { timestamp: string; chat_name: string | null; sender_n
   const timestamp = new Date(row.timestamp)
   return [
     `${String(timestamp.getFullYear()).padStart(4, '0')}-${String(timestamp.getMonth() + 1).padStart(2, '0')}-${String(timestamp.getDate()).padStart(2, '0')} ${String(timestamp.getHours()).padStart(2, '0')}:${String(timestamp.getMinutes()).padStart(2, '0')}`,
-    row.chat_name ?? '—',
+    row.chat_name?.trim() || '—',
     row.sender_name ?? '—',
     row.content ?? '—',
   ]
@@ -85,7 +89,7 @@ describe('QueryService human views', () => {
   it('returns exact recent data with the complete Recent Messages view', () => {
     const { db, service } = setup([
       message({ msg_id: 1, timestamp: new Date(Date.now() - 2_000).toISOString() }),
-      message({ msg_id: 2, chat_name: null, sender_name: null, content: null, timestamp: new Date(Date.now() - 1_000).toISOString() }),
+      message({ msg_id: 2, chat_name: '', sender_name: null, content: null, timestamp: new Date(Date.now() - 1_000).toISOString() }),
     ])
     const expected = db.getRecent({ hours: 24, limit: 50 })
 
@@ -160,8 +164,13 @@ describe('QueryService human views', () => {
     const now = Date.now()
     const { db, service } = setup([
       message({ platform: 'telegram', msg_id: 7, sender_name: 'Telegram Bob', content: 'telegram target', timestamp: new Date(now - 3_000).toISOString() }),
-      message({ platform: 'slack', msg_id: 8, content: 'slack reply', timestamp: new Date(now - 1_000).toISOString(), raw_json: { reply_to: { reply_to_msg_id: 7 } } }),
     ])
+    const sqlite = (db as unknown as { db: import('better-sqlite3').Database }).db
+    sqlite.prepare(`
+      INSERT INTO messages
+      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, reply_to_msg_id, media_group_id, raw_json)
+      VALUES ('slack', 10, 'General', 8, 101, 'Ada', 'slack reply', ?, NULL, NULL, ?)
+    `).run(new Date(now - 1_000).toISOString(), JSON.stringify({ reply_to: { reply_to_msg_id: 7 } }))
     const lookup = vi.spyOn(db, 'getMessagesByKeys')
     const result = service.recent({ limit: 1 })
 
@@ -322,7 +331,7 @@ describe('QueryService human views', () => {
   })
 
   it('uses the canonical chat id when a scoped chat has no stored name', () => {
-    const { service } = setup([message({ chat_name: null })])
+    const { service } = setup([message({ chat_name: '' })])
     expect(service.recent({ chat: '10' })).toMatchObject({
       ok: true,
       human: { title: '[10] Recent Messages', columns: ['ID', 'TIME', 'SENDER', 'MESSAGE'] },
@@ -333,7 +342,7 @@ describe('QueryService human views', () => {
   it('returns exact stats data with a total summary and per-chat table', () => {
     const { db, service } = setup([
       message(),
-      message({ chat_id: 20, chat_name: null, msg_id: 2 }),
+      message({ chat_id: 20, chat_name: '', msg_id: 2 }),
     ])
     const expected = { total: db.count(), chats: db.getChats() }
 

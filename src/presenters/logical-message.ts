@@ -1,9 +1,21 @@
 import { discoverListenAttachments } from '../services/listen-attachment.js'
-import type { StoredMessage, StoredMessageInput } from '../storage/message-db.js'
+import type { StoredMessage } from '../storage/message-db.js'
 import { extractGroupedId, extractReplyToMessageId } from '../telegram/raw-message.js'
 import type { ReplyContext } from '../services/reply-context.js'
+import type { Attachment } from '../telegram/media-types.js'
 
-export type LogicalMessage<T extends StoredMessageInput = StoredMessage> = {
+type LogicalMessageInput = {
+  platform: string
+  chat_id: number
+  msg_id: number
+  content: string | null
+  timestamp: string
+  raw_json: unknown
+  attachments?: Attachment[]
+  id?: number
+}
+
+export type LogicalMessage<T extends LogicalMessageInput = StoredMessage> = {
   key: string
   messages: T[]
   first: T
@@ -12,7 +24,7 @@ export type LogicalMessage<T extends StoredMessageInput = StoredMessage> = {
   replyContext?: ReplyContext
 }
 
-export function groupLogicalMessages<T extends StoredMessageInput>(rows: T[]): LogicalMessage<T>[] {
+export function groupLogicalMessages<T extends LogicalMessageInput>(rows: T[]): LogicalMessage<T>[] {
   const groups = new Map<string, T[]>()
 
   for (const row of rows) {
@@ -27,15 +39,18 @@ export function groupLogicalMessages<T extends StoredMessageInput>(rows: T[]): L
     .sort(compareLogicalMessages)
 }
 
-export function logicalMessageKey(row: StoredMessageInput): string {
+export function logicalMessageKey(row: LogicalMessageInput): string {
   const groupedId = extractGroupedId(row.raw_json)
   return groupedId == null
     ? `${row.platform}:${row.chat_id}:message:${row.msg_id}`
     : `${row.platform}:${row.chat_id}:${groupedId}`
 }
 
-export function summarizeLogicalMedia<T extends StoredMessageInput>(message: LogicalMessage<T>): string | null {
-  const attachments = message.messages.flatMap(discoverListenAttachments)
+export function summarizeLogicalMedia<T extends LogicalMessageInput>(message: LogicalMessage<T>): string | null {
+  const attachments = message.messages.flatMap((row) => discoverListenAttachments({
+    ...row,
+    attachments: row.attachments ?? [],
+  }))
   if (attachments.length === 0) return null
   if (attachments.length === 1 && attachments[0].kind === 'Document' && attachments[0].fileName != null) {
     return `📎 Document: ${attachments[0].fileName}`
@@ -49,7 +64,7 @@ export function summarizeLogicalMedia<T extends StoredMessageInput>(message: Log
   return `📎 ${parts.join(', ')}`
 }
 
-function toLogicalMessage<T extends StoredMessageInput>(key: string, rows: T[]): LogicalMessage<T> {
+function toLogicalMessage<T extends LogicalMessageInput>(key: string, rows: T[]): LogicalMessage<T> {
   const messages = [...rows].sort((left, right) => left.msg_id - right.msg_id)
   return {
     key,
@@ -60,7 +75,7 @@ function toLogicalMessage<T extends StoredMessageInput>(key: string, rows: T[]):
   }
 }
 
-function firstReplyId(messages: StoredMessageInput[]): number | null {
+function firstReplyId(messages: LogicalMessageInput[]): number | null {
   for (const message of messages) {
     const replyId = extractReplyToMessageId(message.raw_json)
     if (replyId != null) return replyId
@@ -68,7 +83,7 @@ function firstReplyId(messages: StoredMessageInput[]): number | null {
   return null
 }
 
-function compareLogicalMessages<T extends StoredMessageInput>(left: LogicalMessage<T>, right: LogicalMessage<T>): number {
+function compareLogicalMessages<T extends LogicalMessageInput>(left: LogicalMessage<T>, right: LogicalMessage<T>): number {
   const timestampOrder = left.first.timestamp.localeCompare(right.first.timestamp)
   if (timestampOrder !== 0) return timestampOrder
   const leftId = storedId(left.first)
@@ -76,7 +91,7 @@ function compareLogicalMessages<T extends StoredMessageInput>(left: LogicalMessa
   return leftId != null && rightId != null ? leftId - rightId : left.first.msg_id - right.first.msg_id
 }
 
-function storedId(message: StoredMessageInput): number | null {
+function storedId(message: LogicalMessageInput): number | null {
   return 'id' in message && typeof message.id === 'number' ? message.id : null
 }
 

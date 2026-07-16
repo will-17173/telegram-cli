@@ -42,20 +42,11 @@ export function isDataResetRequiredError(
     (candidate.actualVersion === null || Number.isInteger(candidate.actualVersion))
 }
 
-export type StoredMessageInput = Omit<NormalizedMessage, 'platform' | 'chat_name' | 'reply_to_msg_id' | 'media_group_id' | 'raw_json' | 'attachments'> & {
-  platform: string
-  chat_name: string | null
-  reply_to_msg_id?: number | null
-  media_group_id?: string | null
-  raw_json?: unknown
-  attachments?: Attachment[]
-  preview_jpeg_base64?: string | null
-}
+export type StoredMessageInput = NormalizedMessage
 
-export type StoredMessage = Omit<StoredMessageInput, 'raw_json' | 'attachments'> & {
+export type StoredMessage = Omit<NormalizedMessage, 'raw_json'> & {
   id: number
   raw_json: string | null
-  attachments?: Attachment[]
 }
 
 export type MessageWriteSummary = {
@@ -595,7 +586,7 @@ export class MessageDB {
       }
     }
     return rows.map((row) => ({
-      ...normalizeStoredMessage(row),
+      ...row,
       attachments: attachmentsByMessageId.get(row.id) ?? [],
     }))
   }
@@ -642,23 +633,14 @@ export class MessageDB {
   }
 }
 
-function normalizeStoredMessage(row: MessageRow): MessageRow {
-  return row.chat_name === '' ? { ...row, chat_name: null as never } : row
-}
-
-function normalizeMessageInput(input: StoredMessageInput): NormalizedStoredMessageInput {
+function normalizeMessageInput(input: StoredMessageInput): StoredMessageInput {
   return {
     ...input,
     chat_id: canonicalChatId(input.chat_id),
-    chat_name: input.chat_name ?? '',
-    reply_to_msg_id: input.reply_to_msg_id ?? null,
-    media_group_id: input.media_group_id ?? null,
-    raw_json: input.raw_json ?? null,
-    attachments: input.attachments ?? [],
   }
 }
 
-function messageWriteRow(message: NormalizedStoredMessageInput): Omit<MessageRow, 'id'> {
+function messageWriteRow(message: StoredMessageInput): Omit<MessageRow, 'id'> {
   return {
     platform: message.platform,
     chat_id: message.chat_id,
@@ -746,14 +728,7 @@ const ATTACHMENT_NUMERIC_FIELDS = [
   'longitude',
 ] as const
 
-type NormalizedStoredMessageInput = StoredMessageInput & {
-  reply_to_msg_id: number | null
-  media_group_id: string | null
-  raw_json: unknown
-  attachments: Attachment[]
-}
-
-function validateMessageInput(message: NormalizedStoredMessageInput): void {
+function validateMessageInput(message: StoredMessageInput): void {
   if (message.platform !== 'telegram') throw new Error('Unsupported message platform')
   for (const field of MESSAGE_NUMERIC_FIELDS) {
     const value = message[field]

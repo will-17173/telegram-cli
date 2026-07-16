@@ -8,6 +8,7 @@ import {
   type ListenAttachment,
 } from '../../src/services/listen-attachment.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
+import { attachment as fixtureAttachment } from '../fixtures/messages.js'
 
 describe('listen attachment metadata', () => {
   it('discovers attachments independently from presentation visibility', () => {
@@ -19,7 +20,7 @@ describe('listen attachment metadata', () => {
           { _: 'messageMediaDocument', document: { file_name: 'notes.pdf' } },
         ],
       },
-      preview_jpeg_base64: 'first-photo-preview',
+      attachments: [fixtureAttachment({ kind: 'photo', preview_jpeg_base64: 'first-photo-preview' })],
     }))
 
     expect(attachments).toEqual([
@@ -68,7 +69,7 @@ describe('listen attachment metadata', () => {
     },
   ])('formats Telegram contact metadata as $expectedLabel', ({ raw, expectedLabel }) => {
     const attachments = discoverListenAttachments(message({
-      raw_json: { _: 'message', media: { _: 'messageMediaContact', ...raw } },
+      raw_json: { _: 'message', media: { _: 'messageMediaContact', ...raw } } as never,
     }))
 
     expect(attachments).toEqual([{
@@ -199,7 +200,10 @@ function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInpu
     sender_name: 'Alice',
     content: '',
     timestamp: '2026-07-10T07:22:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: null,
+    attachments: [],
     ...overrides,
   }
 }

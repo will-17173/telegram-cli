@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { MessageDB } from '../../src/storage/message-db.js'
+import type { StoredMessageInput } from '../../src/storage/message-db.js'
 import { WebQueryService } from '../../src/web/query.js'
+import { attachment } from '../fixtures/messages.js'
 
 const roots: string[] = []
 
@@ -32,19 +34,36 @@ function seedAccount(root: string): void {
 function seedMessages(dbPath: string): void {
   const db = new MessageDB(dbPath)
   db.upsertBatch([
-    { platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 1, sender_id: 1, sender_name: 'Alice', content: 'first alpha', timestamp: '2026-07-14T08:00:00.000Z' },
-    { platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 2, sender_id: 2, sender_name: 'Bob', content: 'second beta', timestamp: '2026-07-14T09:00:00.000Z' },
-    { platform: 'telegram', chat_id: 20, chat_name: 'Ops', msg_id: 1, sender_id: 3, sender_name: 'Carol', content: 'incident alpha', timestamp: '2026-07-14T10:00:00.000Z' },
+    message({ chat_id: 10, chat_name: 'General', msg_id: 1, sender_id: 1, sender_name: 'Alice', content: 'first alpha', timestamp: '2026-07-14T08:00:00.000Z' }),
+    message({ chat_id: 10, chat_name: 'General', msg_id: 2, sender_id: 2, sender_name: 'Bob', content: 'second beta', timestamp: '2026-07-14T09:00:00.000Z' }),
+    message({ chat_id: 20, chat_name: 'Ops', msg_id: 1, sender_id: 3, sender_name: 'Carol', content: 'incident alpha', timestamp: '2026-07-14T10:00:00.000Z' }),
   ])
   db.close()
+}
+
+function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInput {
+  return {
+    platform: 'telegram',
+    chat_id: 10,
+    chat_name: 'General',
+    msg_id: 1,
+    sender_id: 1,
+    sender_name: 'Alice',
+    content: null,
+    timestamp: '2026-07-14T08:00:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
+    raw_json: null,
+    attachments: [],
+    ...overrides,
+  }
 }
 
 function seedManyMessages(dbPath: string, count: number): void {
   const db = new MessageDB(dbPath)
   db.upsertBatch(Array.from({ length: count }, (_, index) => {
     const msgId = index + 1
-    return {
-      platform: 'telegram',
+    return message({
       chat_id: 10,
       chat_name: 'General',
       msg_id: msgId,
@@ -52,15 +71,14 @@ function seedManyMessages(dbPath: string, count: number): void {
       sender_name: 'Alice',
       content: `message ${msgId}`,
       timestamp: `2026-07-14T00:${String(msgId).padStart(2, '0')}:00.000Z`,
-    }
+    })
   }))
   db.close()
 }
 
 function seedTiedMessages(dbPath: string): void {
   const db = new MessageDB(dbPath)
-  db.upsertBatch([1, 2, 3, 4].map((msgId) => ({
-    platform: 'telegram',
+  db.upsertBatch([1, 2, 3, 4].map((msgId) => message({
     chat_id: 10,
     chat_name: 'General',
     msg_id: msgId,
@@ -77,8 +95,7 @@ function seedManyChats(dbPath: string, count: number): void {
   db.upsertBatch(Array.from({ length: count }, (_, index) => {
     const chatId = index + 1
     const timestamp = new Date(Date.UTC(2026, 6, 14, 0, index)).toISOString()
-    return {
-      platform: 'telegram',
+    return message({
       chat_id: chatId,
       chat_name: `Chat ${String(chatId).padStart(3, '0')}`,
       msg_id: 1,
@@ -86,15 +103,14 @@ function seedManyChats(dbPath: string, count: number): void {
       sender_name: 'Alice',
       content: `chat ${chatId}`,
       timestamp,
-    }
+    })
   }))
   db.close()
 }
 
 function seedTiedChats(dbPath: string): void {
   const db = new MessageDB(dbPath)
-  db.upsertBatch([1, 2, 3].map((chatId) => ({
-    platform: 'telegram',
+  db.upsertBatch([1, 2, 3].map((chatId) => message({
     chat_id: chatId,
     chat_name: `Chat ${chatId}`,
     msg_id: 1,
@@ -279,13 +295,8 @@ describe('WebQueryService', () => {
     seedAccount(root)
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
     db.upsertBatch([
-      {
-        platform: 'telegram',
-        chat_id: 10,
-        chat_name: 'General',
+      message({
         msg_id: 10,
-        sender_id: 1,
-        sender_name: 'Alice',
         content: 'album caption',
         timestamp: '2026-07-14T08:00:00.000Z',
         media_group_id: 'album-1',
@@ -296,14 +307,10 @@ describe('WebQueryService', () => {
             photo: { thumbnails: [{ type: 'i', location: [255, 216, 255] }] },
           },
         },
-      },
-      {
-        platform: 'telegram',
-        chat_id: 10,
-        chat_name: 'General',
+        attachments: [attachment({ kind: 'photo', preview_jpeg_base64: '/9j/' })],
+      }),
+      message({
         msg_id: 11,
-        sender_id: 1,
-        sender_name: 'Alice',
         content: null,
         timestamp: '2026-07-14T08:00:01.000Z',
         media_group_id: 'album-1',
@@ -311,7 +318,7 @@ describe('WebQueryService', () => {
           grouped_id: 'album-1',
           media: { _: 'messageMediaDocument', document: { fileName: 'report.pdf', mimeType: 'application/pdf' } },
         },
-      },
+      }),
     ])
     db.close()
     const service = new WebQueryService({ dataDir: root })
@@ -336,28 +343,20 @@ describe('WebQueryService', () => {
     seedAccount(root)
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
     db.upsertBatch([
-      {
-        platform: 'telegram',
-        chat_id: 10,
-        chat_name: 'General',
+      message({
         msg_id: 40,
-        sender_id: 1,
-        sender_name: 'Alice',
         content: 'original answer',
         timestamp: '2026-07-14T08:00:00.000Z',
         raw_json: null,
-      },
-      {
-        platform: 'telegram',
-        chat_id: 10,
-        chat_name: 'General',
+      }),
+      message({
         msg_id: 41,
         sender_id: 2,
         sender_name: 'Bob',
         content: 'replying with context',
         timestamp: '2026-07-14T08:01:00.000Z',
         raw_json: { replyTo: { replyToMsgId: 40 } },
-      },
+      }),
     ])
     db.close()
     const service = new WebQueryService({ dataDir: root })
@@ -380,13 +379,8 @@ describe('WebQueryService', () => {
     seedAccount(root)
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
     db.upsertBatch([
-      {
-        platform: 'telegram',
-        chat_id: 10,
-        chat_name: 'General',
+      message({
         msg_id: 50,
-        sender_id: 1,
-        sender_name: 'Alice',
         content: null,
         timestamp: '2026-07-14T08:00:00.000Z',
         raw_json: {
@@ -395,18 +389,16 @@ describe('WebQueryService', () => {
             photo: { thumbnails: [{ type: 'i', location: [255, 216, 255] }] },
           },
         },
-      },
-      {
-        platform: 'telegram',
-        chat_id: 10,
-        chat_name: 'General',
+        attachments: [attachment({ kind: 'photo', preview_jpeg_base64: '/9j/' })],
+      }),
+      message({
         msg_id: 51,
         sender_id: 2,
         sender_name: 'Bob',
         content: 'replying to photo',
         timestamp: '2026-07-14T08:01:00.000Z',
         raw_json: { replyTo: { replyToMsgId: 50 } },
-      },
+      }),
     ])
     db.close()
     const service = new WebQueryService({ dataDir: root })

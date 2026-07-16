@@ -122,10 +122,13 @@ function message(options: {
     sender_name: 'Alice',
     content: options.content ?? '',
     timestamp: '2026-07-10T07:22:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: {
       _: 'message',
       groupedId: options.groupedId,
       media: { _: 'messageMediaPhoto', photo: {} },
-    },
+    } as never,
+    attachments: [],
   }
 }

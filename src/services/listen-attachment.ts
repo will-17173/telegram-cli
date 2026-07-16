@@ -1,4 +1,4 @@
-import type { StoredMessageInput } from '../storage/message-db.js'
+import type { Attachment } from '../telegram/media-types.js'
 
 type RawRecord = Record<string, unknown>
 
@@ -15,11 +15,18 @@ export type ListenAttachment = {
 
 type MediaDescription = Omit<ListenAttachment, 'chatId' | 'messageId' | 'previewJpegBase64'>
 
-export function discoverListenAttachments(message: StoredMessageInput): ListenAttachment[] {
+type DiscoverableMessage = {
+  chat_id: number
+  msg_id: number
+  raw_json: unknown
+  attachments: Attachment[]
+}
+
+export function discoverListenAttachments(message: DiscoverableMessage): ListenAttachment[] {
   let previewAssigned = false
   return extractMediaLabels(message.raw_json).map((attachment) => {
     const preview = attachment.kind === 'Photo' && !previewAssigned
-      ? message.preview_jpeg_base64
+      ? message.attachments.find((item) => item.kind === 'photo' && item.preview_jpeg_base64 != null)?.preview_jpeg_base64 ?? undefined
       : undefined
     if (attachment.kind === 'Photo' && !previewAssigned) previewAssigned = true
     return {

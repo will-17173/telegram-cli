@@ -329,7 +329,9 @@ function mediaMessage(msgId: number, fileName?: string, kind = 'messageMediaPhot
   return {
     platform: 'telegram', chat_id: 100, chat_name: 'chat', msg_id: msgId,
     sender_id: 1, sender_name: 'sender', content: null, timestamp: '2026-01-01T00:00:00Z',
+    reply_to_msg_id: null, media_group_id: null,
     raw_json: { _: kind, ...(fileName == null ? {} : { file_name: fileName }) },
+    attachments: [],
   }
 }
 

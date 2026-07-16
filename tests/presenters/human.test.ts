@@ -15,6 +15,7 @@ import {
 } from '../../src/presenters/human.js'
 import { groupLogicalMessages } from '../../src/presenters/logical-message.js'
 import { buildReplyContext } from '../../src/services/reply-context.js'
+import type { StoredMessage } from '../../src/storage/message-db.js'
 import { attachment } from '../fixtures/messages.js'
 
 function localTimestamp(timestamp: string): string {
@@ -25,6 +26,25 @@ function localTimestamp(timestamp: string): string {
 function localClock(timestamp: string): string {
   const date = new Date(timestamp)
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+function storedMessage(overrides: Partial<StoredMessage> = {}): StoredMessage {
+  return {
+    id: 1,
+    platform: 'telegram',
+    chat_id: 10,
+    chat_name: 'General',
+    msg_id: 11,
+    sender_id: 1,
+    sender_name: 'Ada',
+    content: null,
+    timestamp: '2026-07-10T01:02:03Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
+    raw_json: null,
+    attachments: [],
+    ...overrides,
+  }
 }
 
 describe('human output builders', () => {
@@ -71,15 +91,13 @@ describe('human output builders', () => {
   })
 
   it('renders logical content, reply context, and media in one message cell', () => {
-    const rows = [{
-      id: 1, platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 11,
-      sender_id: 1, sender_name: 'Ada', content: 'album caption', timestamp: '2026-07-10T01:02:03Z',
+    const rows = [storedMessage({
+      id: 1, msg_id: 11, content: 'album caption', timestamp: '2026-07-10T01:02:03Z',
       raw_json: JSON.stringify({ grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } }),
-    }, {
-      id: 2, platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 12,
-      sender_id: 1, sender_name: 'Ada', content: null, timestamp: '2026-07-10T01:02:04Z',
+    }), storedMessage({
+      id: 2, msg_id: 12, content: null, timestamp: '2026-07-10T01:02:04Z',
       raw_json: JSON.stringify({ grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } }),
-    }]
+    })]
     const logical = groupLogicalMessages(rows)
     logical[0]!.replyContext = buildReplyContext(7, { ...rows[0]!, msg_id: 7, sender_name: 'Bob', content: 'original' })
 
@@ -92,11 +110,9 @@ describe('human output builders', () => {
   })
 
   it('renders media-only logical messages without a standalone dash', () => {
-    const row = {
-      id: 1, platform: 'telegram', chat_id: 10, chat_name: 'General', msg_id: 11,
-      sender_id: 1, sender_name: 'Ada', content: null, timestamp: '2026-07-10T01:02:03Z',
+    const row = storedMessage({
       raw_json: JSON.stringify({ media: { _: 'messageMediaPhoto', photo: {} } }),
-    }
+    })
     expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[4]).toBe('📎 1 Photo')
   })
   it('maps Telegram chats to the canonical Chats table', () => {
@@ -183,18 +199,10 @@ describe('human output builders', () => {
   })
 
   it('builds representative message and aggregate views', () => {
-    expect(messageTable([{
-      id: 1,
-      platform: 'telegram',
-      chat_id: 10,
-      chat_name: null,
-      msg_id: 11,
+    expect(messageTable([storedMessage({
+      chat_name: '',
       sender_id: null,
-      sender_name: 'Ada',
-      content: null,
-      timestamp: '2026-07-10T01:02:03Z',
-      raw_json: null,
-    }])).toEqual({
+    })])).toEqual({
       kind: 'table',
       title: 'Messages',
       columns: ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
@@ -228,18 +236,9 @@ describe('human output builders', () => {
   })
 
   it('moves a scoped chat label into the message table title', () => {
-    const messages = [{
-      id: 1,
-      platform: 'telegram',
-      chat_id: 10,
-      chat_name: 'General',
-      msg_id: 11,
-      sender_id: 1,
-      sender_name: 'Ada',
+    const messages = [storedMessage({
       content: 'release update',
-      timestamp: '2026-07-10T01:02:03Z',
-      raw_json: null,
-    }]
+    })]
 
     expect(messageTable(messages, 'Recent Messages', 'No recent messages found.', { chatLabel: 'General' })).toEqual({
       kind: 'table',
@@ -253,18 +252,10 @@ describe('human output builders', () => {
   it('formats offset ISO timestamps in host local time across day boundaries', () => {
     const timestamp = '2026-07-10T23:30:00-02:00'
 
-    const view = messageTable([{
-      id: 1,
-      platform: 'telegram',
-      chat_id: 10,
-      chat_name: 'General',
-      msg_id: 11,
-      sender_id: 1,
-      sender_name: 'Ada',
+    const view = messageTable([storedMessage({
       content: 'offset',
       timestamp,
-      raw_json: null,
-    }])
+    })])
 
     expect(view.rows[0]?.[0]).toBe(localTimestamp(timestamp))
   })

@@ -1812,7 +1812,7 @@ describe('interactive album messages', () => {
       width: 1,
       rows: [[{ glyph: '▀' as const, foreground: '#ffffff', background: '#000000' }]],
     }))
-    const photo = { ...storedPhoto(11, ''), preview_jpeg_base64: twoByTwoJpeg }
+    const photo = storedPhotoWithPreview(11, '', twoByTwoJpeg)
 
     const row = toListenMessage([photo], {
       showMedia: true,
@@ -1831,7 +1831,7 @@ describe('interactive album messages', () => {
     const colorDepth = interactiveListenPreviewColorDepth(24)
 
     const row = toListenMessage(
-      [{ ...storedPhoto(99, ''), preview_jpeg_base64: twoByTwoJpeg }],
+      [storedPhotoWithPreview(99, '', twoByTwoJpeg)],
       { showMedia: true, previewWidth: 24, colorDepth, decodePreview },
     )
 
@@ -1843,8 +1843,8 @@ describe('interactive album messages', () => {
 
   it('does not decode unchanged previews again when a new group arrives', () => {
     const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
-    const first = [{ ...storedPhoto(11, ''), preview_jpeg_base64: twoByTwoJpeg }]
-    const second = [{ ...storedPhoto(12, ''), preview_jpeg_base64: twoByTwoJpeg }]
+    const first = [storedPhotoWithPreview(11, '', twoByTwoJpeg)]
+    const second = [storedPhotoWithPreview(12, '', twoByTwoJpeg)]
     const cache = new ListenMessageViewCache()
     const context = { showMedia: true, previewWidth: 20, colorDepth: 24, decodePreview }
 
@@ -1858,7 +1858,7 @@ describe('interactive album messages', () => {
   it('bounds retained groups and cache entries while reusing retained previews', () => {
     const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
     const groups = Array.from({ length: LISTEN_HISTORY_LIMIT + 1 }, (_, index) => [
-      { ...storedPhoto(index + 1, ''), preview_jpeg_base64: twoByTwoJpeg },
+      storedPhotoWithPreview(index + 1, '', twoByTwoJpeg),
     ])
     const cache = new ListenMessageViewCache()
     const context = { showMedia: true, previewWidth: 20, colorDepth: 24, decodePreview }
@@ -1878,8 +1878,8 @@ describe('interactive album messages', () => {
   it('rebuilds albums on resize while preserving grouping and stable keys', () => {
     const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
     const album = [
-      { ...storedPhoto(11, ''), preview_jpeg_base64: twoByTwoJpeg },
-      { ...storedPhoto(12, 'caption'), preview_jpeg_base64: twoByTwoJpeg },
+      storedPhotoWithPreview(11, '', twoByTwoJpeg),
+      storedPhotoWithPreview(12, 'caption', twoByTwoJpeg),
     ]
     const cache = new ListenMessageViewCache()
 
@@ -1898,7 +1898,7 @@ describe('interactive album messages', () => {
       width,
       rows: Array.from({ length: width }, () => []),
     }))
-    const group = [{ ...storedPhoto(11, 'caption'), preview_jpeg_base64: twoByTwoJpeg }]
+    const group = [storedPhotoWithPreview(11, 'caption', twoByTwoJpeg)]
     const resolved = {
       key: '100:11',
       messages: group,
@@ -1918,7 +1918,7 @@ describe('interactive album messages', () => {
   it('caps preview decoding width at 24 cells', () => {
     const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
 
-    toListenMessage([{ ...storedPhoto(11, ''), preview_jpeg_base64: twoByTwoJpeg }], {
+    toListenMessage([storedPhotoWithPreview(11, '', twoByTwoJpeg)], {
       showMedia: true,
       previewWidth: 100,
       colorDepth: 24,
@@ -1933,7 +1933,7 @@ describe('interactive album messages', () => {
     { showMedia: true, colorDepth: 8 },
   ])('does not decode or expose preview cells for $showMedia/$colorDepth capability', (capability) => {
     const decodePreview = vi.fn(() => ({ width: 1, rows: [[]] }))
-    const row = toListenMessage([{ ...storedPhoto(11, ''), preview_jpeg_base64: twoByTwoJpeg }], {
+    const row = toListenMessage([storedPhotoWithPreview(11, '', twoByTwoJpeg)], {
       ...capability,
       previewWidth: 20,
       decodePreview,
@@ -2047,7 +2047,46 @@ function storedPhoto(msgId: number, content: string): NormalizedMessage {
     reply_to_msg_id: null,
     media_group_id: null,
     raw_json: { _: 'message', media: { _: 'messageMediaPhoto', photo: {} } },
-    attachments: [],
+    attachments: [{
+      attachment_index: 1,
+      parent_attachment_index: null,
+      role: 'primary',
+      kind: 'photo',
+      subtype: null,
+      downloadable: true,
+      file_id: null,
+      unique_file_id: null,
+      file_name: null,
+      mime_type: null,
+      file_size: null,
+      width: null,
+      height: null,
+      duration_seconds: null,
+      thumbnail_file_id: null,
+      thumbnail_unique_file_id: null,
+      thumbnail_width: null,
+      thumbnail_height: null,
+      emoji: null,
+      title: null,
+      performer: null,
+      latitude: null,
+      longitude: null,
+      address: null,
+      phone_number: null,
+      url: null,
+      preview_jpeg_base64: null,
+      metadata: {},
+    }],
+  }
+}
+
+function storedPhotoWithPreview(msgId: number, content: string, preview: string): NormalizedMessage {
+  const message = storedPhoto(msgId, content)
+  return {
+    ...message,
+    attachments: message.attachments.map((attachment, index) => index === 0
+      ? { ...attachment, preview_jpeg_base64: preview }
+      : attachment),
   }
 }
 
@@ -2159,7 +2198,7 @@ function TerminalMetricsHarness({
 }): React.JSX.Element {
   const metrics = useTerminalMetrics(stdout)
   React.useEffect(() => onMetrics(metrics), [metrics, onMetrics])
-  toListenMessage([{ ...storedPhoto(99, ''), preview_jpeg_base64: twoByTwoJpeg }], {
+  toListenMessage([storedPhotoWithPreview(99, '', twoByTwoJpeg)], {
     showMedia: true,
     previewWidth: metrics.columns - 3,
     colorDepth: metrics.colorDepth,

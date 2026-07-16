@@ -128,6 +128,9 @@ function message(): StoredMessageInput {
     sender_name: 'Alice',
     content: 'Hello',
     timestamp: '2026-03-09T10:00:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: null,
+    attachments: [],
   }
 }

@@ -5,7 +5,6 @@ import { MessageDB, type StoredMessageInput } from '../storage/message-db.js'
 import { attachmentFileName, discoverListenAttachments } from '../services/listen-attachment.js'
 import { buildReplyContext, type ReplyContext } from '../services/reply-context.js'
 import { groupLogicalMessages, summarizeLogicalMedia } from '../presenters/logical-message.js'
-import { strippedPhotoPreviewBase64FromRawMessage } from '../telegram/raw-media-location.js'
 import { extractGroupedId } from '../telegram/raw-message.js'
 import type { WebAccountSummary, WebChatSummary, WebMessage, WebMessageAttachment, WebPage, WebReplyContext } from './types.js'
 
@@ -119,10 +118,7 @@ function toWebReplyContext(context: ReplyContext, target?: StoredMessageInput): 
 
 function toWebAttachments(messages: StoredMessageInput[]): WebMessageAttachment[] {
   return messages.flatMap((row) => (
-    discoverListenAttachments({
-      ...row,
-      preview_jpeg_base64: row.preview_jpeg_base64 ?? extractPreviewJpegBase64(row.raw_json),
-    }).map((attachment, index) => ({
+    discoverListenAttachments(row).map((attachment, index) => ({
       key: `${attachment.chatId}:${attachment.messageId}:${index}`,
       chat_id: attachment.chatId,
       msg_id: attachment.messageId,
@@ -134,65 +130,4 @@ function toWebAttachments(messages: StoredMessageInput[]): WebMessageAttachment[
       ...(attachment.previewJpegBase64 == null ? {} : { preview_jpeg_base64: attachment.previewJpegBase64 }),
     }))
   ))
-}
-
-function extractPreviewJpegBase64(raw: unknown): string | undefined {
-  const root = parseRaw(raw)
-  if (root == null) return undefined
-  const direct = firstString(root.preview_jpeg_base64, root.previewJpegBase64)
-  if (direct != null) return direct
-  const stripped = strippedPhotoPreviewBase64FromRawMessage(raw)
-  if (stripped != null) return stripped
-  const media = recordValue(root.media) ?? root
-  const photo = recordValue(media.photo) ?? media
-  const thumbnails = Array.isArray(photo.thumbnails) ? photo.thumbnails : []
-  for (const item of thumbnails) {
-    if (!isRecord(item)) continue
-    const type = firstString(item.type)
-    if (type != null && type !== 'i' && type !== 'stripped') continue
-    const location = item.location
-    const encoded = bytesLikeToBase64(location) ?? firstString(location)
-    if (encoded != null) return encoded
-  }
-  return undefined
-}
-
-function parseRaw(raw: unknown): Record<string, unknown> | null {
-  if (typeof raw === 'string') {
-    try {
-      const parsed: unknown = JSON.parse(raw)
-      return isRecord(parsed) ? parsed : null
-    } catch {
-      return null
-    }
-  }
-  return isRecord(raw) ? raw : null
-}
-
-function recordValue(value: unknown): Record<string, unknown> | null {
-  return isRecord(value) ? value : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function firstString(...values: unknown[]): string | undefined {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim() !== '') return value.trim()
-  }
-  return undefined
-}
-
-function bytesLikeToBase64(value: unknown): string | undefined {
-  const bytes = Array.isArray(value)
-    ? value
-    : isRecord(value) ? Object.keys(value)
-      .filter((key) => /^\d+$/.test(key))
-      .sort((left, right) => Number(left) - Number(right))
-      .map((key) => value[key])
-      : null
-  if (bytes == null || bytes.length === 0) return undefined
-  if (!bytes.every((item): item is number => typeof item === 'number' && Number.isInteger(item) && item >= 0 && item <= 255)) return undefined
-  return Buffer.from(bytes).toString('base64')
 }

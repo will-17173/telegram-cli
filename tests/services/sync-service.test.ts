@@ -327,7 +327,10 @@ function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInpu
     sender_name: 'Alice',
     content: 'existing message',
     timestamp: '2026-03-09T10:00:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: null,
+    attachments: [],
     ...overrides,
   }
 }

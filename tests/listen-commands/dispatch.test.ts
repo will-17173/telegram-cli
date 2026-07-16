@@ -91,6 +91,7 @@ describe('executeSelectedListenCommand', () => {
     const outcome: StoredMessageInput[] = [{
       platform: 'telegram', chat_id: -1001, chat_name: 'Test', msg_id: 43,
       sender_id: 1, sender_name: 'Alice', content: 'sent', timestamp: '2026-01-01T00:00:00.000Z',
+      reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
     }]
     const executeReply = vi.fn(async () => outcome)
     const executeGroup = vi.fn(async (): Promise<GroupCommandExecutionResult> => ({

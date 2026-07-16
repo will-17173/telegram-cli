@@ -620,18 +620,7 @@ function localGroupedDownloadMessages(
 }
 
 function toDownloadArchiveMessage(message: StoredMessage): ArchiveMessage {
-  const [attachment] = discoverListenAttachments({
-    platform: message.platform,
-    chat_id: message.chat_id,
-    chat_name: message.chat_name,
-    msg_id: message.msg_id,
-    sender_id: message.sender_id,
-    sender_name: message.sender_name,
-    content: message.content,
-    timestamp: message.timestamp,
-    raw_json: message.raw_json,
-    preview_jpeg_base64: message.preview_jpeg_base64,
-  })
+  const [attachment] = discoverListenAttachments(message)
   return {
     chat_id: message.chat_id,
     msg_id: message.msg_id,

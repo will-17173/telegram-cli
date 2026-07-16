@@ -13,7 +13,10 @@ function target(overrides: Partial<StoredMessage> = {}): StoredMessage {
     sender_name: 'Bob',
     content: 'original',
     timestamp: '2026-07-10T01:02:03.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: null,
+    attachments: [],
     ...overrides,
   }
 }

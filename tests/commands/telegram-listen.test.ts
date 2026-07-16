@@ -524,7 +524,10 @@ function fixtureMessage(): StoredMessageInput {
     sender_name: 'Alice',
     content: 'Hello from listen',
     timestamp: '2026-03-09T10:03:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: raw,
+    attachments: [],
   }
 }
 

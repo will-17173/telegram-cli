@@ -43,21 +43,24 @@ describe('MessageDB', () => {
       ],
     })
 
-    expect(store.upsertBatch([first, replacement])).toEqual({
-      inserted: 1,
-      updated: 1,
-      total: 2,
-    })
+    expect(store.upsertMessage(first)).toBe('inserted')
+    const beforeUpdate = store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])[0]
+    expect(beforeUpdate.id).toBeGreaterThan(0)
+    const firstAttachment = { ...first.attachments[0] }
+    delete (firstAttachment as Partial<typeof firstAttachment>).preview_jpeg_base64
+    expect(beforeUpdate.attachments).toEqual([firstAttachment])
+
+    expect(store.upsertMessage(replacement)).toBe('updated')
     expect(store.count()).toBe(1)
     const [stored] = store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])
-    expect(stored?.id).toBeGreaterThan(0)
+    expect(stored?.id).toBe(beforeUpdate.id)
     expect(stored?.content).toBe('replacement')
     expect(stored?.raw_json).toBe(JSON.stringify({ edited: true }))
-    expect(stored?.attachments?.[0]).toEqual(replacement.attachments[0])
+    expect(stored?.attachments[0]).toEqual(replacement.attachments[0])
     const secondAttachment = { ...replacement.attachments[1] }
     delete (secondAttachment as Partial<typeof secondAttachment>).preview_jpeg_base64
-    expect(stored?.attachments?.[1]).toEqual(secondAttachment)
-    expect(stored?.attachments?.[1]).not.toHaveProperty('preview_jpeg_base64')
+    expect(stored?.attachments[1]).toEqual(secondAttachment)
+    expect(stored?.attachments[1]).not.toHaveProperty('preview_jpeg_base64')
     store.close()
   })
 
@@ -134,10 +137,10 @@ describe('MessageDB', () => {
       msgId: index + 1,
     })))
     expect(rows).toHaveLength(total)
-    expect(rows[0].attachments?.[0]?.file_name).toBe('file-1.txt')
-    expect(rows[499].attachments?.[0]?.metadata).toEqual({ index: 500 })
-    expect(rows[500].attachments?.[0]?.file_name).toBe('file-501.txt')
-    expect(rows[1099].attachments?.[0]?.metadata).toEqual({ index: 1100 })
+    expect(rows[0].attachments[0]?.file_name).toBe('file-1.txt')
+    expect(rows[499].attachments[0]?.metadata).toEqual({ index: 500 })
+    expect(rows[500].attachments[0]?.file_name).toBe('file-501.txt')
+    expect(rows[1099].attachments[0]?.metadata).toEqual({ index: 1100 })
     store.close()
   })
 
@@ -170,7 +173,7 @@ describe('MessageDB', () => {
     store.close()
   })
 
-  it('does not store photo previews on message rows', () => {
+  it('stores photo previews only on attachment rows', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'tg-cli-')), 'messages.db')
     const store = new MessageDB(path)
     const input = {
@@ -180,8 +183,7 @@ describe('MessageDB', () => {
 
     expect(store.upsertMessage(input)).toBe('inserted')
     const [stored] = store.getRecent()
-    expect(stored?.preview_jpeg_base64).toBeUndefined()
-    expect(stored?.attachments?.[0]?.preview_jpeg_base64).toBe('/9j/2Q==')
+    expect(stored.attachments[0]?.preview_jpeg_base64).toBe('/9j/2Q==')
     store.close()
 
     const sqlite = new Database(path, { readonly: true })
@@ -375,11 +377,11 @@ describe('MessageDB', () => {
     store.close()
   })
 
-  it('uses the latest non-null chat name when aggregating chats', () => {
+  it('uses the latest non-empty chat name when aggregating chats', () => {
     const store = db()
     store.upsertBatch([
       message({ msg_id: 1, chat_name: 'NamedChat', timestamp: '2026-03-09T10:00:00.000Z' }),
-      message({ msg_id: 2, chat_name: null, timestamp: '2026-03-09T11:00:00.000Z' }),
+      message({ msg_id: 2, chat_name: '', timestamp: '2026-03-09T11:00:00.000Z' }),
     ])
 
     expect(store.getChats()[0]?.chat_name).toBe('NamedChat')

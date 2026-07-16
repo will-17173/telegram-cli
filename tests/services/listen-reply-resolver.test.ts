@@ -158,7 +158,7 @@ describe('listen reply resolver', () => {
     db.close()
     const resolver = createListenReplyResolver(dbPath)
     expect(resolver.resolve([message(8)])).toBeUndefined()
-    expect(resolver.resolve([{ ...reply(8, 7), platform: 'other' }])).toEqual({ messageId: 7, resolved: false })
+    expect(resolver.resolve([{ ...reply(8, 7), platform: 'other' as never }])).toEqual({ messageId: 7, resolved: false })
     resolver.close()
   })
 
@@ -168,10 +168,10 @@ describe('listen reply resolver', () => {
     const resolver = createListenReplyResolver(dbPath)
     resolver.remember([message(7, { content: 'telegram 100' })])
     resolver.remember([{ ...message(7, { content: 'telegram 200' }), chat_id: 200 }])
-    resolver.remember([{ ...message(7, { content: 'other 100' }), platform: 'other' }])
+    resolver.remember([{ ...message(7, { content: 'other 100' }), platform: 'other' as never }])
     expect(resolver.resolve([reply(8, 7)])).toMatchObject({ content: 'telegram 100' })
     expect(resolver.resolve([{ ...reply(8, 7), chat_id: 200 }])).toMatchObject({ content: 'telegram 200' })
-    expect(resolver.resolve([{ ...reply(8, 7), platform: 'other' }])).toMatchObject({ content: 'other 100' })
+    expect(resolver.resolve([{ ...reply(8, 7), platform: 'other' as never }])).toMatchObject({ content: 'other 100' })
     resolver.close()
   })
 
@@ -225,7 +225,8 @@ function message(msgId: number, overrides: Partial<StoredMessageInput> = {}): St
   return {
     platform: 'telegram', chat_id: 100, chat_name: 'Chat', msg_id: msgId,
     sender_id: 1, sender_name: 'Alice', content: `message ${msgId}`,
-    timestamp: '2026-07-10T07:22:00.000Z', raw_json: { _: 'message' }, ...overrides,
+    timestamp: '2026-07-10T07:22:00.000Z', reply_to_msg_id: null, media_group_id: null,
+    raw_json: { _: 'message' }, attachments: [], ...overrides,
   }
 }
 

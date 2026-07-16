@@ -57,6 +57,10 @@ function message(msgId: number, content: string): StoredMessageInput {
     sender_name: 'Alice',
     content,
     timestamp: `2026-07-14T08:00:0${msgId}.000Z`,
+    reply_to_msg_id: null,
+    media_group_id: null,
+    raw_json: null,
+    attachments: [],
   }
 }
 
@@ -160,6 +164,10 @@ describe('SyncTaskRunner', () => {
       sender_name: 'Alice',
       content: 'old message',
       timestamp: '2026-07-14T08:00:01.000Z',
+      reply_to_msg_id: null,
+      media_group_id: null,
+      raw_json: null,
+      attachments: [],
     }])
     db.close()
     const runner = new SyncTaskRunner({ dataDir: root })

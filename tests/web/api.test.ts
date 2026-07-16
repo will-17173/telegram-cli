@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MessageDB } from '../../src/storage/message-db.js'
+import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
 
 const fakeClient = vi.hoisted(() => ({
   downloadMessageMedia: vi.fn(async (_input: Record<string, unknown>) => undefined),
@@ -44,36 +44,40 @@ function seedAccount(root: string): void {
 
 function seedMessage(root: string): void {
   const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-  db.upsertBatch([
-    {
-      platform: 'telegram',
-      chat_id: 10,
-      chat_name: 'General',
-      msg_id: 1,
-      sender_id: 1,
-      sender_name: 'Alice',
-      content: 'hello',
-      timestamp: '2026-07-14T08:00:00.000Z',
-    },
-  ])
+  db.upsertBatch([message({ content: 'hello' })])
   db.close()
 }
 
 function seedNegativeChatMessage(root: string): void {
   const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-  db.upsertBatch([
-    {
-      platform: 'telegram',
-      chat_id: -123,
-      chat_name: 'Negative Chat',
-      msg_id: 2,
-      sender_id: 2,
-      sender_name: 'Bob',
-      content: 'negative chat id',
-      timestamp: '2026-07-14T09:00:00.000Z',
-    },
-  ])
+  db.upsertBatch([message({
+    chat_id: -123,
+    chat_name: 'Negative Chat',
+    msg_id: 2,
+    sender_id: 2,
+    sender_name: 'Bob',
+    content: 'negative chat id',
+    timestamp: '2026-07-14T09:00:00.000Z',
+  })])
   db.close()
+}
+
+function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInput {
+  return {
+    platform: 'telegram',
+    chat_id: 10,
+    chat_name: 'General',
+    msg_id: 1,
+    sender_id: 1,
+    sender_name: 'Alice',
+    content: null,
+    timestamp: '2026-07-14T08:00:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
+    raw_json: null,
+    attachments: [],
+    ...overrides,
+  }
 }
 
 async function api(
@@ -324,15 +328,8 @@ describe('handleApiRequest', () => {
     const root = makeRoot()
     seedAccount(root)
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
-    db.upsertBatch([{
-      platform: 'telegram',
+    db.upsertBatch([message({
       chat_id: 1220606936,
-      chat_name: 'General',
-      msg_id: 1,
-      sender_id: 1,
-      sender_name: 'Alice',
-      content: null,
-      timestamp: '2026-07-14T08:00:00.000Z',
       raw_json: {
         media: {
           photo: {
@@ -344,7 +341,7 @@ describe('handleApiRequest', () => {
           },
         },
       },
-    }])
+    })])
     db.close()
 
     const response = await api(root, '/api/download-media', {
