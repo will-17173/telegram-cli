@@ -2103,6 +2103,20 @@ describe('listen scroll state', () => {
     expect(takeListenViewport([old, current], 8, 0).map((item) => item.sender)).toEqual(['current'])
     expect(takeListenViewport([old, current], 10, 0).map((item) => item.sender)).toEqual(['old', 'current'])
   })
+
+  it('does not count hidden attachment rows when selecting complete messages', () => {
+    const old = message('old', 2)
+    const current = message('current', 12)
+    current.showMedia = false
+    current.attachmentSummary = '📎 many photos'
+    for (const item of current.attachments) {
+      item.previewRows = 2
+      item.previewCells = []
+    }
+
+    expect(takeListenViewport([old, current], 5, 0).map((item) => item.sender)).toEqual(['old', 'current'])
+  })
+
   it('selects complete messages at the live and historical positions', () => {
     const messages = [message('old', 2), message('middle', 3), message('new', 2)]
 
@@ -2139,11 +2153,14 @@ describe('listen scroll state', () => {
   })
 })
 
-function message(sender: string, lineCount: number): ListenMessageRow {
+type ScrollListenMessage = ListenMessageRow & { showMedia?: boolean }
+
+function message(sender: string, lineCount: number): ScrollListenMessage {
   const mediaCount = Math.max(0, lineCount - 2)
   return {
     time: '16:44',
     chatId: 100,
+    showMedia: true,
     sender,
     senderId: null,
     content: null,

@@ -13,10 +13,9 @@ import {
 import {
   attachmentDownloadTarget,
   attachmentFileName,
-  discoverListenAttachments,
-  listenAttachmentKey,
-  type ListenAttachment,
-} from './listen-attachment.js'
+  presentMessageAttachments,
+  type PresentedAttachment,
+} from '../presenters/attachment.js'
 
 export type AutoDownloadEvent =
   | { status: 'queued'; key: string }
@@ -41,7 +40,7 @@ type AutoDownloadCoordinatorOptions = {
 
 type DownloadTask = {
   key: string
-  attachment: ListenAttachment
+  attachment: PresentedAttachment
 }
 
 export class AutoDownloadCoordinator {
@@ -83,8 +82,8 @@ export class AutoDownloadCoordinator {
   enqueue(message: StoredMessageInput): boolean {
     if (this.stopped) return false
     let added = false
-    discoverListenAttachments(message).forEach((attachment, index) => {
-      const key = listenAttachmentKey(attachment, index)
+    presentMessageAttachments(message).forEach((attachment) => {
+      const key = attachment.key
       if (!attachment.downloadable || this.inFlight.has(key) || this.recent.has(key)) return
       if (this.queue.length >= this.maxPending) {
         this.remember(key)

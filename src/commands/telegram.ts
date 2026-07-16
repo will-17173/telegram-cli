@@ -340,7 +340,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--persist', 'Reconnect automatically')
     .option('--retry-seconds <seconds>', 'Reconnect delay', '5')
     .option('--send-to <chat>', 'Set default outgoing chat for interactive mode')
-    .option('--no-media', 'Hide attachment summary for incoming messages')
+    .option('--no-media', 'Hide rendered attachment list and previews for incoming messages')
     .option('--auto-download', 'Download incoming attachments automatically')
     .option('--no-interactive', 'Use plain text listen output')
     .action(async (chats: string[], options: ListenOptions, command: Command) => {

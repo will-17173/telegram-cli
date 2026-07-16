@@ -6,14 +6,17 @@ export type ListenScrollState = {
 }
 
 function messageLines(message: ListenMessageRow): number {
+  const renderedAttachmentLines = 'showMedia' in message && message.showMedia === false
+    ? 0
+    : message.attachments.reduce(
+      (lines, attachment) => lines + 1 + (attachment.previewRows ?? 0),
+      0,
+    )
   return 2
     + (message.replyContext == null ? 0 : 1)
     + (message.content == null ? 0 : message.content.split(/\r\n|\r|\n/).length)
     + (message.attachmentSummary == null ? 0 : 1)
-    + message.attachments.reduce(
-    (lines, attachment) => lines + 1 + (attachment.previewRows ?? 0),
-    0,
-  )
+    + renderedAttachmentLines
 }
 
 export function takeListenViewport<T extends ListenMessageRow>(

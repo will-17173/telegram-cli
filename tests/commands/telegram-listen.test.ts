@@ -162,7 +162,7 @@ describe('listen command', () => {
 
     expect(client.downloadMessageMedia).toHaveBeenCalledOnce()
     const output = writes.join('')
-    expect(output).not.toContain('📎 Photo')
+    expect(output).toContain('📎 photo: IMG_001.jpg')
     expect(output).toContain(`downloaded: ${join(dataDir, 'Downloads', 'telegram-cli', 'IMG_001.jpg')}\n`)
     expect(output).not.toMatch(/Downloading|%|queued/)
   })
@@ -184,8 +184,8 @@ describe('listen command', () => {
       writeFileSync(destination, 'downloaded')
     })
     client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
-      onMessage({ ...fixtureMessage(), raw_json: { _: 'messageMediaPhoto', photo: { file_name: 'first.jpg' } } })
-      onMessage({ ...fixtureMessage(), msg_id: 2, raw_json: { _: 'messageMediaPhoto', photo: { file_name: 'second.jpg' } } })
+      onMessage({ ...fixtureMessage(), attachments: [attachment({ kind: 'photo', file_name: 'first.jpg' })] })
+      onMessage({ ...fixtureMessage(), msg_id: 2, attachments: [attachment({ kind: 'photo', file_name: 'second.jpg' })] })
       return 'stopped'
     })
 
@@ -442,10 +442,10 @@ describe('listen command', () => {
 
     const output = writes.join('')
 
-    expect(output).toContain('📎 1 Photo')
+    expect(output).toContain('📎 photo: IMG_001.jpg')
   })
 
-  it('hides attached media when --no-media is enabled', async () => {
+  it('keeps attachment summary when --no-media is enabled', async () => {
     const writes: string[] = []
     const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
       writes.push(String(chunk))
@@ -458,7 +458,9 @@ describe('listen command', () => {
       write.mockRestore()
     }
 
-    expect(writes.join('')).not.toContain('📎 Photo')
+    const output = writes.join('')
+    expect(output).toContain('📎 photo: IMG_001.jpg')
+    expect(output).not.toContain('Download')
   })
 
   it('prints a Telegram media album as one captioned message', async () => {
@@ -482,7 +484,7 @@ describe('listen command', () => {
     const output = writes.join('')
     expect(output.split('Alice\n').length - 1).toBe(1)
     expect(output.split('album caption\n').length - 1).toBe(1)
-    expect(output.split('📎 2 Photos\n').length - 1).toBe(1)
+    expect(output.split('📎 photo: IMG_001.jpg; photo: IMG_001.jpg\n').length - 1).toBe(1)
   })
 
   it('resolves a reply from an earlier message in the same plain listen session', async () => {
@@ -492,7 +494,7 @@ describe('listen command', () => {
       return true
     })
     client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
-      onMessage({ ...fixtureMessage(), msg_id: 7, content: 'live original', raw_json: { _: 'message' } })
+      onMessage({ ...fixtureMessage(), msg_id: 7, content: 'live original', attachments: [] })
       onMessage(replyMessage(8, 7))
       return 'stopped'
     })
@@ -508,7 +510,7 @@ describe('listen command', () => {
   it('resolves a reply from the active account database while persisting live messages', async () => {
     const dbPath = accountDbPath(dataDir, 'alice')
     const db = new MessageDB(dbPath)
-    db.upsertMessage({ ...fixtureMessage(), msg_id: 7, content: 'stored original', raw_json: { _: 'message' } })
+    db.upsertMessage({ ...fixtureMessage(), msg_id: 7, content: 'stored original', attachments: [] })
     db.close()
     client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
       onMessage(replyMessage(8, 7))
@@ -636,7 +638,6 @@ function restoreProperty(target: NodeJS.ReadStream | NodeJS.WriteStream, key: 'i
 }
 
 function fixtureMessage(): StoredMessageInput {
-  const raw = { _ : 'messageMediaPhoto', photo: { file_name: 'IMG_001.jpg' } }
   return {
     platform: 'telegram',
     chat_id: 100,
@@ -648,8 +649,8 @@ function fixtureMessage(): StoredMessageInput {
     timestamp: '2026-03-09T10:03:00.000Z',
     reply_to_msg_id: null,
     media_group_id: null,
-    raw_json: raw,
-    attachments: [],
+    raw_json: null,
+    attachments: [attachment({ kind: 'photo', file_name: 'IMG_001.jpg' })],
   }
 }
 
@@ -658,11 +659,8 @@ function albumMessage(msgId: number, content: string): StoredMessageInput {
     ...fixtureMessage(),
     msg_id: msgId,
     content,
-    raw_json: {
-      _: 'message',
-      groupedId: { low: 77, high: 0 },
-      media: { _: 'messageMediaPhoto', photo: {} },
-    },
+    media_group_id: '77',
+    raw_json: null,
   }
 }
 
@@ -671,7 +669,8 @@ function replyMessage(msgId: number, replyToMsgId: number): StoredMessageInput {
     ...fixtureMessage(),
     msg_id: msgId,
     content: 'live reply',
-    raw_json: { _: 'message', replyTo: { replyToMsgId } },
+    reply_to_msg_id: replyToMsgId,
+    raw_json: null,
   }
 }
 
@@ -685,13 +684,7 @@ function multiAttachmentMessage(
     ...fixtureMessage(),
     msg_id: msgId,
     content,
-    raw_json: {
-      _: 'message',
-      media: [
-        { _: 'messageMediaPhoto', photo: { file_name: firstFile } },
-        { _: 'messageMediaDocument', document: { file_name: 'second.pdf', mime_type: 'application/pdf' } },
-      ],
-    },
+    raw_json: null,
     attachments: [
       attachment({ attachment_index: 1, kind: 'photo', file_name: firstFile, metadata }),
       attachment({ attachment_index: 2, kind: 'document', file_name: 'second.pdf', mime_type: 'application/pdf' }),
