@@ -81,6 +81,12 @@ export function attachmentDownloadTarget(attachment: PresentedAttachment): { cha
   return { chat: attachment.chatId, msgId: attachment.messageId }
 }
 
+export function isMessageLevelDownloadableAttachment(attachment: PresentedAttachment): boolean {
+  return attachment.downloadable
+    && attachment.parent_attachment_index == null
+    && attachment.role === 'primary'
+}
+
 function parentDepth(attachmentIndex: number, parentIndex: number, depths: Map<number, number>): number {
   const parentDepthValue = depths.get(parentIndex)
   if (parentDepthValue == null || parentIndex >= attachmentIndex) {

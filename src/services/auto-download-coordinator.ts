@@ -13,6 +13,7 @@ import {
 import {
   attachmentDownloadTarget,
   attachmentFileName,
+  isMessageLevelDownloadableAttachment,
   presentMessageAttachments,
   type PresentedAttachment,
 } from '../presenters/attachment.js'
@@ -84,7 +85,7 @@ export class AutoDownloadCoordinator {
     let added = false
     presentMessageAttachments(message).forEach((attachment) => {
       const key = attachment.key
-      if (!attachment.downloadable || this.inFlight.has(key) || this.recent.has(key)) return
+      if (!isMessageLevelDownloadableAttachment(attachment) || this.inFlight.has(key) || this.recent.has(key)) return
       if (this.queue.length >= this.maxPending) {
         this.remember(key)
         this.emit({ status: 'failed', key, error: 'auto-download queue is full' })

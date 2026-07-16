@@ -44,6 +44,21 @@ describe('AutoDownloadCoordinator', () => {
     expect(events.filter((event) => event.status === 'queued')).toHaveLength(1)
   })
 
+  it('does not enqueue downloadable child attachments until per-attachment locations exist', async () => {
+    const client = downloadClient(async () => undefined)
+    const events: AutoDownloadEvent[] = []
+    const coordinator = setup({ onEvent: (event) => events.push(event) })
+    coordinator.setClient(client.adapter)
+
+    coordinator.enqueue(mediaMessage(7, 'parent.jpg', 'photo', [
+      attachment({ attachment_index: 2, parent_attachment_index: 1, role: 'thumbnail', kind: 'photo', file_name: 'child.jpg', downloadable: true }),
+    ]))
+    await coordinator.waitForIdle()
+
+    expect(client.calls.map((call) => call.msgId)).toEqual([7])
+    expect(events.filter((event) => event.status === 'queued').map((event) => event.key)).toEqual(['100:7:1'])
+  })
+
   it('bounds pending work, reports overflow, and accepts new work after capacity frees', async () => {
     const first = deferred()
     const client = downloadClient((_, index) => index === 0 ? first.promise : Promise.resolve())
@@ -326,7 +341,12 @@ function downloadClient(implementation: (options: DownloadMessageMediaOptions, i
   }
 }
 
-function mediaMessage(msgId: number, fileName?: string, kind: 'photo' | 'poll' = 'photo'): StoredMessageInput {
+function mediaMessage(
+  msgId: number,
+  fileName?: string,
+  kind: 'photo' | 'poll' = 'photo',
+  extraAttachments: StoredMessageInput['attachments'] = [],
+): StoredMessageInput {
   return {
     platform: 'telegram', chat_id: 100, chat_name: 'chat', msg_id: msgId,
     sender_id: 1, sender_name: 'sender', content: null, timestamp: '2026-01-01T00:00:00Z',
@@ -336,7 +356,7 @@ function mediaMessage(msgId: number, fileName?: string, kind: 'photo' | 'poll' =
       kind,
       file_name: fileName ?? null,
       downloadable: kind !== 'poll',
-    })],
+    }), ...extraAttachments],
   }
 }
 

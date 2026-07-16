@@ -1674,6 +1674,38 @@ describe('collectDownloadableAttachments', () => {
       kind: attachment.kind,
     }))).toEqual([{ key: '100:2:2', kind: 'photo' }])
   })
+
+  it('does not expose downloadable child attachments for manual focus before locator support', () => {
+    const parent = attachment({ attachment_index: 1, kind: 'photo', file_name: 'parent.jpg', downloadable: true })
+    const child = attachment({
+      attachment_index: 2,
+      parent_attachment_index: 1,
+      role: 'thumbnail',
+      kind: 'photo',
+      file_name: 'child.jpg',
+      downloadable: true,
+    })
+    const message: ListenMessage = {
+      key: '100:1',
+      chatId: 100,
+      msgId: 1,
+      showMedia: true,
+      time: '16:44',
+      sender: 'Alice',
+      senderId: null,
+      content: null,
+      attachmentSummary: null,
+      attachments: [
+        { ...parent, chatId: 100, messageId: 1, key: '100:1:1', depth: 0, label: 'photo' },
+        { ...child, chatId: 100, messageId: 1, key: '100:1:2', depth: 1, label: 'photo' },
+      ],
+    }
+
+    expect(collectDownloadableAttachments([message]).map(({ key, attachment }) => ({
+      key,
+      fileName: attachment.file_name,
+    }))).toEqual([{ key: '100:1:1', fileName: 'parent.jpg' }])
+  })
 })
 
 describe('ListenStatus', () => {

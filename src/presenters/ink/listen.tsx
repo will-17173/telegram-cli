@@ -14,7 +14,7 @@ import {
 import { ListenAlbumAggregator } from '../../services/listen-album-aggregator.js'
 import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../../services/auto-download-coordinator.js'
 import { buildListenMessage, type ListenAttachment, type ListenMessageRow } from '../listen-message.js'
-import { attachmentDownloadTarget, attachmentFileName, presentMessageAttachments } from '../attachment.js'
+import { attachmentDownloadTarget, attachmentFileName, isMessageLevelDownloadableAttachment, presentMessageAttachments } from '../attachment.js'
 import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScrollState } from './listen-scroll.js'
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
@@ -1641,7 +1641,7 @@ function normalizedPreviewWidth(previewWidth: number): number {
 export function collectDownloadableAttachments(messages: ListenMessage[]): DownloadableAttachment[] {
   return messages.flatMap((message) => message.showMedia
     ? message.attachments.flatMap((attachment, index) => (
-      attachment.downloadable === true
+      isMessageLevelDownloadableAttachment(attachment)
       ? [{
           key: attachmentDownloadKeyAt(message.attachments, index),
           message,
