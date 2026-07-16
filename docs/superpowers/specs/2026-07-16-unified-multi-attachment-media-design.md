@@ -192,7 +192,7 @@ CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   platform TEXT NOT NULL,
   chat_id INTEGER NOT NULL,
-  chat_name TEXT,
+  chat_name TEXT NOT NULL,
   msg_id INTEGER NOT NULL,
   sender_id INTEGER,
   sender_name TEXT,
@@ -316,7 +316,7 @@ Without **--attachment**, every downloadable attachment in the message is select
 
 Download flow:
 
-1. Load the stored attachment descriptor.
+1. Resolve an attachment descriptor from the normalized source for the command. A local database hit is preferred for a single message or album; otherwise CLI message, range, date, and all-chat downloads may use the descriptor produced while enumerating Telegram history. Web downloads always reload the descriptor from SQLite.
 2. Refetch the Telegram message to obtain current file references.
 3. Normalize the fresh message through the same normalizer.
 4. Match by unique_file_id first.
@@ -364,7 +364,8 @@ This project does not add media-type search flags, although the schema includes 
 
 Archive supports only the new format and assumes old generated data has been removed by explicit reset.
 
-- Manifest messages contain **attachments[]**.
+- Archive message records use **attachments[]**. The root manifest remains an account/chat cursor file and does not duplicate the complete message inventory.
+- The root manifest schema is version 2 and accepts only the new cursor/state shape; version 1 is rejected without an upgrader.
 - Markdown lists every attachment beneath its message.
 - Informational items render a concise summary.
 - Containers render their metadata and child relationships.
@@ -420,6 +421,7 @@ JSON and YAML use stable snake_case fields:
 ~~~
 
 The single **attachment** field and Title Case media kinds are removed.
+Because the message contract is deliberately incompatible, the shared structured-output envelope advances from **schema_version: "1"** to **schema_version: "2"**. This version is independent from SQLite `PRAGMA user_version` and the Archive manifest version.
 
 ## Error Handling
 
@@ -432,6 +434,8 @@ Stable errors include:
 - **media_access_denied**: permissions, content protection, or paid access prevents transfer.
 - **download_partial_failure**: one or more selected downloads failed.
 - **archive_partial_failure**: archive metadata completed but one or more media transfers failed.
+
+Batch download failure entries carry a stable `code`, preserving `attachment_changed` and `media_access_denied`; otherwise the item uses `download_partial_failure`. When an explicit single attachment has no successful transfer, `attachment_changed` or `media_access_denied` is returned directly at the top level. Multi-item or mixed outcomes use `download_partial_failure` with the coded per-item failures.
 
 A malformed optional media field degrades to null or unknown. Database, schema, and message-envelope failures remain visible and are not converted into unknown media.
 
