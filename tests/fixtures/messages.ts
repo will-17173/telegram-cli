@@ -1,18 +1,62 @@
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
+import type { Attachment, NormalizedMessage } from '../../src/telegram/media-types.js'
 
-export function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInput {
+type MessageFixture = NormalizedMessage & StoredMessageInput
+
+export function attachment(overrides: Partial<Attachment> = {}): Attachment {
   return {
+    attachment_index: 1,
+    parent_attachment_index: null,
+    role: 'primary',
+    kind: 'document',
+    subtype: null,
+    file_id: null,
+    unique_file_id: null,
+    file_name: null,
+    mime_type: null,
+    file_size: null,
+    width: null,
+    height: null,
+    duration_seconds: null,
+    thumbnail_file_id: null,
+    thumbnail_unique_file_id: null,
+    thumbnail_width: null,
+    thumbnail_height: null,
+    emoji: null,
+    title: null,
+    performer: null,
+    latitude: null,
+    longitude: null,
+    address: null,
+    phone_number: null,
+    url: null,
+    metadata: {},
+    ...overrides,
+  }
+}
+
+export function message(overrides?: Partial<StoredMessageInput>): StoredMessageInput
+export function message(overrides?: Partial<NormalizedMessage>): NormalizedMessage
+export function message(overrides: Partial<StoredMessageInput> | Partial<NormalizedMessage> = {}): MessageFixture {
+  const date = new Date('2026-03-09T10:00:00.000Z').toISOString()
+  const base = {
     platform: 'telegram',
     chat_id: 100,
     chat_name: 'TestGroup',
+    message_id: 1,
     msg_id: 1,
     sender_id: 1,
     sender_name: 'Alice',
+    date,
+    text: 'Message about Web3 and TypeScript',
     content: 'Message about Web3 and TypeScript',
-    timestamp: new Date('2026-03-09T10:00:00.000Z').toISOString(),
+    timestamp: date,
+    grouped_id: null,
+    reply_to_message_id: null,
     raw_json: null,
-    ...overrides,
+    attachments: [],
   }
+  return { ...base, ...overrides } as MessageFixture
 }
 
 export function fixtureMessages(): StoredMessageInput[] {
