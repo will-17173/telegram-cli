@@ -767,12 +767,37 @@ describe('normalizeMtcuteMedia', () => {
       price: '12345',
       preview_count: 1,
       item_count: 2,
-      visibility: 'full',
     })
     expect(paid.attachments[1]).toMatchObject({
       downloadable: false,
       file_id: null,
       unique_file_id: null,
+    })
+  })
+
+  it('records container metadata getter errors with scalar null and list empty fallbacks', () => {
+    const result = normalizeMtcuteMedia({
+      media: media({
+        type: 'poll',
+        id: long('404'),
+        get question(): never {
+          throw new Error('question unavailable')
+        },
+        get answers(): never {
+          throw new Error('answers unavailable')
+        },
+      }),
+    })
+
+    expect(result.attachments).toHaveLength(1)
+    expect(result.attachments[0]).toMatchObject({
+      kind: 'poll',
+      metadata: {
+        id: '404',
+        question: null,
+        answers: [],
+        getter_errors: ['question', 'answers'],
+      },
     })
   })
 

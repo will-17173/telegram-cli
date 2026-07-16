@@ -511,10 +511,15 @@ function addWebpage(builder: AttachmentBuilder, media: object, parent: Attachmen
 }
 
 function addPoll(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
-  const answers = safeList(read(media, 'answers'))
+  const getterErrors: string[] = []
+  const question = readMaybe(media, 'question')
+  if (question.thrown) getterErrors.push('question')
+  const answersResult = readMaybe(media, 'answers')
+  if (answersResult.thrown) getterErrors.push('answers')
+  const answers = safeList(answersResult.value)
   const metadata = metadataObject({
     id: longToString(read(media, 'id')),
-    question: textValue(read(media, 'question')),
+    question: textValue(question.value),
     voters: safeNumber(read(media, 'voters')),
     is_closed: safeBoolean(read(media, 'isClosed')),
     is_public: safeBoolean(read(media, 'isPublic')),
@@ -531,6 +536,7 @@ function addPoll(builder: AttachmentBuilder, media: object, parent: Attachment |
     can_view_stats: safeBoolean(read(media, 'canViewStats')),
     solution: textValue(read(media, 'solution')),
     answers: answers.map(pollAnswerMetadata),
+    getter_errors: getterErrors.length > 0 ? getterErrors : undefined,
   })
   const attachment = builder.add({
     parent_attachment_index: parent?.attachment_index,
@@ -630,7 +636,6 @@ function addPaidMedia(builder: AttachmentBuilder, media: object, parent: Attachm
       price: longToString(read(media, 'price')),
       preview_count: previews.length,
       item_count: medias.length,
-      visibility: medias.length > 0 ? 'full' : previews.length > 0 ? 'preview' : 'empty',
     }),
   })
   for (const preview of previews) {
