@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-16
+
+### Fixed
+
+- Refresh Telegram media references before `tg web` downloads attachments so stale local `file_reference` values do not cause `FILE_REFERENCE_EXPIRED` failures.
+- Restore local canonical supergroup and channel IDs to Telegram peer IDs before `tg web` downloads media.
+
 ## [0.6.0] - 2026-07-16
 
 ### Added
