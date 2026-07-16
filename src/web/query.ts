@@ -2,10 +2,9 @@ import { join } from 'node:path'
 import { AccountStore } from '../account/account-store.js'
 import { resolveAccountContext } from '../account/account-context.js'
 import { MessageDB, type StoredMessageInput } from '../storage/message-db.js'
-import { attachmentFileName, discoverListenAttachments } from '../services/listen-attachment.js'
 import { buildReplyContext, type ReplyContext } from '../services/reply-context.js'
 import { groupLogicalMessages, summarizeLogicalMedia } from '../presenters/logical-message.js'
-import { extractGroupedId } from '../telegram/raw-message.js'
+import { attachmentFileName, presentMessageAttachments } from '../presenters/attachment.js'
 import type { WebAccountSummary, WebChatSummary, WebMessage, WebMessageAttachment, WebPage, WebReplyContext } from './types.js'
 
 export class WebQueryService {
@@ -79,7 +78,7 @@ export class WebQueryService {
               chat_name: first.chat_name,
               msg_id: first.msg_id,
               msg_ids: message.messages.map((row) => row.msg_id),
-              grouped_id: extractGroupedId(first.raw_json),
+              grouped_id: first.media_group_id,
               sender_id: first.sender_id,
               sender_name: first.sender_name,
               content: message.content,
@@ -118,16 +117,16 @@ function toWebReplyContext(context: ReplyContext, target?: StoredMessageInput): 
 
 function toWebAttachments(messages: StoredMessageInput[]): WebMessageAttachment[] {
   return messages.flatMap((row) => (
-    discoverListenAttachments(row).map((attachment, index) => ({
-      key: `${attachment.chatId}:${attachment.messageId}:${index}`,
+    presentMessageAttachments(row).map((attachment) => ({
+      key: attachment.key,
       chat_id: attachment.chatId,
       msg_id: attachment.messageId,
       kind: attachment.kind,
       label: attachment.label,
       file_name: attachmentFileName(attachment),
-      mime_type: attachment.mimeType,
+      mime_type: attachment.mime_type,
       downloadable: attachment.downloadable,
-      ...(attachment.previewJpegBase64 == null ? {} : { preview_jpeg_base64: attachment.previewJpegBase64 }),
+      ...(attachment.preview_jpeg_base64 == null ? {} : { preview_jpeg_base64: attachment.preview_jpeg_base64 }),
     }))
   ))
 }

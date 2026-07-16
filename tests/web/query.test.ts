@@ -300,13 +300,6 @@ describe('WebQueryService', () => {
         content: 'album caption',
         timestamp: '2026-07-14T08:00:00.000Z',
         media_group_id: 'album-1',
-        raw_json: {
-          grouped_id: 'album-1',
-          media: {
-            _: 'messageMediaPhoto',
-            photo: { thumbnails: [{ type: 'i', location: [255, 216, 255] }] },
-          },
-        },
         attachments: [attachment({ kind: 'photo', preview_jpeg_base64: '/9j/' })],
       }),
       message({
@@ -314,10 +307,7 @@ describe('WebQueryService', () => {
         content: null,
         timestamp: '2026-07-14T08:00:01.000Z',
         media_group_id: 'album-1',
-        raw_json: {
-          grouped_id: 'album-1',
-          media: { _: 'messageMediaDocument', document: { fileName: 'report.pdf', mimeType: 'application/pdf' } },
-        },
+        attachments: [attachment({ kind: 'document', file_name: 'report.pdf', mime_type: 'application/pdf' })],
       }),
     ])
     db.close()
@@ -330,10 +320,10 @@ describe('WebQueryService', () => {
       grouped_id: 'album-1',
       msg_ids: [10, 11],
       content: 'album caption',
-      media_summary: expect.stringContaining('Photo'),
+      media_summary: expect.stringContaining('photo'),
       attachments: [
-        expect.objectContaining({ msg_id: 10, kind: 'Photo', downloadable: true, preview_jpeg_base64: '/9j/' }),
-        expect.objectContaining({ msg_id: 11, kind: 'Document', file_name: 'report.pdf', downloadable: true }),
+        expect.objectContaining({ msg_id: 10, kind: 'photo', downloadable: true, preview_jpeg_base64: '/9j/' }),
+        expect.objectContaining({ msg_id: 11, kind: 'document', file_name: 'report.pdf', downloadable: true }),
       ],
     })
   })
@@ -355,7 +345,7 @@ describe('WebQueryService', () => {
         sender_name: 'Bob',
         content: 'replying with context',
         timestamp: '2026-07-14T08:01:00.000Z',
-        raw_json: { replyTo: { replyToMsgId: 40 } },
+        reply_to_msg_id: 40,
       }),
     ])
     db.close()
@@ -383,12 +373,6 @@ describe('WebQueryService', () => {
         msg_id: 50,
         content: null,
         timestamp: '2026-07-14T08:00:00.000Z',
-        raw_json: {
-          media: {
-            _: 'messageMediaPhoto',
-            photo: { thumbnails: [{ type: 'i', location: [255, 216, 255] }] },
-          },
-        },
         attachments: [attachment({ kind: 'photo', preview_jpeg_base64: '/9j/' })],
       }),
       message({
@@ -397,7 +381,7 @@ describe('WebQueryService', () => {
         sender_name: 'Bob',
         content: 'replying to photo',
         timestamp: '2026-07-14T08:01:00.000Z',
-        raw_json: { replyTo: { replyToMsgId: 50 } },
+        reply_to_msg_id: 50,
       }),
     ])
     db.close()
@@ -410,7 +394,7 @@ describe('WebQueryService', () => {
       resolved: true,
       content: null,
       attachments: [
-        expect.objectContaining({ msg_id: 50, kind: 'Photo', file_name: '10-50.jpg', preview_jpeg_base64: '/9j/' }),
+        expect.objectContaining({ msg_id: 50, kind: 'photo', file_name: '10-50-1.jpg', preview_jpeg_base64: '/9j/' }),
       ],
     })
   })
