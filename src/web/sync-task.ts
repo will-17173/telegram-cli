@@ -3,6 +3,7 @@ import { SyncService } from '../services/sync-service.js'
 import { MessageDB } from '../storage/message-db.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import type { ApiResult } from './types.js'
+import { telegramPeerIdFromLocalChatId } from './telegram-peer.js'
 
 export type SyncTaskState =
   | { status: 'idle' }
@@ -65,7 +66,7 @@ export class SyncTaskRunner {
       client = createTelegramClient(accountContext.sessionPath)
       const db = new MessageDB(accountContext.dbPath)
       service = new SyncService(client, db)
-      const syncChat = telegramPeerIdForSync(input.chatId)
+      const syncChat = telegramPeerIdFromLocalChatId(input.chatId)
 
       try {
         const result = await service.sync({
@@ -130,10 +131,6 @@ function isSafePositiveInteger(value: number): boolean {
 
 function isSafeNonZeroInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value !== 0
-}
-
-function telegramPeerIdForSync(chatId: number): number {
-  return chatId > 1_000_000_000 ? Number(`-100${chatId}`) : chatId
 }
 
 function syncedCount(data: unknown): number {

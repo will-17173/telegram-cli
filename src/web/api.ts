@@ -8,6 +8,7 @@ import { MessageDB } from '../storage/message-db.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import { validateLocalRequest } from './security.js'
 import { SyncTaskRunner } from './sync-task.js'
+import { telegramPeerIdFromLocalChatId } from './telegram-peer.js'
 import { WebQueryService } from './query.js'
 import type { ApiFailure, ApiSuccess } from './types.js'
 
@@ -163,7 +164,7 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
         reserved.add(destination)
         mkdirSync(dirname(destination), { recursive: true })
         await client.downloadMessageMedia({
-          chat: attachment.chatId,
+          chat: telegramPeerIdFromLocalChatId(attachment.chatId),
           msgId: attachment.msgId,
           destination,
         })

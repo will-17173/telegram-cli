@@ -326,7 +326,7 @@ describe('handleApiRequest', () => {
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
     db.insertBatch([{
       platform: 'telegram',
-      chat_id: 10,
+      chat_id: 1220606936,
       chat_name: 'General',
       msg_id: 1,
       sender_id: 1,
@@ -352,13 +352,13 @@ describe('handleApiRequest', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         account: 'work',
-        attachments: [{ chat_id: 10, msg_id: 1, file_name: 'photo.jpg' }],
+        attachments: [{ chat_id: 1220606936, msg_id: 1, file_name: 'photo.jpg' }],
       }),
     })
 
     expect(response.status).toBe(200)
     expect(fakeClient.downloadMessageMedia).toHaveBeenCalledWith(expect.objectContaining({
-      chat: 10,
+      chat: -1001220606936,
       msgId: 1,
       destination: expect.stringContaining('photo.jpg'),
     }))
