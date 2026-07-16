@@ -48,7 +48,7 @@ describe('MessageDB', () => {
     store.close()
   })
 
-  it('persists photo previews for web thumbnails', () => {
+  it('does not store photo previews on message rows', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'tg-cli-')), 'messages.db')
     const store = new MessageDB(path)
     const input = {
@@ -58,16 +58,16 @@ describe('MessageDB', () => {
 
     expect(store.insertMessage(input)).toBe(true)
     const [stored] = store.getRecent()
-    expect(stored?.preview_jpeg_base64).toBe('/9j/2Q==')
+    expect(stored?.preview_jpeg_base64).toBeUndefined()
     store.close()
 
     const sqlite = new Database(path, { readonly: true })
     const columns = sqlite.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
-    expect(columns.map((column) => column.name)).toContain('preview_jpeg_base64')
+    expect(columns.map((column) => column.name)).not.toContain('preview_jpeg_base64')
     sqlite.close()
   })
 
-  it('adds the preview column to existing writable databases', () => {
+  it('rejects existing writable databases that predate the relational schema', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'tg-cli-')), 'messages.db')
     const sqlite = new Database(path)
     sqlite.exec(`
@@ -87,10 +87,11 @@ describe('MessageDB', () => {
     `)
     sqlite.close()
 
-    const store = new MessageDB(path)
-    expect(store.insertMessage({ ...message({ msg_id: 102 }), preview_jpeg_base64: '/9j/2Q==' })).toBe(true)
-    expect(store.getRecent()[0]?.preview_jpeg_base64).toBe('/9j/2Q==')
-    store.close()
+    expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
+      code: 'data_reset_required',
+      actualVersion: 0,
+      path,
+    }))
   })
 
   it('searches content by keyword and sender', () => {
@@ -338,18 +339,21 @@ describe('MessageDB', () => {
         chat_id: -1001234567890,
         msg_id: 10,
         content: 'album caption',
+        media_group_id: '443463141:3323118',
         raw_json: { grouped_id: { low: '443463141', high: '3323118' } },
       }),
       message({
         chat_id: -1001234567890,
         msg_id: 11,
         content: null,
+        media_group_id: '443463141:3323118',
         raw_json: { grouped_id: { low: '443463141', high: '3323118' } },
       }),
       message({
         chat_id: -1001234567890,
         msg_id: 12,
         content: 'other',
+        media_group_id: 'other',
         raw_json: { grouped_id: 'other' },
       }),
     ])

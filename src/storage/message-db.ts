@@ -102,13 +102,13 @@ export class MessageDB {
   private closed = false
 
   constructor(path = getDbPath(), options: { readonly?: boolean } = {}) {
-    const adopted = options as { readonly?: boolean; snapshotDir?: string }
+    const adopted = options as { readonly?: boolean; snapshotDir?: string; errorPath?: string }
     if (adopted.snapshotDir != null) {
       this.snapshotDir = adopted.snapshotDir
       let snapshotDb: Database.Database | undefined
       try {
         snapshotDb = new Database(path, { readonly: true, fileMustExist: true })
-        validateCurrentSchemaOrThrow(snapshotDb, path)
+        validateCurrentSchemaOrThrow(snapshotDb, adopted.errorPath ?? path)
         snapshotDb.pragma('foreign_keys = ON')
         snapshotDb.pragma('query_only = ON')
         snapshotDb.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()
@@ -125,7 +125,7 @@ export class MessageDB {
       let snapshotDb: Database.Database | undefined
       try {
         snapshotDb = new Database(snapshotPath, { readonly: true, fileMustExist: true })
-        validateCurrentSchemaOrThrow(snapshotDb, snapshotPath)
+        validateCurrentSchemaOrThrow(snapshotDb, path)
         snapshotDb.pragma('foreign_keys = ON')
         snapshotDb.pragma('query_only = ON')
         snapshotDb.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()
@@ -154,7 +154,7 @@ export class MessageDB {
   static async openReadonly(path: string): Promise<MessageDB> {
     const { snapshotDir, snapshotPath } = await createConsistentSnapshotAsync(path)
     try {
-      return new MessageDB(snapshotPath, { snapshotDir } as { readonly?: boolean })
+      return new MessageDB(snapshotPath, { snapshotDir, errorPath: path } as { readonly?: boolean })
     } catch (error) {
       await rm(snapshotDir, { recursive: true, force: true })
       throw error
@@ -351,7 +351,7 @@ export class MessageDB {
           SELECT latest.chat_name
           FROM messages latest
           WHERE latest.chat_id = m.chat_id
-            AND latest.chat_name IS NOT NULL
+            AND latest.chat_name <> ''
           ORDER BY latest.timestamp DESC, latest.id DESC
           LIMIT 1
         ) as chat_name,
@@ -379,7 +379,7 @@ export class MessageDB {
             SELECT latest.chat_name
             FROM messages latest
             WHERE latest.chat_id = m.chat_id
-              AND latest.chat_name IS NOT NULL
+              AND latest.chat_name <> ''
             ORDER BY latest.timestamp DESC, latest.id DESC
             LIMIT 1
           ) as chat_name,

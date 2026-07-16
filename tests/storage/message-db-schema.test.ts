@@ -107,7 +107,7 @@ describe('MessageDB schema guard', () => {
       expect(() => new MessageDB(path, { readonly: true })).toThrowError(expect.objectContaining({
         code: 'data_reset_required',
         actualVersion: 0,
-        path: expect.any(String),
+        path,
       }))
       expect(snapshotDirs).not.toHaveLength(0)
       expect(snapshotDirs.every((dir) => !existsSync(dir))).toBe(true)
@@ -128,7 +128,7 @@ describe('MessageDB schema guard', () => {
       await expect(MessageDB.openReadonly(path)).rejects.toThrowError(expect.objectContaining({
         code: 'data_reset_required',
         actualVersion: 0,
-        path: expect.any(String),
+        path,
       }))
       expect(snapshotDirs).not.toHaveLength(0)
       expect(snapshotDirs.every((dir) => !existsSync(dir))).toBe(true)

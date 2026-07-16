@@ -147,15 +147,11 @@ describe('MessageDB readonly snapshots', () => {
 })
 
 function walWriter(path: string): Database.Database {
+  const store = new MessageDB(path)
+  store.close()
   const db = new Database(path)
   db.pragma('journal_mode = WAL')
   db.pragma('wal_autocheckpoint = 0')
-  db.exec(`CREATE TABLE messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT NOT NULL, chat_id INTEGER NOT NULL,
-    chat_name TEXT, msg_id INTEGER NOT NULL, sender_id INTEGER, sender_name TEXT,
-    content TEXT, timestamp TEXT NOT NULL, raw_json TEXT,
-    UNIQUE(platform, chat_id, msg_id)
-  )`)
   db.pragma('wal_checkpoint(TRUNCATE)')
   return db
 }
