@@ -149,6 +149,43 @@ describe('MessageDB', () => {
     sqlite.close()
   })
 
+  it('round trips every scalar attachment field', () => {
+    const store = db()
+    const attachments = [
+      attachment({
+        attachment_index: 1,
+        kind: 'audio',
+        title: 'Ballad of the CLI',
+        performer: 'Ada',
+        duration_seconds: 123.5,
+        thumbnail_file_id: 'thumb-file',
+        thumbnail_unique_file_id: 'thumb-unique',
+        thumbnail_width: 160,
+        thumbnail_height: 90,
+      }),
+      attachment({
+        attachment_index: 2,
+        kind: 'sticker',
+        emoji: '🚀',
+        url: 'https://example.test/sticker',
+      }),
+      attachment({
+        attachment_index: 3,
+        kind: 'venue',
+        latitude: 24.486,
+        longitude: 118.089,
+        address: '1 Harbor Road',
+        title: 'Launch Site',
+        phone_number: '+1 555 0100',
+      }),
+    ]
+
+    store.upsertMessage(message({ msg_id: 12, attachments }))
+
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 12 }])[0]?.attachments).toEqual(attachments)
+    store.close()
+  })
+
   it('hydrates attachments for result sets larger than SQLite bind limits', () => {
     const store = db()
     const total = 1100

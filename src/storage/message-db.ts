@@ -213,10 +213,14 @@ export class MessageDB {
     const insertAttachment = this.db.prepare(`
       INSERT INTO attachments
       (message_id, attachment_index, parent_attachment_index, role, kind, subtype, file_id, unique_file_id,
-        file_name, mime_type, file_size, width, height, duration_seconds, downloadable, preview_jpeg_base64, metadata_json)
+        file_name, mime_type, file_size, width, height, duration_seconds, thumbnail_file_id, thumbnail_unique_file_id,
+        thumbnail_width, thumbnail_height, emoji, title, performer, latitude, longitude, address, phone_number, url,
+        downloadable, preview_jpeg_base64, metadata_json)
       VALUES
       (@message_id, @attachment_index, @parent_attachment_index, @role, @kind, @subtype, @file_id, @unique_file_id,
-        @file_name, @mime_type, @file_size, @width, @height, @duration_seconds, @downloadable, @preview_jpeg_base64, @metadata_json)
+        @file_name, @mime_type, @file_size, @width, @height, @duration_seconds, @thumbnail_file_id, @thumbnail_unique_file_id,
+        @thumbnail_width, @thumbnail_height, @emoji, @title, @performer, @latitude, @longitude, @address, @phone_number, @url,
+        @downloadable, @preview_jpeg_base64, @metadata_json)
     `)
     const tx = this.db.transaction((messages: ReturnType<typeof normalizeMessageInput>[]) => {
       const summary: MessageWriteSummary = { inserted: 0, updated: 0, total: messages.length }
@@ -573,7 +577,9 @@ export class MessageDB {
       const placeholders = chunk.map(() => '?').join(', ')
       const attachmentRows = this.db.prepare(`
         SELECT message_id, attachment_index, parent_attachment_index, role, kind, subtype, file_id, unique_file_id,
-          file_name, mime_type, file_size, width, height, duration_seconds, downloadable, preview_jpeg_base64, metadata_json
+          file_name, mime_type, file_size, width, height, duration_seconds, thumbnail_file_id, thumbnail_unique_file_id,
+          thumbnail_width, thumbnail_height, emoji, title, performer, latitude, longitude, address, phone_number, url,
+          downloadable, preview_jpeg_base64, metadata_json
         FROM attachments
         WHERE message_id IN (${placeholders})
         ORDER BY message_id ASC, attachment_index ASC
@@ -682,18 +688,18 @@ function hydrateAttachment(row: AttachmentRow): Attachment {
     width: row.width,
     height: row.height,
     duration_seconds: row.duration_seconds,
-    thumbnail_file_id: null,
-    thumbnail_unique_file_id: null,
-    thumbnail_width: null,
-    thumbnail_height: null,
-    emoji: null,
-    title: null,
-    performer: null,
-    latitude: null,
-    longitude: null,
-    address: null,
-    phone_number: null,
-    url: null,
+    thumbnail_file_id: row.thumbnail_file_id,
+    thumbnail_unique_file_id: row.thumbnail_unique_file_id,
+    thumbnail_width: row.thumbnail_width,
+    thumbnail_height: row.thumbnail_height,
+    emoji: row.emoji,
+    title: row.title,
+    performer: row.performer,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    address: row.address,
+    phone_number: row.phone_number,
+    url: row.url,
     preview_jpeg_base64: row.preview_jpeg_base64 ?? null,
     metadata: parseMetadata(row.metadata_json),
   }
@@ -937,6 +943,18 @@ const REQUIRED_ATTACHMENT_COLUMNS: SchemaColumn[] = [
   { name: 'width', notnull: 0, pk: 0 },
   { name: 'height', notnull: 0, pk: 0 },
   { name: 'duration_seconds', notnull: 0, pk: 0 },
+  { name: 'thumbnail_file_id', notnull: 0, pk: 0 },
+  { name: 'thumbnail_unique_file_id', notnull: 0, pk: 0 },
+  { name: 'thumbnail_width', notnull: 0, pk: 0 },
+  { name: 'thumbnail_height', notnull: 0, pk: 0 },
+  { name: 'emoji', notnull: 0, pk: 0 },
+  { name: 'title', notnull: 0, pk: 0 },
+  { name: 'performer', notnull: 0, pk: 0 },
+  { name: 'latitude', notnull: 0, pk: 0 },
+  { name: 'longitude', notnull: 0, pk: 0 },
+  { name: 'address', notnull: 0, pk: 0 },
+  { name: 'phone_number', notnull: 0, pk: 0 },
+  { name: 'url', notnull: 0, pk: 0 },
   { name: 'downloadable', notnull: 1, pk: 0 },
   { name: 'preview_jpeg_base64', notnull: 0, pk: 0 },
   { name: 'metadata_json', notnull: 1, pk: 0 },
@@ -988,6 +1006,18 @@ const CANONICAL_ATTACHMENTS_TABLE_SQL = `CREATE TABLE attachments (
       width INTEGER,
       height INTEGER,
       duration_seconds REAL,
+      thumbnail_file_id TEXT,
+      thumbnail_unique_file_id TEXT,
+      thumbnail_width INTEGER,
+      thumbnail_height INTEGER,
+      emoji TEXT,
+      title TEXT,
+      performer TEXT,
+      latitude REAL,
+      longitude REAL,
+      address TEXT,
+      phone_number TEXT,
+      url TEXT,
       downloadable INTEGER NOT NULL,
       preview_jpeg_base64 TEXT,
       metadata_json TEXT NOT NULL,
