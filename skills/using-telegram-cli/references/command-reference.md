@@ -175,6 +175,16 @@ Local deletion requires confirmation and does not delete Telegram messages:
 tg purge <chat> --yes --account work --json
 ```
 
+Breaking storage/schema upgrades require resetting local data before using the new version. This deletes the selected account's SQLite database and default archive files, not Telegram remote messages:
+
+```sh
+tg data reset --yes --account work --json
+tg data reset --all-accounts --yes --json
+tg sync-all --account work --json
+```
+
+Custom `archive --output <dir>` directories are not deleted automatically; remove old custom archive directories manually or choose an empty output directory after a breaking upgrade.
+
 ## Archiving
 
 Archive writes Markdown files but does not populate SQLite:
@@ -186,7 +196,7 @@ tg archive --all --full --output ./telegram-archive --account work --markdown
 tg archive @ops --rebuild --account work --yaml
 ```
 
-Specify one or more chats or `--all`, never both. Without a range, the first run archives the preceding seven days; `--since`/`--until` set an explicit range and `--full` requests all history (`--full` conflicts with `--since`). Later runs are incremental, resuming from the manifest and embedded Markdown message markers. `--rebuild` replaces chat files using the recorded initial range unless a new range or `--full` is supplied. `--download-media` stores attachments under `media/` and retries missing referenced downloads.
+Specify one or more chats or `--all`, never both. Without a range, the first run archives the preceding seven days; `--since`/`--until` set an explicit range and `--full` requests all history (`--full` conflicts with `--since`). Later runs are incremental, resuming from the manifest and embedded Markdown message markers. `--rebuild` replaces chat files using the recorded initial range unless a new range or `--full` is supplied. `--download-media` stores normalized attachments under `media/` and retries missing referenced downloads.
 
 Any chat or media failure yields non-zero status, top-level `ok: false`, and `error.code: archive_partial_failure`. For automation use `--json` or `--yaml` and inspect `error.details.completed`, `error.details.failed`, and `error.details.warnings`. Treat the overall operation as failed even when some chats completed. Markdown is only a human-facing rendering and does not preserve the full `error.details`; never derive partial-failure accounting from it.
 
@@ -212,7 +222,17 @@ tg listen <chat> --no-interactive --no-media --account work
 tg listen <chat> --no-interactive --auto-download --account work
 ```
 
-Without chat arguments it listens globally. In an interactive TTY it uses Ink; `--no-interactive` emits plain text. `--auto-download` stores attachments under `~/Downloads/telegram-cli`, including when `--no-media` hides their summaries. For multiple chats, use `--send-to <chat>` before interactive replies or group actions.
+Without chat arguments it listens globally. In an interactive TTY it uses Ink; `--no-interactive` emits plain text. `--auto-download` stores attachments under `~/Downloads/telegram-cli`, including when `--no-media` hides rendered media rows. `--no-media` does not suppress persistence: normalized `attachments[]` are still stored and can be downloaded later. For multiple chats, use `--send-to <chat>` before interactive replies or group actions.
+
+Download existing media from stored messages with `download`:
+
+```sh
+tg download <chat> <message-id> --account work --json
+tg download <chat> <message-id> --attachment 2 --account work --json
+tg download <chat> --grouped-id <media-group-id> --account work --json
+```
+
+Without `--attachment`, a single-message download fetches every downloadable item. `--attachment N` is one-based and message-local; grouped album downloads flatten attachments by message ID and then local attachment index. Each transfer refetches the Telegram message and matches the stored descriptor before downloading.
 
 ## Group operations
 
@@ -278,7 +298,7 @@ Select exactly one output format for a finite command: `--json` or `--yaml` for 
 ```json
 {
   "ok": true,
-  "schema_version": "1",
+  "schema_version": "2",
   "data": {}
 }
 ```
@@ -288,13 +308,15 @@ Failures use non-zero exit status and:
 ```json
 {
   "ok": false,
-  "schema_version": "1",
+  "schema_version": "2",
   "error": {
     "code": "chat_not_found",
     "message": "..."
   }
 }
 ```
+
+Message rows in schema version 2 expose `content`, `reply_to_msg_id`, `media_group_id`, and ordered lowercase `attachments[]`. Do not expect legacy singular `attachment`, `text`, or raw-parser-derived fields in public structured output.
 
 Without a format flag, TTY output is human-oriented and non-TTY output defaults to YAML. `OUTPUT=json|yaml|rich` can set a default, but an explicit flag wins. Never combine any of `--json`, `--yaml`, and `--markdown`; do not parse human tables. `listen` is streaming and has no format flags. For `refresh`, do not assume `ok: true` means every chat succeeded; inspect `data.failures`.
 
@@ -306,6 +328,8 @@ Handle v0.5.0 errors by code instead of matching message text:
 - Contacts: `contact_not_found` means Telegram could not resolve the supplied ID, username, or phone number.
 - Notifications and folders: validate mute durations after `invalid_notification_duration`; use a numeric folder ID for `folder_not_found` or `ambiguous_folder`; do not retry unsupported changes after `folder_operation_unsupported`.
 - Archives: use a separate output root after `archive_account_mismatch`; report `archive_failed`; inspect completed chats, failures, and warnings after `archive_partial_failure`. Individual attachment warnings use `archive_media_failed`.
+- Media downloads: handle `attachment_not_found`, `attachment_not_downloadable`, `attachment_changed`, and `media_access_denied` as stable codes. Re-sync before retrying `attachment_changed`; do not retry `media_access_denied` without resolving Telegram permissions/access.
+- Local data: `data_reset_required` means the local database schema is incompatible; run `tg data reset --yes` for the account or `tg data reset --all-accounts --yes`, then sync again.
 - Ownership transfer: prompt interactively again after `password_required` or `password_invalid`. For `password_too_fresh` or `session_too_fresh`, report the wait details and do not retry early.
 - Safety and rate limits: request authorization before changing `write_access_disabled`; respect the reported delay after `flood_wait`.
 

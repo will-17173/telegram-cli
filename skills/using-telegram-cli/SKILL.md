@@ -18,6 +18,7 @@ Use `tg` as an account-aware Telegram client and local SQLite message index. Cho
 - Select an account explicitly with `--account <name>` in automation. Do not change the current account merely to run one command.
 - Select exactly one of `--json`, `--yaml`, or `--markdown` for finite commands. Use JSON or YAML for automation and stable `ok`/error fields; Markdown is human-facing and may omit structured failure details. Non-TTY output otherwise defaults to YAML. `listen` excludes these flags.
 - Check the process exit status and structured `ok`. For automated archive partial-failure accounting, use JSON/YAML and inspect `error.code` plus `error.details.completed`, `error.details.failed`, and `error.details.warnings`; never report complete success when any chat or media failed.
+- Structured envelopes use `schema_version: "2"`. Message rows expose `content`, `reply_to_msg_id`, `media_group_id`, and ordered lowercase `attachments[]`; do not expect legacy singular `attachment` or raw parser fields.
 
 ## Ensure the executable is available
 
@@ -76,8 +77,9 @@ If the binary is still missing, inspect the npm global prefix and `PATH`, report
 | Persist Telegram history | `history`, `sync`, `sync-all`, `refresh` | yes | writes local SQLite DB |
 | Archive chats as Markdown | `archive` | yes | writes account-local archive files |
 | Query/export stored messages | `search`, `recent`, `today`, `stats`, `top`, `timeline`, `filter`, `export` | no | export may write a file |
+| Reset local data after breaking storage upgrades | `data reset` | no | deletes account DB/default archive files |
 | Inspect/mutate notifications or folders | `notification`, `folder` | yes | `mute`/`unmute` and `folder chat add/remove` mutate Telegram |
-| Watch incoming messages | `listen` | yes, long-running | optional attachment downloads |
+| Watch incoming messages | `listen` | yes, long-running | persists normalized attachments; optional downloads |
 | Change Telegram state | `send`, `edit`, `delete`, notification/folder/group writes | yes | real external write |
 
 Read [references/command-reference.md](references/command-reference.md) before composing an exact command, handling automation output, managing groups, or troubleshooting authentication and flood limits.
@@ -97,6 +99,8 @@ Read [references/command-reference.md](references/command-reference.md) before c
 - `pnpm dev -- ...`: remove the extra separator.
 - Assuming `sync --limit 5000` backfills a new chat: first sync is capped at 500; use `history` for deeper history.
 - Expecting `sync-all` to expose partial failures: use `refresh` and inspect `data.failures`.
+- Reusing an old database after a breaking media schema change: run `tg data reset --yes`, then sync again.
+- Expecting `listen --no-media` to suppress persistence/downloads: it only hides rendered media rows; normalized `attachments[]` remain persisted and usable.
 - Using an ambiguous chat name: retry with its numeric chat ID.
 - Using Markdown for archive automation: it does not preserve full partial-failure details; use JSON/YAML.
 - Passing a 2FA password in arguments, environment variables, stdin automation, chat, or logs: ownership transfer accepts only its secure interactive prompt.
