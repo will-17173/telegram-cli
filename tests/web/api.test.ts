@@ -3,6 +3,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MessageDB } from '../../src/storage/message-db.js'
+
+const fakeClient = vi.hoisted(() => ({
+  downloadMessageMedia: vi.fn(async (_input: Record<string, unknown>) => undefined),
+  close: vi.fn(async () => undefined),
+}))
+const createTelegramClient = vi.hoisted(() => vi.fn(() => fakeClient))
+
+vi.mock('../../src/telegram/client-factory.js', () => ({
+  createTelegramClient,
+}))
+
 import { handleApiRequest } from '../../src/web/api.js'
 import { SyncTaskRunner } from '../../src/web/sync-task.js'
 
@@ -89,6 +100,7 @@ async function json(response: Response): Promise<unknown> {
 }
 
 afterEach(() => {
+  vi.clearAllMocks()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -306,6 +318,52 @@ describe('handleApiRequest', () => {
       ok: false,
       error: { code: 'invalid_request', message: 'account_not_found: account "missing"' },
     })
+  })
+
+  it('downloads web media by message id without reusing stored file references', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
+    db.insertBatch([{
+      platform: 'telegram',
+      chat_id: 10,
+      chat_name: 'General',
+      msg_id: 1,
+      sender_id: 1,
+      sender_name: 'Alice',
+      content: null,
+      timestamp: '2026-07-14T08:00:00.000Z',
+      raw_json: {
+        media: {
+          photo: {
+            id: { low: 1, high: 0, unsigned: false },
+            accessHash: { low: 2, high: 0, unsigned: false },
+            fileReference: [1, 2, 3],
+            sizes: [{ type: 'x', size: 10 }],
+            dcId: 1,
+          },
+        },
+      },
+    }])
+    db.close()
+
+    const response = await api(root, '/api/download-media', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        account: 'work',
+        attachments: [{ chat_id: 10, msg_id: 1, file_name: 'photo.jpg' }],
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(fakeClient.downloadMessageMedia).toHaveBeenCalledWith(expect.objectContaining({
+      chat: 10,
+      msgId: 1,
+      destination: expect.stringContaining('photo.jpg'),
+    }))
+    expect(fakeClient.downloadMessageMedia.mock.calls[0]?.[0]).not.toHaveProperty('location')
+    expect(fakeClient.close).toHaveBeenCalledOnce()
   })
 
   it('rejects malformed download media requests as JSON', async () => {

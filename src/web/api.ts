@@ -6,7 +6,6 @@ import { getDataDir } from '../config/env.js'
 import { resolveAttachmentDestination } from '../services/attachment-download.js'
 import { MessageDB } from '../storage/message-db.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
-import { fileLocationFromRawMessage } from '../telegram/raw-media-location.js'
 import { validateLocalRequest } from './security.js'
 import { SyncTaskRunner } from './sync-task.js'
 import { WebQueryService } from './query.js'
@@ -151,7 +150,6 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
     const attachments = body.attachments.map(parseDownloadAttachment)
     const reserved = new Set<string>()
     const clientContext = resolveAuthenticatedAccountContext({ explicitName: account, dataDir: context.dataDir })
-    const storedMessages = readStoredDownloadMessages(clientContext.dbPath, attachments)
     const client = createTelegramClient(clientContext.sessionPath)
     const results = []
     try {
@@ -168,7 +166,6 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
           chat: attachment.chatId,
           msgId: attachment.msgId,
           destination,
-          location: storedMessages.get(downloadMessageKey(attachment.chatId, attachment.msgId)),
         })
         results.push({
           chat_id: attachment.chatId,
@@ -186,22 +183,6 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
     if (isKnownValidationMessage(message)) return failure(400, 'invalid_request', message)
     return failure(500, 'download_failed', message)
   }
-}
-
-function readStoredDownloadMessages(dbPath: string, attachments: Array<{ chatId: number; msgId: number }>): Map<string, unknown> {
-  const db = new MessageDB(dbPath, { readonly: true })
-  try {
-    return new Map(db.getMessagesByKeys(attachments).map((message) => [
-      downloadMessageKey(message.chat_id, message.msg_id),
-      fileLocationFromRawMessage(message.raw_json),
-    ]))
-  } finally {
-    db.close()
-  }
-}
-
-function downloadMessageKey(chatId: number, msgId: number): string {
-  return `${chatId}:${msgId}`
 }
 
 function parseDownloadAttachment(value: unknown): { chatId: number; msgId: number; fileName: string } {
