@@ -65,77 +65,24 @@ type AttachmentInput = {
 }
 
 export function normalizeMtcuteMedia(input: {
-  media: MessageMedia
+  media: MessageMedia | null
   rawMedia?: unknown
 }): MtcuteMediaNormalization {
   const builder = new AttachmentBuilder()
   const media = input.media
-  if (media == null) return builder.build()
-
-  const type = safeString(read(media, 'type'))
-  if (!isSupportedMediaType(type)) {
-    builder.add({
-      kind: 'unknown',
-      downloadable: false,
-      metadata: {},
-    })
+  if (media == null) {
+    const rawConstructor = rawConstructorHint(input.rawMedia)
+    if (rawConstructor != null) {
+      builder.add({
+        kind: 'unknown',
+        downloadable: false,
+        metadata: { constructor: rawConstructor },
+      })
+    }
     return builder.build()
   }
 
-  // Keep the compile-time sentinel visibly tied to the runtime dispatcher.
-  SUPPORTED_MTCUTE_MEDIA_TYPES[type]
-
-  switch (type) {
-    case 'photo':
-      addPhoto(builder, media)
-      break
-    case 'video':
-      addVideo(builder, media)
-      break
-    case 'audio':
-      addAudio(builder, media)
-      break
-    case 'voice':
-      addVoice(builder, media)
-      break
-    case 'sticker':
-      addSticker(builder, media)
-      break
-    case 'document':
-      addDocument(builder, media)
-      break
-    case 'contact':
-      addContact(builder, media)
-      break
-    case 'location':
-      addLocation(builder, media, 'location')
-      break
-    case 'live_location':
-      addLocation(builder, media, 'live_location')
-      break
-    case 'venue':
-      addVenue(builder, media)
-      break
-    case 'dice':
-      addDice(builder, media)
-      break
-    case 'todo':
-      addTodo(builder, media)
-      break
-    case 'game':
-    case 'webpage':
-    case 'poll':
-    case 'invoice':
-    case 'story':
-      addInformational(builder, type)
-      break
-    case 'paid':
-      addInformational(builder, 'paid_media')
-      break
-    default:
-      assertNever(type)
-  }
-
+  addMedia(builder, media, null, 'primary')
   return builder.build()
 }
 
@@ -194,12 +141,72 @@ class AttachmentBuilder {
   }
 }
 
-function addPhoto(builder: AttachmentBuilder, media: object): void {
+function addMedia(builder: AttachmentBuilder, media: unknown, parent: Attachment | null, role: string): Attachment | null {
+  if (media == null || typeof media !== 'object') return null
+  const type = safeString(read(media, 'type'))
+  if (!isSupportedMediaType(type)) {
+    return builder.add({
+      parent_attachment_index: parent?.attachment_index,
+      role,
+      kind: 'unknown',
+      downloadable: false,
+      metadata: {},
+    })
+  }
+
+  // Keep the compile-time sentinel visibly tied to the runtime dispatcher.
+  SUPPORTED_MTCUTE_MEDIA_TYPES[type]
+
+  switch (type) {
+    case 'photo':
+      return addPhoto(builder, media, parent, role)
+    case 'video':
+      return addVideo(builder, media, parent, role)
+    case 'audio':
+      return addAudio(builder, media, parent, role)
+    case 'voice':
+      return addVoice(builder, media, parent, role)
+    case 'sticker':
+      return addSticker(builder, media, parent, role)
+    case 'document':
+      return addDocument(builder, media, parent, role)
+    case 'contact':
+      return addContact(builder, media, parent, role)
+    case 'location':
+      return addLocation(builder, media, 'location', parent, role)
+    case 'live_location':
+      return addLocation(builder, media, 'live_location', parent, role)
+    case 'venue':
+      return addVenue(builder, media, parent, role)
+    case 'dice':
+      return addDice(builder, media, parent, role)
+    case 'todo':
+      return addTodo(builder, media, parent, role)
+    case 'game':
+      return addGame(builder, media, parent, role)
+    case 'webpage':
+      return addWebpage(builder, media, parent, role)
+    case 'poll':
+      return addPoll(builder, media, parent, role)
+    case 'invoice':
+      return addInvoice(builder, media, parent, role)
+    case 'story':
+      return addStory(builder, media, parent, role)
+    case 'paid':
+      return addPaidMedia(builder, media, parent, role)
+    default:
+      assertNever(type)
+  }
+}
+
+function addPhoto(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
   const metadata = compactMetadata({
     spoiler: safeBoolean(read(media, 'hasSpoiler')),
     ttl_seconds: safeNumber(read(media, 'ttlSeconds')),
   })
-  builder.add({
+  const attachment = builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'photo',
     downloadable: true,
     file_id: safeFileString(media, 'fileId'),
@@ -211,9 +218,11 @@ function addPhoto(builder: AttachmentBuilder, media: object): void {
     metadata,
     location: fileLocation(media),
   })
+  addChild(builder, attachment, 'live_photo_video', media, 'liveVideo')
+  return attachment
 }
 
-function addVideo(builder: AttachmentBuilder, media: object): void {
+function addVideo(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
   const metadata = compactMetadata({
     spoiler: safeBoolean(read(media, 'hasSpoiler')),
     ttl_seconds: safeNumber(read(media, 'ttlSeconds')),
@@ -221,7 +230,9 @@ function addVideo(builder: AttachmentBuilder, media: object): void {
     video_start_ts: safeNumber(read(media, 'videoStartTs')),
     video_timestamp: safeNumber(read(media, 'videoTimestamp')),
   })
-  builder.add({
+  const attachment = builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'video',
     subtype: videoSubtype(media),
     downloadable: true,
@@ -237,12 +248,16 @@ function addVideo(builder: AttachmentBuilder, media: object): void {
     metadata,
     location: fileLocation(media),
   })
+  addChild(builder, attachment, 'cover', media, 'cover')
+  return attachment
 }
 
-function addAudio(builder: AttachmentBuilder, media: object): void {
+function addAudio(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
   const performer = safeString(read(media, 'performer'))
   const title = safeString(read(media, 'title'))
-  builder.add({
+  return builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'audio',
     downloadable: true,
     file_id: safeFileString(media, 'fileId'),
@@ -259,8 +274,10 @@ function addAudio(builder: AttachmentBuilder, media: object): void {
   })
 }
 
-function addVoice(builder: AttachmentBuilder, media: object): void {
-  builder.add({
+function addVoice(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
+  return builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'voice',
     downloadable: true,
     file_id: safeFileString(media, 'fileId'),
@@ -278,11 +295,13 @@ function addVoice(builder: AttachmentBuilder, media: object): void {
   })
 }
 
-function addSticker(builder: AttachmentBuilder, media: object): void {
+function addSticker(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
   const emoji = safeString(read(media, 'emoji'))
   const stickerType = safeString(read(media, 'stickerType'))
   const sourceType = safeString(read(media, 'sourceType'))
-  builder.add({
+  return builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'sticker',
     subtype: stickerSourceSubtype(sourceType),
     downloadable: true,
@@ -309,28 +328,36 @@ function addSticker(builder: AttachmentBuilder, media: object): void {
   })
 }
 
-function addDocument(builder: AttachmentBuilder, media: object): void {
-  builder.add({
+function addDocument(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
+  const webUrl = safeString(read(media, 'url'))
+  const isWebDocument = webUrl != null
+  const isDownloadable = isWebDocument ? safeBoolean(read(media, 'isDownloadable')) === true : true
+  return builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'document',
-    subtype: safeString(read(media, 'webpage')) === 'web' ? 'web' : null,
-    downloadable: true,
-    file_id: safeFileString(media, 'fileId'),
-    unique_file_id: safeFileString(media, 'uniqueFileId'),
-    file_name: safeString(read(media, 'fileName')),
+    subtype: isWebDocument ? 'web' : null,
+    downloadable: isDownloadable,
+    file_id: isWebDocument ? null : safeFileString(media, 'fileId'),
+    unique_file_id: isWebDocument ? null : safeFileString(media, 'uniqueFileId'),
+    file_name: isWebDocument ? null : safeString(read(media, 'fileName')),
     mime_type: safeString(read(media, 'mimeType')),
     file_size: safeNumber(read(media, 'fileSize')),
+    url: webUrl,
     preview_jpeg_base64: embeddedPreviewBase64(media),
-    metadata: {},
-    location: fileLocation(media),
+    metadata: isWebDocument ? compactMetadata({ url: webUrl }) : {},
+    location: isDownloadable ? fileLocation(media) : null,
   })
 }
 
-function addContact(builder: AttachmentBuilder, media: object): void {
+function addContact(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
   const firstName = safeString(read(media, 'firstName'))
   const lastName = safeString(read(media, 'lastName'))
   const phoneNumber = safeString(read(media, 'phoneNumber'))
   const userId = safeNumber(read(media, 'userId'))
-  builder.add({
+  return builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'contact',
     downloadable: false,
     phone_number: phoneNumber,
@@ -343,10 +370,12 @@ function addContact(builder: AttachmentBuilder, media: object): void {
   })
 }
 
-function addLocation(builder: AttachmentBuilder, media: object, kind: 'location' | 'live_location'): void {
+function addLocation(builder: AttachmentBuilder, media: object, kind: 'location' | 'live_location', parent: Attachment | null, role: string): Attachment {
   const latitude = safeNumber(read(media, 'latitude'))
   const longitude = safeNumber(read(media, 'longitude'))
-  builder.add({
+  return builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind,
     downloadable: false,
     latitude,
@@ -361,7 +390,7 @@ function addLocation(builder: AttachmentBuilder, media: object, kind: 'location'
   })
 }
 
-function addVenue(builder: AttachmentBuilder, media: object): void {
+function addVenue(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
   const location = read(media, 'location')
   const locationObject = location != null && typeof location === 'object' ? location : {}
   const source = read(media, 'source')
@@ -370,7 +399,9 @@ function addVenue(builder: AttachmentBuilder, media: object): void {
   const address = safeString(read(media, 'address'))
   const latitude = safeNumber(read(locationObject, 'latitude'))
   const longitude = safeNumber(read(locationObject, 'longitude'))
-  builder.add({
+  return builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'venue',
     downloadable: false,
     title,
@@ -390,9 +421,11 @@ function addVenue(builder: AttachmentBuilder, media: object): void {
   })
 }
 
-function addDice(builder: AttachmentBuilder, media: object): void {
+function addDice(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
   const emoji = safeString(read(media, 'emoji'))
-  builder.add({
+  return builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'dice',
     downloadable: false,
     emoji,
@@ -403,10 +436,12 @@ function addDice(builder: AttachmentBuilder, media: object): void {
   })
 }
 
-function addTodo(builder: AttachmentBuilder, media: object): void {
+function addTodo(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
   const title = textValue(read(media, 'title'))
   const items = read(media, 'items')
-  builder.add({
+  return builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
     kind: 'todo',
     downloadable: false,
     title,
@@ -419,11 +454,208 @@ function addTodo(builder: AttachmentBuilder, media: object): void {
   })
 }
 
-function addInformational(builder: AttachmentBuilder, kind: MediaKind): void {
-  builder.add({
-    kind,
+function addGame(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
+  const attachment = builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
+    kind: 'game',
     downloadable: false,
-    metadata: {},
+    title: safeString(read(media, 'title')),
+    metadata: metadataObject({
+      id: longToString(read(media, 'id')),
+      title: safeString(read(media, 'title')),
+      description: safeString(read(media, 'description')),
+      short_name: safeString(read(media, 'shortName')),
+    }),
+  })
+  addChild(builder, attachment, 'game_media', media, 'photo')
+  addChild(builder, attachment, 'game_media', media, 'animation')
+  return attachment
+}
+
+function addWebpage(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
+  const attachment = builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
+    kind: 'webpage',
+    downloadable: false,
+    title: safeString(read(media, 'title')),
+    url: safeString(read(media, 'url')),
+    metadata: metadataObject({
+      id: longToString(read(media, 'id')),
+      url: safeString(read(media, 'url')),
+      display_url: safeString(read(media, 'displayUrl')),
+      preview_type: safeString(read(media, 'previewType')),
+      site_name: safeString(read(media, 'siteName')),
+      title: safeString(read(media, 'title')),
+      description: safeString(read(media, 'description')),
+      author: safeString(read(media, 'author')),
+      embed_url: safeString(read(media, 'embedUrl')),
+      embed_type: safeString(read(media, 'embedType')),
+      embed_width: safeNumber(read(media, 'embedWidth')),
+      embed_height: safeNumber(read(media, 'embedHeight')),
+      display_size: safeNumber(read(media, 'displaySize')),
+      manual: safeBoolean(read(media, 'manual')),
+      safe: safeBoolean(read(media, 'safe')),
+    }),
+  })
+  addChild(builder, attachment, 'webpage_media', media, 'photo')
+  addChild(builder, attachment, 'webpage_media', media, 'document')
+  return attachment
+}
+
+function addPoll(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
+  const answers = safeList(read(media, 'answers'))
+  const metadata = metadataObject({
+    id: longToString(read(media, 'id')),
+    question: textValue(read(media, 'question')),
+    voters: safeNumber(read(media, 'voters')),
+    is_closed: safeBoolean(read(media, 'isClosed')),
+    is_public: safeBoolean(read(media, 'isPublic')),
+    is_quiz: safeBoolean(read(media, 'isQuiz')),
+    is_multiple: safeBoolean(read(media, 'isMultiple')),
+    is_creator: safeBoolean(read(media, 'isCreator')),
+    can_add_answers: safeBoolean(read(media, 'canAddAnswers')),
+    is_revoting_disabled: safeBoolean(read(media, 'isRevotingDisabled')),
+    shuffle_answers: safeBoolean(read(media, 'shuffleAnswers')),
+    hide_results_until_close: safeBoolean(read(media, 'hideResultsUntilClose')),
+    has_unread_votes: safeBoolean(read(media, 'hasUnreaVotes')),
+    is_subscribers_only: safeBoolean(read(media, 'isSubscribersOnly')),
+    countries: safeStringArray(read(media, 'countries')) ?? [],
+    can_view_stats: safeBoolean(read(media, 'canViewStats')),
+    solution: textValue(read(media, 'solution')),
+    answers: answers.map(pollAnswerMetadata),
+  })
+  const attachment = builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
+    kind: 'poll',
+    downloadable: false,
+    metadata,
+  })
+  addChild(builder, attachment, 'poll_attached_media', media, 'attachedMedia')
+  answers.forEach((answer, index) => {
+    if (answer == null || typeof answer !== 'object') return
+    const child = addChild(builder, attachment, 'poll_answer_media', answer, 'media', `answers[${index}].media`)
+    if (child != null && child.kind !== 'unknown') child.metadata = metadataWith(child.metadata, { poll_answer_index: index })
+  })
+  addChild(builder, attachment, 'poll_solution_media', media, 'solutionMedia')
+  return attachment
+}
+
+function addInvoice(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
+  const getterErrors: string[] = []
+  const preview = readMaybe(media, 'extendedMediaPreview')
+  if (preview.thrown) getterErrors.push('extendedMediaPreview')
+  const full = readMaybe(media, 'extendedMedia')
+  if (full.thrown) getterErrors.push('extendedMedia')
+  const metadata = metadataObject({
+    title: safeString(read(media, 'title')),
+    description: safeString(read(media, 'description')),
+    receipt_message_id: safeNumber(read(media, 'receiptMessageId')),
+    currency: safeString(read(media, 'currency')),
+    amount: longToString(read(media, 'amount')),
+    start_param: safeString(read(media, 'startParam')),
+    shipping_address_requested: safeBoolean(read(media, 'shippingAddressRequested')),
+    test: safeBoolean(read(media, 'test')),
+    extended_media_state: safeString(read(media, 'extendedMediaState')),
+    preview_width: safeNumber(read(media, 'previewWidth')),
+    preview_height: safeNumber(read(media, 'previewHeight')),
+    preview_duration_seconds: safeNumber(read(media, 'previewDuration')),
+    getter_errors: getterErrors.length > 0 ? getterErrors : undefined,
+  })
+  const attachment = builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
+    kind: 'invoice',
+    downloadable: false,
+    title: safeString(read(media, 'title')),
+    metadata,
+  })
+  addChild(builder, attachment, 'invoice_product_media', media, 'productWebDocument')
+  if (!preview.thrown && preview.value != null) addMedia(builder, preview.value, attachment, 'invoice_extended_media')
+  if (!full.thrown && full.value != null) addMedia(builder, full.value, attachment, 'invoice_extended_media')
+  return attachment
+}
+
+function addStory(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
+  const available = safeBoolean(read(media, 'isAvailable')) ?? safeBoolean(read(media, 'available'))
+  const peer = read(media, 'peer')
+  const peerObject = peer != null && typeof peer === 'object' ? peer : {}
+  const metadata: Record<string, JsonValue> = {
+    peer_id: safeNumber(read(peerObject, 'id')) ?? safeNumber(read(media, 'peerId')),
+    peer_name: safeString(read(peerObject, 'displayName')) ?? safeString(read(peerObject, 'name')) ?? safeString(read(media, 'peerName')),
+    story_id: safeNumber(read(media, 'storyId')),
+    is_mention: safeBoolean(read(media, 'isMention')),
+    available,
+  }
+  if (available === true) {
+    metadata.story_date = dateString(read(media, 'storyDate'))
+    metadata.story_expire_date = dateString(read(media, 'storyExpireDate'))
+    metadata.caption = textValue(read(media, 'caption'))
+  }
+  const attachment = builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
+    kind: 'story',
+    downloadable: false,
+    metadata,
+  })
+  if (available === true) addChild(builder, attachment, 'story_media', media, 'media')
+  return attachment
+}
+
+function addPaidMedia(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
+  const previews = safeList(read(media, 'previews'))
+  const medias = safeList(read(media, 'medias')).filter((item) => item != null)
+  const attachment = builder.add({
+    parent_attachment_index: parent?.attachment_index,
+    role,
+    kind: 'paid_media',
+    downloadable: false,
+    metadata: metadataObject({
+      price: longToString(read(media, 'price')),
+      preview_count: previews.length,
+      item_count: medias.length,
+    }),
+  })
+  for (const preview of previews) {
+    builder.add({
+      parent_attachment_index: attachment.attachment_index,
+      role: 'paid_preview',
+      kind: 'paid_media',
+      subtype: 'preview',
+      downloadable: false,
+      metadata: {},
+    })
+  }
+  for (const item of medias) {
+    addMedia(builder, item, attachment, 'paid_item')
+  }
+  return attachment
+}
+
+function addChild(
+  builder: AttachmentBuilder,
+  parent: Attachment,
+  role: string,
+  source: object,
+  property: string,
+  getterName = property,
+): Attachment | null {
+  const child = readMaybe(source, property)
+  if (child.thrown) return addUnknownChild(builder, parent, role, getterName)
+  if (child.value == null) return null
+  return addMedia(builder, child.value, parent, role)
+}
+
+function addUnknownChild(builder: AttachmentBuilder, parent: Attachment, role: string, getter: string): Attachment {
+  return builder.add({
+    parent_attachment_index: parent.attachment_index,
+    role,
+    kind: 'unknown',
+    downloadable: false,
+    metadata: { getter },
   })
 }
 
@@ -495,12 +727,26 @@ function safeNumberArray(value: unknown): number[] | null {
   return numbers.length === value.length ? numbers : null
 }
 
+function safeStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const strings = value.filter((item): item is string => typeof item === 'string')
+  return strings.length === value.length ? strings : null
+}
+
+function safeList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
+
 function textValue(value: unknown): string | null {
   if (typeof value === 'string') return safeString(value)
   if (value != null && typeof value === 'object') {
     return safeString(read(value, 'text'))
   }
   return null
+}
+
+function dateString(value: unknown): string | null {
+  return value instanceof Date ? value.toISOString() : null
 }
 
 function longToString(value: unknown): string | null {
@@ -535,9 +781,37 @@ function todoItemMetadata(value: unknown): JsonValue {
   return {
     id: safeNumber(read(item, 'id')),
     text: textValue(read(item, 'text')),
-    completed: safeBoolean(read(item, 'isCompleted')),
+    is_completed: safeBoolean(read(item, 'isCompleted')),
     completed_by_id: safeNumber(read(completedByObject, 'id')),
+    completed_by_name: safeString(read(completedByObject, 'displayName')) ?? safeString(read(completedByObject, 'name')),
     completed_date: completedDate instanceof Date ? completedDate.toISOString() : null,
+  }
+}
+
+function pollAnswerMetadata(value: unknown, index: number): JsonValue {
+  const answer = value != null && typeof value === 'object' ? value : {}
+  const data = read(answer, 'data')
+  return {
+    answer_index: index,
+    text: textValue(read(answer, 'text')),
+    data_base64: data instanceof Uint8Array ? Buffer.from(data).toString('base64') : null,
+    voters: safeNumber(read(answer, 'voters')),
+    chosen: safeBoolean(read(answer, 'chosen')),
+    correct: safeBoolean(read(answer, 'correct')),
+  }
+}
+
+function metadataWith(metadata: JsonValue, values: Record<string, JsonValue>): JsonValue {
+  if (metadata == null || Array.isArray(metadata) || typeof metadata !== 'object') return values
+  return { ...metadata, ...values }
+}
+
+function readMaybe(source: unknown, property: string): { value: unknown, thrown: boolean } {
+  if (source == null || typeof source !== 'object') return { value: undefined, thrown: false }
+  try {
+    return { value: (source as Record<string, unknown>)[property], thrown: false }
+  } catch {
+    return { value: undefined, thrown: true }
   }
 }
 
@@ -549,10 +823,23 @@ function compactMetadata(values: Record<string, JsonValue | undefined>): JsonVal
   return metadata
 }
 
+function metadataObject(values: Record<string, JsonValue | undefined>): JsonValue {
+  const metadata: Record<string, JsonValue> = {}
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) metadata[key] = value
+  }
+  return metadata
+}
+
 function isSupportedMediaType(value: string | null): value is MessageMediaType {
   return value != null && value in SUPPORTED_MTCUTE_MEDIA_TYPES
 }
 
 function fileLocation(value: unknown): FileLocation | null {
   return value instanceof FileLocation ? value : null
+}
+
+function rawConstructorHint(value: unknown): string | null {
+  if (value == null || typeof value !== 'object') return null
+  return safeString(read(value, '_'))
 }
