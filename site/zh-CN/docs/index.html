@@ -403,6 +403,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <td><span class="scope-badge" data-scope="local">本地删除</span></td>
                   <td>确认后删除该聊天的本地消息，不会删除 Telegram 远端消息。</td>
                 </tr>
+                <tr data-command="data">
+                  <th scope="row"><code dir="ltr" translate="no">tg data reset --yes</code></th>
+                  <td><span class="scope-badge" data-scope="local">本地重置</span></td>
+                  <td>管理账号范围的本地数据，包括显式重置消息数据库和默认归档目录。</td>
+                </tr>
                 <tr data-command="status">
                   <th scope="row"><code dir="ltr" translate="no">tg status</code></th>
                   <td><span class="scope-badge" data-scope="live">在线读取</span></td>
@@ -856,7 +861,7 @@ tg config write-access on --json</code></pre>
         </section>
       </article>
 
-      <aside class="docs-status-card docs-page-outline" data-command-count="34" data-group-command-count="48" aria-label="本页范围说明">
+      <aside class="docs-status-card docs-page-outline" data-command-count="35" data-group-command-count="48" aria-label="本页范围说明">
         <p class="status-card-label docs-outline-label">THIS PAGE</p>
         <h2>命令信号</h2>
         <dl class="scope-key">

@@ -148,7 +148,7 @@ function archiveFailure(error: unknown): HandlerResult<never> {
 }
 
 function defaultArchiveOutput(context: AccountContext): string {
-  return accountArchivePath(dirname(dirname(context.dbPath)), context.account.name)
+  return accountArchivePath(dirname(dirname(dirname(context.dbPath))), context.account.name)
 }
 
 function archiveSummary(result: ArchiveCommandResult) {

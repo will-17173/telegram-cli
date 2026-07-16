@@ -565,6 +565,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <td><span class="scope-badge" data-scope="local">Local</span></td>
                   <td>Delete one chat’s locally stored messages only; requires confirmation.<code class="command-syntax">tg purge @team --yes --json</code></td>
                 </tr>
+                <tr data-command="data">
+                  <th scope="row"><code>data</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local reset</span></td>
+                  <td>Manage account-scoped local data, including explicit database and default archive reset.<code class="command-syntax">tg data reset --yes --json</code></td>
+                </tr>
                 <tr data-command="status">
                   <th scope="row"><code>status</code></th>
                   <td><span class="scope-badge" data-scope="live">Live</span></td>
@@ -1331,7 +1336,7 @@ tg config write-access on</code></pre>
         </section>
       </article>
 
-      <aside class="docs-status-card docs-page-outline" data-command-count="34" data-group-command-count="48" aria-label="Page status">
+      <aside class="docs-status-card docs-page-outline" data-command-count="35" data-group-command-count="48" aria-label="Page status">
         <p class="mini-label">This page</p>
         <strong>v0.6.1</strong>
         <dl>
