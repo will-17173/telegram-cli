@@ -1,7 +1,11 @@
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
 import type { Attachment, NormalizedMessage } from '../../src/telegram/media-types.js'
 
-type MessageFixture = NormalizedMessage & StoredMessageInput
+type MessageFixture = StoredMessageInput & Omit<NormalizedMessage, 'platform' | 'chat_name' | 'raw_json'> & {
+  platform: string
+  chat_name: string | null
+  raw_json: unknown
+}
 
 export function attachment(overrides: Partial<Attachment> = {}): Attachment {
   return {
@@ -35,11 +39,9 @@ export function attachment(overrides: Partial<Attachment> = {}): Attachment {
   }
 }
 
-export function message(overrides?: Partial<StoredMessageInput>): StoredMessageInput
-export function message(overrides?: Partial<NormalizedMessage>): NormalizedMessage
-export function message(overrides: Partial<StoredMessageInput> | Partial<NormalizedMessage> = {}): MessageFixture {
+export function message(overrides: Partial<MessageFixture> = {}): MessageFixture {
   const date = new Date('2026-03-09T10:00:00.000Z').toISOString()
-  const base = {
+  const base: MessageFixture = {
     platform: 'telegram',
     chat_id: 100,
     chat_name: 'TestGroup',
@@ -56,7 +58,7 @@ export function message(overrides: Partial<StoredMessageInput> | Partial<Normali
     raw_json: null,
     attachments: [],
   }
-  return { ...base, ...overrides } as MessageFixture
+  return { ...base, ...overrides }
 }
 
 export function fixtureMessages(): StoredMessageInput[] {

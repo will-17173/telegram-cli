@@ -20,6 +20,7 @@ describe('canonical media contract', () => {
       role: 'primary',
       kind: 'photo',
     })
+    expect(value.attachments[0]?.metadata).toEqual({})
     expect(value).not.toHaveProperty('attachment')
   })
 })
