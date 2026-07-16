@@ -458,7 +458,7 @@ describe('normalizeMtcuteMedia', () => {
         type: 'photo',
         fileId: 'photo',
         uniqueFileId: 'same-unique',
-        liveVideo: media({ type: 'video', fileId: 'live-video', uniqueFileId: 'same-unique' }),
+        livePhotoVideo: media({ type: 'video', fileId: 'live-video', uniqueFileId: 'same-unique' }),
       }),
     })
     expect(roleSummary(livePhoto.attachments)).toEqual([
@@ -471,7 +471,7 @@ describe('normalizeMtcuteMedia', () => {
         type: 'video',
         fileId: 'video',
         uniqueFileId: 'same-unique',
-        cover: media({ type: 'photo', fileId: 'cover', uniqueFileId: 'same-unique' }),
+        videoCover: media({ type: 'photo', fileId: 'cover', uniqueFileId: 'same-unique' }),
       }),
     })
     expect(roleSummary(coveredVideo.attachments)).toEqual([
@@ -505,29 +505,31 @@ describe('normalizeMtcuteMedia', () => {
     const webpage = normalizeMtcuteMedia({
       media: media({
         type: 'webpage',
-        id: long('202'),
-        url: 'https://example.com/page',
-        displayUrl: 'example.com/page',
-        previewType: 'article',
-        siteName: 'Example',
-        title: 'Web title',
-        description: 'Web description',
-        author: 'Author',
-        embedUrl: 'https://example.com/embed',
-        embedType: 'video',
-        embedWidth: 640,
-        embedHeight: 360,
-        displaySize: 42,
+        preview: {
+          id: long('202'),
+          url: 'https://example.com/page',
+          displayUrl: 'example.com/page',
+          previewType: 'article',
+          siteName: 'Example',
+          title: 'Web title',
+          description: 'Web description',
+          author: 'Author',
+          embedUrl: 'https://example.com/embed',
+          embedType: 'video',
+          embedWidth: 640,
+          embedHeight: 360,
+          photo: media({ type: 'photo', fileId: 'web-photo' }),
+          document: media({
+            type: 'document',
+            url: 'https://cdn.example.com/file.pdf',
+            mimeType: 'application/pdf',
+            fileSize: 1234,
+            isDownloadable: true,
+          }),
+        },
+        displaySize: 'large',
         manual: false,
         safe: true,
-        photo: media({ type: 'photo', fileId: 'web-photo' }),
-        document: media({
-          type: 'document',
-          url: 'https://cdn.example.com/file.pdf',
-          mimeType: 'application/pdf',
-          fileSize: 1234,
-          isDownloadable: true,
-        }),
       }),
     })
     expect(roleSummary(webpage.attachments)).toEqual([
@@ -548,7 +550,7 @@ describe('normalizeMtcuteMedia', () => {
       embed_type: 'video',
       embed_width: 640,
       embed_height: 360,
-      display_size: 42,
+      display_size: 'large',
       manual: false,
       safe: true,
     })
@@ -634,14 +636,16 @@ describe('normalizeMtcuteMedia', () => {
         currency: 'USD',
         amount: long('999'),
         startParam: 'start',
-        shippingAddressRequested: true,
-        test: false,
+        isShippingAddressRequested: () => true,
+        isTest: () => false,
         extendedMediaState: 'preview',
-        extendedMediaPreview: media({ type: 'photo', fileId: 'invoice-preview' }),
-        previewWidth: 320,
-        previewHeight: 240,
-        previewDuration: 6,
-        productWebDocument: media({ type: 'document', url: 'https://cdn.example.com/product.jpg', mimeType: 'image/jpeg', fileSize: 456 }),
+        extendedMediaPreview: {
+          width: 320,
+          height: 240,
+          videoDuration: 6,
+          thumbnail: { location: jpeg },
+        },
+        photo: webDocument({ url: 'https://cdn.example.com/product.jpg', mimeType: 'image/jpeg', fileSize: 456 }),
         get extendedMedia(): never {
           throw new Error('not full')
         },
@@ -650,7 +654,6 @@ describe('normalizeMtcuteMedia', () => {
     expect(roleSummary(invoicePreview.attachments)).toEqual([
       [1, null, 'primary', 'invoice', null],
       [2, 1, 'invoice_product_media', 'document', 'web'],
-      [3, 1, 'invoice_extended_media', 'photo', null],
     ])
     expect(invoicePreview.attachments[0]?.metadata).toMatchObject({
       extended_media_state: 'preview',
@@ -659,13 +662,28 @@ describe('normalizeMtcuteMedia', () => {
       preview_duration_seconds: 6,
       getter_errors: ['extendedMedia'],
     })
+    expect(invoicePreview.attachments[0]?.preview_jpeg_base64).toBe(Buffer.from(jpeg).toString('base64'))
+    expect(invoicePreview.attachments[1]).toMatchObject({
+      url: 'https://cdn.example.com/product.jpg',
+      mime_type: 'image/jpeg',
+      file_size: 456,
+      downloadable: false,
+      file_id: null,
+      unique_file_id: null,
+      file_name: null,
+      metadata: {
+        url: 'https://cdn.example.com/product.jpg',
+        mime_type: 'image/jpeg',
+        file_size: 456,
+      },
+    })
 
     const invoiceFull = normalizeMtcuteMedia({
       media: media({
         type: 'invoice',
         title: 'Product',
         extendedMediaState: 'full',
-        productWebDocument: media({ type: 'document', url: 'https://cdn.example.com/product.jpg' }),
+        photo: webDocument({ url: 'https://cdn.example.com/product.jpg' }),
         get extendedMediaPreview(): never {
           throw new Error('not preview')
         },
@@ -688,11 +706,12 @@ describe('normalizeMtcuteMedia', () => {
         peer: { id: 7, displayName: 'Peer' },
         storyId: 8,
         isMention: true,
-        isAvailable: true,
-        storyDate: new Date('2026-02-03T04:05:06.000Z'),
-        storyExpireDate: new Date('2026-02-04T04:05:06.000Z'),
-        caption: { text: 'Caption' },
-        media: media({ type: 'photo', fileId: 'story-photo' }),
+        story: {
+          date: new Date('2026-02-03T04:05:06.000Z'),
+          expireDate: new Date('2026-02-04T04:05:06.000Z'),
+          caption: 'Caption',
+          media: media({ type: 'photo', fileId: 'story-photo' }),
+        },
       }),
     })
     const storyUnavailable = normalizeMtcuteMedia({
@@ -700,7 +719,7 @@ describe('normalizeMtcuteMedia', () => {
         type: 'story',
         peerId: 9,
         storyId: 10,
-        isAvailable: false,
+        story: null,
       }),
     })
     expect(roleSummary(storyAvailable.attachments)).toEqual([
@@ -732,6 +751,7 @@ describe('normalizeMtcuteMedia', () => {
     const paid = normalizeMtcuteMedia({
       media: media({
         type: 'paid',
+        isPaid: false,
         price: long('12345'),
         previews: [media({ type: 'photo', fileId: 'preview-file' })],
         medias: [media({ type: 'video', fileId: 'paid-video' }), null, media({ type: 'photo', fileId: 'paid-photo' })],
@@ -747,6 +767,7 @@ describe('normalizeMtcuteMedia', () => {
       price: '12345',
       preview_count: 1,
       item_count: 2,
+      visibility: 'full',
     })
     expect(paid.attachments[1]).toMatchObject({
       downloadable: false,
@@ -777,7 +798,7 @@ describe('normalizeMtcuteMedia', () => {
       [2, 1, 'poll_answer_media', 'unknown', null],
       [3, 1, 'poll_solution_media', 'unknown', null],
     ])
-    expect(result.attachments[1]?.metadata).toEqual({ getter: 'answers[0].media' })
+    expect(result.attachments[1]?.metadata).toEqual({ getter: 'answers[0].media', poll_answer_index: 0 })
     expect(result.attachments[2]?.metadata).toEqual({ getter: 'solutionMedia' })
 
     const rawOnly = normalizeMtcuteMedia({
@@ -795,6 +816,10 @@ describe('normalizeMtcuteMedia', () => {
 
 function media(value: Record<string, unknown>): MessageMedia {
   return value as unknown as MessageMedia
+}
+
+function webDocument(value: Record<string, unknown>): object {
+  return value
 }
 
 function long(value: string): { toString(): string } {

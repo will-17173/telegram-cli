@@ -218,7 +218,7 @@ function addPhoto(builder: AttachmentBuilder, media: object, parent: Attachment 
     metadata,
     location: fileLocation(media),
   })
-  addChild(builder, attachment, 'live_photo_video', media, 'liveVideo')
+  addChild(builder, attachment, 'live_photo_video', media, 'livePhotoVideo')
   return attachment
 }
 
@@ -248,7 +248,7 @@ function addVideo(builder: AttachmentBuilder, media: object, parent: Attachment 
     metadata,
     location: fileLocation(media),
   })
-  addChild(builder, attachment, 'cover', media, 'cover')
+  addChild(builder, attachment, 'cover', media, 'videoCover')
   return attachment
 }
 
@@ -474,33 +474,39 @@ function addGame(builder: AttachmentBuilder, media: object, parent: Attachment |
 }
 
 function addWebpage(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
+  const previewResult = readMaybe(media, 'preview')
+  const preview = previewResult.value != null && typeof previewResult.value === 'object' ? previewResult.value : {}
   const attachment = builder.add({
     parent_attachment_index: parent?.attachment_index,
     role,
     kind: 'webpage',
     downloadable: false,
-    title: safeString(read(media, 'title')),
-    url: safeString(read(media, 'url')),
+    title: safeString(read(preview, 'title')),
+    url: safeString(read(preview, 'url')),
     metadata: metadataObject({
-      id: longToString(read(media, 'id')),
-      url: safeString(read(media, 'url')),
-      display_url: safeString(read(media, 'displayUrl')),
-      preview_type: safeString(read(media, 'previewType')),
-      site_name: safeString(read(media, 'siteName')),
-      title: safeString(read(media, 'title')),
-      description: safeString(read(media, 'description')),
-      author: safeString(read(media, 'author')),
-      embed_url: safeString(read(media, 'embedUrl')),
-      embed_type: safeString(read(media, 'embedType')),
-      embed_width: safeNumber(read(media, 'embedWidth')),
-      embed_height: safeNumber(read(media, 'embedHeight')),
-      display_size: safeNumber(read(media, 'displaySize')),
+      id: longToString(read(preview, 'id')),
+      url: safeString(read(preview, 'url')),
+      display_url: safeString(read(preview, 'displayUrl')),
+      preview_type: safeString(read(preview, 'previewType')),
+      site_name: safeString(read(preview, 'siteName')),
+      title: safeString(read(preview, 'title')),
+      description: safeString(read(preview, 'description')),
+      author: safeString(read(preview, 'author')),
+      embed_url: safeString(read(preview, 'embedUrl')),
+      embed_type: safeString(read(preview, 'embedType')),
+      embed_width: safeNumber(read(preview, 'embedWidth')),
+      embed_height: safeNumber(read(preview, 'embedHeight')),
+      display_size: safeString(read(media, 'displaySize')) ?? safeNumber(read(media, 'displaySize')),
       manual: safeBoolean(read(media, 'manual')),
       safe: safeBoolean(read(media, 'safe')),
+      getter_errors: previewResult.thrown ? ['preview'] : undefined,
     }),
   })
-  addChild(builder, attachment, 'webpage_media', media, 'photo')
-  addChild(builder, attachment, 'webpage_media', media, 'document')
+  if (previewResult.thrown) addUnknownChild(builder, attachment, 'webpage_media', 'preview')
+  else {
+    addChild(builder, attachment, 'webpage_media', preview, 'photo', 'preview.photo')
+    addChild(builder, attachment, 'webpage_media', preview, 'document', 'preview.document')
+  }
   return attachment
 }
 
@@ -537,7 +543,7 @@ function addPoll(builder: AttachmentBuilder, media: object, parent: Attachment |
   answers.forEach((answer, index) => {
     if (answer == null || typeof answer !== 'object') return
     const child = addChild(builder, attachment, 'poll_answer_media', answer, 'media', `answers[${index}].media`)
-    if (child != null && child.kind !== 'unknown') child.metadata = metadataWith(child.metadata, { poll_answer_index: index })
+    if (child != null) child.metadata = metadataWith(child.metadata, { poll_answer_index: index })
   })
   addChild(builder, attachment, 'poll_solution_media', media, 'solutionMedia')
   return attachment
@@ -549,6 +555,7 @@ function addInvoice(builder: AttachmentBuilder, media: object, parent: Attachmen
   if (preview.thrown) getterErrors.push('extendedMediaPreview')
   const full = readMaybe(media, 'extendedMedia')
   if (full.thrown) getterErrors.push('extendedMedia')
+  const previewObject = preview.value != null && typeof preview.value === 'object' ? preview.value : null
   const metadata = metadataObject({
     title: safeString(read(media, 'title')),
     description: safeString(read(media, 'description')),
@@ -556,12 +563,12 @@ function addInvoice(builder: AttachmentBuilder, media: object, parent: Attachmen
     currency: safeString(read(media, 'currency')),
     amount: longToString(read(media, 'amount')),
     start_param: safeString(read(media, 'startParam')),
-    shipping_address_requested: safeBoolean(read(media, 'shippingAddressRequested')),
-    test: safeBoolean(read(media, 'test')),
+    shipping_address_requested: callBoolean(media, 'isShippingAddressRequested'),
+    test: callBoolean(media, 'isTest'),
     extended_media_state: safeString(read(media, 'extendedMediaState')),
-    preview_width: safeNumber(read(media, 'previewWidth')),
-    preview_height: safeNumber(read(media, 'previewHeight')),
-    preview_duration_seconds: safeNumber(read(media, 'previewDuration')),
+    preview_width: previewObject == null ? null : safeNumber(read(previewObject, 'width')),
+    preview_height: previewObject == null ? null : safeNumber(read(previewObject, 'height')),
+    preview_duration_seconds: previewObject == null ? null : safeNumber(read(previewObject, 'videoDuration')),
     getter_errors: getterErrors.length > 0 ? getterErrors : undefined,
   })
   const attachment = builder.add({
@@ -570,16 +577,20 @@ function addInvoice(builder: AttachmentBuilder, media: object, parent: Attachmen
     kind: 'invoice',
     downloadable: false,
     title: safeString(read(media, 'title')),
+    preview_jpeg_base64: previewObject == null ? null : previewThumbnailBase64(previewObject),
     metadata,
   })
-  addChild(builder, attachment, 'invoice_product_media', media, 'productWebDocument')
-  if (!preview.thrown && preview.value != null) addMedia(builder, preview.value, attachment, 'invoice_extended_media')
+  const productPhoto = readMaybe(media, 'photo')
+  if (productPhoto.thrown) addUnknownChild(builder, attachment, 'invoice_product_media', 'photo')
+  else if (productPhoto.value != null) addWebDocument(builder, productPhoto.value, attachment, 'invoice_product_media')
   if (!full.thrown && full.value != null) addMedia(builder, full.value, attachment, 'invoice_extended_media')
   return attachment
 }
 
 function addStory(builder: AttachmentBuilder, media: object, parent: Attachment | null, role: string): Attachment {
-  const available = safeBoolean(read(media, 'isAvailable')) ?? safeBoolean(read(media, 'available'))
+  const storyResult = readMaybe(media, 'story')
+  const story = storyResult.value != null && typeof storyResult.value === 'object' ? storyResult.value : null
+  const available = story != null
   const peer = read(media, 'peer')
   const peerObject = peer != null && typeof peer === 'object' ? peer : {}
   const metadata: Record<string, JsonValue> = {
@@ -589,10 +600,11 @@ function addStory(builder: AttachmentBuilder, media: object, parent: Attachment 
     is_mention: safeBoolean(read(media, 'isMention')),
     available,
   }
-  if (available === true) {
-    metadata.story_date = dateString(read(media, 'storyDate'))
-    metadata.story_expire_date = dateString(read(media, 'storyExpireDate'))
-    metadata.caption = textValue(read(media, 'caption'))
+  if (storyResult.thrown) metadata.getter_errors = ['story']
+  if (story != null) {
+    metadata.story_date = dateString(read(story, 'date'))
+    metadata.story_expire_date = dateString(read(story, 'expireDate'))
+    metadata.caption = textValue(read(story, 'caption'))
   }
   const attachment = builder.add({
     parent_attachment_index: parent?.attachment_index,
@@ -601,7 +613,8 @@ function addStory(builder: AttachmentBuilder, media: object, parent: Attachment 
     downloadable: false,
     metadata,
   })
-  if (available === true) addChild(builder, attachment, 'story_media', media, 'media')
+  if (storyResult.thrown) addUnknownChild(builder, attachment, 'story_media', 'story')
+  else if (story != null) addChild(builder, attachment, 'story_media', story, 'media', 'story.media')
   return attachment
 }
 
@@ -617,6 +630,7 @@ function addPaidMedia(builder: AttachmentBuilder, media: object, parent: Attachm
       price: longToString(read(media, 'price')),
       preview_count: previews.length,
       item_count: medias.length,
+      visibility: medias.length > 0 ? 'full' : previews.length > 0 ? 'preview' : 'empty',
     }),
   })
   for (const preview of previews) {
@@ -633,6 +647,31 @@ function addPaidMedia(builder: AttachmentBuilder, media: object, parent: Attachm
     addMedia(builder, item, attachment, 'paid_item')
   }
   return attachment
+}
+
+function addWebDocument(builder: AttachmentBuilder, media: unknown, parent: Attachment, role: string): Attachment | null {
+  if (media == null || typeof media !== 'object') return null
+  const url = safeString(read(media, 'url'))
+  const isDownloadable = safeBoolean(read(media, 'isDownloadable')) === true
+  return builder.add({
+    parent_attachment_index: parent.attachment_index,
+    role,
+    kind: 'document',
+    subtype: 'web',
+    downloadable: isDownloadable,
+    file_id: null,
+    unique_file_id: null,
+    file_name: null,
+    mime_type: safeString(read(media, 'mimeType')),
+    file_size: safeNumber(read(media, 'fileSize')),
+    url,
+    metadata: metadataObject({
+      url,
+      mime_type: safeString(read(media, 'mimeType')),
+      file_size: safeNumber(read(media, 'fileSize')),
+    }),
+    location: isDownloadable ? fileLocation(media) : null,
+  })
 }
 
 function addChild(
@@ -688,6 +727,14 @@ function embeddedPreviewBase64(media: object): string | null {
   }
 }
 
+function previewThumbnailBase64(media: object): string | null {
+  const thumbnail = read(media, 'thumbnail')
+  if (thumbnail == null || typeof thumbnail !== 'object') return null
+  const location = read(thumbnail, 'location')
+  if (!(location instanceof Uint8Array)) return null
+  return Buffer.from(location).toString('base64')
+}
+
 function safeFileString(source: object, property: 'fileId' | 'uniqueFileId'): string | null {
   try {
     return safeString(read(source, property))
@@ -719,6 +766,16 @@ function safeNumber(value: unknown): number | null {
 function safeBoolean(value: unknown): boolean | null {
   if (typeof value === 'boolean') return value
   return null
+}
+
+function callBoolean(source: object, property: string): boolean | null {
+  const value = read(source, property)
+  if (typeof value !== 'function') return null
+  try {
+    return safeBoolean(value.call(source))
+  } catch {
+    return null
+  }
 }
 
 function safeNumberArray(value: unknown): number[] | null {
