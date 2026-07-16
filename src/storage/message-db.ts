@@ -661,7 +661,7 @@ function attachmentWriteRow(messageId: number, attachment: Attachment): Attachme
     ...attachment,
     message_id: messageId,
     downloadable: attachment.downloadable ? 1 : 0,
-    preview_jpeg_base64: attachment.preview_jpeg_base64 ?? null,
+    preview_jpeg_base64: attachment.preview_jpeg_base64,
     metadata_json: JSON.stringify(attachment.metadata),
   }
 }
@@ -694,10 +694,9 @@ function hydrateAttachment(row: AttachmentRow): Attachment {
     address: null,
     phone_number: null,
     url: null,
-    preview_jpeg_base64: row.preview_jpeg_base64,
+    preview_jpeg_base64: row.preview_jpeg_base64 ?? null,
     metadata: parseMetadata(row.metadata_json),
   }
-  if (row.preview_jpeg_base64 == null) delete (attachment as Partial<Attachment>).preview_jpeg_base64
   return attachment
 }
 
@@ -729,7 +728,19 @@ const ATTACHMENT_NUMERIC_FIELDS = [
 ] as const
 
 function validateMessageInput(message: StoredMessageInput): void {
+  requireObject(message, 'message')
+  for (const field of MESSAGE_FIELDS) requireField(message, field, 'message')
   if (message.platform !== 'telegram') throw new Error('Unsupported message platform')
+  requireNumber(message.chat_id, 'chat_id')
+  requireString(message.chat_name, 'chat_name')
+  requireNumber(message.msg_id, 'msg_id')
+  requireNullableNumber(message.sender_id, 'sender_id')
+  requireNullableString(message.sender_name, 'sender_name')
+  requireNullableString(message.content, 'content')
+  requireString(message.timestamp, 'timestamp')
+  requireNullableNumber(message.reply_to_msg_id, 'reply_to_msg_id')
+  requireNullableString(message.media_group_id, 'media_group_id')
+  if (!Array.isArray(message.attachments)) throw new Error('Message attachments must be an array')
   for (const field of MESSAGE_NUMERIC_FIELDS) {
     const value = message[field]
     if (value != null && !Number.isFinite(value)) throw new Error('Message numeric fields must be finite')
@@ -742,6 +753,9 @@ function validateAttachments(attachments: Attachment[]): void {
   const seen = new Set<number>()
   for (let index = 0; index < attachments.length; index += 1) {
     const attachment = attachments[index]
+    requireObject(attachment, 'attachment')
+    for (const field of ATTACHMENT_FIELDS) requireField(attachment, field, 'attachment')
+    validateAttachmentShape(attachment)
     const expectedIndex = index + 1
     if (attachment.attachment_index !== expectedIndex || seen.has(attachment.attachment_index)) {
       throw new Error('attachment_index values must be contiguous from 1 in array order')
@@ -760,6 +774,108 @@ function validateAttachments(attachments: Attachment[]): void {
     }
     assertJsonSafe(attachment.metadata, 'metadata')
   }
+}
+
+const MESSAGE_FIELDS = [
+  'platform',
+  'chat_id',
+  'chat_name',
+  'msg_id',
+  'sender_id',
+  'sender_name',
+  'content',
+  'timestamp',
+  'reply_to_msg_id',
+  'media_group_id',
+  'raw_json',
+  'attachments',
+] as const
+
+const ATTACHMENT_FIELDS = [
+  'attachment_index',
+  'parent_attachment_index',
+  'role',
+  'kind',
+  'subtype',
+  'downloadable',
+  'file_id',
+  'unique_file_id',
+  'file_name',
+  'mime_type',
+  'file_size',
+  'width',
+  'height',
+  'duration_seconds',
+  'thumbnail_file_id',
+  'thumbnail_unique_file_id',
+  'thumbnail_width',
+  'thumbnail_height',
+  'emoji',
+  'title',
+  'performer',
+  'latitude',
+  'longitude',
+  'address',
+  'phone_number',
+  'url',
+  'preview_jpeg_base64',
+  'metadata',
+] as const
+
+function validateAttachmentShape(attachment: Attachment): void {
+  requireNumber(attachment.attachment_index, 'attachment_index')
+  requireNullableNumber(attachment.parent_attachment_index, 'parent_attachment_index')
+  requireString(attachment.role, 'role')
+  requireString(attachment.kind, 'kind')
+  requireNullableString(attachment.subtype, 'subtype')
+  if (typeof attachment.downloadable !== 'boolean') throw new Error('Attachment field downloadable must be boolean')
+  requireNullableString(attachment.file_id, 'file_id')
+  requireNullableString(attachment.unique_file_id, 'unique_file_id')
+  requireNullableString(attachment.file_name, 'file_name')
+  requireNullableString(attachment.mime_type, 'mime_type')
+  requireNullableNumber(attachment.file_size, 'file_size')
+  requireNullableNumber(attachment.width, 'width')
+  requireNullableNumber(attachment.height, 'height')
+  requireNullableNumber(attachment.duration_seconds, 'duration_seconds')
+  requireNullableString(attachment.thumbnail_file_id, 'thumbnail_file_id')
+  requireNullableString(attachment.thumbnail_unique_file_id, 'thumbnail_unique_file_id')
+  requireNullableNumber(attachment.thumbnail_width, 'thumbnail_width')
+  requireNullableNumber(attachment.thumbnail_height, 'thumbnail_height')
+  requireNullableString(attachment.emoji, 'emoji')
+  requireNullableString(attachment.title, 'title')
+  requireNullableString(attachment.performer, 'performer')
+  requireNullableNumber(attachment.latitude, 'latitude')
+  requireNullableNumber(attachment.longitude, 'longitude')
+  requireNullableString(attachment.address, 'address')
+  requireNullableString(attachment.phone_number, 'phone_number')
+  requireNullableString(attachment.url, 'url')
+  requireNullableString(attachment.preview_jpeg_base64, 'preview_jpeg_base64')
+}
+
+function requireObject(value: unknown, label: string): asserts value is Record<string, unknown> {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`Invalid ${label}`)
+}
+
+function requireField(value: Record<string, unknown>, field: string, label: 'message' | 'attachment'): void {
+  if (!Object.prototype.hasOwnProperty.call(value, field)) {
+    throw new Error(`Missing ${label} field: ${field}`)
+  }
+}
+
+function requireString(value: unknown, field: string): void {
+  if (typeof value !== 'string') throw new Error(`Field ${field} must be a string`)
+}
+
+function requireNumber(value: unknown, field: string): void {
+  if (typeof value !== 'number') throw new Error(`Field ${field} must be a number`)
+}
+
+function requireNullableString(value: unknown, field: string): void {
+  if (value !== null && typeof value !== 'string') throw new Error(`Field ${field} must be a string or null`)
+}
+
+function requireNullableNumber(value: unknown, field: string): void {
+  if (value !== null && typeof value !== 'number') throw new Error(`Field ${field} must be a number or null`)
 }
 
 function assertJsonSafe(value: unknown, label: string, seen = new Set<object>()): asserts value is JsonValue {

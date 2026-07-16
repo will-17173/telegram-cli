@@ -11,6 +11,18 @@ function db(): MessageDB {
   return new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-')), 'messages.db'))
 }
 
+function incompleteMessage(key: keyof ReturnType<typeof message>): ReturnType<typeof message> {
+  const input = message({ msg_id: 999 })
+  delete (input as Partial<typeof input>)[key]
+  return input
+}
+
+function incompleteAttachment(key: keyof ReturnType<typeof attachment>): ReturnType<typeof attachment> {
+  const input = attachment()
+  delete (input as Partial<typeof input>)[key]
+  return input
+}
+
 describe('MessageDB', () => {
   it('upserts batches and reports inserted and updated rows', () => {
     const store = db()
@@ -46,9 +58,7 @@ describe('MessageDB', () => {
     expect(store.upsertMessage(first)).toBe('inserted')
     const beforeUpdate = store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])[0]
     expect(beforeUpdate.id).toBeGreaterThan(0)
-    const firstAttachment = { ...first.attachments[0] }
-    delete (firstAttachment as Partial<typeof firstAttachment>).preview_jpeg_base64
-    expect(beforeUpdate.attachments).toEqual([firstAttachment])
+    expect(beforeUpdate.attachments).toEqual(first.attachments)
 
     expect(store.upsertMessage(replacement)).toBe('updated')
     expect(store.count()).toBe(1)
@@ -57,10 +67,7 @@ describe('MessageDB', () => {
     expect(stored?.content).toBe('replacement')
     expect(stored?.raw_json).toBe(JSON.stringify({ edited: true }))
     expect(stored?.attachments[0]).toEqual(replacement.attachments[0])
-    const secondAttachment = { ...replacement.attachments[1] }
-    delete (secondAttachment as Partial<typeof secondAttachment>).preview_jpeg_base64
-    expect(stored?.attachments[1]).toEqual(secondAttachment)
-    expect(stored?.attachments[1]).not.toHaveProperty('preview_jpeg_base64')
+    expect(stored?.attachments[1]).toEqual(replacement.attachments[1])
     store.close()
   })
 
@@ -100,6 +107,30 @@ describe('MessageDB', () => {
       msg_id: 7,
       attachments: [attachment({ metadata: { invalid: undefined } as never })],
     }))).toThrow('metadata must be JSON-safe')
+    store.close()
+  })
+
+  it('rejects incomplete normalized message and attachment shapes before SQL', () => {
+    const store = db()
+    expect(() => store.upsertMessage(incompleteMessage('reply_to_msg_id'))).toThrow('Missing message field: reply_to_msg_id')
+    expect(() => store.upsertMessage(incompleteMessage('attachments'))).toThrow('Missing message field: attachments')
+    expect(() => store.upsertMessage({
+      ...message({ msg_id: 8 }),
+      attachments: null as never,
+    })).toThrow('Message attachments must be an array')
+    expect(() => store.upsertMessage(message({
+      msg_id: 9,
+      attachments: [incompleteAttachment('downloadable')],
+    }))).toThrow('Missing attachment field: downloadable')
+    expect(() => store.upsertMessage(message({
+      msg_id: 10,
+      attachments: [incompleteAttachment('subtype')],
+    }))).toThrow('Missing attachment field: subtype')
+    expect(() => store.upsertMessage(message({
+      msg_id: 11,
+      attachments: [incompleteAttachment('preview_jpeg_base64')],
+    }))).toThrow('Missing attachment field: preview_jpeg_base64')
+    expect(store.count()).toBe(0)
     store.close()
   })
 
