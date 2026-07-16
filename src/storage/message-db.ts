@@ -23,8 +23,22 @@ export class DataResetRequiredError extends Error {
 export function isDataResetRequiredError(
   error: unknown,
 ): error is DataResetRequiredError {
-  return error instanceof DataResetRequiredError ||
-    (typeof error === 'object' && error != null && (error as { code?: unknown }).code === 'data_reset_required')
+  if (error instanceof DataResetRequiredError) return true
+  if (typeof error !== 'object' || error == null) return false
+
+  const candidate = error as {
+    code?: unknown
+    name?: unknown
+    message?: unknown
+    path?: unknown
+    actualVersion?: unknown
+  }
+
+  return candidate.code === 'data_reset_required' &&
+    candidate.name === 'DataResetRequiredError' &&
+    typeof candidate.message === 'string' &&
+    typeof candidate.path === 'string' &&
+    (candidate.actualVersion === null || Number.isInteger(candidate.actualVersion))
 }
 
 export type StoredMessage = {

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { __setMessageDbSnapshotCopyHookForTests, MessageDB } from '../../src/storage/message-db.js'
+import { __setMessageDbSnapshotCopyHookForTests, DataResetRequiredError, isDataResetRequiredError, MessageDB } from '../../src/storage/message-db.js'
 
 describe('MessageDB schema guard', () => {
   const dirs: string[] = []
@@ -99,6 +99,20 @@ describe('MessageDB schema guard', () => {
       actualVersion: 2,
       path,
     }))
+  })
+
+  it('recognizes only safe structural data reset errors', () => {
+    const error = new DataResetRequiredError('/tmp/messages.db', 0)
+
+    expect(isDataResetRequiredError(error)).toBe(true)
+    expect(isDataResetRequiredError({
+      code: error.code,
+      name: error.name,
+      message: error.message,
+      path: error.path,
+      actualVersion: error.actualVersion,
+    })).toBe(true)
+    expect(isDataResetRequiredError({ code: 'data_reset_required' })).toBe(false)
   })
 
   it('rejects a stamped schema that is missing a required application table', () => {
