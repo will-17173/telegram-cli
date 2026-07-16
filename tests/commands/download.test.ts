@@ -71,6 +71,7 @@ function seedGroupedAlbum(dataDir: string, groupedId = 'album-1'): void {
       sender_name: 'Alice',
       content: null,
       timestamp: '2026-07-15T11:17:00.000Z',
+      media_group_id: groupedId,
       raw_json: {
         grouped_id: groupedId,
         media: { _: 'messageMediaPhoto', photo: { file_name: 'first.jpg' } },
@@ -85,6 +86,7 @@ function seedGroupedAlbum(dataDir: string, groupedId = 'album-1'): void {
       sender_name: 'Alice',
       content: null,
       timestamp: '2026-07-15T11:17:01.000Z',
+      media_group_id: groupedId,
       raw_json: {
         grouped_id: groupedId,
         media: { _: 'messageMediaPhoto', photo: { file_name: 'second.jpg' } },
@@ -247,6 +249,7 @@ describe('download command', () => {
       sender_name: 'Alice',
       content: null,
       timestamp: `2026-07-15T11:17:${String(msgId - 56710).padStart(2, '0')}.000Z`,
+      media_group_id: '443463141:3323118',
       raw_json: {
         grouped_id: { low: '443463141', high: '3323118' },
         media: { _: 'messageMediaPhoto', photo: { file_name: `${msgId}.jpg` } },

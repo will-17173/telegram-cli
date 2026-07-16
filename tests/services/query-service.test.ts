@@ -107,8 +107,8 @@ describe('QueryService human views', () => {
     const now = Date.now()
     const { db, service } = setup([
       message({ msg_id: 7, sender_name: 'Bob', content: 'original', timestamp: new Date(now - 5_000).toISOString() }),
-      message({ msg_id: 11, content: 'album caption', timestamp: new Date(now - 2_000).toISOString(), raw_json: { grouped_id: 77, reply_to: { reply_to_msg_id: 7 }, media: { _: 'messageMediaPhoto', photo: {} } } }),
-      message({ msg_id: 12, content: null, timestamp: new Date(now - 1_000).toISOString(), raw_json: { grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } } }),
+      message({ msg_id: 11, content: 'album caption', timestamp: new Date(now - 2_000).toISOString(), media_group_id: '77', raw_json: { grouped_id: 77, reply_to: { reply_to_msg_id: 7 }, media: { _: 'messageMediaPhoto', photo: {} } } }),
+      message({ msg_id: 12, content: null, timestamp: new Date(now - 1_000).toISOString(), media_group_id: '77', raw_json: { grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } } }),
     ])
     const expected = db.getRecent({ hours: 24, limit: 2 })
 
@@ -201,6 +201,7 @@ describe('QueryService human views', () => {
         msg_id: 100 + index,
         content: index === 0 ? 'large album' : null,
         timestamp: new Date(now - 150_000 + index).toISOString(),
+        media_group_id: '999',
         raw_json: { grouped_id: 999, media: { _: 'messageMediaPhoto', photo: {} } },
       }))
     }

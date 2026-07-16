@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -52,6 +52,42 @@ describe('MessageDB schema guard', () => {
     expect(readSchema(path)).toEqual(beforeSchema)
   })
 
+  it('rejects an old version-0 messages schema without changing directory sidecars', () => {
+    const path = tempDbPath()
+    const sqlite = new Database(path)
+    sqlite.pragma('journal_mode = WAL')
+    sqlite.pragma('wal_autocheckpoint = 0')
+    sqlite.exec(`
+      CREATE TABLE messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        platform TEXT NOT NULL DEFAULT 'telegram',
+        chat_id INTEGER NOT NULL,
+        chat_name TEXT,
+        msg_id INTEGER NOT NULL,
+        sender_id INTEGER,
+        sender_name TEXT,
+        content TEXT,
+        timestamp TEXT NOT NULL,
+        raw_json TEXT,
+        UNIQUE(platform, chat_id, msg_id)
+      );
+      INSERT INTO messages (platform, chat_id, chat_name, msg_id, timestamp)
+      VALUES ('telegram', 10, 'Old', 1, '2026-07-16T00:00:00.000Z');
+    `)
+    const before = directoryFingerprint(dirname(path))
+
+    try {
+      expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
+        code: 'data_reset_required',
+        actualVersion: 0,
+        path,
+      }))
+      expect(directoryFingerprint(dirname(path))).toEqual(before)
+    } finally {
+      sqlite.close()
+    }
+  })
+
   it('rejects a wrong nonzero user_version', () => {
     const path = tempDbPath()
     const sqlite = new Database(path)
@@ -87,6 +123,45 @@ describe('MessageDB schema guard', () => {
       PRAGMA user_version = 1;
     `)
     sqlite.close()
+
+    expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
+      code: 'data_reset_required',
+      actualVersion: 1,
+      path,
+    }))
+  })
+
+  it('rejects a stamped schema with a wrong column type', () => {
+    const path = tempDbPath()
+    createStampedSchema(path, {
+      messagesSql: CURRENT_MESSAGES_SQL.replace('chat_id INTEGER NOT NULL', 'chat_id TEXT NOT NULL'),
+    })
+
+    expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
+      code: 'data_reset_required',
+      actualVersion: 1,
+      path,
+    }))
+  })
+
+  it('rejects a stamped schema with a wrong required index definition', () => {
+    const path = tempDbPath()
+    createStampedSchema(path, {
+      recentIndexSql: 'CREATE INDEX idx_messages_recent ON messages(id DESC, timestamp DESC)',
+    })
+
+    expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
+      code: 'data_reset_required',
+      actualVersion: 1,
+      path,
+    }))
+  })
+
+  it('rejects a stamped schema missing required table constraints', () => {
+    const path = tempDbPath()
+    createStampedSchema(path, {
+      messagesSql: CURRENT_MESSAGES_SQL.replace(',\n      UNIQUE(platform, chat_id, msg_id)', ''),
+    })
 
     expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
       code: 'data_reset_required',
@@ -196,6 +271,67 @@ function createOldMessagesSchema(path: string): void {
   sqlite.close()
 }
 
+const CURRENT_MESSAGES_SQL = `CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL,
+      chat_id INTEGER NOT NULL,
+      chat_name TEXT NOT NULL,
+      msg_id INTEGER NOT NULL,
+      sender_id INTEGER,
+      sender_name TEXT,
+      content TEXT,
+      timestamp TEXT NOT NULL,
+      reply_to_msg_id INTEGER,
+      media_group_id TEXT,
+      raw_json TEXT,
+      UNIQUE(platform, chat_id, msg_id)
+    )`
+
+const CURRENT_ATTACHMENTS_SQL = `CREATE TABLE attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      attachment_index INTEGER NOT NULL,
+      parent_attachment_index INTEGER,
+      role TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      subtype TEXT,
+      file_id TEXT,
+      unique_file_id TEXT,
+      file_name TEXT,
+      mime_type TEXT,
+      file_size INTEGER,
+      width INTEGER,
+      height INTEGER,
+      duration_seconds REAL,
+      downloadable INTEGER NOT NULL,
+      preview_jpeg_base64 TEXT,
+      metadata_json TEXT NOT NULL,
+      UNIQUE(message_id, attachment_index),
+      CHECK(attachment_index > 0),
+      CHECK(parent_attachment_index IS NULL OR parent_attachment_index > 0),
+      CHECK(downloadable IN (0, 1))
+    )`
+
+function createStampedSchema(path: string, options: { messagesSql?: string; attachmentsSql?: string; recentIndexSql?: string } = {}): void {
+  const sqlite = new Database(path)
+  sqlite.exec(`
+    ${options.messagesSql ?? CURRENT_MESSAGES_SQL};
+    ${options.attachmentsSql ?? CURRENT_ATTACHMENTS_SQL};
+    CREATE INDEX idx_messages_chat_ts ON messages(chat_id, timestamp);
+    ${options.recentIndexSql ?? 'CREATE INDEX idx_messages_recent ON messages(timestamp DESC, id DESC)'};
+    CREATE INDEX idx_messages_chat_recent ON messages(chat_id, timestamp DESC, id DESC);
+    CREATE INDEX idx_messages_content ON messages(content);
+    CREATE INDEX idx_messages_sender ON messages(sender_name);
+    CREATE INDEX idx_attachments_message_order ON attachments(message_id, attachment_index);
+    CREATE INDEX idx_attachments_kind ON attachments(kind);
+    CREATE INDEX idx_attachments_unique_file_id
+      ON attachments(unique_file_id)
+      WHERE unique_file_id IS NOT NULL;
+    PRAGMA user_version = 1;
+  `)
+  sqlite.close()
+}
+
 function expectSchema(path: string): void {
   const sqlite = new Database(path, { readonly: true })
   try {
@@ -273,4 +409,17 @@ function readSchema(path: string): string[] {
 
 function hashFile(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
+function directoryFingerprint(dir: string): unknown {
+  return readdirSync(dir).sort().map((name) => {
+    const path = join(dir, name)
+    const stat = statSync(path)
+    return {
+      name,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      hash: name.endsWith('-shm') ? '<sqlite-shm-lock-bytes>' : hashFile(path),
+    }
+  })
 }

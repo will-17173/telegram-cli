@@ -23,7 +23,8 @@ export class DataResetRequiredError extends Error {
 export function isDataResetRequiredError(
   error: unknown,
 ): error is DataResetRequiredError {
-  return error instanceof DataResetRequiredError
+  return error instanceof DataResetRequiredError ||
+    (typeof error === 'object' && error != null && (error as { code?: unknown }).code === 'data_reset_required')
 }
 
 export type StoredMessage = {
@@ -189,7 +190,7 @@ export class MessageDB {
 
   search(keyword: string, options: SearchOptions = {}): StoredMessage[] {
     const query = this.filteredQuery('content LIKE ?', [`%${keyword}%`], options)
-    return this.db.prepare(`${query.sql} ORDER BY timestamp DESC LIMIT ?`).all(...query.params, options.limit ?? 50) as StoredMessage[]
+    return normalizeStoredMessages(this.db.prepare(`${query.sql} ORDER BY timestamp DESC LIMIT ?`).all(...query.params, options.limit ?? 50) as StoredMessage[])
   }
 
   searchRegex(pattern: string, options: SearchOptions = {}): StoredMessage[] {
@@ -199,7 +200,7 @@ export class MessageDB {
     const matches: StoredMessage[] = []
     const rows = this.db.prepare(`${query.sql} ORDER BY timestamp DESC`).iterate(...query.params) as Iterable<StoredMessage>
     for (const row of rows) {
-      if (regex.test(row.content ?? '')) matches.push(row)
+      if (regex.test(row.content ?? '')) matches.push(normalizeStoredMessage(row))
       if (matches.length >= limit) break
     }
     return matches
@@ -210,11 +211,11 @@ export class MessageDB {
     const conditions: string[] = ['1=1']
     this.addFilters(conditions, params, options)
     const limit = options.limit ?? 500
-    return this.db.prepare(`
+    return normalizeStoredMessages(this.db.prepare(`
       SELECT * FROM (
         SELECT * FROM messages WHERE ${conditions.join(' AND ')} ORDER BY timestamp DESC, id DESC LIMIT ?
       ) ORDER BY timestamp ASC, id ASC
-    `).all(...params, limit) as StoredMessage[]
+    `).all(...params, limit) as StoredMessage[])
   }
 
   getRecentPage(options: RecentPageOptions = {}): StoredMessage[] {
@@ -226,12 +227,12 @@ export class MessageDB {
       params.push(options.before.timestamp, options.before.id)
     }
     const pagingIndex = options.chatId == null ? 'idx_messages_recent' : 'idx_messages_chat_recent'
-    return this.db.prepare(`
+    return normalizeStoredMessages(this.db.prepare(`
       SELECT * FROM messages INDEXED BY ${pagingIndex}
       WHERE ${conditions.join(' AND ')}
       ORDER BY timestamp DESC, id DESC
       LIMIT ?
-    `).all(...params, options.limit ?? 100) as StoredMessage[]
+    `).all(...params, options.limit ?? 100) as StoredMessage[])
   }
 
   getMessagesPage(options: MessagePageOptions): { items: StoredMessage[]; total: number; next_cursor: string | null } {
@@ -276,13 +277,13 @@ export class MessageDB {
     `).get(...params) as { count: number }).count
     const limit = clampInteger(options.limit, 50, 1, 100)
     const offset = Math.max(0, Math.trunc(options.offset ?? 0))
-    const rows = this.db.prepare(`
+    const rows = normalizeStoredMessages(this.db.prepare(`
       SELECT * FROM messages INDEXED BY idx_messages_chat_recent
       WHERE ${conditions.join(' AND ')}
       ORDER BY timestamp DESC, id DESC
       LIMIT ?
       OFFSET ?
-    `).all(...params, limit + 1, offset) as StoredMessage[]
+    `).all(...params, limit + 1, offset) as StoredMessage[])
     const items = rows.slice(0, limit)
     const next_cursor = rows.length > limit && items.length > 0
       ? encodeMessageCursor(items[items.length - 1])
@@ -297,7 +298,7 @@ export class MessageDB {
       const messages: StoredMessage[] = []
       for (const key of requested) {
         const row = stmt.get(canonicalChatId(key.chatId), key.msgId) as StoredMessage | undefined
-        if (row) messages.push(row)
+        if (row) messages.push(normalizeStoredMessage(row))
       }
       return messages
     })
@@ -305,11 +306,11 @@ export class MessageDB {
   }
 
   findMessagesByGroupedId(chatId: number, groupedId: string): StoredMessage[] {
-    return this.db.prepare(`
+    return normalizeStoredMessages(this.db.prepare(`
       SELECT * FROM messages
       WHERE platform = 'telegram' AND chat_id = ? AND media_group_id = ?
       ORDER BY msg_id ASC
-    `).all(canonicalChatId(chatId), groupedId) as StoredMessage[]
+    `).all(canonicalChatId(chatId), groupedId) as StoredMessage[])
   }
 
   getToday(options: TodayOptions = {}): StoredMessage[] {
@@ -317,12 +318,12 @@ export class MessageDB {
     const params: unknown[] = [start, nextStart]
     const conditions = ['timestamp >= ?', 'timestamp < ?']
     this.addFilters(conditions, params, { chatId: options.chatId })
-    return this.db.prepare(`
+    return normalizeStoredMessages(this.db.prepare(`
       SELECT * FROM messages
       WHERE ${conditions.join(' AND ')}
       ORDER BY chat_name COLLATE NOCASE ASC, timestamp ASC
       LIMIT ?
-    `).all(...params, options.limit ?? 500) as StoredMessage[]
+    `).all(...params, options.limit ?? 500) as StoredMessage[])
   }
 
   findChats(chat: string): Array<{ chat_id: number; chat_name: string | null; msg_count: number; first_msg: string; last_msg: string }> {
@@ -565,6 +566,14 @@ export class MessageDB {
   }
 }
 
+function normalizeStoredMessages(rows: StoredMessage[]): StoredMessage[] {
+  return rows.map(normalizeStoredMessage)
+}
+
+function normalizeStoredMessage(row: StoredMessage): StoredMessage {
+  return row.chat_name === '' ? { ...row, chat_name: null } : row
+}
+
 const REQUIRED_MESSAGE_COLUMNS: SchemaColumn[] = [
   { name: 'id', notnull: 0, pk: 1 },
   { name: 'platform', notnull: 1, pk: 0 },
@@ -615,6 +624,62 @@ const REQUIRED_ATTACHMENT_INDEXES = [
   'idx_attachments_unique_file_id',
 ]
 
+const CANONICAL_MESSAGES_TABLE_SQL = `CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL,
+      chat_id INTEGER NOT NULL,
+      chat_name TEXT NOT NULL,
+      msg_id INTEGER NOT NULL,
+      sender_id INTEGER,
+      sender_name TEXT,
+      content TEXT,
+      timestamp TEXT NOT NULL,
+      reply_to_msg_id INTEGER,
+      media_group_id TEXT,
+      raw_json TEXT,
+      UNIQUE(platform, chat_id, msg_id)
+    )`
+
+const CANONICAL_ATTACHMENTS_TABLE_SQL = `CREATE TABLE attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      attachment_index INTEGER NOT NULL,
+      parent_attachment_index INTEGER,
+      role TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      subtype TEXT,
+      file_id TEXT,
+      unique_file_id TEXT,
+      file_name TEXT,
+      mime_type TEXT,
+      file_size INTEGER,
+      width INTEGER,
+      height INTEGER,
+      duration_seconds REAL,
+      downloadable INTEGER NOT NULL,
+      preview_jpeg_base64 TEXT,
+      metadata_json TEXT NOT NULL,
+      UNIQUE(message_id, attachment_index),
+      CHECK(attachment_index > 0),
+      CHECK(parent_attachment_index IS NULL OR parent_attachment_index > 0),
+      CHECK(downloadable IN (0, 1))
+    )`
+
+const CANONICAL_SCHEMA_SQL = new Map<string, string>([
+  ['table:messages', CANONICAL_MESSAGES_TABLE_SQL],
+  ['table:attachments', CANONICAL_ATTACHMENTS_TABLE_SQL],
+  ['index:idx_messages_chat_ts', 'CREATE INDEX idx_messages_chat_ts ON messages(chat_id, timestamp)'],
+  ['index:idx_messages_recent', 'CREATE INDEX idx_messages_recent ON messages(timestamp DESC, id DESC)'],
+  ['index:idx_messages_chat_recent', 'CREATE INDEX idx_messages_chat_recent ON messages(chat_id, timestamp DESC, id DESC)'],
+  ['index:idx_messages_content', 'CREATE INDEX idx_messages_content ON messages(content)'],
+  ['index:idx_messages_sender', 'CREATE INDEX idx_messages_sender ON messages(sender_name)'],
+  ['index:idx_attachments_message_order', 'CREATE INDEX idx_attachments_message_order ON attachments(message_id, attachment_index)'],
+  ['index:idx_attachments_kind', 'CREATE INDEX idx_attachments_kind ON attachments(kind)'],
+  ['index:idx_attachments_unique_file_id', `CREATE INDEX idx_attachments_unique_file_id
+      ON attachments(unique_file_id)
+      WHERE unique_file_id IS NOT NULL`],
+])
+
 type SchemaColumn = {
   name: string
   notnull: number
@@ -660,7 +725,8 @@ function hasCurrentSchema(db: Database.Database): boolean {
     sameSchemaColumns(tableColumns(db, 'attachments'), REQUIRED_ATTACHMENT_COLUMNS) &&
     hasIndexes(db, 'messages', REQUIRED_MESSAGE_INDEXES) &&
     hasIndexes(db, 'attachments', REQUIRED_ATTACHMENT_INDEXES) &&
-    hasAttachmentForeignKey(db)
+    hasAttachmentForeignKey(db) &&
+    hasCanonicalSchemaSql(db)
 }
 
 function tableColumns(db: Database.Database, table: string): SchemaColumn[] {
@@ -692,50 +758,24 @@ function hasAttachmentForeignKey(db: Database.Database): boolean {
   ))
 }
 
+function hasCanonicalSchemaSql(db: Database.Database): boolean {
+  for (const [key, expected] of CANONICAL_SCHEMA_SQL) {
+    const [type, name] = key.split(':') as ['table' | 'index', string]
+    const row = db.prepare('SELECT sql FROM sqlite_schema WHERE type = ? AND name = ?').get(type, name) as { sql: string | null } | undefined
+    if (normalizeSchemaSql(row?.sql) !== normalizeSchemaSql(expected)) return false
+  }
+  return true
+}
+
+function normalizeSchemaSql(sql: string | null | undefined): string {
+  return sql == null ? '' : sql.replace(/\s+/g, ' ').trim()
+}
+
 function createFreshSchema(db: Database.Database): void {
   db.exec(`
     BEGIN;
-    CREATE TABLE messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      platform TEXT NOT NULL,
-      chat_id INTEGER NOT NULL,
-      chat_name TEXT NOT NULL,
-      msg_id INTEGER NOT NULL,
-      sender_id INTEGER,
-      sender_name TEXT,
-      content TEXT,
-      timestamp TEXT NOT NULL,
-      reply_to_msg_id INTEGER,
-      media_group_id TEXT,
-      raw_json TEXT,
-      UNIQUE(platform, chat_id, msg_id)
-    );
-
-    CREATE TABLE attachments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-      attachment_index INTEGER NOT NULL,
-      parent_attachment_index INTEGER,
-      role TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      subtype TEXT,
-      file_id TEXT,
-      unique_file_id TEXT,
-      file_name TEXT,
-      mime_type TEXT,
-      file_size INTEGER,
-      width INTEGER,
-      height INTEGER,
-      duration_seconds REAL,
-      downloadable INTEGER NOT NULL,
-      preview_jpeg_base64 TEXT,
-      metadata_json TEXT NOT NULL,
-      UNIQUE(message_id, attachment_index),
-      CHECK(attachment_index > 0),
-      CHECK(parent_attachment_index IS NULL OR parent_attachment_index > 0),
-      CHECK(downloadable IN (0, 1))
-    );
-
+    ${CANONICAL_MESSAGES_TABLE_SQL};
+    ${CANONICAL_ATTACHMENTS_TABLE_SQL};
     CREATE INDEX idx_messages_chat_ts ON messages(chat_id, timestamp);
     CREATE INDEX idx_messages_recent ON messages(timestamp DESC, id DESC);
     CREATE INDEX idx_messages_chat_recent ON messages(chat_id, timestamp DESC, id DESC);

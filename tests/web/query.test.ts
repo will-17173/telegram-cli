@@ -288,6 +288,7 @@ describe('WebQueryService', () => {
         sender_name: 'Alice',
         content: 'album caption',
         timestamp: '2026-07-14T08:00:00.000Z',
+        media_group_id: 'album-1',
         raw_json: {
           grouped_id: 'album-1',
           media: {
@@ -305,6 +306,7 @@ describe('WebQueryService', () => {
         sender_name: 'Alice',
         content: null,
         timestamp: '2026-07-14T08:00:01.000Z',
+        media_group_id: 'album-1',
         raw_json: {
           grouped_id: 'album-1',
           media: { _: 'messageMediaDocument', document: { fileName: 'report.pdf', mimeType: 'application/pdf' } },
