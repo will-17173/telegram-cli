@@ -51,8 +51,10 @@ describe('DataService', () => {
         sender_name: 'Alice',
         content: 'Hello',
         timestamp: '2026-03-09T10:00:00.000Z',
+        reply_to_msg_id: null,
+        media_group_id: null,
         raw_json: null,
-        preview_jpeg_base64: null,
+        attachments: [],
       }],
       human: { kind: 'text', text: '[2026-03-09T10:00:00] Alice: Hello' },
     })

@@ -22,7 +22,8 @@ const client = vi.hoisted(() => ({
   })),
   fetchHistory: vi.fn(async ({ chat }: { chat: string | number }) => [{
     platform: 'telegram', chat_id: Number(chat) || 42, chat_name: String(chat), msg_id: 1,
-    sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
+    sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z',
+    reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
   }]),
   close: vi.fn(async () => undefined),
 }))
@@ -455,7 +456,8 @@ describe('Telegram command lifecycle', () => {
       onProgress?.(200)
       return [{
         platform: 'telegram', chat_id: Number(chat) || 42, chat_name: String(chat), msg_id: 1,
-        sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
+        sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z',
+        reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
       }]
     })
 
@@ -481,7 +483,8 @@ describe('Telegram command lifecycle', () => {
       onProgress?.(200)
       return [{
         platform: 'telegram', chat_id: Number(chat) || 42, chat_name: 'General', msg_id: 1,
-        sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
+        sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z',
+        reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
       }]
     })
 
@@ -529,7 +532,8 @@ describe('Telegram command lifecycle', () => {
       process.emit('SIGINT')
       return [{
         platform: 'telegram', chat_id: Number(chat) || 42, chat_name: 'General', msg_id: 1,
-        sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
+        sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z',
+        reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
       }]
     })
 
@@ -600,7 +604,8 @@ describe('Telegram command lifecycle', () => {
     ])
     client.fetchHistory.mockImplementationOnce(async () => [{
       platform: 'telegram', chat_id: 42, chat_name: 'General', msg_id: 1,
-      sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z', raw_json: null,
+      sender_id: 1, sender_name: 'Alice', content: 'Hello', timestamp: '2026-03-09T10:00:00.000Z',
+      reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
     }]).mockRejectedValueOnce(new Error('history unavailable'))
 
     const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
