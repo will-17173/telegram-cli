@@ -93,7 +93,7 @@ export class SyncService {
       if (!newerWrotePages) synced += this.upsertPage(newer).inserted
       progressBase = newer.length
 
-      const resolvedChatId = chatId
+      const resolvedChatId = chatId ?? this.db.resolveChatId(options.chat)
       const remaining = limit - newer.length
       const firstOffset = resolvedChatId == null ? null : this.db.getFirstMsgOffset(resolvedChatId)
       if (remaining > 0 && firstOffset != null) {

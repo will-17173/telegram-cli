@@ -204,7 +204,46 @@ describe('SyncService', () => {
 
     await sync.sync({ chat: 'TestGroup', limit: 5000, pageDelay: 1 })
 
-    expect(fake.fetchHistoryCalls.at(-1)).toMatchObject({ chat: 'TestGroup', limit: 500, minId: 0 })
+    expect(fake.fetchHistoryCalls[0]).toMatchObject({ chat: 'TestGroup', limit: 500, minId: 0 })
+    sync.close()
+  })
+
+  it('sync backfills older messages after the first fetched page creates the local chat mapping', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-resolve-after-page-')), 'messages.db'))
+    const newer = [
+      message({ msg_id: 10, content: 'first persisted newer page', timestamp: '2026-03-09T10:10:00.000Z' }),
+      message({ msg_id: 11, content: 'second persisted newer page', timestamp: '2026-03-09T10:11:00.000Z' }),
+    ]
+    const older = [
+      message({ msg_id: 7, content: 'older one', timestamp: '2026-03-09T10:07:00.000Z' }),
+      message({ msg_id: 8, content: 'older two', timestamp: '2026-03-09T10:08:00.000Z' }),
+      message({ msg_id: 9, content: 'older three', timestamp: '2026-03-09T10:09:00.000Z' }),
+    ]
+    const fetchHistory = vi.fn(async (options: FetchHistoryOptions) => {
+      const page = options.offset == null ? newer : older
+      options.onPage?.(page)
+      options.onProgress?.(page.length)
+      return page
+    })
+    const client = { fetchHistory } as unknown as TelegramClientAdapter
+    const sync = new SyncService(client, db)
+
+    const result = await sync.sync({ chat: 'TestGroup', limit: 5, pageDelay: 1 })
+
+    expect(result).toMatchObject({ ok: true, data: { synced: 5, chat: 'TestGroup' } })
+    expect(fetchHistory).toHaveBeenCalledTimes(2)
+    expect(fetchHistory).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      chat: 'TestGroup',
+      limit: 5,
+      minId: 0,
+    }))
+    expect(fetchHistory).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      chat: 'TestGroup',
+      limit: 3,
+      offset: { id: 10, date: Math.floor(Date.parse('2026-03-09T10:10:00.000Z') / 1000) },
+    }))
+    expect(db.getFirstMsgId(100)).toBe(7)
+    expect(db.getLastMsgId(100)).toBe(11)
     sync.close()
   })
 
