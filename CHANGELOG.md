@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-16
+
+### Added
+
+- Add `tg download` for downloading media from a single message, one attachment, message ranges, date ranges, full chats, and locally resolved Telegram albums.
+- Support explicit `tg download --chat <chat> --msg-id <id>` and `--grouped-id <id>` scopes, configurable output directories, and bounded download concurrency with flood-wait retry handling.
+- Show Telegram album `grouped_id` values and per-attachment message IDs in `tg web` so album downloads can be targeted from the local message browser.
+
+### Changed
+
+- Change `tg history <chat>` to backfill older messages from the oldest locally stored message instead of repeatedly starting from the newest Telegram messages.
+- Resolve `tg download --grouped-id` through the local message database before downloading media, avoiding unbounded Telegram history scans for album lookup.
+
+### Fixed
+
+- Prevent grouped media downloads from missing first-page albums due to mismatched grouped-id representations between local raw messages and Telegram adapter fields.
+
 ## [0.5.1] - 2026-07-15
 
 ### Changed
