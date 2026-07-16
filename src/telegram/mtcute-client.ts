@@ -4,7 +4,7 @@ import type {
   FullChat,
   Message,
 } from '@mtcute/node'
-import { FileLocation, MtPeerNotFoundError } from '@mtcute/node'
+import { MtPeerNotFoundError } from '@mtcute/node'
 import { TelegramSessionTerminatedError, type DownloadMessageMediaOptions, type TelegramChat, type TelegramClientAdapter, type TelegramUser, type FetchHistoryOptions, type SendMediaOptions, type SendMediaResult } from './types.js'
 import type { NormalizedMessage } from './media-types.js'
 import { MtcuteGroupManagement } from './mtcute-group-management.js'
@@ -13,13 +13,14 @@ import { createContactsAdapter } from './mtcute-contacts.js'
 import type { TelegramContactAdapter } from './contact-types.js'
 import { createDialogsAdapter } from './mtcute-dialogs.js'
 import type { TelegramDialogAdapter } from './dialog-types.js'
-import { normalizeMtcuteMessage } from './mtcute-message-normalizer.js'
+import { normalizeMtcuteMessage, normalizeMtcuteMessageWithLocations } from './mtcute-message-normalizer.js'
 import type { TelegramFolderAdapter } from './folder-types.js'
 import { createFoldersAdapter } from './mtcute-folders.js'
 import type { TelegramNotificationAdapter } from './notification-types.js'
 import { createNotificationsAdapter } from './mtcute-notifications.js'
-import { downloadableLocation, MtcuteArchive } from './mtcute-archive.js'
+import { MtcuteArchive } from './mtcute-archive.js'
 import type { TelegramArchiveAdapter } from './archive-types.js'
+import { AttachmentLookupError, matchFreshAttachment } from './attachment-locator.js'
 
 type PeerShape = {
   type: string
@@ -41,7 +42,6 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   readonly notifications: TelegramNotificationAdapter
   readonly folders: TelegramFolderAdapter
   private isReady = false
-  private readonly listenedMedia = new Map<string, FileLocation>()
 
   constructor(private readonly client: TelegramClient) {
     this.archive = new MtcuteArchive(client, () => this.ensureReady())
@@ -60,7 +60,6 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       throw error
     } finally {
       this.isReady = false
-      this.listenedMedia.clear()
     }
   }
 
@@ -190,14 +189,23 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   async downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void> {
     await this.ensureReady()
     const chat = normalizeChatId(options.chat)
-    let media = downloadableLocation(options.location) ?? this.listenedMedia.get(messageMediaKey(chat, options.msgId))
-    if (media == null) {
-      const [message] = await this.client.getMessages(chat, options.msgId)
-      if (message == null) throw new Error(`Message ${options.msgId} was not found`)
-      media = downloadableLocation(message.media) ?? undefined
+    const [message] = await this.client.getMessages(chat, options.msgId)
+    if (message == null) {
+      throw new AttachmentLookupError(
+        'attachment_changed',
+        `Message ${options.msgId} was not found`,
+      )
     }
-    if (!(media instanceof FileLocation)) throw new Error('This attachment cannot be downloaded')
-    await this.client.downloadToFile(options.destination, media, {
+    const normalized = normalizeMtcuteMessageWithLocations(message)
+    const fresh = matchFreshAttachment(options.attachment, normalized.message.attachments)
+    const location = normalized.locations.get(fresh.attachment_index)
+    if (location == null) {
+      throw new AttachmentLookupError(
+        fresh.downloadable ? 'attachment_changed' : 'attachment_not_downloadable',
+        `Attachment ${fresh.attachment_index} cannot be downloaded`,
+      )
+    }
+    await this.client.downloadToFile(options.destination, location, {
       progressCallback: options.onProgress,
     })
   }
@@ -292,7 +300,6 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
         if (settled || options.signal.aborted) return
         if (!matchesChatFilter(options.chats, message)) return
         try {
-          this.rememberListenedMedia(message)
           options.onMessage(normalizeMtcuteMessage(message))
         } catch (error) {
           fail(error)
@@ -335,17 +342,6 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     this.isReady = true
   }
 
-  private rememberListenedMedia(message: Message): void {
-    if (!(message.media instanceof FileLocation)) return
-    const key = messageMediaKey(message.chat.id, message.id)
-    this.listenedMedia.delete(key)
-    this.listenedMedia.set(key, message.media)
-    if (this.listenedMedia.size > 5000) {
-      const oldest = this.listenedMedia.keys().next().value
-      if (oldest != null) this.listenedMedia.delete(oldest)
-    }
-  }
-
   private async fetchFullChat(chat: string | number): Promise<FullChat | null> {
     try {
       return await this.client.getFullChat(normalizeChatId(chat))
@@ -384,10 +380,6 @@ function normalizeChatId(chat: string | number): string | number {
   if (trimmed === '') return chat
   const numeric = Number.parseInt(trimmed, 10)
   return Number.isNaN(numeric) ? chat : String(numeric) === trimmed ? numeric : chat
-}
-
-function messageMediaKey(chat: string | number, msgId: number): string {
-  return `${chat}:${msgId}`
 }
 
 function inputMediaForFile(file: string, caption?: string) {

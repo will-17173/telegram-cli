@@ -107,12 +107,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   readonly sendMediaCalls: SendMediaOptions[] = []
   readonly editMessageCalls: Array<{ chat: string | number; msgId: number; text: string; linkPreview: boolean }> = []
   readonly deleteMessagesCalls: Array<{ chat: string | number; msgIds: number[] }> = []
-  readonly archiveDownloadCalls: Array<{
-    chat: string | number
-    messageId: number
-    destination: string
-    onProgress?: (done: number, total: number) => void
-  }> = []
+  readonly archiveDownloadCalls: DownloadMessageMediaOptions[] = []
 
   private readonly chats: TelegramChat[]
   private readonly messagesByChat: Record<string, StoredMessageInput[]>
@@ -403,15 +398,21 @@ export class FakeTelegramClient implements TelegramClientAdapter {
       downloadMedia: async (input) => {
         this.archiveDownloadCalls.push({ ...input })
         const chat = this.findChat(input.chat)
-        const specific = `${String(input.chat)}:${input.messageId}`
-        const namedSpecific = chat == null ? '' : `${chat.name}:${input.messageId}`
+        const specific = `${String(input.chat)}:${input.msgId}:${input.attachment.attachment_index}`
+        const messageSpecific = `${String(input.chat)}:${input.msgId}`
+        const namedSpecific = chat == null ? '' : `${chat.name}:${input.msgId}:${input.attachment.attachment_index}`
+        const namedMessageSpecific = chat == null ? '' : `${chat.name}:${input.msgId}`
         const failure = this.archiveMediaFailures[specific]
+          ?? this.archiveMediaFailures[messageSpecific]
           ?? this.archiveMediaFailures[namedSpecific]
+          ?? this.archiveMediaFailures[namedMessageSpecific]
           ?? this.archiveMediaFailures[String(input.chat)]
           ?? (chat == null ? undefined : this.archiveMediaFailures[chat.name])
         if (failure) throw failure
         const bytes = this.archiveMediaByMessage[specific]
+          ?? this.archiveMediaByMessage[messageSpecific]
           ?? this.archiveMediaByMessage[namedSpecific]
+          ?? this.archiveMediaByMessage[namedMessageSpecific]
           ?? new Uint8Array([0x74, 0x67])
         await writeFile(input.destination, bytes)
         const size = typeof bytes === 'string' ? Buffer.byteLength(bytes) : bytes.byteLength
@@ -652,7 +653,8 @@ function cloneContact(contact: TelegramContact): TelegramContact {
 function cloneArchiveMessage(message: ArchiveMessage): ArchiveMessage {
   return {
     ...message,
-    attachment: message.attachment == null ? null : { ...message.attachment },
+    raw_json: cloneJsonValue(message.raw_json),
+    attachments: message.attachments.map(cloneAttachment),
   }
 }
 

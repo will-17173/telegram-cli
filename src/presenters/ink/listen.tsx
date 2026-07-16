@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
 import type { TelegramClientAdapter } from '../../telegram/types.js'
+import { toAttachmentLocator } from '../../telegram/attachment-locator.js'
 import type { StoredMessageInput } from '../../storage/message-db.js'
 import {
   attachmentDownloadProgress,
@@ -1421,8 +1422,9 @@ export function InteractiveListen({
       if (isCurrent()) setDownloadStates((current) => ({ ...current, [item.key]: { status: 'downloading', progress: 0 } }))
       await client.downloadMessageMedia({
         ...attachmentDownloadTarget(item.attachment),
+        attachment: toAttachmentLocator(item.attachment),
         destination,
-        onProgress: (downloaded, total) => {
+        onProgress: (downloaded: number, total: number) => {
           if (!isCurrent()) return
           const progress = attachmentDownloadProgress(downloaded, total)
           setDownloadStates((current) => ({ ...current, [item.key]: { status: 'downloading', progress } }))

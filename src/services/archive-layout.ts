@@ -43,7 +43,7 @@ export function archiveChatFile(chatId: number, title: string): string {
   return `${id}-${slug}.md`
 }
 
-function mediaBasename(filename: string, messagePrefix: string): string {
+function mediaBasename(filename: string, mediaPrefix: string): string {
   const basename = filename.replace(/\\/gu, '/').split('/').at(-1) ?? ''
   const extensionIndex = basename.lastIndexOf('.')
   const hasExtension = extensionIndex > 0 && extensionIndex < basename.length - 1
@@ -56,7 +56,7 @@ function mediaBasename(filename: string, messagePrefix: string): string {
     stem = `file-${stem}`
   }
 
-  const reservedBytes = Buffer.byteLength(messagePrefix)
+  const reservedBytes = Buffer.byteLength(mediaPrefix)
     + (extension ? Buffer.byteLength(extension) + 1 : 0)
   stem = truncateUtf8(stem, MAX_FILENAME_BYTES - reservedBytes) || 'file'
 
@@ -66,10 +66,12 @@ function mediaBasename(filename: string, messagePrefix: string): string {
 export function archiveMediaFile(
   chatId: number,
   messageId: number,
+  attachmentIndex: number,
   filename: string,
 ): string {
   const chat = safeInteger(chatId, 'chat_id')
   const message = safeInteger(messageId, 'message_id')
-  const messagePrefix = `${message}-`
-  return posix.join('media', chat, `${messagePrefix}${mediaBasename(filename, messagePrefix)}`)
+  const attachment = safeInteger(attachmentIndex, 'attachment_index')
+  const mediaPrefix = `${message}-${attachment}-`
+  return posix.join('media', chat, `${mediaPrefix}${mediaBasename(filename, mediaPrefix)}`)
 }

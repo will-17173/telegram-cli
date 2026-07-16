@@ -28,7 +28,7 @@ function temporaryDirectory(): string {
 
 function manifestFor(userId: number): ArchiveManifest {
   return {
-    schema_version: 1,
+    schema_version: 2,
     account_name: 'main',
     account_user_id: userId,
     created_at: '2026-07-01T00:00:00.000Z',
@@ -80,7 +80,7 @@ describe('archive manifest', () => {
 
   it('rejects unsupported schema versions', () => {
     const path = join(temporaryDirectory(), 'archive-manifest.json')
-    writeFileSync(path, JSON.stringify({ ...manifestFor(42), schema_version: 2 }))
+    writeFileSync(path, JSON.stringify({ ...manifestFor(42), schema_version: 1 }))
 
     expect(() => readArchiveManifest(path)).toThrow('archive_schema_unsupported')
   })

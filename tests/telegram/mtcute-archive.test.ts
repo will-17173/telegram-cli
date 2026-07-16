@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { MtcuteArchive } from '../../src/telegram/mtcute-archive.js'
 import { FakeTelegramClient } from '../../src/telegram/fake-client.js'
 import type { ArchiveMessage } from '../../src/telegram/archive-types.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 
 describe('MtcuteArchive', () => {
   it('streams bounded history pages in newest-first order', async () => {
@@ -62,9 +63,9 @@ describe('MtcuteArchive', () => {
 
     const pages = await collect(adapter.iterHistoryPages({ chat: 100 }))
 
-    expect(pages.flat().map(item => item.attachment)).toEqual([
-      { type: 'document', file_name: 'report.pdf', file_size: 12, downloadable: true },
-      { type: 'poll', file_name: null, file_size: null, downloadable: false },
+    expect(pages.flat().map(item => item.attachments[0])).toMatchObject([
+      { kind: 'document', file_name: 'report.pdf', file_size: 12, downloadable: true },
+      { kind: 'poll', file_name: null, file_size: null, downloadable: false },
     ])
   })
 
@@ -76,16 +77,16 @@ describe('MtcuteArchive', () => {
     const before = await stat(destination)
     const downloadAsNodeStream = vi.fn(() => Readable.from([Buffer.from('photo bytes')]))
     const client = mockClient({
-      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', mediaDocument(location))]),
       downloadAsNodeStream,
     })
     const adapter = new MtcuteArchive(client, async () => undefined)
     const onProgress = vi.fn()
 
     try {
-      await adapter.downloadMedia({ chat: '@team', messageId: 3, destination, onProgress })
+      await adapter.downloadMedia({ chat: '@team', msgId: 3, attachment: documentLocator(), destination, onProgress })
 
-      expect(downloadAsNodeStream).toHaveBeenCalledWith(location, { progressCallback: onProgress })
+      expect(downloadAsNodeStream).toHaveBeenCalledWith(expect.any(FileLocation), { progressCallback: onProgress })
       expect(await readFile(destination, 'utf8')).toBe('photo bytes')
       expect((await stat(destination)).ino).toBe(before.ino)
     } finally {
@@ -103,7 +104,7 @@ describe('MtcuteArchive', () => {
     await writeFile(destination, '')
     await writeFile(outside, 'sentinel')
     const client = mockClient({
-      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', mediaDocument(location))]),
       downloadAsNodeStream: vi.fn(() => {
         unlinkSync(destination)
         symlinkSync(outside, destination)
@@ -113,7 +114,7 @@ describe('MtcuteArchive', () => {
 
     try {
       await expect(new MtcuteArchive(client, async () => undefined).downloadMedia({
-        chat: '@team', messageId: 3, destination,
+        chat: '@team', msgId: 3, attachment: documentLocator(), destination,
       })).rejects.toMatchObject({ code: expect.stringMatching(/^(?:ELOOP|EFTYPE)$/u) })
 
       expect(await readFile(outside, 'utf8')).toBe('sentinel')
@@ -135,7 +136,7 @@ describe('MtcuteArchive', () => {
     const open = vi.fn()
     const source = Readable.from([Buffer.from('hostile bytes')])
     const client = mockClient({
-      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', mediaDocument(location))]),
       downloadAsNodeStream: vi.fn(() => source),
     })
     const adapter = new MtcuteArchive(client, async () => undefined, 100, {
@@ -144,7 +145,7 @@ describe('MtcuteArchive', () => {
     })
 
     try {
-      await expect(adapter.downloadMedia({ chat: '@team', messageId: 3, destination }))
+      await expect(adapter.downloadMedia({ chat: '@team', msgId: 3, attachment: documentLocator(), destination }))
         .rejects.toThrow('archive_no_follow_unavailable')
 
       expect(open).not.toHaveBeenCalled()
@@ -168,7 +169,7 @@ describe('MtcuteArchive', () => {
       yield Buffer.from('second')
     })()))
     const client = mockClient({
-      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', mediaDocument(location))]),
       downloadAsNodeStream,
     })
     const onProgress = vi.fn()
@@ -176,7 +177,7 @@ describe('MtcuteArchive', () => {
 
     try {
       const pending = new MtcuteArchive(client, async () => undefined)
-        .downloadMedia({ chat: '@team', messageId: 3, destination, onProgress })
+        .downloadMedia({ chat: '@team', msgId: 3, attachment: documentLocator(), destination, onProgress })
         .finally(() => { settled = true })
       await new Promise(resolve => setImmediate(resolve))
       expect(settled).toBe(false)
@@ -184,7 +185,7 @@ describe('MtcuteArchive', () => {
       await pending
 
       expect(await readFile(destination, 'utf8')).toBe('first second')
-      expect(downloadAsNodeStream).toHaveBeenCalledWith(location, { progressCallback: onProgress })
+      expect(downloadAsNodeStream).toHaveBeenCalledWith(expect.any(FileLocation), { progressCallback: onProgress })
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
@@ -194,7 +195,7 @@ describe('MtcuteArchive', () => {
     const client = mockClient({ getMessages: vi.fn().mockResolvedValue([]) })
     const adapter = new MtcuteArchive(client, async () => undefined)
 
-    await expect(adapter.downloadMedia({ chat: '@team', messageId: 404, destination: '/tmp/missing' }))
+    await expect(adapter.downloadMedia({ chat: '@team', msgId: 404, attachment: documentLocator(), destination: '/tmp/missing' }))
       .rejects.toThrow('Message 404 was not found')
     expect(client.downloadAsNodeStream).not.toHaveBeenCalled()
   })
@@ -206,7 +207,7 @@ describe('MtcuteArchive', () => {
     await writeFile(destination, '')
     const failure = new tl.RpcError(420, 'FLOOD_WAIT_12')
     const client = mockClient({
-      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', location)]),
+      getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', mediaDocument(location))]),
       downloadAsNodeStream: vi.fn(() => Readable.from((async function* () {
         yield Buffer.from('partial')
         throw failure
@@ -215,7 +216,7 @@ describe('MtcuteArchive', () => {
 
     try {
       await expect(new MtcuteArchive(client, async () => undefined).downloadMedia({
-        chat: '@team', messageId: 3, destination,
+        chat: '@team', msgId: 3, attachment: documentLocator(), destination,
       })).rejects.toBe(failure)
     } finally {
       await rm(directory, { recursive: true, force: true })
@@ -228,8 +229,8 @@ describe('MtcuteArchive', () => {
     })
     const adapter = new MtcuteArchive(client, async () => undefined)
 
-    await expect(adapter.downloadMedia({ chat: '@team', messageId: 3, destination: '/tmp/poll' }))
-      .rejects.toThrow('This attachment cannot be downloaded')
+    await expect(adapter.downloadMedia({ chat: '@team', msgId: 3, attachment: documentLocator(), destination: '/tmp/poll' }))
+      .rejects.toThrow('Attachment 1 no longer matches fresh media')
   })
 
   it('propagates flood waits from history iteration', async () => {
@@ -299,7 +300,7 @@ describe('FakeTelegramClient archive adapter', () => {
     const configuredPages = await collect(configured.archive.iterHistoryPages({ chat: 100 }))
     expect(configuredPages).toEqual([[archived]])
     expect(configuredPages[0]![0]).not.toBe(archived)
-    expect(configuredPages[0]![0]!.attachment).not.toBe(archived.attachment)
+    expect(configuredPages[0]![0]!.attachments[0]).not.toBe(archived.attachments[0])
   })
 
   it('supports configured history and media failures', async () => {
@@ -312,7 +313,7 @@ describe('FakeTelegramClient archive adapter', () => {
     })
 
     await expect(collect(client.archive.iterHistoryPages({ chat: 100 }))).rejects.toBe(historyFailure)
-    await expect(client.archive.downloadMedia({ chat: 100, messageId: 3, destination: '/tmp/3' }))
+    await expect(client.archive.downloadMedia({ chat: 100, msgId: 3, attachment: documentLocator(), destination: '/tmp/3' }))
       .rejects.toBe(mediaFailure)
   })
 
@@ -327,7 +328,7 @@ describe('FakeTelegramClient archive adapter', () => {
     })
 
     try {
-      await client.archive.downloadMedia({ chat: 100, messageId: 3, destination, onProgress })
+      await client.archive.downloadMedia({ chat: 100, msgId: 3, attachment: documentLocator(), destination, onProgress })
 
       expect(await readFile(destination)).toEqual(Buffer.from(bytes))
       expect(onProgress).toHaveBeenCalledWith(bytes.byteLength, bytes.byteLength)
@@ -395,21 +396,71 @@ function mockClient(overrides: Record<string, unknown>): TelegramClient {
 
 function archiveMessage(id: number): ArchiveMessage {
   return {
+    platform: 'telegram',
     chat_id: 100,
+    chat_name: 'Team',
     msg_id: id,
     timestamp: `2026-07-13T00:00:0${id}.000Z`,
     sender_id: 7,
     sender_name: 'Alice',
-    text: `Message ${id}`,
+    content: `Message ${id}`,
     reply_to_msg_id: null,
     media_group_id: null,
-    attachment: {
-      type: 'document',
-      file_name: 'report.pdf',
-      file_size: 12,
-      downloadable: true,
-    },
+    raw_json: null,
+    attachments: [archiveAttachment()],
   }
+}
+
+function archiveAttachment(): Attachment {
+  return {
+    attachment_index: 1,
+    parent_attachment_index: null,
+    role: 'primary',
+    kind: 'document',
+    subtype: null,
+    downloadable: true,
+    file_id: 'file-1',
+    unique_file_id: null,
+    file_name: 'report.pdf',
+    mime_type: null,
+    file_size: 12,
+    width: null,
+    height: null,
+    duration_seconds: null,
+    thumbnail_file_id: null,
+    thumbnail_unique_file_id: null,
+    thumbnail_width: null,
+    thumbnail_height: null,
+    emoji: null,
+    title: null,
+    performer: null,
+    latitude: null,
+    longitude: null,
+    address: null,
+    phone_number: null,
+    url: null,
+    preview_jpeg_base64: null,
+    metadata: {},
+  }
+}
+
+function documentLocator() {
+  return {
+    attachment_index: 1,
+    unique_file_id: null,
+    kind: 'document' as const,
+    role: 'primary',
+    file_name: 'report.pdf',
+    mime_type: null,
+    file_size: 12,
+    width: null,
+    height: null,
+    duration_seconds: null,
+  }
+}
+
+function mediaDocument(_location: FileLocation): TestDocument {
+  return new TestDocument(new Uint8Array([1, 2, 3]), 12, 'report.pdf')
 }
 
 class TestDocument extends FileLocation {

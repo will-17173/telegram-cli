@@ -18,6 +18,7 @@ import { renderArchiveMessage } from '../../src/services/archive-markdown.js'
 import { ArchiveService, type ArchiveServiceInput } from '../../src/services/archive-service.js'
 import type { ArchiveCommandResult, ArchiveManifest } from '../../src/services/archive-types.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../../src/telegram/archive-types.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 
 const directories: string[] = []
 
@@ -35,15 +36,52 @@ function outputDirectory(): string {
 
 function message(id: number, chatId = -100, timestamp = `2026-07-${String(id).padStart(2, '0')}T12:00:00.000Z`): ArchiveMessage {
   return {
+    platform: 'telegram',
     chat_id: chatId,
+    chat_name: 'Team',
     msg_id: id,
     timestamp,
     sender_id: 10,
     sender_name: 'Alice',
-    text: `message ${id}`,
+    content: `message ${id}`,
     reply_to_msg_id: null,
     media_group_id: null,
-    attachment: null,
+    raw_json: null,
+    attachments: [],
+  }
+}
+
+function attachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    attachment_index: 1,
+    parent_attachment_index: null,
+    role: 'primary',
+    kind: 'document',
+    subtype: null,
+    downloadable: true,
+    file_id: 'file-1',
+    unique_file_id: 'unique-1',
+    file_name: 'report.pdf',
+    mime_type: 'application/pdf',
+    file_size: 10,
+    width: null,
+    height: null,
+    duration_seconds: null,
+    thumbnail_file_id: null,
+    thumbnail_unique_file_id: null,
+    thumbnail_width: null,
+    thumbnail_height: null,
+    emoji: null,
+    title: null,
+    performer: null,
+    latitude: null,
+    longitude: null,
+    address: null,
+    phone_number: null,
+    url: null,
+    preview_jpeg_base64: null,
+    metadata: {},
+    ...overrides,
   }
 }
 
@@ -89,7 +127,7 @@ function input(output: string, overrides: Partial<ArchiveServiceInput> = {}): Ar
 
 function existingManifest(output: string, overrides: Partial<ArchiveManifest['chats'][string]> = {}): void {
   const manifest: ArchiveManifest = {
-    schema_version: 1,
+    schema_version: 2,
     account_name: 'main',
     account_user_id: 42,
     created_at: '2026-07-01T00:00:00.000Z',
@@ -116,7 +154,7 @@ describe('ArchiveService', () => {
     const output = outputDirectory()
     const source = sourceFor()
     const manifest = {
-      schema_version: 1,
+      schema_version: 2,
       account_name: 'main',
       account_user_id: 42,
       created_at: '2026-07-01T00:00:00.000Z',
@@ -163,9 +201,7 @@ describe('ArchiveService', () => {
     const output = outputDirectory()
     const attached = {
       ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-      attachment: {
-        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
-      },
+      attachments: [attachment({ file_name: 'report.pdf', file_size: 3 })],
     }
     const source = sourceFor(undefined, { [-100]: [[attached]] })
     const expired = authSessionError()
@@ -254,12 +290,7 @@ describe('ArchiveService', () => {
     const output = outputDirectory()
     const attached = {
       ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-      attachment: {
-        type: 'document',
-        file_name: 'report.pdf',
-        file_size: 123,
-        downloadable: true,
-      },
+      attachments: [attachment({ file_name: 'report.pdf', file_size: 123 })],
     }
     const source = sourceFor(undefined, { [-100]: [[attached]] })
     source.downloadMedia.mockRejectedValue(new Error('/secret/session.tmp failed'))
@@ -288,9 +319,7 @@ describe('ArchiveService', () => {
     const output = outputDirectory()
     const attached = {
       ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-      attachment: {
-        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
-      },
+      attachments: [attachment({ file_name: 'report.pdf', file_size: 3 })],
     }
     const source = sourceFor(undefined, { [-100]: [[attached]] })
     source.downloadMedia
@@ -306,7 +335,7 @@ describe('ArchiveService', () => {
     const secondMarkdown = readFileSync(join(output, '-100-team.md'), 'utf8')
 
     expect(first).toMatchObject({ ok: false, error: { code: 'archive_partial_failure' } })
-    expect(firstMarkdown).toContain('(media/-100/40-report.pdf)')
+    expect(firstMarkdown).toContain('(media/-100/40-1-report.pdf)')
     expect(second).toMatchObject({
       ok: true,
       data: { completed: [expect.objectContaining({ messages_archived: 0, media_archived: 1 })] },
@@ -314,7 +343,7 @@ describe('ArchiveService', () => {
     expect([...secondMarkdown.matchAll(/id=(\d+)/gu)].map((match) => Number(match[1])))
       .toEqual([40])
     expect(source.downloadMedia).toHaveBeenCalledTimes(2)
-    expect(readFileSync(join(output, 'media', '-100', '40-report.pdf'), 'utf8')).toBe('pdf')
+    expect(readFileSync(join(output, 'media', '-100', '40-1-report.pdf'), 'utf8')).toBe('pdf')
     expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats['-100']?.last_message_id)
       .toBe(40)
   })
@@ -327,13 +356,15 @@ describe('ArchiveService', () => {
     writeFileSync(outside, 'keep')
     const archived = {
       ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-      attachment: {
-        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
-      },
+      attachments: [attachment({ file_name: 'report.pdf', file_size: 3 })],
     }
     writeFileSync(
       join(output, '-100-team.md'),
-      `${renderArchiveMessage(archived, `../${basename(otherOutput)}/victim.pdf`)}\n`,
+      `${renderArchiveMessage(archived, [{
+        attachment: archived.attachments[0]!,
+        status: 'downloaded',
+        path: `../${basename(otherOutput)}/victim.pdf`,
+      }])}\n`,
     )
     const source = sourceFor(undefined, { [-100]: [] })
 
@@ -352,7 +383,7 @@ describe('ArchiveService', () => {
       writeFileSync(sentinel, 'keep')
       const mediaDirectory = join(output, 'media')
       const chatDirectory = join(mediaDirectory, '-100')
-      const destination = join(chatDirectory, '40-report.pdf')
+      const destination = join(chatDirectory, '40-1-report.pdf')
       if (layer === 'media directory') {
         symlinkSync(outside, mediaDirectory, 'dir')
       } else if (layer === 'chat directory') {
@@ -364,9 +395,7 @@ describe('ArchiveService', () => {
       }
       const attached = {
         ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-        attachment: {
-          type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
-        },
+        attachments: [attachment({ file_name: 'report.pdf', file_size: 3 })],
       }
       const source = sourceFor(undefined, { [-100]: [[attached]] })
       source.downloadMedia.mockImplementation(async ({ destination: target }: { destination: string }) => {
@@ -399,9 +428,7 @@ describe('ArchiveService', () => {
     writeFileSync(sentinel, 'keep')
     const attached = {
       ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-      attachment: {
-        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
-      },
+      attachments: [attachment({ file_name: 'report.pdf', file_size: 3 })],
     }
     const source = sourceFor(undefined, { [-100]: [[attached]] })
     source.downloadMedia.mockRejectedValueOnce(new Error('first download failed'))
@@ -429,9 +456,7 @@ describe('ArchiveService', () => {
     const output = outputDirectory()
     const attached = {
       ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-      attachment: {
-        type: 'document', file_name: '../report.pdf', file_size: 3, downloadable: true,
-      },
+      attachments: [attachment({ file_name: '../report.pdf', file_size: 3 })],
     }
     const source = sourceFor(undefined, { [-100]: [[attached]] })
     source.downloadMedia.mockImplementation(async ({ destination }: { destination: string }) => {
@@ -442,10 +467,10 @@ describe('ArchiveService', () => {
     const first = await service.archive(input(output, { full: true, media: true }))
     const second = await service.archive(input(output, { full: true, media: true, rebuild: true }))
 
-    const mediaPath = join(output, 'media', '-100', '40-report.pdf')
+    const mediaPath = join(output, 'media', '-100', '40-1-report.pdf')
     expect(readFileSync(mediaPath, 'utf8')).toBe('pdf')
     expect(readFileSync(join(output, '-100-team.md'), 'utf8'))
-      .toContain('(media/-100/40-report.pdf)')
+      .toContain('(media/-100/40-1-report.pdf)')
     expect(source.downloadMedia).toHaveBeenCalledTimes(1)
     expect(archiveDetails(first).completed[0]?.media_archived).toBe(1)
     expect(archiveDetails(second).completed[0]?.media_archived).toBe(1)
@@ -457,7 +482,7 @@ describe('ArchiveService', () => {
     const fileName = `${'文件'.repeat(300)}.PDF. `
     const attached = {
       ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-      attachment: { type: 'document', file_name: fileName, file_size: 3, downloadable: true },
+      attachments: [attachment({ file_name: fileName, file_size: 3 })],
     }
     const source = sourceFor(undefined, { [-100]: [[attached]] })
     source.downloadMedia
@@ -470,12 +495,12 @@ describe('ArchiveService', () => {
     await service.archive(input(output, { full: true, media: true }))
     const retry = await service.archive(input(output, { full: true, media: true }))
 
-    const relativePath = archiveMediaFile(-100, 40, fileName)
+    const relativePath = archiveMediaFile(-100, 40, 1, fileName)
     const component = relativePath.split('/').at(-1)!
     expect(Buffer.byteLength(component)).toBeLessThanOrEqual(255)
     expect(readFileSync(join(output, '-100-team.md'), 'utf8')).toContain(`](${relativePath})`)
     const attachmentLine = readFileSync(join(output, '-100-team.md'), 'utf8')
-      .split('\n').find((line) => line.startsWith('Attachment:'))!
+      .split('\n').find((line) => line.startsWith('Attachment #'))!
     expect(Buffer.byteLength(attachmentLine)).toBeLessThan(4096)
     expect(retry).toMatchObject({
       ok: true,
@@ -491,7 +516,7 @@ describe('ArchiveService', () => {
     writeFileSync(sentinel, 'keep')
     const attached = {
       ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-      attachment: { type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true },
+      attachments: [attachment({ file_name: 'report.pdf', file_size: 3 })],
     }
     const source = sourceFor(undefined, { [-100]: [[attached]] })
     let stagingPath = ''
@@ -516,9 +541,7 @@ describe('ArchiveService', () => {
     const output = outputDirectory()
     const attached = {
       ...message(40, -100, '2026-07-10T12:00:00.000Z'),
-      attachment: {
-        type: 'document', file_name: 'report.pdf', file_size: 3, downloadable: true,
-      },
+      attachments: [attachment({ file_name: 'report.pdf', file_size: 3 })],
     }
     const source = sourceFor(undefined, { [-100]: [[attached]] })
 
@@ -722,7 +745,7 @@ describe('ArchiveService', () => {
     const oldArchive = '# old archive\n'
     writeFileSync(join(output, '-200-broken.md'), oldArchive)
     const existing: ArchiveManifest = {
-      schema_version: 1,
+      schema_version: 2,
       account_name: 'main',
       account_user_id: 42,
       created_at: '2026-07-01T00:00:00.000Z',

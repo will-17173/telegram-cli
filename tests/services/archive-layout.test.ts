@@ -44,22 +44,23 @@ describe('archive layout', () => {
   })
 
   it('builds a basename-only relative POSIX media path', () => {
-    expect(archiveMediaFile(-100123, 42, '../../report.pdf'))
-      .toBe('media/-100123/42-report.pdf')
+    expect(archiveMediaFile(-100123, 42, 1, '../../report.pdf'))
+      .toBe('media/-100123/42-1-report.pdf')
   })
 
   it('sanitizes unsafe and reserved media filenames', () => {
-    expect(archiveMediaFile(-100123, 42, '..\\..\\CON'))
-      .toBe('media/-100123/42-file-con')
-    expect(archiveMediaFile(-100123, 43, '.')).toBe('media/-100123/43-file')
-    expect(archiveMediaFile(-100123, 44, 'bad\u0000name?.txt'))
-      .toBe('media/-100123/44-bad-name.txt')
+    expect(archiveMediaFile(-100123, 42, 1, '..\\..\\CON'))
+      .toBe('media/-100123/42-1-file-con')
+    expect(archiveMediaFile(-100123, 43, 2, '.')).toBe('media/-100123/43-2-file')
+    expect(archiveMediaFile(-100123, 44, 3, 'bad\u0000name?.txt'))
+      .toBe('media/-100123/44-3-bad-name.txt')
   })
 
   it('caps multibyte media filename components by UTF-8 bytes', () => {
     const path = archiveMediaFile(
       -100123,
       Number.MAX_SAFE_INTEGER,
+      1,
       `${'文件'.repeat(100)}.${'扩展'.repeat(100)}`,
     )
     const components = path.split('/')
@@ -69,9 +70,9 @@ describe('archive layout', () => {
   })
 
   it('normalizes equivalent Unicode and portable trailing/reserved forms deterministically', () => {
-    expect(archiveMediaFile(-100, 40, 'Cafe\u0301.txt'))
-      .toBe(archiveMediaFile(-100, 40, 'Café.txt'))
-    expect(archiveMediaFile(-100, 40, 'report. ')).toBe('media/-100/40-report')
-    expect(archiveMediaFile(-100, 40, 'NUL.txt.')).toBe('media/-100/40-nul-txt')
+    expect(archiveMediaFile(-100, 40, 1, 'Cafe\u0301.txt'))
+      .toBe(archiveMediaFile(-100, 40, 1, 'Café.txt'))
+    expect(archiveMediaFile(-100, 40, 1, 'report. ')).toBe('media/-100/40-1-report')
+    expect(archiveMediaFile(-100, 40, 1, 'NUL.txt.')).toBe('media/-100/40-1-nul-txt')
   })
 })

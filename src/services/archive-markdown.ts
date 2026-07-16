@@ -1,6 +1,7 @@
 import { StringDecoder } from 'node:string_decoder'
 import { posix } from 'node:path'
 import type { ArchiveMessage } from '../telegram/archive-types.js'
+import type { Attachment } from '../telegram/media-types.js'
 import { archiveMediaFile } from './archive-layout.js'
 
 export type { ArchiveMessage } from '../telegram/archive-types.js'
@@ -11,8 +12,19 @@ const MESSAGE_ID_PREFIX = ' id='
 const MESSAGE_MARKER_SUFFIX = ' -->'
 const MAX_MESSAGE_MARKER_LENGTH = `<!-- tg:message chat=-${Number.MAX_SAFE_INTEGER} id=${Number.MAX_SAFE_INTEGER} -->`.length
 const MAX_ARCHIVE_MEDIA_LINE_LENGTH = 4096
-const ARCHIVE_MEDIA_LINE = /^Attachment: \[(?:\\.|[^\\\]])*\]\((media\/(?:\\.|[^\\)])+)\); type: .*; size: (?:unknown|-?(?:0|[1-9]\d*) bytes); downloadable: yes$/u
-const ARCHIVE_MEDIA_PATH = /^media\/(-?(?:0|[1-9]\d*))\/([1-9]\d*)-(.+)$/u
+const ARCHIVE_MEDIA_LINE = /^Attachment #[1-9]\d*: \[(?:\\.|[^\\\]])*\]\((media\/(?:\\.|[^\\)])+)\); type: .*; role: .*; size: (?:unknown|-?(?:0|[1-9]\d*) bytes); status: (?:downloaded|reused|failed); downloadable: yes$/u
+const ARCHIVE_MEDIA_PATH = /^media\/(-?(?:0|[1-9]\d*))\/([1-9]\d*)-([1-9]\d*)-(.+)$/u
+
+export type ArchiveAttachmentRenderState = {
+  attachment: Attachment
+  status:
+    | 'downloaded'
+    | 'reused'
+    | 'not_downloadable'
+    | 'not_requested'
+    | 'failed'
+  path?: string
+}
 
 function safeInteger(value: number, label: string): string {
   if (!Number.isSafeInteger(value)) {
@@ -91,9 +103,9 @@ function senderName(message: ArchiveMessage): string {
   return 'Unknown sender'
 }
 
-function mediaLabel(message: ArchiveMessage, mediaPath: string): string {
+function mediaLabel(mediaPath: string): string {
   const basename = posix.basename(mediaPath.replaceAll('\\', '/'))
-  return basename.replace(/^\d+-/u, '') || 'attachment'
+  return basename.replace(/^\d+-\d+-/u, '') || 'attachment'
 }
 
 function escapeLinkDestination(value: string): string {
@@ -104,19 +116,16 @@ function escapeLinkDestination(value: string): string {
     .replaceAll(' ', '%20')
 }
 
-function renderAttachment(message: ArchiveMessage, mediaPath?: string): string | null {
-  const attachment = message.attachment
-  if (attachment == null && mediaPath == null) return null
-
-  const label = mediaPath == null
-    ? escapeMarkdownSingleLine(attachment?.file_name ?? 'unnamed attachment')
-    : `[${escapeMarkdownSingleLine(mediaLabel(message, mediaPath))}](${escapeLinkDestination(mediaPath)})`
-  if (attachment == null) return `Attachment: ${label}`
-
+function renderAttachmentState(state: ArchiveAttachmentRenderState): string {
+  const { attachment } = state
+  const label = state.path == null
+    ? escapeMarkdownSingleLine(attachment.file_name ?? 'unnamed attachment')
+    : `[${escapeMarkdownSingleLine(mediaLabel(state.path))}](${escapeLinkDestination(state.path)})`
   const size = attachment.file_size == null
     ? 'unknown'
     : `${safeInteger(attachment.file_size, 'file_size')} bytes`
-  return `Attachment: ${label}; type: ${escapeMarkdownSingleLine(attachment.type)}; size: ${size}; downloadable: ${attachment.downloadable ? 'yes' : 'no'}`
+  const status = state.status.replaceAll('_', '-')
+  return `Attachment #${safeInteger(attachment.attachment_index, 'attachment_index')}: ${label}; type: ${escapeMarkdownSingleLine(attachment.kind)}; role: ${escapeMarkdownSingleLine(attachment.role)}; size: ${size}; status: ${status}; downloadable: ${attachment.downloadable ? 'yes' : 'no'}`
 }
 
 export function renderArchiveHeader(
@@ -133,7 +142,10 @@ export function renderArchiveHeader(
   ].join('\n')
 }
 
-export function renderArchiveMessage(message: ArchiveMessage, mediaPath?: string): string {
+export function renderArchiveMessage(
+  message: ArchiveMessage,
+  states: ArchiveAttachmentRenderState[] = defaultAttachmentStates(message),
+): string {
   const chatId = safeInteger(message.chat_id, 'chat_id')
   const messageId = positiveMessageId(message.msg_id, 'message_id')
   const metadata = [
@@ -147,18 +159,28 @@ export function renderArchiveMessage(message: ArchiveMessage, mediaPath?: string
     metadata.push(`Media group: \`${escapeInlineCode(message.media_group_id)}\``)
   }
 
-  const text = message.text == null || message.text === ''
+  const text = message.content == null || message.content === ''
     ? '_No text_'
-    : escapeMarkdownText(message.text)
-  const attachment = renderAttachment(message, mediaPath)
+    : escapeMarkdownText(message.content)
+  const attachments = states
+    .slice()
+    .sort((left, right) => left.attachment.attachment_index - right.attachment.attachment_index)
+    .map(renderAttachmentState)
 
   return [
     `<!-- tg:message chat=${chatId} id=${messageId} -->`,
     ...metadata,
     '',
     text,
-    ...(attachment == null ? [] : ['', attachment]),
+    ...(attachments.length === 0 ? [] : ['', ...attachments]),
   ].join('\n')
+}
+
+function defaultAttachmentStates(message: ArchiveMessage): ArchiveAttachmentRenderState[] {
+  return message.attachments.map((attachment) => ({
+    attachment,
+    status: attachment.downloadable ? 'not_requested' : 'not_downloadable',
+  }))
 }
 
 function collectMarker(
@@ -279,6 +301,7 @@ export async function scanArchivedMessageIds(
 
 export type ArchivedMediaLink = {
   messageId: number
+  attachmentIndex: number
   path: string
 }
 
@@ -335,13 +358,15 @@ function archivedMediaLink(
     return null
   }
 
-  const safeName = pathMatch[3]!
+  const attachmentIndex = Number(pathMatch[3])
+  if (String(attachmentIndex) !== pathMatch[3]) return null
+  const safeName = pathMatch[4]!
   if (safeName.includes('/')
     || safeName.includes('\\')
-    || archiveMediaFile(chatId, messageId, safeName) !== path) {
+    || archiveMediaFile(chatId, messageId, attachmentIndex, safeName) !== path) {
     return null
   }
-  return { messageId, path }
+  return { messageId, attachmentIndex, path }
 }
 
 export async function scanArchiveRecovery(

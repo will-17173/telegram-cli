@@ -20,7 +20,9 @@ import type { BigIntStats } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { ParsedTimeRange } from '../commands/time-range.js'
 import type { HandlerResult } from '../commands/types.js'
+import { toAttachmentLocator } from '../telegram/attachment-locator.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../telegram/archive-types.js'
+import type { Attachment } from '../telegram/media-types.js'
 import { isTelegramAuthSessionError } from '../telegram/errors.js'
 import { archiveChatFile, archiveMediaFile } from './archive-layout.js'
 import {
@@ -32,6 +34,7 @@ import {
   renderArchiveHeader,
   renderArchiveMessage,
   scanArchiveRecovery,
+  type ArchiveAttachmentRenderState,
 } from './archive-markdown.js'
 import type {
   ArchiveChatState,
@@ -80,6 +83,12 @@ type MediaDownloadResult = {
   archived: boolean
   reused?: boolean
   warning?: ArchiveCommandResult['warnings'][number]
+}
+
+type MessageMediaDownloadResult = {
+  states: ArchiveAttachmentRenderState[]
+  archived: number
+  warnings: ArchiveCommandResult['warnings']
 }
 
 type PreparedMediaTarget = {
@@ -165,7 +174,7 @@ export class ArchiveService {
     if (existing != null) validateArchiveAccount(existing, input.account)
 
     let manifest: ArchiveManifest = existing ?? {
-      schema_version: 1,
+      schema_version: 2,
       account_name: input.account.name,
       account_user_id: input.account.userId,
       created_at: timestamp,
@@ -309,10 +318,12 @@ export class ArchiveService {
         ? await scanArchiveRecovery(createReadStream(destination), {
           expectedChatId: chat.id,
           onMedia: downloadMedia ? async (link) => {
+            const recovered = recoveredMessageForLink(chat, link.messageId, link.attachmentIndex, link.path)
             const downloaded = await this.downloadMediaFile(
               output,
               chat,
-              link.messageId,
+              recovered,
+              recovered.attachments[0]!,
               link.path,
               token,
             )
@@ -348,11 +359,11 @@ export class ArchiveService {
         const rendered: string[] = []
         for (const item of chronological) {
           const downloaded = downloadMedia
-            ? await this.downloadAttachment(output, chat, item, token)
-            : { path: undefined, archived: false, warning: undefined }
-          if (downloaded.archived) media += 1
-          if (downloaded.warning != null) warnings.push(downloaded.warning)
-          rendered.push(renderArchiveMessage(item, downloaded.path))
+            ? await this.downloadAttachments(output, chat, item, token)
+            : notRequestedAttachmentStates(item)
+          media += downloaded.archived
+          warnings.push(...downloaded.warnings)
+          rendered.push(renderArchiveMessage(item, downloaded.states))
         }
         writeExclusive(segment, rendered.join(BLOCK_SEPARATOR))
         segments.push(segment)
@@ -430,35 +441,66 @@ export class ArchiveService {
     }
   }
 
-  private async downloadAttachment(
+  private async downloadAttachments(
     output: string,
     chat: ArchiveChat,
     message: ArchiveMessage,
     token: string,
-  ): Promise<MediaDownloadResult> {
-    const attachment = message.attachment
-    if (attachment == null || !attachment.downloadable) return { archived: false }
+  ): Promise<MessageMediaDownloadResult> {
+    const states: ArchiveAttachmentRenderState[] = []
+    const warnings: ArchiveCommandResult['warnings'] = []
+    let archived = 0
 
+    for (const attachment of orderedAttachments(message)) {
+      if (!attachment.downloadable) {
+        states.push({ attachment, status: 'not_downloadable' })
+        continue
+      }
+      const downloaded = await this.downloadAttachment(output, chat, message, attachment, token)
+      if (downloaded.archived) archived += 1
+      if (downloaded.warning != null) warnings.push(downloaded.warning)
+      states.push({
+        attachment,
+        status: downloaded.archived
+          ? downloaded.reused === true ? 'reused' : 'downloaded'
+          : 'failed',
+        ...(downloaded.path == null ? {} : { path: downloaded.path }),
+      })
+    }
+
+    return { states, archived, warnings }
+  }
+
+  private async downloadAttachment(
+    output: string,
+    chat: ArchiveChat,
+    message: ArchiveMessage,
+    attachment: Attachment,
+    token: string,
+  ): Promise<MediaDownloadResult> {
     const relativePath = archiveMediaFile(
       chat.id,
       message.msg_id,
-      attachment.file_name ?? 'attachment',
+      attachment.attachment_index,
+      attachment.file_name ?? `${chat.id}-${message.msg_id}-${attachment.attachment_index}.bin`,
     )
-    return this.downloadMediaFile(output, chat, message.msg_id, relativePath, token)
+    return this.downloadMediaFile(output, chat, message, attachment, relativePath, token)
   }
 
   private async downloadMediaFile(
     output: string,
     chat: ArchiveChat,
-    messageId: number,
+    message: ArchiveMessage,
+    attachment: Attachment,
     relativePath: string,
     token: string,
   ): Promise<MediaDownloadResult> {
+    const messageId = message.msg_id
     let prepared: PreparedMediaTarget
     try {
-      prepared = this.prepareMediaTarget(output, chat.id, messageId, relativePath)
+      prepared = this.prepareMediaTarget(output, chat.id, messageId, attachment.attachment_index, relativePath)
     } catch {
-      return mediaDownloadFailure(chat.id, messageId, relativePath)
+      return mediaDownloadFailure(chat.id, messageId, attachment.attachment_index, relativePath)
     }
     if (prepared.reused) return { path: relativePath, archived: true, reused: true }
 
@@ -469,7 +511,7 @@ export class ArchiveService {
     try {
       stagingIdentity = createOwnedStagingFile(temporary)
       stagingOwned = true
-      const beforeDownload = this.prepareMediaTarget(output, chat.id, messageId, relativePath)
+      const beforeDownload = this.prepareMediaTarget(output, chat.id, messageId, attachment.attachment_index, relativePath)
       assertSameMediaTarget(prepared, beforeDownload)
       if (beforeDownload.reused) {
         removeOwnedStagingFile(temporary, stagingIdentity)
@@ -478,7 +520,8 @@ export class ArchiveService {
       }
       await this.source.downloadMedia({
         chat: chat.id,
-        messageId,
+        msgId: messageId,
+        attachment: toAttachmentLocator(attachment),
         destination: temporary,
       })
       assertOwnedRegularNonEmptyFile(temporary, stagingIdentity)
@@ -497,7 +540,7 @@ export class ArchiveService {
       } finally {
         closeSync(descriptor)
       }
-      const current = this.prepareMediaTarget(output, chat.id, messageId, relativePath)
+      const current = this.prepareMediaTarget(output, chat.id, messageId, attachment.attachment_index, relativePath)
       assertSameMediaTarget(prepared, current)
       if (current.reused) {
         removeOwnedStagingFile(temporary, stagingIdentity)
@@ -514,7 +557,7 @@ export class ArchiveService {
     } catch (error) {
       if (stagingOwned) removeOwnedStagingFile(temporary, stagingIdentity)
       if (isTelegramAuthSessionError(error)) throw error
-      return mediaDownloadFailure(chat.id, messageId, relativePath)
+      return mediaDownloadFailure(chat.id, messageId, attachment.attachment_index, relativePath)
     }
   }
 
@@ -522,15 +565,16 @@ export class ArchiveService {
     output: string,
     chatId: number,
     messageId: number,
+    attachmentIndex: number,
     relativePath: string,
   ): PreparedMediaTarget {
-    const expectedPrefix = `${messageId}-`
+    const expectedPrefix = `${messageId}-${attachmentIndex}-`
     const components = relativePath.split('/')
     if (components.length !== 3
       || components[0] !== 'media'
       || components[1] !== String(chatId)
       || !components[2]?.startsWith(expectedPrefix)
-      || archiveMediaFile(chatId, messageId, components[2].slice(expectedPrefix.length))
+      || archiveMediaFile(chatId, messageId, attachmentIndex, components[2].slice(expectedPrefix.length))
         !== relativePath) {
       throw new Error('archive_unsafe_media_path')
     }
@@ -706,17 +750,90 @@ function removeOwnedStagingFile(path: string, identity: string): void {
 function mediaDownloadFailure(
   chatId: number,
   messageId: number,
+  attachmentIndex: number,
   relativePath: string,
 ): MediaDownloadResult {
-  const fileName = basename(relativePath).slice(`${messageId}-`.length)
+  const fileName = basename(relativePath).slice(`${messageId}-${attachmentIndex}-`.length)
   return {
     path: relativePath,
     archived: false,
     warning: {
       chat_id: chatId,
       code: 'archive_media_failed',
-      message: `Media download failed for message #${messageId} attachment ${fileName}.`,
+      message: `Media download failed for message #${messageId} attachment #${attachmentIndex} ${fileName}.`,
     },
+  }
+}
+
+function orderedAttachments(message: ArchiveMessage): Attachment[] {
+  return message.attachments
+    .slice()
+    .sort((left, right) => left.attachment_index - right.attachment_index)
+}
+
+function notRequestedAttachmentStates(message: ArchiveMessage): MessageMediaDownloadResult {
+  return {
+    states: orderedAttachments(message).map((attachment) => ({
+      attachment,
+      status: attachment.downloadable ? 'not_requested' : 'not_downloadable',
+    })),
+    archived: 0,
+    warnings: [],
+  }
+}
+
+function recoveredMessageForLink(
+  chat: ArchiveChat,
+  messageId: number,
+  attachmentIndex: number,
+  relativePath: string,
+): ArchiveMessage {
+  const prefix = `${messageId}-${attachmentIndex}-`
+  const fileName = basename(relativePath).startsWith(prefix)
+    ? basename(relativePath).slice(prefix.length)
+    : basename(relativePath)
+  return {
+    platform: 'telegram',
+    chat_id: chat.id,
+    chat_name: chat.title,
+    msg_id: messageId,
+    sender_id: null,
+    sender_name: null,
+    content: null,
+    timestamp: new Date(0).toISOString(),
+    reply_to_msg_id: null,
+    media_group_id: null,
+    raw_json: null,
+    attachments: [{
+      attachment_index: attachmentIndex,
+      parent_attachment_index: null,
+      role: 'primary',
+      kind: 'document',
+      subtype: null,
+      downloadable: true,
+      file_id: null,
+      unique_file_id: null,
+      file_name: fileName,
+      mime_type: null,
+      file_size: null,
+      width: null,
+      height: null,
+      duration_seconds: null,
+      thumbnail_file_id: null,
+      thumbnail_unique_file_id: null,
+      thumbnail_width: null,
+      thumbnail_height: null,
+      emoji: null,
+      title: null,
+      performer: null,
+      latitude: null,
+      longitude: null,
+      address: null,
+      phone_number: null,
+      url: null,
+      preview_jpeg_base64: null,
+      metadata: {},
+    }],
   }
 }
 

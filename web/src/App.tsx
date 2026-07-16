@@ -14,6 +14,50 @@ const DEFAULT_MESSAGE_PAGE_SIZE = 50
 const MESSAGE_PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 const SYNC_LIMIT = 500
 
+export function attachmentKey(attachment: MessageAttachment): string {
+  return `${attachment.chat_id}:${attachment.msg_id}:${attachment.attachment_index}`
+}
+
+export function attachmentDepth(
+  attachment: MessageAttachment,
+  attachments: MessageAttachment[],
+): number {
+  let depth = 0
+  let parentIndex = attachment.parent_attachment_index
+  const seen = new Set<number>([attachment.attachment_index])
+  while (parentIndex != null) {
+    const parent = attachments.find((candidate) => (
+      candidate.chat_id === attachment.chat_id
+      && candidate.msg_id === attachment.msg_id
+      && candidate.attachment_index === parentIndex
+    ))
+    if (parent == null || seen.has(parent.attachment_index)) return depth
+    depth += 1
+    seen.add(parent.attachment_index)
+    parentIndex = parent.parent_attachment_index
+  }
+  return depth
+}
+
+function attachmentLabel(attachment: MessageAttachment): string {
+  return attachment.subtype == null ? attachment.kind : `${attachment.kind}/${attachment.subtype}`
+}
+
+function attachmentDisplayName(attachment: MessageAttachment): string {
+  return attachment.file_name ?? `${attachment.chat_id}-${attachment.msg_id}-${attachment.attachment_index}.${attachmentExtension(attachment)}`
+}
+
+function attachmentExtension(attachment: MessageAttachment): string {
+  if (attachment.mime_type === 'image/jpeg') return 'jpg'
+  if (attachment.mime_type === 'image/png') return 'png'
+  if (attachment.mime_type === 'video/mp4') return 'mp4'
+  if (attachment.mime_type === 'application/pdf') return 'pdf'
+  if (attachment.kind === 'photo') return 'jpg'
+  if (attachment.kind === 'video') return 'mp4'
+  if (attachment.kind === 'voice') return 'ogg'
+  return 'bin'
+}
+
 type MessageFilterOverrides = {
   senderId?: string
   senderName?: string
@@ -272,7 +316,7 @@ export function App() {
 
   async function downloadAttachments(attachments: MessageAttachment[]) {
     if (!account || attachments.length === 0) return
-    const keys = attachments.map((attachment) => attachment.key)
+    const keys = attachments.map(attachmentKey)
     setDownloadStatus((current) => {
       const next = { ...current }
       for (const key of keys) next[key] = 'Downloading'
@@ -285,7 +329,7 @@ export function App() {
         attachments: attachments.map((attachment) => ({
           chat_id: attachment.chat_id,
           msg_id: attachment.msg_id,
-          file_name: attachment.file_name,
+          attachment_index: attachment.attachment_index,
         })),
       })
       const destination = result.downloaded.length === 1 ? result.downloaded[0]?.path : `${result.downloaded.length} files`
@@ -457,7 +501,10 @@ export function App() {
 
           <ol className="message-list" aria-busy={loadingMessages}>
             {visibleMessages.map((message) => {
-              const downloadable = message.attachments.filter((attachment) => attachment.downloadable)
+              const orderedAttachments = message.attachments
+                .slice()
+                .sort((left, right) => left.msg_id - right.msg_id || left.attachment_index - right.attachment_index)
+              const downloadable = orderedAttachments.filter((attachment) => attachment.downloadable)
               const avatar = senderAvatar(message.sender_name, message.sender_id)
               const canBlockSender = senderBlacklistKey(message.sender_name, message.sender_id) != null
               return (
@@ -524,12 +571,16 @@ export function App() {
                         {message.reply_context.resolved && message.reply_context.attachments.length > 0 && (
                           <div className="reply-attachment-list">
                             {message.reply_context.attachments.map((attachment) => (
-                              <div className="reply-attachment" key={attachment.key}>
+                              <div
+                                className="reply-attachment"
+                                key={attachmentKey(attachment)}
+                                style={{ marginLeft: 0 }}
+                              >
                                 {attachment.preview_jpeg_base64
                                   ? <img alt="" src={`data:image/jpeg;base64,${attachment.preview_jpeg_base64}`} />
                                   : <span className="reply-attachment-thumb" aria-hidden="true">{attachment.kind.slice(0, 3).toUpperCase()}</span>}
-                                <span>{attachment.kind}</span>
-                                <small>{attachment.file_name}</small>
+                                <span>{attachmentLabel(attachment)}</span>
+                                <small>{attachmentDisplayName(attachment)}</small>
                               </div>
                             ))}
                           </div>
@@ -540,27 +591,36 @@ export function App() {
                     {message.media_summary && <div className="media-summary">{message.media_summary}</div>}
                     {message.attachments.length > 0 && (
                       <div className="attachment-list">
-                        {message.attachments.map((attachment) => (
-                          <div className="attachment-row" key={attachment.key}>
+                        {orderedAttachments.map((attachment) => {
+                          const key = attachmentKey(attachment)
+                          return (
+                          <div
+                            className="attachment-row"
+                            key={key}
+                            style={{ marginLeft: `${attachmentDepth(attachment, orderedAttachments) * 20}px` }}
+                          >
                             {attachment.preview_jpeg_base64
                               ? <img alt="" src={`data:image/jpeg;base64,${attachment.preview_jpeg_base64}`} />
                               : <span className="attachment-thumb" aria-hidden="true">{attachment.kind.slice(0, 3).toUpperCase()}</span>}
                             <div className="attachment-copy">
-                              <span className="attachment-label">{attachment.kind}</span>
-                              <small>{attachment.file_name}</small>
+                              <span className="attachment-label">{attachmentLabel(attachment)}</span>
+                              <small>{attachmentDisplayName(attachment)}</small>
                               <small className="attachment-message-id">Message {attachment.msg_id}</small>
-                              {downloadStatus[attachment.key] && <small>{downloadStatus[attachment.key]}</small>}
+                              {downloadStatus[key] && <small>{downloadStatus[key]}</small>}
                             </div>
-                            <button
-                              className="attachment-action"
-                              type="button"
-                              onClick={() => void downloadAttachments([attachment])}
-                              disabled={!attachment.downloadable || downloadStatus[attachment.key] === 'Downloading'}
-                            >
-                              Download
-                            </button>
+                            {attachment.downloadable && (
+                              <button
+                                className="attachment-action"
+                                type="button"
+                                onClick={() => void downloadAttachments([attachment])}
+                                disabled={downloadStatus[key] === 'Downloading'}
+                              >
+                                Download
+                              </button>
+                            )}
                           </div>
-                        ))}
+                          )
+                        })}
                         {downloadable.length > 1 && (
                           <button className="download-all" type="button" onClick={() => void downloadAttachments(downloadable)}>
                             Download all

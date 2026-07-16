@@ -5,27 +5,88 @@ import {
   renderArchiveMessage,
   scanArchiveRecovery,
   scanArchivedMessageIds,
+  type ArchiveAttachmentRenderState,
 } from '../../src/services/archive-markdown.js'
 import type { ArchiveMessage } from '../../src/services/archive-markdown.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 
-function message(overrides: Partial<ArchiveMessage> = {}): ArchiveMessage {
+type LegacyAttachment = {
+  type: string
+  file_name: string | null
+  file_size: number | null
+  downloadable: boolean
+}
+
+type MessageOverrides = Partial<ArchiveMessage> & {
+  text?: string | null
+  attachment?: LegacyAttachment | null
+}
+
+function message(overrides: MessageOverrides = {}): ArchiveMessage {
+  const hasText = Object.prototype.hasOwnProperty.call(overrides, 'text')
+  const { text, attachment: legacyAttachment, ...rest } = overrides
+  const attachments = rest.attachments
+    ?? (legacyAttachment === null
+      ? []
+      : [attachment({
+        kind: legacyAttachment?.type?.startsWith('video') ? 'video' : legacyAttachment?.type === 'document' ? 'document' : 'unknown',
+        file_name: legacyAttachment?.file_name ?? 'report.pdf',
+        file_size: legacyAttachment?.file_size === undefined ? 2048 : legacyAttachment.file_size,
+        downloadable: legacyAttachment?.downloadable ?? true,
+      })])
   return {
+    platform: 'telegram',
     chat_id: -100123,
+    chat_name: 'Team',
     msg_id: 42,
     timestamp: '2026-07-13T10:00:00.000Z',
     sender_id: 7,
     sender_name: 'Alice',
-    text: 'Quarterly report',
+    content: hasText ? text ?? null : 'Quarterly report',
     reply_to_msg_id: 40,
     media_group_id: null,
-    attachment: {
-      type: 'document',
-      file_name: 'report.pdf',
-      file_size: 2048,
-      downloadable: true,
-    },
+    raw_json: null,
+    attachments,
+    ...rest,
+  }
+}
+
+function attachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    attachment_index: 1,
+    parent_attachment_index: null,
+    role: 'primary',
+    kind: 'document',
+    subtype: null,
+    downloadable: true,
+    file_id: 'file-1',
+    unique_file_id: 'unique-1',
+    file_name: 'report.pdf',
+    mime_type: 'application/pdf',
+    file_size: 2048,
+    width: null,
+    height: null,
+    duration_seconds: null,
+    thumbnail_file_id: null,
+    thumbnail_unique_file_id: null,
+    thumbnail_width: null,
+    thumbnail_height: null,
+    emoji: null,
+    title: null,
+    performer: null,
+    latitude: null,
+    longitude: null,
+    address: null,
+    phone_number: null,
+    url: null,
+    preview_jpeg_base64: null,
+    metadata: {},
     ...overrides,
   }
+}
+
+function downloaded(path: string): ArchiveAttachmentRenderState[] {
+  return [{ attachment: attachment(), status: 'downloaded', path }]
 }
 
 describe('archive markdown', () => {
@@ -61,19 +122,19 @@ describe('archive markdown', () => {
 
     expect(block).toContain('**Alice Admin** —')
     expect(block).toContain('Media group: `album 42`')
-    expect(block).toContain('Attachment: quarterly report.pdf; type: application pdf;')
+    expect(block).toContain('Attachment #1: quarterly report.pdf; type: unknown;')
   })
 
   it('renders a recoverable message marker, metadata, text, and media link', () => {
     const block = renderArchiveMessage(
       message(),
-      'media/-100123/42-report.pdf',
+      downloaded('media/-100123/42-1-report.pdf'),
     )
 
     expect(block).toContain('<!-- tg:message chat=-100123 id=42 -->')
     expect(block).toContain('**Alice** — 2026-07-13T10:00:00.000Z')
     expect(block).toContain('Reply to #40')
-    expect(block).toContain('[report.pdf](media/-100123/42-report.pdf)')
+    expect(block).toContain('[report.pdf](media/-100123/42-1-report.pdf)')
   })
 
   it('renders media-group metadata and a stable missing-text placeholder', () => {
@@ -142,7 +203,7 @@ describe('archive markdown', () => {
     }))
 
     expect(block).toContain(
-      'Attachment: demo \\[final\\].mp4; type: video \\| clip; size: unknown; downloadable: no',
+      'Attachment #1: demo \\[final\\].mp4; type: video; role: primary; size: unknown; status: not-downloadable; downloadable: no',
     )
   })
 
@@ -231,7 +292,10 @@ describe('archive markdown', () => {
     const onMedia = vi.fn(async () => undefined)
     const content = [
       renderArchiveMessage(message({ chat_id: -999, msg_id: 900 })),
-      renderArchiveMessage(message({ msg_id: 43, timestamp: '2026-07-13T11:00:00.000Z' }), 'media/-100123/43-report.pdf'),
+      renderArchiveMessage(
+        message({ msg_id: 43, timestamp: '2026-07-13T11:00:00.000Z' }),
+        [{ attachment: attachment(), status: 'downloaded', path: 'media/-100123/43-1-report.pdf' }],
+      ),
     ].join('\n\n---\n\n')
 
     await expect(scanArchiveRecovery(Readable.from([content]), {
@@ -241,7 +305,7 @@ describe('archive markdown', () => {
       maxId: 43,
       maxTimestamp: '2026-07-13T11:00:00.000Z',
     })
-    expect(onMedia).toHaveBeenCalledWith({ messageId: 43, path: 'media/-100123/43-report.pdf' })
+    expect(onMedia).toHaveBeenCalledWith({ messageId: 43, attachmentIndex: 1, path: 'media/-100123/43-1-report.pdf' })
   })
 
   it('keeps bounded recovery state across a large archive', async () => {

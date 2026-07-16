@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DownloadService } from '../../src/services/download-service.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../../src/telegram/archive-types.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 
 const directories: string[] = []
 
@@ -23,19 +24,59 @@ function outputDirectory(): string {
 function message(
   id: number,
   timestamp = '2026-07-15T12:00:00.000Z',
-  attachment: ArchiveMessage['attachment'] = { type: 'photo', file_name: `photo-${id}.jpg`, file_size: 10, downloadable: true },
+  attachments: Attachment[] = [attachment(id)],
   mediaGroupId: string | null = null,
 ): ArchiveMessage {
   return {
+    platform: 'telegram',
     chat_id: -100,
+    chat_name: 'Channel',
     msg_id: id,
     timestamp,
     sender_id: 10,
     sender_name: 'Alice',
-    text: null,
+    content: null,
     reply_to_msg_id: null,
     media_group_id: mediaGroupId,
-    attachment,
+    raw_json: null,
+    attachments,
+  }
+}
+
+function attachment(
+  messageId: number,
+  overrides: Partial<Attachment> = {},
+): Attachment {
+  return {
+    attachment_index: 1,
+    parent_attachment_index: null,
+    role: 'primary',
+    kind: 'photo',
+    subtype: null,
+    downloadable: true,
+    file_id: `file-${messageId}`,
+    unique_file_id: `unique-${messageId}`,
+    file_name: `photo-${messageId}.jpg`,
+    mime_type: 'image/jpeg',
+    file_size: 10,
+    width: null,
+    height: null,
+    duration_seconds: null,
+    thumbnail_file_id: null,
+    thumbnail_unique_file_id: null,
+    thumbnail_width: null,
+    thumbnail_height: null,
+    emoji: null,
+    title: null,
+    performer: null,
+    latitude: null,
+    longitude: null,
+    address: null,
+    phone_number: null,
+    url: null,
+    preview_jpeg_base64: null,
+    metadata: {},
+    ...overrides,
   }
 }
 
@@ -59,8 +100,8 @@ function sourceFor(pages: ArchiveMessage[][]): TelegramArchiveAdapter & {
         if (filtered.length > 0) yield filtered
       }
     })()),
-    downloadMedia: vi.fn(async ({ messageId, destination }: { messageId: number; destination: string }) => {
-      writeFileSync(destination, `media ${messageId}`)
+    downloadMedia: vi.fn(async ({ msgId, destination }: { msgId: number; destination: string }) => {
+      writeFileSync(destination, `media ${msgId}`)
     }),
   }
 }
@@ -99,7 +140,7 @@ describe('DownloadService', () => {
     })
 
     expect(result).toMatchObject({ ok: true, data: { requested: 1, downloaded: 1 } })
-    expect(source.downloadMedia.mock.calls.map(([input]) => input.messageId)).toEqual([42])
+    expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId)).toEqual([42])
     expect(readFileSync(join(output, 'photo-42.jpg'), 'utf8')).toBe('media 42')
   })
 
@@ -121,7 +162,7 @@ describe('DownloadService', () => {
 
     expect(result).toMatchObject({ ok: true, data: { requested: 2, downloaded: 2 } })
     expect(source.iterHistoryPages).not.toHaveBeenCalled()
-    expect(source.downloadMedia.mock.calls.map(([input]) => input.messageId).sort((left, right) => left - right)).toEqual([42, 43])
+    expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId).sort((left, right) => left - right)).toEqual([42, 43])
     expect(readFileSync(join(output, 'photo-42.jpg'), 'utf8')).toBe('media 42')
     expect(readFileSync(join(output, 'photo-43.jpg'), 'utf8')).toBe('media 43')
   })
@@ -169,7 +210,7 @@ describe('DownloadService', () => {
     })
 
     expect(result).toMatchObject({ ok: true, data: { requested: 1, downloaded: 1 } })
-    expect(source.downloadMedia.mock.calls.map(([input]) => input.messageId)).toEqual([43])
+    expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId)).toEqual([43])
   })
 
   it('downloads only the selected attachment number for a message', async () => {
@@ -201,7 +242,7 @@ describe('DownloadService', () => {
     expect(result).toEqual({
       ok: false,
       error: {
-        code: 'download_attachment_not_found',
+        code: 'attachment_not_found',
         message: 'Message 42 does not have attachment 2.',
       },
     })
@@ -221,7 +262,7 @@ describe('DownloadService', () => {
 
     expect(result).toMatchObject({ ok: true, data: { requested: 2, downloaded: 2 } })
     expect(source.iterHistoryPages).toHaveBeenCalledWith(expect.objectContaining({ minId: 41 }))
-    expect(source.downloadMedia.mock.calls.map(([input]) => input.messageId).sort((left, right) => right - left)).toEqual([43, 42])
+    expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId).sort((left, right) => right - left)).toEqual([43, 42])
     expect(result.ok ? result.data.files.map((file) => file.msg_id) : []).toEqual([43, 42])
   })
 
@@ -229,7 +270,7 @@ describe('DownloadService', () => {
     const output = outputDirectory()
     const source = sourceFor([[
       message(3, '2026-07-16T00:00:00.000Z'),
-      message(2, '2026-07-15T11:00:00.000Z', { type: 'poll', file_name: null, file_size: null, downloadable: false }),
+      message(2, '2026-07-15T11:00:00.000Z', [attachment(2, { kind: 'poll', file_name: null, file_size: null, downloadable: false })]),
       message(1, '2026-07-15T10:00:00.000Z'),
     ]])
 
@@ -241,8 +282,8 @@ describe('DownloadService', () => {
     })
 
     expect(result).toMatchObject({ ok: true, data: { requested: 1, downloaded: 1, skipped: 1 } })
-    expect(source.downloadMedia.mock.calls.map(([input]) => input.messageId)).toEqual([1])
-    expect(existsSync(join(output, '-100-2.bin'))).toBe(false)
+    expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId)).toEqual([1])
+    expect(existsSync(join(output, '-100-2-1.bin'))).toBe(false)
   })
 
   it('can traverse all channel media from newest to oldest with a concurrency limit', async () => {
@@ -250,11 +291,11 @@ describe('DownloadService', () => {
     const source = sourceFor([[message(5), message(4)], [message(3), message(2)]])
     let active = 0
     let maxActive = 0
-    source.downloadMedia.mockImplementation(async ({ messageId, destination }: { messageId: number; destination: string }) => {
+    source.downloadMedia.mockImplementation(async ({ msgId, destination }: { msgId: number; destination: string }) => {
       active += 1
       maxActive = Math.max(maxActive, active)
       await new Promise((resolve) => setTimeout(resolve, 5))
-      writeFileSync(destination, `media ${messageId}`)
+      writeFileSync(destination, `media ${msgId}`)
       active -= 1
     })
 
@@ -267,7 +308,7 @@ describe('DownloadService', () => {
 
     expect(result).toMatchObject({ ok: true, data: { requested: 4, downloaded: 4 } })
     expect(maxActive).toBeLessThanOrEqual(2)
-    expect(source.downloadMedia.mock.calls.map(([input]) => input.messageId).sort((left, right) => right - left)).toEqual([5, 4, 3, 2])
+    expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId).sort((left, right) => right - left)).toEqual([5, 4, 3, 2])
     expect(result.ok ? result.data.files.map((file) => file.msg_id) : []).toEqual([5, 4, 3, 2])
   })
 

@@ -10,7 +10,7 @@ export type ArchiveChatState = {
 }
 
 export type ArchiveManifest = {
-  schema_version: 1
+  schema_version: 2
   account_name: string
   account_user_id: number
   created_at: string

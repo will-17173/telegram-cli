@@ -4,14 +4,12 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { CommandFailure, HandlerResult } from './types.js'
 import { MessageDB } from '../storage/message-db.js'
-import type { StoredMessage } from '../storage/message-db.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import type { TelegramChatType, TelegramClientAdapter, TelegramUser } from '../telegram/types.js'
 import type { ArchiveMessage } from '../telegram/archive-types.js'
 import { MessageService } from '../services/message-service.js'
 import { SyncService } from '../services/sync-service.js'
 import { DownloadService, type DownloadInput } from '../services/download-service.js'
-import { attachmentFileName, discoverListenAttachments } from '../services/listen-attachment.js'
 import { ListenAlbumAggregator } from '../services/listen-album-aggregator.js'
 import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../services/auto-download-coordinator.js'
 import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '../presenters/human.js'
@@ -634,32 +632,9 @@ function localGroupedDownloadMessages(
       ? input.chat
       : db.resolveChatId(String(input.chat))
     if (chatId == null) return []
-    const messages = db.findMessagesByGroupedId(chatId, input.groupedId)
-    return messages.map(toDownloadArchiveMessage)
+    return db.findMessagesByGroupedId(chatId, input.groupedId)
   } finally {
     db.close()
-  }
-}
-
-function toDownloadArchiveMessage(message: StoredMessage): ArchiveMessage {
-  const [attachment] = discoverListenAttachments(message)
-  return {
-    chat_id: message.chat_id,
-    msg_id: message.msg_id,
-    timestamp: message.timestamp,
-    sender_id: message.sender_id,
-    sender_name: message.sender_name,
-    text: message.content,
-    reply_to_msg_id: null,
-    media_group_id: null,
-    attachment: attachment == null
-      ? null
-      : {
-        type: attachment.kind,
-        file_name: attachmentFileName(attachment),
-        file_size: null,
-        downloadable: attachment.downloadable,
-      },
   }
 }
 

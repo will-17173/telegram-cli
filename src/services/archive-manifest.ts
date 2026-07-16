@@ -121,7 +121,7 @@ function portableFileIdentity(value: string): string {
 
 function parseArchiveManifest(value: unknown): ArchiveManifest {
   if (!isRecord(value)) throw new Error('archive_manifest_invalid')
-  if (value.schema_version !== 1) {
+  if (value.schema_version !== 2) {
     if (Number.isInteger(value.schema_version)) {
       throw new Error('archive_schema_unsupported')
     }

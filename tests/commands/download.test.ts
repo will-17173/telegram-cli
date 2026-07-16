@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { accountDbPath } from '../../src/account/account-presets.js'
 import { MessageDB } from '../../src/storage/message-db.js'
 import type { ArchiveMessage } from '../../src/telegram/archive-types.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 
 const renderResult = vi.hoisted(() => vi.fn(async () => undefined))
 const archive = vi.hoisted(() => ({
@@ -13,8 +14,8 @@ const archive = vi.hoisted(() => ({
   iterHistoryPages: vi.fn((_input: unknown) => (async function* () {
     yield [archiveMessage(42)]
   })()),
-  downloadMedia: vi.fn(async ({ messageId, destination }: { chat: string | number; messageId: number; destination: string }) => {
-    writeFileSync(destination, `media ${messageId}`)
+  downloadMedia: vi.fn(async ({ msgId, destination }: { chat: string | number; msgId: number; destination: string }) => {
+    writeFileSync(destination, `media ${msgId}`)
   }),
 }))
 const client = vi.hoisted(() => ({
@@ -33,15 +34,51 @@ import { createApp } from '../../src/cli/app.js'
 
 function archiveMessage(id: number, groupedId: string | null = null): ArchiveMessage {
   return {
+    platform: 'telegram',
     chat_id: -100,
+    chat_name: 'Channel',
     msg_id: id,
     timestamp: '2026-07-15T12:00:00.000Z',
     sender_id: 10,
     sender_name: 'Alice',
-    text: null,
+    content: null,
     reply_to_msg_id: null,
     media_group_id: groupedId,
-    attachment: { type: 'photo', file_name: `photo-${id}.jpg`, file_size: 10, downloadable: true },
+    raw_json: null,
+    attachments: [attachment(id)],
+  }
+}
+
+function attachment(id: number, index = 1): Attachment {
+  return {
+    attachment_index: index,
+    parent_attachment_index: null,
+    role: 'primary',
+    kind: 'photo',
+    subtype: null,
+    downloadable: true,
+    file_id: `file-${id}-${index}`,
+    unique_file_id: `unique-${id}-${index}`,
+    file_name: `photo-${id}.jpg`,
+    mime_type: 'image/jpeg',
+    file_size: 10,
+    width: null,
+    height: null,
+    duration_seconds: null,
+    thumbnail_file_id: null,
+    thumbnail_unique_file_id: null,
+    thumbnail_width: null,
+    thumbnail_height: null,
+    emoji: null,
+    title: null,
+    performer: null,
+    latitude: null,
+    longitude: null,
+    address: null,
+    phone_number: null,
+    url: null,
+    preview_jpeg_base64: null,
+    metadata: {},
   }
 }
 
@@ -77,7 +114,7 @@ function seedGroupedAlbum(dataDir: string, groupedId = 'album-1'): void {
         grouped_id: groupedId,
         media: { _: 'messageMediaPhoto', photo: { file_name: 'first.jpg' } },
       },
-      attachments: [],
+      attachments: [attachment(42)],
     },
     {
       platform: 'telegram',
@@ -94,7 +131,7 @@ function seedGroupedAlbum(dataDir: string, groupedId = 'album-1'): void {
         grouped_id: groupedId,
         media: { _: 'messageMediaPhoto', photo: { file_name: 'second.jpg' } },
       },
-      attachments: [],
+      attachments: [attachment(43)],
     },
   ])
   db.close()
@@ -134,7 +171,8 @@ describe('download command', () => {
     }))
     expect(archive.downloadMedia).toHaveBeenCalledWith(expect.objectContaining({
       chat: '@channel',
-      messageId: 42,
+      msgId: 42,
+      attachment: expect.objectContaining({ attachment_index: 1 }),
       destination: expect.stringContaining('.part'),
     }))
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
@@ -163,7 +201,8 @@ describe('download command', () => {
       minId: 41,
     }))
     expect(archive.downloadMedia).toHaveBeenCalledWith(expect.objectContaining({
-      messageId: 42,
+      msgId: 42,
+      attachment: expect.objectContaining({ attachment_index: 1 }),
     }))
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
       ok: true,
@@ -216,7 +255,7 @@ describe('download command', () => {
     ])
 
     expect(archive.iterHistoryPages).not.toHaveBeenCalled()
-    expect(archive.downloadMedia.mock.calls.map(([input]) => input.messageId).sort((left, right) => left - right)).toEqual([42, 43])
+    expect(archive.downloadMedia.mock.calls.map(([input]) => input.msgId).sort((left, right) => left - right)).toEqual([42, 43])
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
       ok: true,
       data: expect.objectContaining({ requested: 2, downloaded: 2 }),
@@ -234,7 +273,7 @@ describe('download command', () => {
       '--output', output,
     ])
 
-    expect(archive.downloadMedia.mock.calls.map(([input]) => input.messageId).sort((left, right) => left - right)).toEqual([42, 43])
+    expect(archive.downloadMedia.mock.calls.map(([input]) => input.msgId).sort((left, right) => left - right)).toEqual([42, 43])
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
       ok: true,
       data: expect.objectContaining({ requested: 2, downloaded: 2 }),
@@ -259,7 +298,7 @@ describe('download command', () => {
         grouped_id: { low: '443463141', high: '3323118' },
         media: { _: 'messageMediaPhoto', photo: { file_name: `${msgId}.jpg` } },
       },
-      attachments: [],
+      attachments: [attachment(msgId)],
     })))
     db.close()
 
@@ -273,10 +312,10 @@ describe('download command', () => {
     expect(archive.iterHistoryPages).not.toHaveBeenCalled()
     expect(archive.downloadMedia.mock.calls.map(([input]) => ({
       chat: input.chat,
-      messageId: input.messageId,
-    })).sort((left, right) => left.messageId - right.messageId)).toEqual([
-      { chat: -1003155991738, messageId: 56710 },
-      { chat: -1003155991738, messageId: 56711 },
+      msgId: input.msgId,
+    })).sort((left, right) => left.msgId - right.msgId)).toEqual([
+      { chat: -1003155991738, msgId: 56710 },
+      { chat: -1003155991738, msgId: 56711 },
     ])
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
       ok: true,

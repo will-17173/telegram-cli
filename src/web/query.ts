@@ -4,7 +4,6 @@ import { resolveAccountContext } from '../account/account-context.js'
 import { MessageDB, type StoredMessageInput } from '../storage/message-db.js'
 import { buildReplyContext, type ReplyContext } from '../services/reply-context.js'
 import { groupLogicalMessages, summarizeLogicalMedia } from '../presenters/logical-message.js'
-import { attachmentFileName, presentMessageAttachments } from '../presenters/attachment.js'
 import type { WebAccountSummary, WebChatSummary, WebMessage, WebMessageAttachment, WebPage, WebReplyContext } from './types.js'
 
 export class WebQueryService {
@@ -117,16 +116,13 @@ function toWebReplyContext(context: ReplyContext, target?: StoredMessageInput): 
 
 function toWebAttachments(messages: StoredMessageInput[]): WebMessageAttachment[] {
   return messages.flatMap((row) => (
-    presentMessageAttachments(row).map((attachment) => ({
-      key: attachment.key,
-      chat_id: attachment.chatId,
-      msg_id: attachment.messageId,
-      kind: attachment.kind,
-      label: attachment.label,
-      file_name: attachmentFileName(attachment),
-      mime_type: attachment.mime_type,
-      downloadable: attachment.downloadable,
-      ...(attachment.preview_jpeg_base64 == null ? {} : { preview_jpeg_base64: attachment.preview_jpeg_base64 }),
+    row.attachments
+      .slice()
+      .sort((left, right) => left.attachment_index - right.attachment_index)
+      .map((attachment) => ({
+      ...attachment,
+      chat_id: row.chat_id,
+      msg_id: row.msg_id,
     }))
   ))
 }

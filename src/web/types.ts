@@ -1,3 +1,5 @@
+import type { Attachment } from '../telegram/media-types.js'
+
 export type ApiSuccess<T> = { ok: true; data: T }
 
 export type ApiFailure = { ok: false; error: { code: string; message: string; details?: unknown } }
@@ -49,16 +51,9 @@ export type WebReplyContext =
     attachments: WebMessageAttachment[]
   }
 
-export type WebMessageAttachment = {
-  key: string
+export type WebMessageAttachment = Attachment & {
   chat_id: number
   msg_id: number
-  kind: string
-  label: string
-  file_name: string
-  mime_type: string | null
-  downloadable: boolean
-  preview_jpeg_base64?: string
 }
 
 export type WebPage<T> = {

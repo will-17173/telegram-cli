@@ -5,6 +5,7 @@ import { resolveAuthenticatedAccountContext } from '../account/account-context.j
 import { getDataDir } from '../config/env.js'
 import { resolveAttachmentDestination } from '../services/attachment-download.js'
 import { isDataResetRequiredError, MESSAGE_DB_SCHEMA_VERSION, MessageDB } from '../storage/message-db.js'
+import { selectStoredAttachment, toAttachmentLocator, AttachmentLookupError } from '../telegram/attachment-locator.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import { validateLocalRequest } from './security.js'
 import { SyncTaskRunner } from './sync-task.js'
@@ -151,13 +152,22 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
     const attachments = body.attachments.map(parseDownloadAttachment)
     const reserved = new Set<string>()
     const clientContext = resolveAuthenticatedAccountContext({ explicitName: account, dataDir: context.dataDir })
+    const db = new MessageDB(clientContext.dbPath, { readonly: true })
     const client = createTelegramClient(clientContext.sessionPath)
     const results = []
     try {
       for (const attachment of attachments) {
+        const [message] = db.getMessagesByKeys([{ chatId: attachment.chatId, msgId: attachment.msgId }])
+        if (message == null) {
+          throw new AttachmentLookupError(
+            'attachment_not_found',
+            `Message ${attachment.msgId} was not found`,
+          )
+        }
+        const stored = selectStoredAttachment(message.attachments, attachment.attachmentIndex)
         const destination = resolveAttachmentDestination({
           homeDir: homedir(),
-          fileName: attachment.fileName,
+          fileName: stored.file_name ?? `${attachment.chatId}-${attachment.msgId}-${attachment.attachmentIndex}.bin`,
           exists: existsSync,
           reserved,
         })
@@ -166,33 +176,40 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
         await client.downloadMessageMedia({
           chat: telegramPeerIdFromLocalChatId(attachment.chatId),
           msgId: attachment.msgId,
+          attachment: toAttachmentLocator(stored),
           destination,
         })
         results.push({
           chat_id: attachment.chatId,
           msg_id: attachment.msgId,
-          file_name: attachment.fileName,
+          attachment_index: attachment.attachmentIndex,
+          kind: stored.kind,
+          file_name: stored.file_name,
           path: destination,
         })
       }
     } finally {
+      db.close()
       await client.close()
     }
     return success({ downloaded: results })
   } catch (error) {
     const message = errorMessage(error)
+    if (isDataResetRequiredError(error)) return failure(409, 'data_reset_required', message)
+    if (error instanceof AttachmentLookupError) return failure(400, error.code, message)
     if (isKnownValidationMessage(message)) return failure(400, 'invalid_request', message)
     return failure(500, 'download_failed', message)
   }
 }
 
-function parseDownloadAttachment(value: unknown): { chatId: number; msgId: number; fileName: string } {
+function parseDownloadAttachment(value: unknown): { chatId: number; msgId: number; attachmentIndex: number } {
   if (!isRecord(value)) throw invalidRequest('Each attachment must be a JSON object.')
   if (!isSafeNonZeroInteger(value.chat_id)) throw invalidRequest('attachment.chat_id must be a non-zero integer.')
   if (!isSafePositiveInteger(value.msg_id)) throw invalidRequest('attachment.msg_id must be a positive integer.')
-  const fileName = typeof value.file_name === 'string' ? value.file_name.trim() : ''
-  if (fileName === '') throw invalidRequest('attachment.file_name must be a non-empty string.')
-  return { chatId: value.chat_id, msgId: value.msg_id, fileName }
+  if (!isSafePositiveInteger(value.attachment_index)) {
+    throw invalidRequest('attachment.attachment_index must be a positive integer.')
+  }
+  return { chatId: value.chat_id, msgId: value.msg_id, attachmentIndex: value.attachment_index }
 }
 
 function isJsonRequest(request: Request): boolean {

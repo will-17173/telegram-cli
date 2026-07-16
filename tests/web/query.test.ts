@@ -394,7 +394,7 @@ describe('WebQueryService', () => {
       resolved: true,
       content: null,
       attachments: [
-        expect.objectContaining({ msg_id: 50, kind: 'photo', file_name: '10-50-1.jpg', preview_jpeg_base64: '/9j/' }),
+        expect.objectContaining({ msg_id: 50, kind: 'photo', attachment_index: 1, file_name: null, preview_jpeg_base64: '/9j/' }),
       ],
     })
   })

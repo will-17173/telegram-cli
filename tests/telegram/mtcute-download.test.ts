@@ -5,11 +5,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { MtcuteTelegramClient } from '../../src/telegram/mtcute-client.js'
 
 describe('MtcuteTelegramClient media downloads', () => {
-  it('downloads media received by listen without fetching the channel message again', async () => {
+  it('refetches media received by listen before downloading', async () => {
     const media = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+    const freshMedia = mediaObject(media, 'unique-listened')
     const onNewMessage = event<Message>()
     const onConnectionState = event<'offline' | 'connecting' | 'updating' | 'connected'>()
-    const getMessages = vi.fn().mockRejectedValue(new tl.RpcError(400, 'CHANNEL_INVALID'))
+    const getMessages = vi.fn().mockResolvedValue([message(502729, freshMedia)])
     const downloadToFile = vi.fn().mockResolvedValue(undefined)
     const client = {
       connect: vi.fn().mockResolvedValue(undefined),
@@ -30,17 +31,18 @@ describe('MtcuteTelegramClient media downloads', () => {
     })
 
     await vi.waitFor(() => expect(onNewMessage.add).toHaveBeenCalledOnce())
-    onNewMessage.emit(message(502729, media))
+    onNewMessage.emit(message(502729, freshMedia))
     await vi.waitFor(() => expect(received).toHaveBeenCalledOnce())
 
     await telegram.downloadMessageMedia({
       chat: -100123,
       msgId: 502729,
+      attachment: locator('unique-listened'),
       destination: '/tmp/video.mp4',
     })
 
-    expect(getMessages).not.toHaveBeenCalled()
-    expect(downloadToFile).toHaveBeenCalledWith('/tmp/video.mp4', media, {
+    expect(getMessages).toHaveBeenCalledWith(-100123, 502729)
+    expect(downloadToFile).toHaveBeenCalledWith('/tmp/video.mp4', expect.any(FileLocation), {
       progressCallback: undefined,
     })
 
@@ -50,7 +52,7 @@ describe('MtcuteTelegramClient media downloads', () => {
 
   it('downloads media fetched from message location fields', async () => {
     const media = new FileLocation(new Uint8Array([4, 5, 6]), 6)
-    const getMessages = vi.fn().mockResolvedValue([message(42, { location: media })])
+    const getMessages = vi.fn().mockResolvedValue([message(42, mediaObject(media, 'unique-fetched'))])
     const downloadToFile = vi.fn().mockResolvedValue(undefined)
     const client = {
       connect: vi.fn().mockResolvedValue(undefined),
@@ -63,17 +65,17 @@ describe('MtcuteTelegramClient media downloads', () => {
     await telegram.downloadMessageMedia({
       chat: 100,
       msgId: 42,
+      attachment: locator('unique-fetched'),
       destination: '/tmp/photo.jpg',
     })
 
     expect(getMessages).toHaveBeenCalledWith(100, 42)
-    expect(downloadToFile).toHaveBeenCalledWith('/tmp/photo.jpg', media, {
+    expect(downloadToFile).toHaveBeenCalledWith('/tmp/photo.jpg', expect.any(FileLocation), {
       progressCallback: undefined,
     })
   })
 
-  it('downloads media from an explicit stored file location without fetching the peer', async () => {
-    const media = new FileLocation(new Uint8Array([7, 8, 9]), 3)
+  it('rejects changed media when the fresh message does not match the locator', async () => {
     const getMessages = vi.fn().mockRejectedValue(new tl.RpcError(400, 'PEER_ID_INVALID'))
     const downloadToFile = vi.fn().mockResolvedValue(undefined)
     const client = {
@@ -84,19 +86,44 @@ describe('MtcuteTelegramClient media downloads', () => {
     } as unknown as TelegramClient
     const telegram = new MtcuteTelegramClient(client)
 
-    await telegram.downloadMessageMedia({
+    await expect(telegram.downloadMessageMedia({
       chat: 100,
       msgId: 42,
+      attachment: locator('unique-missing'),
       destination: '/tmp/photo.jpg',
-      location: media,
-    })
+    })).rejects.toThrow('PEER_ID_INVALID')
 
-    expect(getMessages).not.toHaveBeenCalled()
-    expect(downloadToFile).toHaveBeenCalledWith('/tmp/photo.jpg', media, {
-      progressCallback: undefined,
-    })
+    expect(getMessages).toHaveBeenCalledWith(100, 42)
+    expect(downloadToFile).not.toHaveBeenCalled()
   })
 })
+
+function locator(uniqueFileId: string) {
+  return {
+    attachment_index: 1,
+    unique_file_id: uniqueFileId,
+    kind: 'photo' as const,
+    role: 'primary',
+    file_name: null,
+    mime_type: null,
+    file_size: null,
+    width: null,
+    height: null,
+    duration_seconds: null,
+  }
+}
+
+function mediaObject(location: FileLocation, uniqueFileId: string): unknown {
+  return new TestPhoto(location.fileSize ?? 1, uniqueFileId)
+}
+
+class TestPhoto extends FileLocation {
+  readonly type = 'photo'
+
+  constructor(fileSize: number, readonly uniqueFileId: string) {
+    super(new Uint8Array([1, 2, 3]), fileSize)
+  }
+}
 
 function event<T>() {
   let listener: ((value: T) => void | Promise<void>) | undefined

@@ -1,9 +1,18 @@
-import type { Message, MessageMedia } from '@mtcute/node'
+import { type FileLocation, type Message, type MessageMedia } from '@mtcute/node'
 
 import type { JsonValue, NormalizedMessage } from './media-types.js'
 import { normalizeMtcuteMedia } from './mtcute-media-normalizer.js'
 
 export function normalizeMtcuteMessage(message: Message): NormalizedMessage {
+  return normalizeMtcuteMessageWithLocations(message).message
+}
+
+export type NormalizedMtcuteDownloadView = {
+  message: NormalizedMessage
+  locations: ReadonlyMap<number, FileLocation>
+}
+
+export function normalizeMtcuteMessageWithLocations(message: Message): NormalizedMtcuteDownloadView {
   const rawMedia = message.raw?._ === 'message'
     ? (message.raw as { media?: unknown }).media
     : undefined
@@ -13,18 +22,21 @@ export function normalizeMtcuteMessage(message: Message): NormalizedMessage {
   })
 
   return {
-    platform: 'telegram',
-    chat_id: message.chat.id,
-    chat_name: peerDisplayName(message.chat),
-    msg_id: message.id,
-    sender_id: typeof message.sender.id === 'number' ? message.sender.id : null,
-    sender_name: peerDisplayNameOrNull(message.sender),
-    content: message.text === '' ? null : message.text,
-    timestamp: message.date.toISOString(),
-    reply_to_msg_id: message.replyToMessage?.id ?? null,
-    media_group_id: message.groupedIdUnique ?? null,
-    raw_json: rawDiagnosticSnapshot(message.raw),
-    attachments: normalizedMedia.attachments,
+    message: {
+      platform: 'telegram',
+      chat_id: message.chat.id,
+      chat_name: peerDisplayName(message.chat),
+      msg_id: message.id,
+      sender_id: typeof message.sender.id === 'number' ? message.sender.id : null,
+      sender_name: peerDisplayNameOrNull(message.sender),
+      content: message.text === '' ? null : message.text,
+      timestamp: message.date.toISOString(),
+      reply_to_msg_id: message.replyToMessage?.id ?? null,
+      media_group_id: message.groupedIdUnique ?? null,
+      raw_json: rawDiagnosticSnapshot(message.raw),
+      attachments: normalizedMedia.attachments,
+    },
+    locations: normalizedMedia.locations,
   }
 }
 

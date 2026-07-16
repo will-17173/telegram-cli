@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 
 const fakeClient = vi.hoisted(() => ({
   downloadMessageMedia: vi.fn(async (_input: Record<string, unknown>) => undefined),
@@ -100,6 +101,40 @@ function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInpu
     media_group_id: null,
     raw_json: null,
     attachments: [],
+    ...overrides,
+  }
+}
+
+function attachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    attachment_index: 1,
+    parent_attachment_index: null,
+    role: 'primary',
+    kind: 'photo',
+    subtype: null,
+    downloadable: true,
+    file_id: 'file-1',
+    unique_file_id: 'unique-1',
+    file_name: 'photo.jpg',
+    mime_type: 'image/jpeg',
+    file_size: 10,
+    width: null,
+    height: null,
+    duration_seconds: null,
+    thumbnail_file_id: null,
+    thumbnail_unique_file_id: null,
+    thumbnail_width: null,
+    thumbnail_height: null,
+    emoji: null,
+    title: null,
+    performer: null,
+    latitude: null,
+    longitude: null,
+    address: null,
+    phone_number: null,
+    url: null,
+    preview_jpeg_base64: null,
+    metadata: {},
     ...overrides,
   }
 }
@@ -358,7 +393,7 @@ describe('handleApiRequest', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         account: 'missing',
-        attachments: [{ chat_id: 10, msg_id: 1, file_name: 'photo.jpg' }],
+        attachments: [{ chat_id: 10, msg_id: 1, attachment_index: 1 }],
       }),
     })
 
@@ -376,6 +411,7 @@ describe('handleApiRequest', () => {
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
     db.upsertBatch([message({
       chat_id: 1220606936,
+      attachments: [attachment()],
       raw_json: {
         media: {
           photo: {
@@ -395,7 +431,7 @@ describe('handleApiRequest', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         account: 'work',
-        attachments: [{ chat_id: 1220606936, msg_id: 1, file_name: 'photo.jpg' }],
+        attachments: [{ chat_id: 1220606936, msg_id: 1, attachment_index: 1, file_name: 'ignored.jpg' }],
       }),
     })
 
@@ -403,6 +439,7 @@ describe('handleApiRequest', () => {
     expect(fakeClient.downloadMessageMedia).toHaveBeenCalledWith(expect.objectContaining({
       chat: -1001220606936,
       msgId: 1,
+      attachment: expect.objectContaining({ attachment_index: 1 }),
       destination: expect.stringContaining('photo.jpg'),
     }))
     expect(fakeClient.downloadMessageMedia.mock.calls[0]?.[0]).not.toHaveProperty('location')

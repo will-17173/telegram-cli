@@ -1,3 +1,6 @@
+import type { DownloadMessageMediaOptions } from './attachment-locator.js'
+import type { NormalizedMessage } from './media-types.js'
+
 export interface TelegramArchiveAdapter {
   resolveChats(input: { chats?: Array<string | number>; all: boolean }): Promise<ArchiveChat[]>
   iterHistoryPages(input: {
@@ -6,12 +9,7 @@ export interface TelegramArchiveAdapter {
     until?: Date
     minId?: number
   }): AsyncIterable<ArchiveMessage[]>
-  downloadMedia(input: {
-    chat: string | number
-    messageId: number
-    destination: string
-    onProgress?: (done: number, total: number) => void
-  }): Promise<void>
+  downloadMedia(input: DownloadMessageMediaOptions): Promise<void>
 }
 
 export type ArchiveChat = {
@@ -20,19 +18,4 @@ export type ArchiveChat = {
   type: string
 }
 
-export type ArchiveMessage = {
-  chat_id: number
-  msg_id: number
-  timestamp: string
-  sender_id: number | null
-  sender_name: string | null
-  text: string | null
-  reply_to_msg_id: number | null
-  media_group_id: string | null
-  attachment: {
-    type: string
-    file_name: string | null
-    file_size: number | null
-    downloadable: boolean
-  } | null
-}
+export type ArchiveMessage = NormalizedMessage

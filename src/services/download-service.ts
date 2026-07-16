@@ -3,8 +3,10 @@ import { mkdir, open, rename, rm } from 'node:fs/promises'
 import { dirname, extname, join, parse } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
-import type { HandlerResult, HumanOutput } from '../commands/types.js'
+import type { CommandFailure, HandlerResult, HumanOutput } from '../commands/types.js'
 import type { ArchiveMessage, TelegramArchiveAdapter } from '../telegram/archive-types.js'
+import { AttachmentLookupError, toAttachmentLocator } from '../telegram/attachment-locator.js'
+import type { Attachment, MediaKind } from '../telegram/media-types.js'
 import { sanitizeAttachmentFileName } from './attachment-download.js'
 
 export type DownloadInput = {
@@ -25,8 +27,27 @@ export type DownloadInput = {
 export type DownloadedMedia = {
   chat_id: number
   msg_id: number
-  attachment: number
+  selection_index: number
+  attachment_index: number
+  kind: MediaKind
   path: string
+}
+
+export type DownloadSkip = {
+  msg_id: number
+  selection_index: number
+  attachment_index: number
+  kind: MediaKind
+  reason: string
+}
+
+export type DownloadFailure = {
+  msg_id: number
+  selection_index: number
+  attachment_index: number
+  kind: MediaKind
+  code: 'attachment_changed' | 'media_access_denied' | 'download_partial_failure'
+  error: string
 }
 
 export type DownloadResult = {
@@ -38,7 +59,8 @@ export type DownloadResult = {
   failed: number
   flood_waits: number
   files: DownloadedMedia[]
-  failures: Array<{ msg_id: number; attachment: number; error: string }>
+  skips: DownloadSkip[]
+  failures: DownloadFailure[]
 }
 
 type DownloadDependencies = {
@@ -50,7 +72,8 @@ type DownloadDependencies = {
 type DownloadTarget = {
   chat: string | number
   message: ArchiveMessage
-  attachment: number
+  attachment: Attachment
+  selectionIndex: number
   destination: string
 }
 
@@ -84,13 +107,10 @@ export class DownloadService {
     }
 
     const targets = await this.collectTargets(input)
-    if ((input.messageId != null || input.groupedId != null) && input.attachment != null && targets.length === 0) {
+    if (this.lastSelectionError != null) {
       return {
         ok: false,
-        error: {
-          code: 'download_attachment_not_found',
-          message: `${input.groupedId == null ? `Message ${input.messageId}` : `Grouped album ${input.groupedId}`} does not have attachment ${input.attachment}.`,
-        },
+        error: this.lastSelectionError,
       }
     }
 
@@ -99,19 +119,37 @@ export class DownloadService {
       output: input.output,
       requested: targets.length,
       downloaded: 0,
-      skipped: this.lastSkipped,
+      skipped: this.lastSkips.length,
       failed: 0,
       flood_waits: 0,
       files: [],
+      skips: this.lastSkips,
       failures: [],
     }
 
     await mkdir(input.output, { recursive: true })
     await this.runDownloads(targets, Math.max(1, Math.floor(input.concurrency ?? 3)), result)
-    result.files.sort((left, right) => right.msg_id - left.msg_id || left.attachment - right.attachment)
+    result.files.sort((left, right) => right.msg_id - left.msg_id || left.selection_index - right.selection_index)
 
     const output = { ...result, human: downloadSummary(result) }
     if (result.failed > 0) {
+      const onlyFailure = result.failures.length === 1 ? result.failures[0] : undefined
+      if (
+        targets.length === 1
+        && result.downloaded === 0
+        && input.attachment != null
+        && onlyFailure != null
+        && (onlyFailure.code === 'attachment_changed' || onlyFailure.code === 'media_access_denied')
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: onlyFailure.code,
+            message: onlyFailure.error,
+            details: output,
+          },
+        }
+      }
       return {
         ok: false,
         error: {
@@ -124,10 +162,12 @@ export class DownloadService {
     return { ok: true, data: result, human: output.human }
   }
 
-  private lastSkipped = 0
+  private lastSkips: DownloadSkip[] = []
+  private lastSelectionError: CommandFailure['error'] | null = null
 
   private async collectTargets(input: DownloadInput): Promise<DownloadTarget[]> {
-    this.lastSkipped = 0
+    this.lastSkips = []
+    this.lastSelectionError = null
     if (input.groupedMessages != null) return this.targetsFromGroupedMessages(input.groupedMessages, input)
 
     const targets: DownloadTarget[] = []
@@ -146,15 +186,8 @@ export class DownloadService {
         if (lower != null && message.msg_id < lower) continue
         if (upper != null && message.msg_id > upper) continue
         if (!matchesDateRange(message, input)) continue
-        if (message.attachment?.downloadable !== true) {
-          if (message.attachment != null) this.lastSkipped += 1
-          continue
-        }
-        const attachmentNumber = 1
-        if (input.attachment != null && input.attachment !== attachmentNumber) continue
-        const destination = uniqueDestination(input.output, fileNameForMessage(message), this.exists, reserved)
-        reserved.add(destination)
-        targets.push({ chat: input.chat, message, attachment: attachmentNumber, destination })
+        const selected = this.selectMessageTargets(message, input, reserved)
+        targets.push(...selected)
       }
     }
 
@@ -168,17 +201,67 @@ export class DownloadService {
     const reserved = new Set<string>()
     const ordered = [...messages].sort((left, right) => left.msg_id - right.msg_id)
     const targets: DownloadTarget[] = []
-    ordered.forEach((message, index) => {
-      const attachmentNumber = index + 1
-      if (input.attachment != null && input.attachment !== attachmentNumber) return
-      if (message.attachment?.downloadable !== true) {
-        if (message.attachment != null) this.lastSkipped += 1
-        return
+    let selectionIndex = 0
+    for (const message of ordered) {
+      for (const attachment of orderedAttachments(message)) {
+        selectionIndex += 1
+        if (input.attachment != null && input.attachment !== selectionIndex) continue
+        if (!attachment.downloadable) {
+          if (input.attachment === selectionIndex) {
+            this.lastSelectionError = {
+              code: 'attachment_not_downloadable',
+              message: `Attachment ${selectionIndex} in grouped album ${input.groupedId} is not downloadable.`,
+            }
+          } else if (input.attachment == null) {
+            this.lastSkips.push(skipFor(message, attachment, selectionIndex, 'attachment_not_downloadable'))
+          }
+          continue
+        }
+        const destination = uniqueDestination(input.output, fileNameForAttachment(message, attachment), this.exists, reserved)
+        reserved.add(destination)
+        targets.push({ chat: input.chat, message, attachment, selectionIndex, destination })
       }
-      const destination = uniqueDestination(input.output, fileNameForMessage(message), this.exists, reserved)
+    }
+    if (input.attachment != null && targets.length === 0 && this.lastSelectionError == null) {
+      this.lastSelectionError = {
+        code: 'attachment_not_found',
+        message: `Grouped album ${input.groupedId} does not have attachment ${input.attachment}.`,
+      }
+    }
+    return targets
+  }
+
+  private selectMessageTargets(
+    message: ArchiveMessage,
+    input: DownloadInput,
+    reserved: Set<string>,
+  ): DownloadTarget[] {
+    const attachments = orderedAttachments(message)
+    const targets: DownloadTarget[] = []
+    for (const attachment of attachments) {
+      const selectionIndex = attachment.attachment_index
+      if (input.attachment != null && input.attachment !== selectionIndex) continue
+      if (!attachment.downloadable) {
+        if (input.attachment === selectionIndex) {
+          this.lastSelectionError = {
+            code: 'attachment_not_downloadable',
+            message: `Attachment ${selectionIndex} in message ${message.msg_id} is not downloadable.`,
+          }
+        } else if (input.attachment == null) {
+          this.lastSkips.push(skipFor(message, attachment, selectionIndex, 'attachment_not_downloadable'))
+        }
+        continue
+      }
+      const destination = uniqueDestination(input.output, fileNameForAttachment(message, attachment), this.exists, reserved)
       reserved.add(destination)
-      targets.push({ chat: input.chat, message, attachment: attachmentNumber, destination })
-    })
+      targets.push({ chat: input.chat, message, attachment, selectionIndex, destination })
+    }
+    if (input.messageId != null && input.attachment != null && targets.length === 0 && this.lastSelectionError == null) {
+      this.lastSelectionError = {
+        code: 'attachment_not_found',
+        message: `Message ${message.msg_id} does not have attachment ${input.attachment}.`,
+      }
+    }
     return targets
   }
 
@@ -206,7 +289,8 @@ export class DownloadService {
         try {
           await this.source.downloadMedia({
             chat: target.chat,
-            messageId: target.message.msg_id,
+            msgId: target.message.msg_id,
+            attachment: toAttachmentLocator(target.attachment),
             destination: temporary,
           })
           break
@@ -223,14 +307,19 @@ export class DownloadService {
       result.files.push({
         chat_id: target.message.chat_id,
         msg_id: target.message.msg_id,
-        attachment: target.attachment,
+        selection_index: target.selectionIndex,
+        attachment_index: target.attachment.attachment_index,
+        kind: target.attachment.kind,
         path: target.destination,
       })
     } catch (error) {
       result.failed += 1
       result.failures.push({
         msg_id: target.message.msg_id,
-        attachment: target.attachment,
+        selection_index: target.selectionIndex,
+        attachment_index: target.attachment.attachment_index,
+        kind: target.attachment.kind,
+        code: downloadFailureCode(error),
         error: errorMessage(error),
       })
     } finally {
@@ -295,15 +384,40 @@ function matchesDateRange(message: ArchiveMessage, input: DownloadInput): boolea
   return true
 }
 
-function fileNameForMessage(message: ArchiveMessage): string {
-  const raw = message.attachment?.file_name?.trim()
-  if (raw) return raw
-  const extension = extensionForAttachment(message.attachment?.type)
-  return `${message.chat_id}-${message.msg_id}.${extension}`
+function orderedAttachments(message: ArchiveMessage): Attachment[] {
+  return message.attachments
+    .slice()
+    .sort((left, right) => left.attachment_index - right.attachment_index)
 }
 
-function extensionForAttachment(type: string | undefined): string {
-  switch (type?.toLowerCase()) {
+function skipFor(
+  message: ArchiveMessage,
+  attachment: Attachment,
+  selectionIndex: number,
+  reason: string,
+): DownloadSkip {
+  return {
+    msg_id: message.msg_id,
+    selection_index: selectionIndex,
+    attachment_index: attachment.attachment_index,
+    kind: attachment.kind,
+    reason,
+  }
+}
+
+function fileNameForAttachment(message: ArchiveMessage, attachment: Attachment): string {
+  const raw = attachment.file_name?.trim()
+  if (raw) return raw
+  const extension = extensionForAttachment(attachment)
+  return `${message.chat_id}-${message.msg_id}-${attachment.attachment_index}.${extension}`
+}
+
+function extensionForAttachment(attachment: Attachment): string {
+  const mimeExtension = attachment.mime_type == null
+    ? undefined
+    : MIME_EXTENSIONS[attachment.mime_type.toLowerCase()]
+  if (mimeExtension != null) return mimeExtension
+  switch (attachment.kind) {
     case 'photo':
       return 'jpg'
     case 'video':
@@ -314,11 +428,19 @@ function extensionForAttachment(type: string | undefined): string {
       return 'ogg'
     case 'sticker':
       return 'webp'
-    case 'animation':
-      return 'mp4'
     default:
       return 'bin'
   }
+}
+
+const MIME_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'audio/mpeg': 'mp3',
+  'audio/ogg': 'ogg',
+  'application/pdf': 'pdf',
 }
 
 function uniqueDestination(
@@ -355,6 +477,26 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function downloadFailureCode(error: unknown): DownloadFailure['code'] {
+  if (error instanceof AttachmentLookupError) {
+    return error.code === 'attachment_changed'
+      ? 'attachment_changed'
+      : 'media_access_denied'
+  }
+  if (isMediaAccessDenied(error)) return 'media_access_denied'
+  return 'download_partial_failure'
+}
+
+function isMediaAccessDenied(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase()
+  return message.includes('protected')
+    || message.includes('permission')
+    || message.includes('access')
+    || message.includes('paid')
+    || message.includes('not downloadable')
+    || message.includes('cannot be downloaded')
+}
+
 function downloadSummary(result: DownloadResult): HumanOutput {
   return {
     kind: 'summary',
@@ -369,7 +511,7 @@ function downloadSummary(result: DownloadResult): HumanOutput {
     ],
     table: {
       columns: ['MESSAGE', 'ATTACHMENT', 'PATH'],
-      rows: result.files.map((file) => [String(file.msg_id), String(file.attachment), file.path]),
+      rows: result.files.map((file) => [String(file.msg_id), String(file.selection_index), file.path]),
       emptyText: 'No media downloaded.',
     },
   }

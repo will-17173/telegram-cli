@@ -5,6 +5,8 @@ import type { TelegramFolderAdapter } from './folder-types.js'
 import type { TelegramNotificationAdapter } from './notification-types.js'
 import type { TelegramArchiveAdapter } from './archive-types.js'
 import type { NormalizedMessage } from './media-types.js'
+import type { DownloadMessageMediaOptions } from './attachment-locator.js'
+export type { DownloadMessageMediaOptions } from './attachment-locator.js'
 
 export type TelegramChatType = 'user' | 'group' | 'supergroup' | 'channel' | 'unknown'
 
@@ -33,14 +35,6 @@ export type FetchHistoryOptions = {
   pageDelay?: number
   onPage?: (page: NormalizedMessage[]) => void
   onProgress?: (count: number) => void
-}
-
-export type DownloadMessageMediaOptions = {
-  chat: string | number
-  msgId: number
-  destination: string
-  location?: unknown
-  onProgress?: (downloaded: number, total: number) => void
 }
 
 export type SendMediaOptions = {

@@ -49,16 +49,45 @@ export type ReplyContext =
     attachments: MessageAttachment[]
   }
 
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue }
+
 export type MessageAttachment = {
-  key: string
   chat_id: number
   msg_id: number
+  attachment_index: number
+  parent_attachment_index: number | null
+  role: string
   kind: string
-  label: string
-  file_name: string
-  mime_type: string | null
+  subtype: string | null
   downloadable: boolean
-  preview_jpeg_base64?: string
+  file_id: string | null
+  unique_file_id: string | null
+  file_name: string | null
+  mime_type: string | null
+  file_size: number | null
+  width: number | null
+  height: number | null
+  duration_seconds: number | null
+  thumbnail_file_id: string | null
+  thumbnail_unique_file_id: string | null
+  thumbnail_width: number | null
+  thumbnail_height: number | null
+  emoji: string | null
+  title: string | null
+  performer: string | null
+  latitude: number | null
+  longitude: number | null
+  address: string | null
+  phone_number: string | null
+  url: string | null
+  preview_jpeg_base64: string | null
+  metadata: JsonValue
 }
 
 export type Page<T> = {
