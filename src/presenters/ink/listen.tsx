@@ -1041,10 +1041,13 @@ export function InteractiveListen({
     if (key.tab) {
       if (focus === 'attachments') {
         setFocus('input')
-      } else if (visibleDownloadableAttachments.length > 0) {
+      } else if (visibleDownloadableAttachments.length > 0 || downloadableAttachments.length > 0) {
+        const focusableAttachments = visibleDownloadableAttachments.length > 0
+          ? visibleDownloadableAttachments
+          : downloadableAttachments
         const currentSelectedKey = selectedAttachmentKeyRef.current
-        const nextSelection = visibleDownloadableAttachments.find((item) => item.key === currentSelectedKey)
-          ?? visibleDownloadableAttachments[0]!
+        const nextSelection = focusableAttachments.find((item) => item.key === currentSelectedKey)
+          ?? focusableAttachments[0]!
         setFocus('attachments')
         selectAttachment(nextSelection.key)
       } else {
