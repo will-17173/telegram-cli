@@ -5,7 +5,26 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { getDbPath } from '../config/env.js'
 import { canonicalChatId } from './chat-resolver.js'
-import { extractGroupedId } from '../telegram/raw-message.js'
+
+export const MESSAGE_DB_SCHEMA_VERSION = 1
+
+export class DataResetRequiredError extends Error {
+  readonly code = 'data_reset_required'
+
+  constructor(
+    readonly path: string,
+    readonly actualVersion: number | null,
+  ) {
+    super('Run `tg data reset --yes` before using this version.')
+    this.name = 'DataResetRequiredError'
+  }
+}
+
+export function isDataResetRequiredError(
+  error: unknown,
+): error is DataResetRequiredError {
+  return error instanceof DataResetRequiredError
+}
 
 export type StoredMessage = {
   id: number
@@ -17,6 +36,8 @@ export type StoredMessage = {
   sender_name: string | null
   content: string | null
   timestamp: string
+  reply_to_msg_id?: number | null
+  media_group_id?: string | null
   raw_json: string | null
   preview_jpeg_base64?: string | null
 }
@@ -86,7 +107,9 @@ export class MessageDB {
       this.snapshotDir = adopted.snapshotDir
       let snapshotDb: Database.Database | undefined
       try {
-        snapshotDb = new Database(path, { fileMustExist: true })
+        snapshotDb = new Database(path, { readonly: true, fileMustExist: true })
+        validateCurrentSchemaOrThrow(snapshotDb, path)
+        snapshotDb.pragma('foreign_keys = ON')
         snapshotDb.pragma('query_only = ON')
         snapshotDb.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()
         this.db = snapshotDb
@@ -101,7 +124,9 @@ export class MessageDB {
       this.snapshotDir = snapshotDir
       let snapshotDb: Database.Database | undefined
       try {
-        snapshotDb = new Database(snapshotPath, { fileMustExist: true })
+        snapshotDb = new Database(snapshotPath, { readonly: true, fileMustExist: true })
+        validateCurrentSchemaOrThrow(snapshotDb, snapshotPath)
+        snapshotDb.pragma('foreign_keys = ON')
         snapshotDb.pragma('query_only = ON')
         snapshotDb.prepare('SELECT 1 FROM sqlite_schema LIMIT 1').get()
         this.db = snapshotDb
@@ -114,30 +139,16 @@ export class MessageDB {
     }
 
     mkdirSync(dirname(path), { recursive: true })
-    this.db = new Database(path)
-    this.db.pragma('journal_mode = WAL')
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        platform TEXT NOT NULL DEFAULT 'telegram',
-        chat_id INTEGER NOT NULL,
-        chat_name TEXT,
-        msg_id INTEGER NOT NULL,
-        sender_id INTEGER,
-        sender_name TEXT,
-        content TEXT,
-        timestamp TEXT NOT NULL,
-        raw_json TEXT,
-        preview_jpeg_base64 TEXT,
-        UNIQUE(platform, chat_id, msg_id)
-      );
-      CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_id, timestamp);
-      CREATE INDEX IF NOT EXISTS idx_messages_recent ON messages(timestamp DESC, id DESC);
-      CREATE INDEX IF NOT EXISTS idx_messages_chat_recent ON messages(chat_id, timestamp DESC, id DESC);
-      CREATE INDEX IF NOT EXISTS idx_messages_content ON messages(content);
-      CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
-    `)
-    this.ensurePreviewColumn()
+    const writableDb = new Database(path)
+    try {
+      initializeOrValidateWritableSchema(writableDb, path)
+      writableDb.pragma('foreign_keys = ON')
+      writableDb.pragma('journal_mode = WAL')
+      this.db = writableDb
+    } catch (error) {
+      writableDb.close()
+      throw error
+    }
   }
 
   static async openReadonly(path: string): Promise<MessageDB> {
@@ -154,8 +165,8 @@ export class MessageDB {
     if (messages.length === 0) return 0
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO messages
-      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json, preview_jpeg_base64)
-      VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @raw_json, @preview_jpeg_base64)
+      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, reply_to_msg_id, media_group_id, raw_json)
+      VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @reply_to_msg_id, @media_group_id, @raw_json)
     `)
     let inserted = 0
     const tx = this.db.transaction((rows: StoredMessageInput[]) => {
@@ -170,8 +181,8 @@ export class MessageDB {
   insertMessage(message: StoredMessageInput): boolean {
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO messages
-      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json, preview_jpeg_base64)
-      VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @raw_json, @preview_jpeg_base64)
+      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, reply_to_msg_id, media_group_id, raw_json)
+      VALUES (@platform, @chat_id, @chat_name, @msg_id, @sender_id, @sender_name, @content, @timestamp, @reply_to_msg_id, @media_group_id, @raw_json)
     `)
     return this.insertPrepared(stmt, message) === 1
   }
@@ -294,12 +305,11 @@ export class MessageDB {
   }
 
   findMessagesByGroupedId(chatId: number, groupedId: string): StoredMessage[] {
-    const rows = this.db.prepare(`
+    return this.db.prepare(`
       SELECT * FROM messages
-      WHERE platform = 'telegram' AND chat_id = ? AND raw_json IS NOT NULL
+      WHERE platform = 'telegram' AND chat_id = ? AND media_group_id = ?
       ORDER BY msg_id ASC
-    `).all(canonicalChatId(chatId)) as StoredMessage[]
-    return rows.filter((row) => extractGroupedId(row.raw_json) === groupedId)
+    `).all(canonicalChatId(chatId), groupedId) as StoredMessage[]
   }
 
   getToday(options: TodayOptions = {}): StoredMessage[] {
@@ -506,15 +516,11 @@ export class MessageDB {
     return stmt.run({
       ...row,
       chat_id: canonicalChatId(row.chat_id),
+      chat_name: row.chat_name ?? '',
+      reply_to_msg_id: row.reply_to_msg_id ?? null,
+      media_group_id: row.media_group_id ?? null,
       raw_json: row.raw_json == null ? null : JSON.stringify(row.raw_json),
-      preview_jpeg_base64: row.preview_jpeg_base64 ?? null,
     }).changes
-  }
-
-  private ensurePreviewColumn(): void {
-    const columns = this.db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
-    if (columns.some((column) => column.name === 'preview_jpeg_base64')) return
-    this.db.exec('ALTER TABLE messages ADD COLUMN preview_jpeg_base64 TEXT')
   }
 
   private addFilters(conditions: string[], params: unknown[], options: FilterOptions, tableAlias?: string): void {
@@ -557,6 +563,192 @@ export class MessageDB {
       )
     )`
   }
+}
+
+const REQUIRED_MESSAGE_COLUMNS: SchemaColumn[] = [
+  { name: 'id', notnull: 0, pk: 1 },
+  { name: 'platform', notnull: 1, pk: 0 },
+  { name: 'chat_id', notnull: 1, pk: 0 },
+  { name: 'chat_name', notnull: 1, pk: 0 },
+  { name: 'msg_id', notnull: 1, pk: 0 },
+  { name: 'sender_id', notnull: 0, pk: 0 },
+  { name: 'sender_name', notnull: 0, pk: 0 },
+  { name: 'content', notnull: 0, pk: 0 },
+  { name: 'timestamp', notnull: 1, pk: 0 },
+  { name: 'reply_to_msg_id', notnull: 0, pk: 0 },
+  { name: 'media_group_id', notnull: 0, pk: 0 },
+  { name: 'raw_json', notnull: 0, pk: 0 },
+]
+
+const REQUIRED_ATTACHMENT_COLUMNS: SchemaColumn[] = [
+  { name: 'id', notnull: 0, pk: 1 },
+  { name: 'message_id', notnull: 1, pk: 0 },
+  { name: 'attachment_index', notnull: 1, pk: 0 },
+  { name: 'parent_attachment_index', notnull: 0, pk: 0 },
+  { name: 'role', notnull: 1, pk: 0 },
+  { name: 'kind', notnull: 1, pk: 0 },
+  { name: 'subtype', notnull: 0, pk: 0 },
+  { name: 'file_id', notnull: 0, pk: 0 },
+  { name: 'unique_file_id', notnull: 0, pk: 0 },
+  { name: 'file_name', notnull: 0, pk: 0 },
+  { name: 'mime_type', notnull: 0, pk: 0 },
+  { name: 'file_size', notnull: 0, pk: 0 },
+  { name: 'width', notnull: 0, pk: 0 },
+  { name: 'height', notnull: 0, pk: 0 },
+  { name: 'duration_seconds', notnull: 0, pk: 0 },
+  { name: 'downloadable', notnull: 1, pk: 0 },
+  { name: 'preview_jpeg_base64', notnull: 0, pk: 0 },
+  { name: 'metadata_json', notnull: 1, pk: 0 },
+]
+
+const REQUIRED_MESSAGE_INDEXES = [
+  'idx_messages_chat_ts',
+  'idx_messages_recent',
+  'idx_messages_chat_recent',
+  'idx_messages_content',
+  'idx_messages_sender',
+]
+
+const REQUIRED_ATTACHMENT_INDEXES = [
+  'idx_attachments_message_order',
+  'idx_attachments_kind',
+  'idx_attachments_unique_file_id',
+]
+
+type SchemaColumn = {
+  name: string
+  notnull: number
+  pk: number
+}
+
+function initializeOrValidateWritableSchema(db: Database.Database, path: string): void {
+  const actualVersion = readUserVersion(db)
+  const tables = readUserTables(db)
+  if (actualVersion === 0 && tables.length === 0) {
+    createFreshSchema(db)
+    validateCurrentSchemaOrThrow(db, path)
+    return
+  }
+  validateCurrentSchemaOrThrow(db, path)
+}
+
+function validateCurrentSchemaOrThrow(db: Database.Database, path: string): void {
+  const actualVersion = readUserVersion(db)
+  if (actualVersion !== MESSAGE_DB_SCHEMA_VERSION || !hasCurrentSchema(db)) {
+    throw new DataResetRequiredError(path, actualVersion)
+  }
+}
+
+function readUserVersion(db: Database.Database): number | null {
+  const value = db.pragma('user_version', { simple: true })
+  return typeof value === 'number' ? value : null
+}
+
+function readUserTables(db: Database.Database): string[] {
+  return db.prepare(`
+    SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+    ORDER BY name
+  `).all().map((row) => (row as { name: string }).name)
+}
+
+function hasCurrentSchema(db: Database.Database): boolean {
+  const tables = new Set(readUserTables(db))
+  return tables.has('messages') &&
+    tables.has('attachments') &&
+    sameSchemaColumns(tableColumns(db, 'messages'), REQUIRED_MESSAGE_COLUMNS) &&
+    sameSchemaColumns(tableColumns(db, 'attachments'), REQUIRED_ATTACHMENT_COLUMNS) &&
+    hasIndexes(db, 'messages', REQUIRED_MESSAGE_INDEXES) &&
+    hasIndexes(db, 'attachments', REQUIRED_ATTACHMENT_INDEXES) &&
+    hasAttachmentForeignKey(db)
+}
+
+function tableColumns(db: Database.Database, table: string): SchemaColumn[] {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as SchemaColumn[])
+    .map(({ name, notnull, pk }) => ({ name, notnull, pk }))
+}
+
+function sameSchemaColumns(actual: SchemaColumn[], expected: SchemaColumn[]): boolean {
+  return JSON.stringify(actual) === JSON.stringify(expected)
+}
+
+function hasIndexes(db: Database.Database, table: string, names: string[]): boolean {
+  const actual = new Set((db.prepare(`PRAGMA index_list(${table})`).all() as Array<{ name: string }>).map(({ name }) => name))
+  return names.every((name) => actual.has(name))
+}
+
+function hasAttachmentForeignKey(db: Database.Database): boolean {
+  const keys = db.prepare('PRAGMA foreign_key_list(attachments)').all() as Array<{
+    table: string
+    from: string
+    to: string
+    on_delete: string
+  }>
+  return keys.some((key) => (
+    key.table === 'messages' &&
+    key.from === 'message_id' &&
+    key.to === 'id' &&
+    key.on_delete.toUpperCase() === 'CASCADE'
+  ))
+}
+
+function createFreshSchema(db: Database.Database): void {
+  db.exec(`
+    BEGIN;
+    CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL,
+      chat_id INTEGER NOT NULL,
+      chat_name TEXT NOT NULL,
+      msg_id INTEGER NOT NULL,
+      sender_id INTEGER,
+      sender_name TEXT,
+      content TEXT,
+      timestamp TEXT NOT NULL,
+      reply_to_msg_id INTEGER,
+      media_group_id TEXT,
+      raw_json TEXT,
+      UNIQUE(platform, chat_id, msg_id)
+    );
+
+    CREATE TABLE attachments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      attachment_index INTEGER NOT NULL,
+      parent_attachment_index INTEGER,
+      role TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      subtype TEXT,
+      file_id TEXT,
+      unique_file_id TEXT,
+      file_name TEXT,
+      mime_type TEXT,
+      file_size INTEGER,
+      width INTEGER,
+      height INTEGER,
+      duration_seconds REAL,
+      downloadable INTEGER NOT NULL,
+      preview_jpeg_base64 TEXT,
+      metadata_json TEXT NOT NULL,
+      UNIQUE(message_id, attachment_index),
+      CHECK(attachment_index > 0),
+      CHECK(parent_attachment_index IS NULL OR parent_attachment_index > 0),
+      CHECK(downloadable IN (0, 1))
+    );
+
+    CREATE INDEX idx_messages_chat_ts ON messages(chat_id, timestamp);
+    CREATE INDEX idx_messages_recent ON messages(timestamp DESC, id DESC);
+    CREATE INDEX idx_messages_chat_recent ON messages(chat_id, timestamp DESC, id DESC);
+    CREATE INDEX idx_messages_content ON messages(content);
+    CREATE INDEX idx_messages_sender ON messages(sender_name);
+    CREATE INDEX idx_attachments_message_order ON attachments(message_id, attachment_index);
+    CREATE INDEX idx_attachments_kind ON attachments(kind);
+    CREATE INDEX idx_attachments_unique_file_id
+      ON attachments(unique_file_id)
+      WHERE unique_file_id IS NOT NULL;
+    PRAGMA user_version = 1;
+    COMMIT;
+  `)
 }
 
 function encodeMessageCursor(row: { timestamp: string; id: number }): string {
