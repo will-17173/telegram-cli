@@ -36,6 +36,7 @@ export type Attachment = {
   role: string
   kind: MediaKind
   subtype: string | null
+  downloadable: boolean
   file_id: string | null
   unique_file_id: string | null
   file_name: string | null
@@ -56,6 +57,7 @@ export type Attachment = {
   address: string | null
   phone_number: string | null
   url: string | null
+  preview_jpeg_base64: string | null
   metadata: JsonValue
 }
 

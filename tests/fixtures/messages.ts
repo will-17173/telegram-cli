@@ -14,6 +14,7 @@ export function attachment(overrides: Partial<Attachment> = {}): Attachment {
     role: 'primary',
     kind: 'document',
     subtype: null,
+    downloadable: true,
     file_id: null,
     unique_file_id: null,
     file_name: null,
@@ -34,6 +35,7 @@ export function attachment(overrides: Partial<Attachment> = {}): Attachment {
     address: null,
     phone_number: null,
     url: null,
+    preview_jpeg_base64: null,
     metadata: {},
     ...overrides,
   }
