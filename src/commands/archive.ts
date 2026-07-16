@@ -4,7 +4,7 @@ import type { Command } from 'commander'
 import { renderResult } from '../cli/output.js'
 import { ArchiveService } from '../services/archive-service.js'
 import type { ArchiveCommandResult } from '../services/archive-types.js'
-import type { AccountContext } from '../account/account-presets.js'
+import { accountArchivePath, type AccountContext } from '../account/account-presets.js'
 import type { AccountCommandOptions } from './account-options.js'
 import { parseTimeRange, type ParsedTimeRange } from './time-range.js'
 import { isTelegramAuthSessionError } from '../telegram/errors.js'
@@ -148,7 +148,7 @@ function archiveFailure(error: unknown): HandlerResult<never> {
 }
 
 function defaultArchiveOutput(context: AccountContext): string {
-  return join(dirname(context.dbPath), 'archive')
+  return accountArchivePath(dirname(dirname(context.dbPath)), context.account.name)
 }
 
 function archiveSummary(result: ArchiveCommandResult) {

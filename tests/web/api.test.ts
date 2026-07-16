@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import Database from 'better-sqlite3'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -60,6 +61,29 @@ function seedNegativeChatMessage(root: string): void {
     timestamp: '2026-07-14T09:00:00.000Z',
   })])
   db.close()
+}
+
+function seedOldMessageSchema(root: string): string {
+  const path = join(root, 'accounts', 'work', 'messages.db')
+  mkdirSync(join(path, '..'), { recursive: true })
+  const db = new Database(path)
+  db.exec(`
+    CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL DEFAULT 'telegram',
+      chat_id INTEGER NOT NULL,
+      chat_name TEXT,
+      msg_id INTEGER NOT NULL,
+      sender_id INTEGER,
+      sender_name TEXT,
+      content TEXT,
+      timestamp TEXT NOT NULL,
+      raw_json TEXT,
+      UNIQUE(platform, chat_id, msg_id)
+    );
+  `)
+  db.close()
+  return path
 }
 
 function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInput {
@@ -153,6 +177,28 @@ describe('handleApiRequest', () => {
       data: {
         items: [{ chat_id: 10, chat_name: 'General' }],
         total: 1,
+      },
+    })
+  })
+
+  it('returns HTTP 409 data_reset_required for old local schemas', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const dbPath = seedOldMessageSchema(root)
+
+    const response = await api(root, '/api/chats?account=work')
+
+    expect(response.status).toBe(409)
+    expect(await json(response)).toEqual({
+      ok: false,
+      error: {
+        code: 'data_reset_required',
+        message: 'Run `tg data reset --yes` before using this version.',
+        details: {
+          path: dbPath,
+          expected: 1,
+          actual: 0,
+        },
       },
     })
   })

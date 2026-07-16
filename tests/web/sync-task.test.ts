@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -45,6 +46,29 @@ function seedOldMessage(root: string): void {
   const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
   db.upsertBatch([message(1, 'old message')])
   db.close()
+}
+
+function seedOldMessageSchema(root: string): string {
+  const path = join(root, 'accounts', 'work', 'messages.db')
+  mkdirSync(join(path, '..'), { recursive: true })
+  const db = new Database(path)
+  db.exec(`
+    CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL DEFAULT 'telegram',
+      chat_id INTEGER NOT NULL,
+      chat_name TEXT,
+      msg_id INTEGER NOT NULL,
+      sender_id INTEGER,
+      sender_name TEXT,
+      content TEXT,
+      timestamp TEXT NOT NULL,
+      raw_json TEXT,
+      UNIQUE(platform, chat_id, msg_id)
+    );
+  `)
+  db.close()
+  return path
 }
 
 function message(msgId: number, content: string): StoredMessageInput {
@@ -132,6 +156,35 @@ describe('SyncTaskRunner', () => {
       chat_id: 10,
       synced: 1,
     }))
+  })
+
+  it('stores data_reset_required sync task errors with reset details', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const dbPath = seedOldMessageSchema(root)
+    const runner = new SyncTaskRunner({ dataDir: root })
+
+    const result = await runner.start({ account: 'work', chatId: 10, limit: 500 })
+
+    expect(result).toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        status: 'error',
+        account: 'work',
+        chat_id: 10,
+        error: {
+          code: 'data_reset_required',
+          message: 'Run `tg data reset --yes` before using this version.',
+          details: {
+            path: dbPath,
+            expected: 1,
+            actual: 0,
+          },
+        },
+      }),
+    })
+    expect(fakeClient.fetchHistory).not.toHaveBeenCalled()
+    expect(fakeClient.close).toHaveBeenCalledOnce()
   })
 
   it('accepts signed Telegram chat IDs for sync tasks', async () => {

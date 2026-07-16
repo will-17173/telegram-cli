@@ -1,6 +1,6 @@
 import { resolveAuthenticatedAccountContext } from '../account/account-context.js'
 import { SyncService } from '../services/sync-service.js'
-import { MessageDB } from '../storage/message-db.js'
+import { isDataResetRequiredError, MESSAGE_DB_SCHEMA_VERSION, MessageDB } from '../storage/message-db.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import type { ApiResult } from './types.js'
 import { telegramPeerIdFromLocalChatId } from './telegram-peer.js'
@@ -107,6 +107,7 @@ export class SyncTaskRunner {
       }
     } catch (error) {
       await closeResources(service, client)
+      const resetError = dataResetRequiredError(error)
       this.state = {
         status: 'error',
         account,
@@ -114,10 +115,23 @@ export class SyncTaskRunner {
         limit: input.limit,
         started_at: startedAt,
         finished_at: new Date().toISOString(),
-        error: { code: 'telegram_error', message: errorMessage(error) },
+        error: resetError ?? { code: 'telegram_error', message: errorMessage(error) },
       }
       return { ok: true, data: this.state }
     }
+  }
+}
+
+function dataResetRequiredError(error: unknown): { code: string; message: string; details: unknown } | undefined {
+  if (!isDataResetRequiredError(error)) return undefined
+  return {
+    code: 'data_reset_required',
+    message: 'Run `tg data reset --yes` before using this version.',
+    details: {
+      path: error.path,
+      expected: MESSAGE_DB_SCHEMA_VERSION,
+      actual: error.actualVersion,
+    },
   }
 }
 

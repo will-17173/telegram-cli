@@ -17,6 +17,7 @@ describe('cli help', () => {
       'chats',
       'config',
       'contact',
+      'data',
       'delete',
       'dialog',
       'download',
@@ -121,7 +122,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(34)
+    expect(commands).toHaveLength(35)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 

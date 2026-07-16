@@ -3,7 +3,7 @@ import type { Command } from 'commander'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
 import { runWithAuthenticatedAccountContext, type AccountCommandOptions } from './account-options.js'
-import type { HandlerResult } from './types.js'
+import { dataResetRequiredFailure, type HandlerResult } from './types.js'
 import { WriteAccessPolicy } from '../services/write-access-policy.js'
 import { isTelegramAuthSessionError } from '../telegram/errors.js'
 
@@ -39,6 +39,8 @@ export async function runTelegramCommand(
     try {
       return await handler(client, context)
     } catch (error) {
+      const resetError = dataResetRequiredFailure(error)
+      if (resetError) return resetError
       const authError = toAuthSessionError(error, context.account.name)
       return authError ?? commandFailure('telegram_error', error)
     } finally {
@@ -77,6 +79,8 @@ export async function runTelegramWriteCommand(
     try {
       return await handler(client, context)
     } catch (error) {
+      const resetError = dataResetRequiredFailure(error)
+      if (resetError) return resetError
       const authError = toAuthSessionError(error, context.account.name)
       return authError ?? commandFailure('telegram_error', error)
     } finally {

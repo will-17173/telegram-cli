@@ -38,14 +38,18 @@ export function toAccountContext(dataDir: string, account: AccountMeta): Account
 }
 
 export function accountSessionPath(dataDir: string, accountName: string): string {
-  return join(accountRoot(dataDir, accountName), 'session')
+  return join(accountRootPath(dataDir, accountName), 'session')
 }
 
 export function accountDbPath(dataDir: string, accountName: string): string {
-  return join(accountRoot(dataDir, accountName), 'messages.db')
+  return join(accountRootPath(dataDir, accountName), 'messages.db')
 }
 
-function accountRoot(dataDir: string, accountName: string): string {
+export function accountArchivePath(dataDir: string, accountName: string): string {
+  return join(accountRootPath(dataDir, accountName), 'archive')
+}
+
+export function accountRootPath(dataDir: string, accountName: string): string {
   assertSafeAccountName(accountName)
   const accountsRoot = resolve(dataDir, 'accounts')
   const root = resolve(accountsRoot, accountName)

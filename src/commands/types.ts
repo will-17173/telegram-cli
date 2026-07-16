@@ -1,3 +1,5 @@
+import { isDataResetRequiredError, MESSAGE_DB_SCHEMA_VERSION } from '../storage/message-db.js'
+
 export type OutputFlags = {
   json?: boolean
   yaml?: boolean
@@ -51,6 +53,22 @@ export function outputFormatConflict(options: OutputFlags): CommandFailure | und
     error: {
       code: 'invalid_output_format',
       message: 'Use only one of --json, --yaml, or --markdown.',
+    },
+  }
+}
+
+export function dataResetRequiredFailure(error: unknown): HandlerResult<never> | undefined {
+  if (!isDataResetRequiredError(error)) return undefined
+  return {
+    ok: false,
+    error: {
+      code: 'data_reset_required',
+      message: 'Run `tg data reset --yes` before using this version.',
+      details: {
+        path: error.path,
+        expected: MESSAGE_DB_SCHEMA_VERSION,
+        actual: error.actualVersion,
+      },
     },
   }
 }

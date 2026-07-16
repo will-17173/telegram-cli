@@ -4,7 +4,7 @@ import { dirname } from 'node:path'
 import { resolveAuthenticatedAccountContext } from '../account/account-context.js'
 import { getDataDir } from '../config/env.js'
 import { resolveAttachmentDestination } from '../services/attachment-download.js'
-import { MessageDB } from '../storage/message-db.js'
+import { isDataResetRequiredError, MESSAGE_DB_SCHEMA_VERSION, MessageDB } from '../storage/message-db.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
 import { validateLocalRequest } from './security.js'
 import { SyncTaskRunner } from './sync-task.js'
@@ -278,6 +278,14 @@ function invalidRequest(message: string): ApiError {
 }
 
 function errorResponse(error: unknown): Response {
+  if (isDataResetRequiredError(error)) {
+    return failure(409, 'data_reset_required', 'Run `tg data reset --yes` before using this version.', {
+      path: error.path,
+      expected: MESSAGE_DB_SCHEMA_VERSION,
+      actual: error.actualVersion,
+    })
+  }
+
   if (isApiError(error)) return failure(error.status, error.code, error.message)
 
   const message = errorMessage(error)

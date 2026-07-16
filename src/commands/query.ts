@@ -3,7 +3,7 @@ import type { Command } from 'commander'
 import { renderResult } from '../cli/output.js'
 import { MessageDB } from '../storage/message-db.js'
 import { QueryService } from '../services/query-service.js'
-import { outputFormatConflict, type HandlerResult } from './types.js'
+import { dataResetRequiredFailure, outputFormatConflict, type HandlerResult } from './types.js'
 import { runWithAccountContext, type AccountCommandOptions } from './account-options.js'
 
 type QueryFlags = AccountCommandOptions & {
@@ -132,11 +132,21 @@ async function renderQueryResult(
   }
 
   await runWithAccountContext(effectiveOptions, (context) => {
-    const service = new QueryService(new MessageDB(context.dbPath))
     try {
-      return handler(service)
-    } finally {
-      service.close()
+      const service = new QueryService(new MessageDB(context.dbPath))
+      try {
+        return handler(service)
+      } finally {
+        service.close()
+      }
+    } catch (error) {
+      return dataResetRequiredFailure(error) ?? {
+        ok: false,
+        error: {
+          code: 'query_error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }
     }
   })
 }

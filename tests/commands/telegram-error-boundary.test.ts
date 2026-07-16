@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import Database from 'better-sqlite3'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const client = vi.hoisted(() => ({
   listChats: vi.fn(),
   getChatInfo: vi.fn(),
+  fetchHistory: vi.fn(),
   close: vi.fn(async () => undefined),
 }))
 const createTelegramClient = vi.hoisted(() => vi.fn(() => client))
@@ -107,6 +109,34 @@ describe('Telegram command error boundary', () => {
     expect(createTelegramClient).not.toHaveBeenCalled()
     expect(client.close).not.toHaveBeenCalled()
   })
+
+  it('maps data_reset_required before generic Telegram handling for sync', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'tg-cli-command-'))
+    seedAccount(dataDir)
+    const dbPath = join(dataDir, 'accounts', 'alice', 'messages.db')
+    createOldMessagesSchema(dbPath)
+    vi.stubEnv('DATA_DIR', dataDir)
+
+    const result = await runWithSeededDataDir(['sync', '42', '--json'])
+
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: false,
+      schema_version: '1',
+      error: {
+        code: 'data_reset_required',
+        message: 'Run `tg data reset --yes` before using this version.',
+        details: {
+          path: dbPath,
+          expected: 1,
+          actual: 0,
+        },
+      },
+    })
+    expect(result.code).toBe(1)
+    expect(client.fetchHistory).not.toHaveBeenCalled()
+    expect(client.close).toHaveBeenCalledOnce()
+    rmSync(dataDir, { force: true, recursive: true })
+  })
 })
 
 async function run(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
@@ -131,4 +161,46 @@ async function run(args: string[]): Promise<{ stdout: string; stderr: string; co
     stderrWrite.mockRestore()
   }
   return { stdout: stdout.join(''), stderr: stderr.join(''), code: Number(process.exitCode ?? 0) }
+}
+
+async function runWithSeededDataDir(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
+  const stdout: string[] = []
+  const stderr: string[] = []
+  const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+    stdout.push(String(chunk))
+    return true
+  })
+  const stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+    stderr.push(String(chunk))
+    return true
+  })
+  process.exitCode = 0
+  try {
+    await createApp().exitOverride().parseAsync(['node', 'tg', ...args])
+  } finally {
+    stdoutWrite.mockRestore()
+    stderrWrite.mockRestore()
+  }
+  return { stdout: stdout.join(''), stderr: stderr.join(''), code: Number(process.exitCode ?? 0) }
+}
+
+function createOldMessagesSchema(path: string): void {
+  mkdirSync(join(path, '..'), { recursive: true })
+  const db = new Database(path)
+  db.exec(`
+    CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL DEFAULT 'telegram',
+      chat_id INTEGER NOT NULL,
+      chat_name TEXT,
+      msg_id INTEGER NOT NULL,
+      sender_id INTEGER,
+      sender_name TEXT,
+      content TEXT,
+      timestamp TEXT NOT NULL,
+      raw_json TEXT,
+      UNIQUE(platform, chat_id, msg_id)
+    );
+  `)
+  db.close()
 }
