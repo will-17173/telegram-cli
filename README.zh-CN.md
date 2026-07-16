@@ -1,6 +1,6 @@
 # Telegram CLI
 
-[项目网站](https://will-17173.github.io/telegram-cli/zh-CN/) · [Telegram CLI 使用文档](https://will-17173.github.io/telegram-cli/zh-CN/docs/) · [English README](README.md)
+[项目网站](https://will-17173.github.io/telegram-cli/zh-CN/) · [Telegram CLI 使用文档](https://will-17173.github.io/telegram-cli/zh-CN/docs/) · [Telegram 群组](https://t.me/tg_cli_chat) · [English README](README.md)
 
 Telegram CLI 是一个 TypeScript 命令行界面（CLI），统一处理 Telegram 在线数据、本地 SQLite 搜索和远端管理。它的目标是成为面向人和 AI agent 的最强 Telegram CLI，让你通过同一个 `tg` 命令稳定访问 Telegram。账号会话与同步消息保留在本机。
 
