@@ -7,7 +7,7 @@ import type {
   TelegramManagedChat,
 } from './dialog-types.js'
 import { normalizePeerId } from './mtcute-group-helpers.js'
-import { toOnlineMessage } from './mtcute-message-normalizer.js'
+import { normalizeMtcuteMessage } from './mtcute-message-normalizer.js'
 import type { TelegramChat } from './types.js'
 
 type PeerShape = {
@@ -76,7 +76,7 @@ export class MtcuteDialogs {
         unread_mentions: raw.unreadMentionsCount ?? 0,
         unread_reactions: raw.unreadReactionsCount ?? 0,
         muted: resolveMuted(raw),
-        last_message: raw.lastMessage == null ? null : toOnlineMessage(raw.lastMessage),
+        last_message: raw.lastMessage == null ? null : normalizeMtcuteMessage(raw.lastMessage),
       })
       if (result.length >= limit) break
     }
@@ -105,7 +105,7 @@ export class MtcuteDialogs {
         const timestamp = message.date.getTime()
         if (until != null && timestamp >= until) continue
         if (since != null && timestamp < since) return messages.slice(0, seenLimit)
-        messages.push(toOnlineMessage(message))
+        messages.push(normalizeMtcuteMessage(message))
         if (messages.length >= request.limit) break
       }
 
@@ -141,7 +141,7 @@ export class MtcuteDialogs {
         const timestamp = row.date.getTime()
         if (request.until != null && timestamp >= request.until.getTime()) continue
         if (request.since != null && timestamp < request.since.getTime()) continue
-        messages.push(toOnlineMessage(row))
+        messages.push(normalizeMtcuteMessage(row))
         if (messages.length >= request.limit) break
       }
 

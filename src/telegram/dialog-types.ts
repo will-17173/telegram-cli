@@ -1,21 +1,7 @@
+import type { NormalizedMessage } from './media-types.js'
 import type { TelegramChatType } from './types.js'
 
-export type OnlineMessage = {
-  chat_id: number
-  chat_name: string
-  msg_id: number
-  timestamp: string
-  sender_id: number | null
-  sender_name: string | null
-  text: string | null
-  reply_to_msg_id: number | null
-  media_group_id: string | null
-  attachment: {
-    type: string
-    file_name: string | null
-    file_size: number | null
-  } | null
-}
+export type OnlineMessage = NormalizedMessage
 
 export type InboxDialog = {
   chat_id: number

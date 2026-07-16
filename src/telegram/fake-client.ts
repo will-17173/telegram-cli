@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import type { StoredMessageInput } from '../storage/message-db.js'
+import type { Attachment, JsonValue, NormalizedMessage } from './media-types.js'
 import { FakeTelegramGroupManagement } from './fake-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
 import type {
@@ -225,7 +226,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     return found ? { Title: found.name, ID: String(found.id), Type: found.type } : null
   }
 
-  async fetchHistory(options: FetchHistoryOptions): Promise<StoredMessageInput[]> {
+  async fetchHistory(options: FetchHistoryOptions): Promise<NormalizedMessage[]> {
     this.fetchHistoryCalls.push({ ...options })
     const chat = this.findChat(options.chat)
     const failure = this.fetchFailures[String(options.chat)] ?? (chat == null ? undefined : this.fetchFailures[chat.name])
@@ -236,7 +237,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
       .filter((message) => options.offset == null || message.msg_id < options.offset.id)
       .slice(0, options.limit)
     options.onProgress?.(rows.length)
-    return rows
+    return rows.map(toNormalizedHistoryMessage)
   }
 
   async downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void> {
@@ -286,20 +287,20 @@ export class FakeTelegramClient implements TelegramClientAdapter {
 
   async listen(options: {
     onConnected?: () => void
-    onMessage: (message: StoredMessageInput) => void
+    onMessage: (message: NormalizedMessage) => void
     signal: AbortSignal
   }): Promise<'stopped'> {
     if (this.listenFailure) throw this.listenFailure
     if (!options.signal.aborted) {
       options.onConnected?.()
-      options.onMessage(row(3, 'Live fake message'))
+      options.onMessage(toNormalizedHistoryMessage(row(3, 'Live fake message')))
     }
     return 'stopped'
   }
 
   private createDialogsAdapter(): TelegramDialogAdapter {
     return {
-      inbox: async (limit) => this.dialogList.slice(0, limit),
+      inbox: async (limit) => this.dialogList.slice(0, limit).map(cloneInboxDialog),
       read: async (request) => {
         this.recordCall({ operation: 'readOnline', request: { ...request } })
         return this.filterMessages(this.onlineMessages, {
@@ -471,7 +472,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     until?: Date
   }): OnlineMessage[] {
     return messages.filter((message) => {
-      if (criteria.query != null && !message.text?.toLocaleLowerCase().includes(criteria.query)) {
+      if (criteria.query != null && !message.content?.toLocaleLowerCase().includes(criteria.query)) {
         return false
       }
       if (criteria.chat != null && !chatMatches(message, criteria.chat)) {
@@ -482,10 +483,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
       if (criteria.since != null && parsed < criteria.since) return false
       if (criteria.until != null && parsed >= criteria.until) return false
       return true
-    }).map((message) => ({
-      ...message,
-      attachment: message.attachment == null ? null : { ...message.attachment },
-    }))
+    }).map(cloneOnlineMessage)
   }
 
   private recordCall(call: FakeTelegramCall): void {
@@ -515,23 +513,43 @@ function row(msgId: number, content: string): StoredMessageInput {
   }
 }
 
+function toNormalizedHistoryMessage(message: StoredMessageInput): NormalizedMessage {
+  const hasEnvelope = message as StoredMessageInput & Partial<NormalizedMessage>
+  return {
+    platform: 'telegram',
+    chat_id: message.chat_id,
+    chat_name: message.chat_name ?? 'Unknown',
+    msg_id: message.msg_id,
+    sender_id: message.sender_id,
+    sender_name: message.sender_name,
+    content: message.content,
+    timestamp: message.timestamp,
+    reply_to_msg_id: hasEnvelope.reply_to_msg_id ?? null,
+    media_group_id: hasEnvelope.media_group_id ?? null,
+    raw_json: cloneJsonValue(message.raw_json),
+    attachments: (hasEnvelope.attachments ?? []).map(cloneAttachment),
+  }
+}
+
 function onlineMessage(
   chatId: number,
   chatName: string,
   msgId: number,
-  text: string,
+  content: string,
 ): OnlineMessage {
   return {
+    platform: 'telegram',
     chat_id: chatId,
     chat_name: chatName,
     msg_id: msgId,
     timestamp: new Date(`2026-03-09T11:${String(msgId).padStart(2, '0')}:00.000Z`).toISOString(),
     sender_id: 1,
     sender_name: 'Alice',
-    text,
+    content,
     reply_to_msg_id: null,
     media_group_id: null,
-    attachment: null,
+    raw_json: null,
+    attachments: [],
   }
 }
 
@@ -630,6 +648,37 @@ function cloneArchiveMessage(message: ArchiveMessage): ArchiveMessage {
   return {
     ...message,
     attachment: message.attachment == null ? null : { ...message.attachment },
+  }
+}
+
+function cloneInboxDialog(dialog: InboxDialog): InboxDialog {
+  return {
+    ...dialog,
+    last_message: dialog.last_message == null ? null : cloneOnlineMessage(dialog.last_message),
+  }
+}
+
+function cloneOnlineMessage(message: OnlineMessage): OnlineMessage {
+  return {
+    ...message,
+    raw_json: cloneJsonValue(message.raw_json),
+    attachments: message.attachments.map(cloneAttachment),
+  }
+}
+
+function cloneAttachment(attachment: Attachment): Attachment {
+  return {
+    ...attachment,
+    metadata: cloneJsonValue(attachment.metadata) ?? {},
+  }
+}
+
+function cloneJsonValue(value: unknown): JsonValue | null {
+  if (value == null) return null
+  try {
+    return JSON.parse(JSON.stringify(value)) as JsonValue
+  } catch {
+    return { message: 'unserializable_json_value' }
   }
 }
 

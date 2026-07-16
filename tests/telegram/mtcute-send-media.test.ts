@@ -44,7 +44,7 @@ describe('MtcuteTelegramClient sendMedia', () => {
     expect(result).toEqual({
       messages: [{
         msg_id: 21,
-        sent_message: storedMessage(21, 'single'),
+        sent_message: normalizedMessage(21, 'single'),
       }],
     })
   })
@@ -70,9 +70,9 @@ describe('MtcuteTelegramClient sendMedia', () => {
       InputMedia.document('file:/tmp/three.PDF'),
     ], { replyTo: 29 })
     expect(result.messages).toEqual([
-      { msg_id: 31, sent_message: storedMessage(31, 'first') },
-      { msg_id: 32, sent_message: storedMessage(32, 'second') },
-      { msg_id: 33, sent_message: storedMessage(33, 'third') },
+      { msg_id: 31, sent_message: normalizedMessage(31, 'first') },
+      { msg_id: 32, sent_message: normalizedMessage(32, 'second') },
+      { msg_id: 33, sent_message: normalizedMessage(33, 'third') },
     ])
   })
 
@@ -119,7 +119,7 @@ function message(id: number, text: string): Message {
   } as unknown as Message
 }
 
-function storedMessage(id: number, content: string) {
+function normalizedMessage(id: number, content: string) {
   return {
     platform: 'telegram',
     chat_id: -100123,
@@ -129,7 +129,9 @@ function storedMessage(id: number, content: string) {
     sender_name: 'Alice',
     content,
     timestamp: `2026-07-13T00:00:${String(id).padStart(2, '0')}.000Z`,
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: { _: 'message', id },
-    preview_jpeg_base64: undefined,
+    attachments: [],
   }
 }

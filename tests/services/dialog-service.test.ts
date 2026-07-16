@@ -18,16 +18,18 @@ describe('DialogService', () => {
       unread_reactions: 0,
       muted: false,
       last_message: {
+        platform: 'telegram',
         chat_id: 100,
         chat_name: 'General',
         msg_id: 11,
         timestamp: '2026-07-10T10:05:00.000Z',
         sender_id: 1,
         sender_name: 'Alice',
-        text: 'hello',
+        content: 'hello',
         reply_to_msg_id: null,
         media_group_id: null,
-        attachment: null,
+        raw_json: null,
+        attachments: [],
       },
     }
     const item2: InboxDialog = {
@@ -97,16 +99,18 @@ describe('DialogService', () => {
   it('reads messages for a chat, trims the chat input, and returns message rows without chat column', async () => {
     const messages: OnlineMessage[] = [
       {
+        platform: 'telegram',
         chat_id: 100,
         chat_name: 'General',
         msg_id: 3,
         timestamp: '2026-07-10T11:00:00.000Z',
         sender_id: 1,
         sender_name: 'Alice',
-        text: 'first message',
+        content: 'first message',
         reply_to_msg_id: null,
         media_group_id: null,
-        attachment: null,
+        raw_json: null,
+        attachments: [],
       },
     ]
     const service = new DialogService(new FakeDialogsAdapter({
@@ -143,16 +147,18 @@ describe('DialogService', () => {
   it('searches online messages with optional chat filter and includes chat when filter is omitted', async () => {
     const messages: OnlineMessage[] = [
       {
+        platform: 'telegram',
         chat_id: 100,
         chat_name: 'General',
         msg_id: 4,
         timestamp: '2026-07-10T12:10:00.000Z',
         sender_id: null,
         sender_name: null,
-        text: null,
+        content: null,
         reply_to_msg_id: null,
         media_group_id: null,
-        attachment: null,
+        raw_json: null,
+        attachments: [],
       },
     ]
     const service = new DialogService(new FakeDialogsAdapter({

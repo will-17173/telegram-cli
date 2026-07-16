@@ -1,14 +1,12 @@
-import { Buffer } from 'node:buffer'
 import { setTimeout } from 'node:timers/promises'
-import { InputMedia, TelegramClient, Thumbnail, tl } from '@mtcute/node'
+import { InputMedia, TelegramClient, tl } from '@mtcute/node'
 import type {
   FullChat,
   Message,
-  Photo,
 } from '@mtcute/node'
 import { FileLocation, MtPeerNotFoundError } from '@mtcute/node'
 import { TelegramSessionTerminatedError, type DownloadMessageMediaOptions, type TelegramChat, type TelegramClientAdapter, type TelegramUser, type FetchHistoryOptions, type SendMediaOptions, type SendMediaResult } from './types.js'
-import type { StoredMessageInput } from '../storage/message-db.js'
+import type { NormalizedMessage } from './media-types.js'
 import { MtcuteGroupManagement } from './mtcute-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
 import { createContactsAdapter } from './mtcute-contacts.js'
@@ -135,9 +133,9 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     }
   }
 
-  async fetchHistory(options: FetchHistoryOptions): Promise<StoredMessageInput[]> {
+  async fetchHistory(options: FetchHistoryOptions): Promise<NormalizedMessage[]> {
     await this.ensureReady()
-    const rows: StoredMessageInput[] = []
+    const rows: NormalizedMessage[] = []
     let offset: NonNullable<Parameters<TelegramClient['getHistory']>[1]>['offset'] = options.offset
     let floodRetries = 0
     let transientRetries = 0
@@ -173,7 +171,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
         }
       }
       for (const message of page) {
-        rows.push(toStoredMessage(message))
+        rows.push(normalizeMtcuteMessage(message))
         options.onProgress?.(rows.length)
       }
 
@@ -204,7 +202,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
 
   async sendMessage(options: { chat: string | number; message: string; reply?: number; linkPreview: boolean }): Promise<{
     msg_id: number
-    sent_message: StoredMessageInput
+    sent_message: NormalizedMessage
   }> {
     await this.ensureReady()
     const sent = await this.client.sendText(
@@ -212,7 +210,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       options.message,
       { replyTo: options.reply, disableWebPreview: !options.linkPreview },
     )
-    return { msg_id: sent.id, sent_message: toStoredMessage(sent) }
+    return { msg_id: sent.id, sent_message: normalizeMtcuteMessage(sent) }
   }
 
   async sendMedia(options: SendMediaOptions): Promise<SendMediaResult> {
@@ -258,7 +256,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   async listen(options: {
     chats?: Array<string | number>
     onConnected?: () => void
-    onMessage: (message: StoredMessageInput) => void
+    onMessage: (message: NormalizedMessage) => void
     signal: AbortSignal
   }): Promise<'stopped' | 'disconnected'> {
     await this.ensureReady()
@@ -282,7 +280,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
         if (settled || options.signal.aborted) return
         if (!matchesChatFilter(options.chats, message)) return
         this.rememberListenedMedia(message)
-        options.onMessage(toStoredMessage(message))
+        options.onMessage(normalizeMtcuteMessage(message))
       }
 
       const handleConnectionState = (state: 'offline' | 'connecting' | 'updating' | 'connected') => {
@@ -397,7 +395,7 @@ function inputMediaForFile(file: string, caption?: string) {
 function toSendMediaMessage(message: Message): SendMediaResult['messages'][number] {
   return {
     msg_id: message.id,
-    sent_message: toStoredMessage(message),
+    sent_message: normalizeMtcuteMessage(message),
   }
 }
 
@@ -440,50 +438,6 @@ function isNotFoundError(error: unknown): boolean {
   if (error instanceof MtPeerNotFoundError) return true
   if (error instanceof Error && /peer|chat|dialog|not found/i.test(error.message)) return true
   return false
-}
-
-function toStoredMessage(message: Message): StoredMessageInput {
-  const normalized = normalizeMtcuteMessage(message)
-  return {
-    platform: 'telegram',
-    chat_id: normalized.chat_id,
-    chat_name: normalized.chat_name,
-    msg_id: normalized.msg_id,
-    sender_id: normalized.sender_id,
-    sender_name: normalized.sender_name,
-    content: normalized.text,
-    timestamp: normalized.timestamp,
-    raw_json: safeJsonValue(message.raw),
-    preview_jpeg_base64: embeddedPhotoPreviewBase64(message.media),
-  }
-}
-
-export function embeddedPhotoPreviewBase64(media: unknown): string | undefined {
-  if (media == null || typeof media !== 'object') return undefined
-
-  try {
-    const photo = media as Pick<Photo, 'type' | 'thumbnails'>
-    if (photo.type !== 'photo') return undefined
-    const thumbnails = photo.thumbnails
-    if (!Array.isArray(thumbnails)) return undefined
-    const thumbnail = thumbnails.find((item) => (
-      item != null
-      && typeof item === 'object'
-      && item.type === Thumbnail.THUMB_STRIP
-    ))
-    if (!(thumbnail?.location instanceof Uint8Array)) return undefined
-    return Buffer.from(thumbnail.location).toString('base64')
-  } catch {
-    return undefined
-  }
-}
-
-function safeJsonValue(value: unknown): unknown {
-  try {
-    return JSON.parse(JSON.stringify(value))
-  } catch {
-    return { message: 'unserializable_raw_message' }
-  }
 }
 
 function isDatabaseClosedError(error: unknown): boolean {

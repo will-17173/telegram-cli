@@ -1,10 +1,10 @@
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
-import type { Attachment, NormalizedMessage } from '../../src/telegram/media-types.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 
-type MessageFixture = StoredMessageInput & Omit<NormalizedMessage, 'platform' | 'chat_name' | 'raw_json'> & {
-  platform: string
-  chat_name: string | null
-  raw_json: unknown
+type MessageFixture = StoredMessageInput & {
+  reply_to_msg_id: number | null
+  media_group_id: string | null
+  attachments: Attachment[]
 }
 
 export function attachment(overrides: Partial<Attachment> = {}): Attachment {
@@ -47,16 +47,13 @@ export function message(overrides: Partial<MessageFixture> = {}): MessageFixture
     platform: 'telegram',
     chat_id: 100,
     chat_name: 'TestGroup',
-    message_id: 1,
     msg_id: 1,
     sender_id: 1,
     sender_name: 'Alice',
-    date,
-    text: 'Message about Web3 and TypeScript',
     content: 'Message about Web3 and TypeScript',
     timestamp: date,
-    grouped_id: null,
-    reply_to_message_id: null,
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: null,
     attachments: [],
   }

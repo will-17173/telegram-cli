@@ -15,6 +15,7 @@ import {
 } from '../../src/presenters/human.js'
 import { groupLogicalMessages } from '../../src/presenters/logical-message.js'
 import { buildReplyContext } from '../../src/services/reply-context.js'
+import { attachment } from '../fixtures/messages.js'
 
 function localTimestamp(timestamp: string): string {
   const date = new Date(timestamp)
@@ -29,21 +30,26 @@ function localClock(timestamp: string): string {
 describe('human output builders', () => {
   it('renders online message ids, replies, media groups, and attachment metadata', () => {
     expect(onlineMessageTable([{
+      platform: 'telegram',
       chat_id: 10,
       chat_name: 'General',
       msg_id: 22,
       timestamp: '2026-07-10T01:02:03Z',
       sender_id: 7,
       sender_name: 'Ada',
-      text: 'release',
+      content: 'release',
       reply_to_msg_id: 20,
       media_group_id: '10:99',
-      attachment: { type: 'document', file_name: 'notes.pdf', file_size: 2048 },
+      raw_json: null,
+      attachments: [
+        attachment({ kind: 'document', file_name: 'notes.pdf', file_size: 2048 }),
+        attachment({ attachment_index: 2, kind: 'video', subtype: 'round' }),
+      ],
     }])).toEqual({
       kind: 'table',
       title: 'Messages',
       columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
-      rows: [['22', localTimestamp('2026-07-10T01:02:03Z'), 'General', 'Ada', '20', '10:99', 'release [document: notes.pdf, 2048 bytes]']],
+      rows: [['22', localTimestamp('2026-07-10T01:02:03Z'), 'General', 'Ada', '20', '10:99', 'release [document: notes.pdf, 2048 bytes; video/round]']],
       emptyText: 'No online messages found.',
     })
   })

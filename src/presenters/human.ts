@@ -6,6 +6,7 @@ import type { LogicalMessage } from './logical-message.js'
 import type { InboxDialog, OnlineMessage } from '../telegram/dialog-types.js'
 import { summarizeLogicalMedia } from './logical-message.js'
 import { formatReplyContext } from '../services/reply-context.js'
+import { summarizeAttachments } from './attachment.js'
 
 type DisplayUser = {
   id: number | string
@@ -105,8 +106,8 @@ export function onlineMessageTable(
       ? ['ID', 'TIME', 'CHAT', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE']
       : ['ID', 'TIME', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
     rows: messages.map((message) => {
-      const text = message.text == null || message.text === '' ? '—' : message.text
-      const attachment = summarizeOnlineAttachment(message.attachment)
+      const text = message.content == null || message.content === '' ? '—' : message.content
+      const attachment = summarizeAttachments(message.attachments)
       return includeChat
         ? [
           String(message.msg_id),
@@ -169,17 +170,6 @@ export function contactDetailTable(contact: TelegramContact): HumanOutput & { ki
       ...(contact.bio == null ? [] : [{ label: 'Bio', value: fallback(contact.bio) }]),
     ],
   }
-}
-
-function summarizeOnlineAttachment(attachment: OnlineMessage['attachment']): string {
-  if (attachment == null) return ''
-  const details = [
-    attachment.file_name,
-    attachment.file_size == null ? null : `${attachment.file_size} bytes`,
-  ].filter((value): value is string => value != null)
-  return details.length === 0
-    ? ` [${attachment.type}]`
-    : ` [${attachment.type}: ${details.join(', ')}]`
 }
 
 function optionalId(value: number | null): string {

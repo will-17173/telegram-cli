@@ -65,13 +65,13 @@ export type NormalizedMessage = {
   platform: 'telegram'
   chat_id: number
   chat_name: string
-  message_id: number
+  msg_id: number
   sender_id: number | null
   sender_name: string | null
-  date: string
-  text: string
-  grouped_id: string | null
-  reply_to_message_id: number | null
-  raw_json: string | null
+  content: string | null
+  timestamp: string
+  reply_to_msg_id: number | null
+  media_group_id: string | null
+  raw_json: JsonValue | null
   attachments: Attachment[]
 }

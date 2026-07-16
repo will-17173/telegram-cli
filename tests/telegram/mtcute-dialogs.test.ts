@@ -79,7 +79,7 @@ describe('MtcuteDialogs', () => {
         last_message: {
           msg_id: 101,
           chat_name: 'General',
-          text: 'Hello',
+          content: 'Hello',
           sender_id: 11,
           sender_name: 'Alice',
         },
@@ -137,16 +137,18 @@ describe('MtcuteDialogs', () => {
 
     expect(result).toEqual([
       {
+        platform: 'telegram',
         chat_id: 100,
         chat_name: 'General',
         msg_id: 9,
-        text: 'middle',
         sender_id: 77,
         sender_name: 'Alice',
+        content: 'middle',
+        timestamp: '2026-07-13T00:00:09.000Z',
         reply_to_msg_id: null,
         media_group_id: null,
-        attachment: null,
-        timestamp: '2026-07-13T00:00:09.000Z',
+        raw_json: null,
+        attachments: [],
       },
     ])
     expect(getHistory).toHaveBeenCalledTimes(1)
@@ -191,7 +193,7 @@ describe('MtcuteDialogs', () => {
     const global = await dialogs.search({ query: 'release', limit: 1, since, until })
 
     expect(scoped).toHaveLength(1)
-    expect(scoped[0]).toMatchObject({ msg_id: 2, text: 'release at 19' })
+    expect(scoped[0]).toMatchObject({ msg_id: 2, content: 'release at 19', attachments: [] })
     expect(searchMessages).toHaveBeenCalledWith(expect.objectContaining({
       query: 'release',
       chatId: '@team',
@@ -200,7 +202,7 @@ describe('MtcuteDialogs', () => {
       maxDate: until,
     }))
     expect(global).toHaveLength(1)
-    expect(global[0]).toMatchObject({ msg_id: 3, text: 'release everywhere' })
+    expect(global[0]).toMatchObject({ msg_id: 3, content: 'release everywhere', attachments: [] })
     expect(searchGlobal).toHaveBeenCalledWith(expect.objectContaining({
       query: 'release',
       limit: 1,

@@ -51,6 +51,7 @@ import { applyMessageArrival, applyScroll, takeListenViewport } from '../../src/
 import { MessageDB } from '../../src/storage/message-db.js'
 import type { ListenMessageRow } from '../../src/presenters/listen-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
+import type { NormalizedMessage } from '../../src/telegram/media-types.js'
 
 describe('runInteractiveListen', () => {
   it('uses alternate scrolling without mouse reporting and restores the terminal afterward', async () => {
@@ -378,7 +379,7 @@ describe('InteractiveListen slash commands', () => {
   })
 
   it('keeps selection on the same attachment when older history is pruned', async () => {
-    let deliverMessage!: (message: StoredMessageInput) => void
+    let deliverMessage!: (message: NormalizedMessage) => void
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
     vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage, signal }) => {
@@ -509,7 +510,7 @@ describe('InteractiveListen slash commands', () => {
 
   it('locks repeated reply submission and keeps its outcome visible after Escape', async () => {
     let rejectSend!: (error: Error) => void
-    const pending = new Promise<{ sent_message: StoredMessageInput }>((_resolve, reject) => { rejectSend = reject })
+    const pending = new Promise<{ sent_message: NormalizedMessage }>((_resolve, reject) => { rejectSend = reject })
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
     client.sendMessage.mockReturnValue(pending)
@@ -1407,7 +1408,7 @@ describe('interactive auto-download lifecycle', () => {
     const cleanup = new Promise<void>((resolve) => { resolveCleanup = resolve })
     const close = vi.fn(async () => { resolveListen('stopped') })
     const onMessage = vi.fn()
-    let deliver!: (message: StoredMessageInput) => void
+    let deliver!: (message: NormalizedMessage) => void
     const coordinator = {
       setClient: vi.fn(), enqueue: vi.fn(() => true), stop: vi.fn(),
       waitForIdle: vi.fn(async () => undefined), waitForActive: vi.fn(() => cleanup),
@@ -1416,7 +1417,7 @@ describe('interactive auto-download lifecycle', () => {
       autoDownload: true, chats: undefined, persist: true, retrySeconds: 1,
       signal: controller.signal,
       createClient: () => ({
-        listen: vi.fn((options: { onMessage: (message: StoredMessageInput) => void }) => {
+        listen: vi.fn((options: { onMessage: (message: NormalizedMessage) => void }) => {
           deliver = options.onMessage
           return listen
         }),
@@ -2033,7 +2034,7 @@ function message(sender: string, lineCount: number): ListenMessageRow {
   }
 }
 
-function storedPhoto(msgId: number, content: string): StoredMessageInput {
+function storedPhoto(msgId: number, content: string): NormalizedMessage {
   return {
     platform: 'telegram',
     chat_id: 100,
@@ -2043,11 +2044,14 @@ function storedPhoto(msgId: number, content: string): StoredMessageInput {
     sender_name: 'Alice',
     content,
     timestamp: '2026-07-10T07:22:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
     raw_json: { _: 'message', media: { _: 'messageMediaPhoto', photo: {} } },
+    attachments: [],
   }
 }
 
-function storedText(msgId: number, content: string): StoredMessageInput {
+function storedText(msgId: number, content: string): NormalizedMessage {
   return {
     ...storedPhoto(msgId, content),
     raw_json: { _: 'message' },
@@ -2056,7 +2060,7 @@ function storedText(msgId: number, content: string): StoredMessageInput {
 
 function lifecycleClient(result: 'disconnected' | 'stopped', calls: string[], name: string) {
   return {
-    listen: vi.fn(async (options: { onMessage: (message: StoredMessageInput) => void }) => {
+    listen: vi.fn(async (options: { onMessage: (message: NormalizedMessage) => void }) => {
       calls.push(`${name}-listen`)
       options.onMessage(storedPhoto(name === 'first' ? 11 : 12, ''))
       return result
@@ -2080,7 +2084,7 @@ function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
       setTitle: vi.fn(),
       transferOwnership: vi.fn(),
     },
-    listen: vi.fn(async ({ onConnected, onMessage, signal }: { onConnected?: () => void; onMessage: (message: StoredMessageInput) => void; signal: AbortSignal }) => {
+    listen: vi.fn(async ({ onConnected, onMessage, signal }: { onConnected?: () => void; onMessage: (message: NormalizedMessage) => void; signal: AbortSignal }) => {
       onConnected?.()
       onMessage(storedPhoto(88, 'message before command'))
       await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))

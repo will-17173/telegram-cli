@@ -7,16 +7,18 @@ import { FakeTelegramClient } from '../../src/telegram/fake-client.js'
 describe('FakeTelegramClient online reading and contacts', () => {
   it('records online read and global search without touching stored history', async () => {
     const message: OnlineMessage = {
+      platform: 'telegram',
       chat_id: 100,
       chat_name: '@team',
       msg_id: 12,
       timestamp: '2026-06-01T10:00:00.000Z',
       sender_id: 2,
       sender_name: 'Alice',
-      text: 'release announcement',
+      content: 'release announcement',
       reply_to_msg_id: null,
       media_group_id: null,
-      attachment: null,
+      raw_json: null,
+      attachments: [],
     }
     const alice: TelegramContact = {
       id: 42,

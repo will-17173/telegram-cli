@@ -1,32 +1,30 @@
-import type { Message } from '@mtcute/node'
+import type { Message, MessageMedia } from '@mtcute/node'
 
-import type { OnlineMessage } from './dialog-types.js'
+import type { JsonValue, NormalizedMessage } from './media-types.js'
+import { normalizeMtcuteMedia } from './mtcute-media-normalizer.js'
 
-export type NormalizedMtcuteMessage = Omit<OnlineMessage, 'text' | 'attachment'> & {
-  text: string
-  attachment: OnlineMessage['attachment']
-}
+export function normalizeMtcuteMessage(message: Message): NormalizedMessage {
+  const rawMedia = message.raw?._ === 'message'
+    ? (message.raw as { media?: unknown }).media
+    : undefined
+  const normalizedMedia = normalizeMtcuteMedia({
+    media: message.media as MessageMedia | null,
+    rawMedia,
+  })
 
-export function normalizeMtcuteMessage(message: Message): NormalizedMtcuteMessage {
   return {
+    platform: 'telegram',
     chat_id: message.chat.id,
     chat_name: peerDisplayName(message.chat),
     msg_id: message.id,
-    timestamp: message.date.toISOString(),
     sender_id: typeof message.sender.id === 'number' ? message.sender.id : null,
     sender_name: peerDisplayNameOrNull(message.sender),
-    text: message.text,
+    content: message.text === '' ? null : message.text,
+    timestamp: message.date.toISOString(),
     reply_to_msg_id: message.replyToMessage?.id ?? null,
-    media_group_id: message.groupedIdUnique,
-    attachment: normalizeAttachment(message.media),
-  }
-}
-
-export function toOnlineMessage(message: Message): OnlineMessage {
-  const normalized = normalizeMtcuteMessage(message)
-  return {
-    ...normalized,
-    text: normalized.text === '' ? null : normalized.text,
+    media_group_id: message.groupedIdUnique ?? null,
+    raw_json: rawDiagnosticSnapshot(message.raw),
+    attachments: normalizedMedia.attachments,
   }
 }
 
@@ -42,35 +40,17 @@ function peerDisplayNameOrNull(peer: unknown): string | null {
   return null
 }
 
-function normalizeAttachment(media: Message['media']): OnlineMessage['attachment'] {
-  if (media == null || typeof media !== 'object') return null
-  const type = typeof (media as { type?: unknown }).type
-  const mediaType = type === 'string' && type.trim().length > 0 ? type : 'attachment'
-  const source = media as {
-    fileName?: unknown
-    file_name?: unknown
-    filename?: unknown
-    fileSize?: unknown
-    size?: unknown
-  }
-  return {
-    type: mediaType,
-    file_name: firstString(source.fileName, source.file_name, source.filename),
-    file_size: firstNumber(source.fileSize, source.size),
+function rawDiagnosticSnapshot(value: unknown): JsonValue | null {
+  if (value == null) return null
+  try {
+    return JSON.parse(JSON.stringify(value, transientLocationReplacer)) as JsonValue
+  } catch {
+    return { message: 'unserializable_raw_message' }
   }
 }
 
-function firstString(...values: unknown[]): string | null {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-  }
-  return null
-}
-
-function firstNumber(...values: unknown[]): number | null {
-  for (const value of values) {
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string' && /^\d+$/.test(value.trim())) return Number(value)
-  }
-  return null
+function transientLocationReplacer(key: string, value: unknown): unknown {
+  if (key === 'location') return undefined
+  if (typeof value === 'bigint') return value.toString()
+  return value
 }
