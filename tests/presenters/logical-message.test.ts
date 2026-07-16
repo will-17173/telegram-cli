@@ -6,12 +6,13 @@ import {
   summarizeLogicalMedia,
 } from '../../src/presenters/logical-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
+import { attachment } from '../fixtures/messages.js'
 
 describe('logical messages', () => {
   it('groups an album in one chat, orders its rows, and uses its caption and reply', () => {
     const grouped = groupLogicalMessages([
-      message({ msg_id: 12, content: '', raw_json: { grouped_id: 77, reply_to: { reply_to_msg_id: 41 } } }),
-      message({ msg_id: 11, content: '  Album caption  ', raw_json: { grouped_id: 77 } }),
+      message({ msg_id: 12, content: '', media_group_id: '77', reply_to_msg_id: 41 }),
+      message({ msg_id: 11, content: '  Album caption  ', media_group_id: '77' }),
     ])
 
     expect(grouped).toHaveLength(1)
@@ -26,8 +27,8 @@ describe('logical messages', () => {
 
   it('does not merge albums with the same grouped ID from different chats', () => {
     const grouped = groupLogicalMessages([
-      message({ chat_id: 200, msg_id: 2, raw_json: { grouped_id: 'same' } }),
-      message({ chat_id: 100, msg_id: 1, raw_json: { grouped_id: 'same' } }),
+      message({ chat_id: 200, msg_id: 2, media_group_id: 'same' }),
+      message({ chat_id: 100, msg_id: 1, media_group_id: 'same' }),
     ])
 
     expect(grouped.map((item) => item.messages.map((row) => row.chat_id))).toEqual([[100], [200]])
@@ -35,8 +36,8 @@ describe('logical messages', () => {
 
   it('does not merge identical albums or ordinary IDs across platforms', () => {
     const grouped = groupLogicalMessages([
-      message({ platform: 'telegram', msg_id: 1, raw_json: { grouped_id: 77 } }),
-      message({ platform: 'slack' as never, msg_id: 1, raw_json: { grouped_id: 77 } }),
+      message({ platform: 'telegram', msg_id: 1, media_group_id: '77' }),
+      message({ platform: 'slack' as never, msg_id: 1, media_group_id: '77' }),
       message({ platform: 'telegram', msg_id: 2 }),
       message({ platform: 'slack' as never, msg_id: 2 }),
     ])
@@ -59,10 +60,10 @@ describe('logical messages', () => {
     expect(new Set(grouped.map((item) => item.key)).size).toBe(3)
   })
 
-  it('groups and selects replies from serialized raw JSON', () => {
+  it('ignores stale serialized raw JSON for grouping and replies', () => {
     const grouped = groupLogicalMessages([
-      message({ msg_id: 2, raw_json: JSON.stringify({ grouped_id: { low: '7', high: 9 } }) }),
-      message({ msg_id: 1, raw_json: JSON.stringify({ grouped_id: { low: '7', high: 9 }, reply_to: { reply_to_msg_id: 8 } }) }),
+      message({ msg_id: 2, media_group_id: 'canonical', raw_json: JSON.stringify({ grouped_id: { low: '7', high: 9 } }) }),
+      message({ msg_id: 1, media_group_id: 'canonical', reply_to_msg_id: 8, raw_json: JSON.stringify({ grouped_id: { low: '7', high: 9 }, reply_to: { reply_to_msg_id: 99 } }) }),
     ])
 
     expect(grouped).toHaveLength(1)
@@ -71,22 +72,22 @@ describe('logical messages', () => {
 
   it('summarizes two photos', () => {
     expect(summarizeLogicalMedia(logical([
-      message({ msg_id: 1, raw_json: media('messageMediaPhoto', {}) }),
-      message({ msg_id: 2, raw_json: media('messageMediaPhoto', {}) }),
-    ]))).toBe('📎 2 Photos')
+      message({ msg_id: 1, attachments: [attachment({ kind: 'photo' })] }),
+      message({ msg_id: 2, attachments: [attachment({ kind: 'photo' })] }),
+    ]))).toBe('📎 photo; photo')
   })
 
   it('summarizes mixed media in first-seen order', () => {
     expect(summarizeLogicalMedia(logical([
-      message({ msg_id: 1, raw_json: media('messageMediaPhoto', {}) }),
-      message({ msg_id: 2, raw_json: media('messageMediaDocument', { mime_type: 'video/mp4' }) }),
-    ]))).toBe('📎 1 Photo, 1 Video')
+      message({ msg_id: 1, attachments: [attachment({ kind: 'photo' })] }),
+      message({ msg_id: 2, attachments: [attachment({ kind: 'video' })] }),
+    ]))).toBe('📎 photo; video')
   })
 
   it('includes a single document filename', () => {
     expect(summarizeLogicalMedia(logical([
-      message({ raw_json: media('messageMediaDocument', { file_name: 'report.pdf' }) }),
-    ]))).toBe('📎 Document: report.pdf')
+      message({ attachments: [attachment({ kind: 'document', file_name: 'report.pdf' })] }),
+    ]))).toBe('📎 document: report.pdf')
   })
 
   it('returns null without media', () => {
@@ -102,10 +103,6 @@ function logical(messages: StoredMessageInput[]) {
     content: null,
     replyToMessageId: null,
   }
-}
-
-function media(kind: string, value: Record<string, unknown>) {
-  return { _: 'message', media: { _: kind, ...(kind === 'messageMediaPhoto' ? { photo: value } : { document: value }) } } as never
 }
 
 function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInput {

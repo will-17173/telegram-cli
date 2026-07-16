@@ -1,8 +1,7 @@
-import { discoverListenAttachments } from '../services/listen-attachment.js'
 import type { StoredMessage } from '../storage/message-db.js'
-import { extractGroupedId, extractReplyToMessageId } from '../telegram/raw-message.js'
 import type { ReplyContext } from '../services/reply-context.js'
 import type { Attachment } from '../telegram/media-types.js'
+import { attachmentSummary } from './attachment.js'
 
 type LogicalMessageInput = {
   platform: string
@@ -10,6 +9,8 @@ type LogicalMessageInput = {
   msg_id: number
   content: string | null
   timestamp: string
+  reply_to_msg_id: number | null
+  media_group_id: string | null
   raw_json: unknown
   attachments?: Attachment[]
   id?: number
@@ -40,28 +41,13 @@ export function groupLogicalMessages<T extends LogicalMessageInput>(rows: T[]): 
 }
 
 export function logicalMessageKey(row: LogicalMessageInput): string {
-  const groupedId = extractGroupedId(row.raw_json)
-  return groupedId == null
+  return row.media_group_id == null
     ? `${row.platform}:${row.chat_id}:message:${row.msg_id}`
-    : `${row.platform}:${row.chat_id}:${groupedId}`
+    : `${row.platform}:${row.chat_id}:${row.media_group_id}`
 }
 
 export function summarizeLogicalMedia<T extends LogicalMessageInput>(message: LogicalMessage<T>): string | null {
-  const attachments = message.messages.flatMap((row) => discoverListenAttachments({
-    ...row,
-    attachments: row.attachments ?? [],
-  }))
-  if (attachments.length === 0) return null
-  if (attachments.length === 1 && attachments[0].kind === 'Document' && attachments[0].fileName != null) {
-    return `📎 Document: ${attachments[0].fileName}`
-  }
-
-  const counts = new Map<string, number>()
-  for (const attachment of attachments) {
-    counts.set(attachment.kind, (counts.get(attachment.kind) ?? 0) + 1)
-  }
-  const parts = [...counts].map(([kind, count]) => `${count} ${count === 1 ? kind : pluralizeKind(kind)}`)
-  return `📎 ${parts.join(', ')}`
+  return attachmentSummary(message.messages.flatMap((row) => row.attachments ?? []))
 }
 
 function toLogicalMessage<T extends LogicalMessageInput>(key: string, rows: T[]): LogicalMessage<T> {
@@ -77,7 +63,7 @@ function toLogicalMessage<T extends LogicalMessageInput>(key: string, rows: T[])
 
 function firstReplyId(messages: LogicalMessageInput[]): number | null {
   for (const message of messages) {
-    const replyId = extractReplyToMessageId(message.raw_json)
+    const replyId = message.reply_to_msg_id
     if (replyId != null) return replyId
   }
   return null
@@ -93,18 +79,4 @@ function compareLogicalMessages<T extends LogicalMessageInput>(left: LogicalMess
 
 function storedId(message: LogicalMessageInput): number | null {
   return 'id' in message && typeof message.id === 'number' ? message.id : null
-}
-
-function pluralizeKind(kind: string): string {
-  return MEDIA_KIND_PLURALS[kind] ?? `${kind}s`
-}
-
-const MEDIA_KIND_PLURALS: Record<string, string> = {
-  Photo: 'Photos',
-  Video: 'Videos',
-  Document: 'Documents',
-  Audio: 'Audio',
-  Voice: 'Voice Messages',
-  Sticker: 'Stickers',
-  Animation: 'Animations',
 }

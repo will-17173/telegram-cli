@@ -108,6 +108,7 @@ export function onlineMessageTable(
     rows: messages.map((message) => {
       const text = message.content == null || message.content === '' ? '—' : message.content
       const attachment = summarizeAttachments(message.attachments)
+      const messageCell = attachment === '' ? text : `${text}\n${attachment}`
       return includeChat
         ? [
           String(message.msg_id),
@@ -116,7 +117,7 @@ export function onlineMessageTable(
           display(message.sender_name),
           optionalId(message.reply_to_msg_id),
           fallback(message.media_group_id),
-          `${text}${attachment}`,
+          messageCell,
         ]
         : [
           String(message.msg_id),
@@ -124,7 +125,7 @@ export function onlineMessageTable(
           display(message.sender_name),
           optionalId(message.reply_to_msg_id),
           fallback(message.media_group_id),
-          `${text}${attachment}`,
+          messageCell,
         ]
     }),
     emptyText,

@@ -3,6 +3,7 @@ import type { HandlerResult } from '../commands/types.js'
 import { actionDetail } from '../presenters/human.js'
 import { dumpStructured, successPayload } from '../presenters/structured.js'
 import { MessageDB } from '../storage/message-db.js'
+import { attachmentSummary } from '../presenters/attachment.js'
 
 export class DataService {
   constructor(private readonly db = new MessageDB()) {}
@@ -29,7 +30,11 @@ export class DataService {
       ? dumpStructured(successPayload(messages), 'json')
       : options.format === 'yaml'
         ? dumpStructured(successPayload(messages), 'yaml')
-        : messages.map((msg) => `[${msg.timestamp.slice(0, 19)}] ${msg.sender_name ?? 'Unknown'}: ${msg.content ?? ''}`).join('\n')
+        : messages.map((msg) => {
+            const summary = attachmentSummary(msg.attachments)
+            const line = `[${msg.timestamp.slice(0, 19)}] ${msg.sender_name ?? 'Unknown'}: ${msg.content ?? ''}`
+            return summary == null ? line : `${line}\n${summary}`
+          }).join('\n')
 
     if (options.output) {
       try {

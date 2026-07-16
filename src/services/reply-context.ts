@@ -1,4 +1,13 @@
-import type { StoredMessage } from '../storage/message-db.js'
+import type { Attachment } from '../telegram/media-types.js'
+import { attachmentSummary } from '../presenters/attachment.js'
+
+type ReplyTarget = {
+  timestamp: string
+  sender_id: number | null
+  sender_name: string | null
+  content: string | null
+  attachments: Attachment[]
+} & Record<string, unknown>
 
 export type ReplyContext =
   | { messageId: number; resolved: false }
@@ -9,9 +18,10 @@ export type ReplyContext =
     senderId: number | null
     senderName: string | null
     content: string | null
+    attachments: Attachment[]
   }
 
-export function buildReplyContext(messageId: number, target?: StoredMessage): ReplyContext {
+export function buildReplyContext(messageId: number, target?: ReplyTarget): ReplyContext {
   if (target == null) return { messageId, resolved: false }
   return {
     messageId,
@@ -20,13 +30,14 @@ export function buildReplyContext(messageId: number, target?: StoredMessage): Re
     senderId: target.sender_id,
     senderName: target.sender_name,
     content: target.content,
+    attachments: target.attachments,
   }
 }
 
 export function formatReplyContext(context: ReplyContext): string {
   if (!context.resolved) return `↳ Reply to message #${context.messageId} (not found locally)`
   const sender = context.senderName?.trim() || (context.senderId == null ? 'Unknown' : String(context.senderId))
-  const content = context.content?.trim() || '(no text)'
+  const content = context.content?.trim() || attachmentSummary(context.attachments) || '(no text)'
   return `↳ Reply to [${localTime(context.timestamp)}] ${sender} (#${context.messageId}): ${content}`
 }
 

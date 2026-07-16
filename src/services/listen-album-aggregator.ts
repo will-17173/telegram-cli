@@ -1,5 +1,4 @@
 import type { StoredMessageInput } from '../storage/message-db.js'
-import { extractGroupedId } from '../telegram/raw-message.js'
 
 type TimerHandle = ReturnType<typeof setTimeout>
 
@@ -23,7 +22,7 @@ export class ListenAlbumAggregator {
   }
 
   add(message: StoredMessageInput): void {
-    const groupedId = extractGroupedId(message.raw_json)
+    const groupedId = message.media_group_id
     if (groupedId == null) {
       this.emit([message])
       return

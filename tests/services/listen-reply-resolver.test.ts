@@ -102,8 +102,8 @@ describe('listen reply resolver', () => {
     const writer = new Database(dbPath)
     writer.pragma('wal_autocheckpoint = 0')
     writer.prepare(`INSERT INTO messages
-      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json)
-      VALUES ('telegram', 100, 'Chat', 7, 1, 'Alice', 'wal reply target', '2026-07-10T07:22:00.000Z', NULL)`).run()
+      (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, reply_to_msg_id, media_group_id, raw_json)
+      VALUES ('telegram', 100, 'Chat', 7, 1, 'Alice', 'wal reply target', '2026-07-10T07:22:00.000Z', NULL, NULL, NULL)`).run()
     const resolver = createListenReplyResolver(dbPath)
 
     expect(resolver.resolve([reply(8, 7)])).toMatchObject({ resolved: true, content: 'wal reply target' })
@@ -226,11 +226,11 @@ function message(msgId: number, overrides: Partial<StoredMessageInput> = {}): St
     platform: 'telegram', chat_id: 100, chat_name: 'Chat', msg_id: msgId,
     sender_id: 1, sender_name: 'Alice', content: `message ${msgId}`,
     timestamp: '2026-07-10T07:22:00.000Z', reply_to_msg_id: null, media_group_id: null,
-    raw_json: { _: 'message' }, attachments: [], ...overrides,
+    raw_json: null, attachments: [], ...overrides,
   }
 }
 
 function reply(msgId: number, replyTo: number): StoredMessageInput {
-  return message(msgId, { raw_json: { _: 'message', replyTo: { replyToMsgId: replyTo } } })
+  return message(msgId, { reply_to_msg_id: replyTo })
 }
 import Database from 'better-sqlite3'

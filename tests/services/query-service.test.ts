@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { collectRecentLogicalMessages, QueryService } from '../../src/services/query-service.js'
 import { MessageDB, type StoredMessage, type StoredMessageInput } from '../../src/storage/message-db.js'
+import { attachment } from '../fixtures/messages.js'
 
 function setup(messages: StoredMessageInput[] = []): { db: MessageDB; service: QueryService } {
   const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-query-')), 'messages.db'))
@@ -111,8 +112,8 @@ describe('QueryService human views', () => {
     const now = Date.now()
     const { db, service } = setup([
       message({ msg_id: 7, sender_name: 'Bob', content: 'original', timestamp: new Date(now - 5_000).toISOString() }),
-      message({ msg_id: 11, content: 'album caption', timestamp: new Date(now - 2_000).toISOString(), media_group_id: '77', raw_json: { grouped_id: 77, reply_to: { reply_to_msg_id: 7 }, media: { _: 'messageMediaPhoto', photo: {} } } }),
-      message({ msg_id: 12, content: null, timestamp: new Date(now - 1_000).toISOString(), media_group_id: '77', raw_json: { grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } } }),
+      message({ msg_id: 11, content: 'album caption', timestamp: new Date(now - 2_000).toISOString(), media_group_id: '77', reply_to_msg_id: 7, raw_json: { grouped_id: 'stale', reply_to: { reply_to_msg_id: 99 } }, attachments: [attachment({ kind: 'photo' })] }),
+      message({ msg_id: 12, content: null, timestamp: new Date(now - 1_000).toISOString(), media_group_id: '77', raw_json: { grouped_id: 'stale-other' }, attachments: [attachment({ kind: 'photo' })] }),
     ])
     const expected = db.getRecent({ hours: 24, limit: 2 })
 
@@ -125,10 +126,10 @@ describe('QueryService human views', () => {
     expect(human.rows).toHaveLength(2)
     expect(human.rows[1]?.[0]).toBe('11, 12')
     expect(human.rows[1]?.[4]).toContain('Bob (#7): original')
-    expect(human.rows[1]?.[4]).toContain('album caption\n📎 2 Photos')
+    expect(human.rows[1]?.[4]).toContain('album caption\n📎 photo; photo')
     expect(result.data).toEqual(expected)
     expect((result.data as unknown as Array<Record<string, unknown>>)
-      .every((row) => !('replyContext' in row) && !('messages' in row) && !('mediaSummary' in row))).toBe(true)
+      .every((row) => !('replyContext' in row) && !('messages' in row) && !('attachmentSummary' in row))).toBe(true)
     service.close()
   })
 
@@ -137,10 +138,10 @@ describe('QueryService human views', () => {
     const { db, service } = setup([
       message({ chat_id: 10, msg_id: 7, sender_name: 'Ten', content: 'chat ten', timestamp: new Date(now - 8_000).toISOString() }),
       message({ chat_id: 20, chat_name: 'Other', msg_id: 7, sender_name: 'Twenty', content: 'chat twenty', timestamp: new Date(now - 7_000).toISOString() }),
-      message({ chat_id: 10, msg_id: 8, timestamp: new Date(now - 3_000).toISOString(), raw_json: { reply_to: { reply_to_msg_id: 7 } } }),
-      message({ chat_id: 10, msg_id: 9, timestamp: new Date(now - 2_000).toISOString(), raw_json: { reply_to: { reply_to_msg_id: 7 } } }),
-      message({ chat_id: 20, chat_name: 'Other', msg_id: 8, timestamp: new Date(now - 1_500).toISOString(), raw_json: { reply_to: { reply_to_msg_id: 7 } } }),
-      message({ chat_id: 20, chat_name: 'Other', msg_id: 9, timestamp: new Date(now - 1_000).toISOString(), raw_json: { reply_to: { reply_to_msg_id: 99 } } }),
+      message({ chat_id: 10, msg_id: 8, timestamp: new Date(now - 3_000).toISOString(), reply_to_msg_id: 7, raw_json: { reply_to: { reply_to_msg_id: 99 } } }),
+      message({ chat_id: 10, msg_id: 9, timestamp: new Date(now - 2_000).toISOString(), reply_to_msg_id: 7 }),
+      message({ chat_id: 20, chat_name: 'Other', msg_id: 8, timestamp: new Date(now - 1_500).toISOString(), reply_to_msg_id: 7 }),
+      message({ chat_id: 20, chat_name: 'Other', msg_id: 9, timestamp: new Date(now - 1_000).toISOString(), reply_to_msg_id: 99 }),
     ])
     const lookup = vi.spyOn(db, 'getMessagesByKeys')
 
@@ -169,8 +170,8 @@ describe('QueryService human views', () => {
     sqlite.prepare(`
       INSERT INTO messages
       (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, reply_to_msg_id, media_group_id, raw_json)
-      VALUES ('slack', 10, 'General', 8, 101, 'Ada', 'slack reply', ?, NULL, NULL, ?)
-    `).run(new Date(now - 1_000).toISOString(), JSON.stringify({ reply_to: { reply_to_msg_id: 7 } }))
+      VALUES ('slack', 10, 'General', 8, 101, 'Ada', 'slack reply', ?, 7, NULL, ?)
+    `).run(new Date(now - 1_000).toISOString(), JSON.stringify({ reply_to: { reply_to_msg_id: 99 } }))
     const lookup = vi.spyOn(db, 'getMessagesByKeys')
     const result = service.recent({ limit: 1 })
 
@@ -211,8 +212,8 @@ describe('QueryService human views', () => {
         content: index === 0 ? 'large album' : null,
         timestamp: new Date(now - 150_000 + index).toISOString(),
         media_group_id: '999',
-        raw_json: { grouped_id: 999, media: { _: 'messageMediaPhoto', photo: {} } },
-      }))
+        attachments: [attachment({ kind: 'photo' })],
+        }))
     }
     for (let index = 0; index < 49; index += 1) {
       rows.push(message({ msg_id: 1000 + index, content: `new ${index}`, timestamp: new Date(now - 50_000 + index).toISOString() }))
@@ -225,7 +226,7 @@ describe('QueryService human views', () => {
     const human = result.human
     if (human?.kind !== 'table') throw new Error('expected table')
     expect(human.rows).toHaveLength(50)
-    expect(human.rows[0]?.[4]).toBe('large album\n📎 52 Photos')
+    expect(human.rows[0]?.[4]).toBe(`large album\n📎 ${Array.from({ length: 52 }, () => 'photo').join('; ')}`)
     service.close()
   })
 

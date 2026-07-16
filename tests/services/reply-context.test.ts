@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildReplyContext, formatReplyContext } from '../../src/services/reply-context.js'
 import type { StoredMessage } from '../../src/storage/message-db.js'
+import { attachment } from '../fixtures/messages.js'
 
 function target(overrides: Partial<StoredMessage> = {}): StoredMessage {
   return {
@@ -36,6 +37,7 @@ describe('reply context', () => {
       senderId: 42,
       senderName: 'Bob',
       content: 'original',
+      attachments: [],
     })
     expect(formatReplyContext(context)).toBe(`↳ Reply to [${localTime('2026-07-10T01:02:03.000Z')}] Bob (#7): original`)
   })
@@ -56,5 +58,18 @@ describe('reply context', () => {
   it('uses a stable placeholder for an invalid timestamp', () => {
     expect(formatReplyContext(buildReplyContext(7, target({ timestamp: 'not-a-date' }))))
       .toBe('↳ Reply to [??:??] Bob (#7): original')
+  })
+
+  it('hydrates canonical attachments and uses their summary when content is empty', () => {
+    const context = buildReplyContext(7, target({
+      content: '',
+      attachments: [attachment({ kind: 'document', file_name: 'original.pdf' })],
+    }))
+
+    expect(context).toMatchObject({
+      resolved: true,
+      attachments: [expect.objectContaining({ kind: 'document', file_name: 'original.pdf' })],
+    })
+    expect(formatReplyContext(context)).toBe(`↳ Reply to [${localTime('2026-07-10T01:02:03.000Z')}] Bob (#7): 📎 document: original.pdf`)
   })
 })

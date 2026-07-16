@@ -178,7 +178,7 @@ describe('InteractiveListen slash commands', () => {
 
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('newer attachment'))
     await act(async () => { stdin.write('\t') })
-    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› 📎 Photo'))
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› photo'))
     expect(stdout.output).toContain(ENABLE_MOUSE_REPORTING)
     await act(async () => { stdin.write('\u001b[<64;1;1M') })
     await vi.waitFor(() => {
@@ -215,7 +215,7 @@ describe('InteractiveListen slash commands', () => {
     await vi.waitFor(() => {
       const frame = lastTerminalFrame(stdout.output)
       expect(frame).toContain('older attachment')
-      expect(frame).toContain('› 📎 Photo')
+      expect(frame).toContain('› photo')
     })
 
     controller.abort()
@@ -239,12 +239,12 @@ describe('InteractiveListen slash commands', () => {
 
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('newer attachment'))
     await act(async () => { stdin.write('\t') })
-    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› 📎 Photo'))
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› photo'))
     await act(async () => { stdin.write('\u001bOA') })
     await vi.waitFor(() => {
       const frame = lastTerminalFrame(stdout.output)
       expect(frame).toContain('older attachment')
-      expect(frame).toContain('› 📎 Photo')
+      expect(frame).toContain('› photo')
       expect(frame).not.toContain('plain middle message')
     })
 
@@ -271,7 +271,7 @@ describe('InteractiveListen slash commands', () => {
     await vi.waitFor(() => {
       const frame = lastTerminalFrame(stdout.output)
       expect(frame).toContain('attachment 1')
-      expect(frame).toContain('› 📎 Photo')
+      expect(frame).toContain('› photo')
     })
 
     controller.abort()
@@ -299,7 +299,7 @@ describe('InteractiveListen slash commands', () => {
     await vi.waitFor(() => {
       const frame = lastTerminalFrame(stdout.output)
       expect(frame).toContain('older attachment')
-      expect(frame).toContain('› 📎 Photo')
+      expect(frame).toContain('› photo')
       expect(frame).not.toContain('newer attachment')
     })
     const boundaryFrame = lastTerminalFrame(stdout.output)
@@ -332,7 +332,7 @@ describe('InteractiveListen slash commands', () => {
     await act(async () => { stdin.write('\u001b[B\u001b[B') })
     await vi.waitFor(() => {
       const frame = lastTerminalFrame(stdout.output)
-      expect(frame.indexOf('› 📎 Photo')).toBeGreaterThan(frame.indexOf('attachment 3'))
+      expect(frame.indexOf('› photo')).toBeGreaterThan(frame.indexOf('attachment 3'))
     })
     const boundaryFrame = lastTerminalFrame(stdout.output)
     await act(async () => {
@@ -371,7 +371,7 @@ describe('InteractiveListen slash commands', () => {
     await vi.waitFor(() => {
       const frame = lastTerminalFrame(stdout.output)
       expect(frame).toContain('attachment 1')
-      expect(frame.indexOf('› 📎 Photo')).toBeGreaterThan(frame.indexOf('attachment 1'))
+      expect(frame.indexOf('› photo')).toBeGreaterThan(frame.indexOf('attachment 1'))
       expect(frame).not.toContain('attachment 4')
     })
 
@@ -1163,11 +1163,11 @@ describe('interactive listen sender formatting', () => {
 describe('ListenAttachmentLine', () => {
   it('shows a selectable download action and completed path', () => {
     const selectable = renderToString(
-      <ListenAttachmentLine label="📎 Photo" selected state={{ status: 'idle' }} />,
+      <ListenAttachmentLine label="📎 photo" selected state={{ status: 'idle' }} />,
     )
     const completed = renderToString(
       <ListenAttachmentLine
-        label="📎 Photo"
+        label="📎 photo"
         selected={false}
         state={{ status: 'completed', path: '/tmp/photo.jpg' }}
       />,
@@ -1179,7 +1179,7 @@ describe('ListenAttachmentLine', () => {
 
   it('renders queued auto-downloads', () => {
     expect(renderToString(
-      <ListenAttachmentLine label="📎 Photo" selected={false} state={{ status: 'queued' }} />,
+      <ListenAttachmentLine label="📎 photo" selected={false} state={{ status: 'queued' }} />,
     )).toContain('[Queued]')
   })
 })
@@ -1197,7 +1197,7 @@ describe('interactive auto-download state', () => {
   })
 
   it('maps every coordinator event to display state and removes cancelled entries', () => {
-    const key = '100:11:0'
+    const key = '100:11:1'
     let state = applyAutoDownloadEvent({}, { status: 'queued', key })
     expect(state).toEqual({ [key]: { status: 'queued' } })
     state = applyAutoDownloadEvent(state, { status: 'downloading', key, progress: 42 })
@@ -1219,8 +1219,8 @@ describe('interactive auto-download state', () => {
 
   it('uses per-source-message attachment indexes for album keys', () => {
     const row = toListenMessage([storedPhoto(11, ''), storedPhoto(12, 'caption')], true)
-    expect(row.media.map((_, index) => attachmentDownloadKeyAt(row.media, index)))
-      .toEqual(['100:11:0', '100:12:0'])
+    expect(row.attachments.map((_, index) => attachmentDownloadKeyAt(row.attachments, index)))
+      .toEqual(['100:11:1', '100:12:1'])
   })
 
   it('retains active states until their delayed album becomes visible', () => {
@@ -1235,7 +1235,7 @@ describe('interactive auto-download state', () => {
   })
 
   it('retains a terminal album download through an unrelated render, then releases it for history pruning', () => {
-    const key = '100:11:0'
+    const key = '100:11:1'
     const completed = applyAutoDownloadEvent({}, { status: 'completed', key, path: '/tmp/photo.jpg' })
     const whilePending = pruneAttachmentDownloadStates(completed, new Set(['other']), new Set([key]))
     expect(whilePending[key]).toEqual({ status: 'completed', path: '/tmp/photo.jpg' })
@@ -1253,7 +1253,7 @@ describe('interactive auto-download state', () => {
     expect(pending).toEqual(new Set())
 
     const completed = applyAutoDownloadEvent({}, {
-      status: 'completed', key: '100:12:0', path: '/tmp/photo.jpg',
+      status: 'completed', key: '100:12:1', path: '/tmp/photo.jpg',
     })
     expect(pruneAttachmentDownloadStates(completed, new Set(), pending)).toEqual({})
     expect(applyAutoDownloadEvent(completed, {
@@ -1290,7 +1290,7 @@ describe('interactive auto-download lifecycle', () => {
     const controller = createInteractiveOperationController()
     const lifecycle = controller.beginGeneration()
     const sendIsCurrent = controller.beginSend()
-    const downloadOwnership = controller.beginDownload('100:11:0')
+    const downloadOwnership = controller.beginDownload('100:11:1')
     const updates: string[] = []
     const send = Promise.resolve().then(() => {
       if (sendIsCurrent()) updates.push('sent')
@@ -1306,23 +1306,23 @@ describe('interactive auto-download lifecycle', () => {
   it('prevents deferred manual progress and completion from overwriting a newer auto event', async () => {
     const controller = createInteractiveOperationController()
     controller.beginGeneration()
-    const manualOwnership = controller.beginDownload('100:11:0')
+    const manualOwnership = controller.beginDownload('100:11:1')
     let resolveManual!: () => void
     const manual = new Promise<void>((resolve) => { resolveManual = resolve })
-    controller.claimDownload('100:11:0')
+    controller.claimDownload('100:11:1')
     let state = applyAutoDownloadEvent({}, {
-      status: 'downloading', key: '100:11:0', progress: 75,
+      status: 'downloading', key: '100:11:1', progress: 75,
     })
     const progress = () => {
-      if (manualOwnership.isCurrent()) state = { '100:11:0': { status: 'downloading', progress: 10 } }
+      if (manualOwnership.isCurrent()) state = { '100:11:1': { status: 'downloading', progress: 10 } }
     }
     const completion = manual.then(() => {
-      if (manualOwnership.isCurrent()) state = { '100:11:0': { status: 'completed', path: '/tmp/manual.jpg' } }
+      if (manualOwnership.isCurrent()) state = { '100:11:1': { status: 'completed', path: '/tmp/manual.jpg' } }
     })
     progress()
     resolveManual()
     await completion
-    expect(state['100:11:0']).toEqual({ status: 'downloading', progress: 75 })
+    expect(state['100:11:1']).toEqual({ status: 'downloading', progress: 75 })
   })
 
   it('bounds ownership across many terminal auto-downloads without reviving stale callbacks', () => {
@@ -1354,7 +1354,7 @@ describe('interactive auto-download lifecycle', () => {
   ])('releases manual ownership after %s', async (_, operation) => {
     const controller = createInteractiveOperationController()
     controller.beginGeneration()
-    const ownership = controller.beginDownload('100:11:0')
+    const ownership = controller.beginDownload('100:11:1')
     const errors: string[] = []
 
     await runOwnedAttachmentOperation(ownership, operation, (error) => errors.push(String(error)))
@@ -1408,13 +1408,7 @@ describe('interactive auto-download lifecycle', () => {
     const calls: string[] = []
     const message: NormalizedMessage = {
       ...storedPhoto(77, 'interactive persisted'),
-      raw_json: {
-        _: 'message',
-        media: [
-          { _: 'messageMediaPhoto', photo: { file_name: 'first.jpg' } },
-          { _: 'messageMediaDocument', document: { file_name: 'second.pdf' } },
-        ],
-      },
+      raw_json: null,
       attachments: [
         attachment({ attachment_index: 1, kind: 'photo', file_name: 'first.jpg' }),
         attachment({ attachment_index: 2, kind: 'document', file_name: 'second.pdf', mime_type: 'application/pdf' }),
@@ -1532,36 +1526,36 @@ describe('ListenAttachmentWithPreview', () => {
     const preview = decodeImagePreview(twoByTwoJpeg, 24)
     const output = renderToString(
       <ListenAttachmentWithPreview
-        label="📎 Photo"
+        label="📎 photo"
         selected={false}
         state={{ status: 'idle' }}
         previewCells={preview?.rows}
       />,
     )
 
-    expect(output).toContain('📎 Photo  [󰇚 Download]')
+    expect(output).toContain('📎 photo  [󰇚 Download]')
     expect(output).toContain('▀')
-    expect(output.indexOf('📎 Photo')).toBeLessThan(output.indexOf('▀'))
+    expect(output.indexOf('📎 photo')).toBeLessThan(output.indexOf('▀'))
   })
 
   it('keeps the download line but omits previews without true color', () => {
     const output = renderToString(
       <ListenAttachmentWithPreview
-        label="📎 Photo"
+        label="📎 photo"
         selected={false}
         state={{ status: 'idle' }}
         previewCells={undefined}
       />,
     )
 
-    expect(output).toContain('📎 Photo')
+    expect(output).toContain('📎 photo')
     expect(output).not.toContain('▀')
   })
 
   it('renders provided cells without requiring encoded image input', () => {
     const output = renderToString(
       <ListenAttachmentWithPreview
-        label="📎 Photo"
+        label="📎 photo"
         selected={false}
         state={{ status: 'idle' }}
         previewCells={[[{ glyph: '▀', foreground: '#112233', background: '#445566' }]]}
@@ -1599,25 +1593,77 @@ describe('collectDownloadableAttachments', () => {
       sender: 'Alice',
       senderId: null,
       content: null,
-      mediaSummary: null,
-      media: [
+      attachmentSummary: null,
+      attachments: [
         {
+          attachment_index: 1,
+          parent_attachment_index: null,
+          role: 'primary',
           chatId: 100,
           messageId: 1,
-          kind: 'Contact',
-          label: '👤 Contact · Zhang San · +86 13800138000',
-          fileName: null,
-          mimeType: null,
+          key: '100:1:1',
+          depth: 0,
+          kind: 'contact',
+          subtype: null,
+          label: 'contact',
           downloadable: false,
+          file_id: null,
+          unique_file_id: null,
+          file_name: null,
+          mime_type: null,
+          file_size: null,
+          width: null,
+          height: null,
+          duration_seconds: null,
+          thumbnail_file_id: null,
+          thumbnail_unique_file_id: null,
+          thumbnail_width: null,
+          thumbnail_height: null,
+          emoji: null,
+          title: null,
+          performer: null,
+          latitude: null,
+          longitude: null,
+          address: null,
+          phone_number: null,
+          url: null,
+          preview_jpeg_base64: null,
+          metadata: {},
         },
         {
+          attachment_index: 2,
+          parent_attachment_index: null,
+          role: 'primary',
           chatId: 100,
           messageId: 2,
-          kind: 'Photo',
-          label: '📎 Photo',
-          fileName: null,
-          mimeType: null,
+          key: '100:2:2',
+          depth: 0,
+          kind: 'photo',
+          subtype: null,
+          label: 'photo',
           downloadable: true,
+          file_id: null,
+          unique_file_id: null,
+          file_name: null,
+          mime_type: null,
+          file_size: null,
+          width: null,
+          height: null,
+          duration_seconds: null,
+          thumbnail_file_id: null,
+          thumbnail_unique_file_id: null,
+          thumbnail_width: null,
+          thumbnail_height: null,
+          emoji: null,
+          title: null,
+          performer: null,
+          latitude: null,
+          longitude: null,
+          address: null,
+          phone_number: null,
+          url: null,
+          preview_jpeg_base64: null,
+          metadata: {},
         },
       ],
     }
@@ -1625,7 +1671,7 @@ describe('collectDownloadableAttachments', () => {
     expect(collectDownloadableAttachments([message]).map(({ key, attachment }) => ({
       key,
       kind: attachment.kind,
-    }))).toEqual([{ key: '100:2:0', kind: 'Photo' }])
+    }))).toEqual([{ key: '100:2:2', kind: 'photo' }])
   })
 })
 
@@ -1668,7 +1714,7 @@ describe('interactive album messages', () => {
       showMedia: true,
       previewWidth: 24,
       colorDepth: 1,
-      replyContext: { messageId: 7, resolved: true, timestamp: '2026-07-10T07:20:00.000Z', senderId: 2, senderName: 'Bob', content: 'earlier' },
+      replyContext: { messageId: 7, resolved: true, timestamp: '2026-07-10T07:20:00.000Z', senderId: 2, senderName: 'Bob', content: 'earlier', attachments: [] },
     })
     const message = { ...row, key: '100:11', chatId: 100, msgId: 11 }
     const header = ListenMessageHeader({ message })
@@ -1695,15 +1741,15 @@ describe('interactive album messages', () => {
       showMedia: true,
       previewWidth: 24,
       colorDepth: 1,
-      replyContext: { messageId: 7, resolved: true, timestamp: '2026-07-10T07:20:00.000Z', senderId: 2, senderName: 'Bob', content: 'earlier' },
+      replyContext: { messageId: 7, resolved: true, timestamp: '2026-07-10T07:20:00.000Z', senderId: 2, senderName: 'Bob', content: 'earlier', attachments: [] },
     })
 
     const output = renderToString(<ListenMessageBody message={row} />)
-    expect(output).toContain('📎 2 Photos')
+    expect(output).toContain('📎 photo; photo')
     expect(output.match(/Download/g)).toHaveLength(2)
     expect(output.indexOf('Bob (#7): earlier')).toBeLessThan(output.indexOf('album caption'))
-    expect(output.indexOf('album caption')).toBeLessThan(output.indexOf('📎 2 Photos'))
-    expect(output.indexOf('📎 2 Photos')).toBeLessThan(output.indexOf('Download'))
+    expect(output.indexOf('album caption')).toBeLessThan(output.indexOf('📎 photo; photo'))
+    expect(output.indexOf('📎 photo; photo')).toBeLessThan(output.indexOf('Download'))
   })
 
   it('renders a missing reply and hides all media when showMedia is false', () => {
@@ -1879,8 +1925,8 @@ describe('interactive album messages', () => {
     ], true)
 
     expect(row.content).toBe('album caption')
-    expect(row.media).toHaveLength(2)
-    expect(attachmentDownloadTarget(row.media[1]!)).toEqual({ chat: 100, msgId: 12 })
+    expect(row.attachments).toHaveLength(2)
+    expect(attachmentDownloadTarget(row.attachments[1]!)).toEqual({ chat: 100, msgId: 12 })
   })
 
   it('decodes an eligible preview once while constructing its view model', () => {
@@ -1898,8 +1944,8 @@ describe('interactive album messages', () => {
     })
 
     expect(decodePreview).toHaveBeenCalledOnce()
-    expect(row.media[0]?.previewRows).toBe(1)
-    expect(row.media[0]?.previewCells).toHaveLength(1)
+    expect(row.attachments[0]?.previewRows).toBe(1)
+    expect(row.attachments[0]?.previewCells).toHaveLength(1)
   })
 
   it('keeps image previews hidden in the default interactive policy', () => {
@@ -1913,8 +1959,8 @@ describe('interactive album messages', () => {
 
     expect(colorDepth).toBe(1)
     expect(decodePreview).not.toHaveBeenCalled()
-    expect(row.media[0]?.previewRows).toBeUndefined()
-    expect(row.media[0]?.previewCells).toBeUndefined()
+    expect(row.attachments[0]?.previewRows).toBeUndefined()
+    expect(row.attachments[0]?.previewCells).toBeUndefined()
   })
 
   it('does not decode unchanged previews again when a new group arrives', () => {
@@ -1966,7 +2012,7 @@ describe('interactive album messages', () => {
     expect(after).toHaveLength(1)
     expect(after[0]?.key).toBe(before[0]?.key)
     expect(new Set(after.map((row) => row.key)).size).toBe(after.length)
-    expect(after[0]?.media.map((item) => item.messageId)).toEqual([11, 12])
+    expect(after[0]?.attachments.map((item) => item.messageId)).toEqual([11, 12])
   })
 
   it('rebuilds a resolved historical group for resize without resolving it again', () => {
@@ -1985,8 +2031,8 @@ describe('interactive album messages', () => {
     const before = cache.build([resolved], { showMedia: true, previewWidth: 2, colorDepth: 24, decodePreview })
     const after = cache.build([resolved], { showMedia: true, previewWidth: 4, colorDepth: 24, decodePreview })
 
-    expect(before[0]?.media[0]?.previewRows).toBe(2)
-    expect(after[0]?.media[0]?.previewRows).toBe(4)
+    expect(before[0]?.attachments[0]?.previewRows).toBe(2)
+    expect(after[0]?.attachments[0]?.previewRows).toBe(4)
     expect(after[0]?.replyContext).toEqual(resolved.replyContext)
     expect(decodePreview).toHaveBeenCalledTimes(2)
   })
@@ -2016,7 +2062,7 @@ describe('interactive album messages', () => {
     })
 
     expect(decodePreview).not.toHaveBeenCalled()
-    expect(row.media.every((item) => item.previewRows == null && item.previewCells == null)).toBe(true)
+    expect(row.attachments.every((item) => item.previewRows == null && item.previewCells == null)).toBe(true)
   })
 
   it('flushes pending albums before deferring terminal exit', () => {
@@ -2047,8 +2093,8 @@ describe('listen scroll state', () => {
     const current = message('current', 3)
     current.content = 'body'
     current.replyContext = { messageId: 1, resolved: false }
-    current.mediaSummary = '📎 1 Photo'
-    current.media[0] = { ...current.media[0]!, previewRows: 2, previewCells: [] }
+    current.attachmentSummary = '📎 photo'
+    current.attachments[0] = { ...current.attachments[0]!, previewRows: 2, previewCells: [] }
 
     expect(takeListenViewport([old, current], 8, 0).map((item) => item.sender)).toEqual(['current'])
     expect(takeListenViewport([old, current], 10, 0).map((item) => item.sender)).toEqual(['old', 'current'])
@@ -2079,8 +2125,8 @@ describe('listen scroll state', () => {
   it('counts image preview rows when selecting complete messages', () => {
     const old = message('old', 2)
     const current = message('current', 3)
-    current.media[0] = {
-      ...current.media[0]!,
+    current.attachments[0] = {
+      ...current.attachments[0]!,
       previewRows: 3,
       previewCells: [],
     }
@@ -2097,16 +2143,18 @@ function message(sender: string, lineCount: number): ListenMessageRow {
     sender,
     senderId: null,
     content: null,
-    mediaSummary: null,
-    media: Array.from({ length: mediaCount }, (_, index) => ({
-      chatId: 100,
-      kind: 'Photo',
-      label: `Photo ${index}`,
-      fileName: null,
-      mimeType: null,
-      downloadable: true,
-      messageId: index + 1,
-    })),
+    attachmentSummary: null,
+    attachments: Array.from({ length: mediaCount }, (_, index) => {
+      const base = attachment({ attachment_index: index + 1, kind: 'photo' })
+      return {
+        ...base,
+        chatId: 100,
+        messageId: index + 1,
+        key: `100:${index + 1}:${index + 1}`,
+        depth: 0,
+        label: `photo ${index}`,
+      }
+    }),
   }
 }
 
@@ -2122,7 +2170,7 @@ function storedPhoto(msgId: number, content: string): NormalizedMessage {
     timestamp: '2026-07-10T07:22:00.000Z',
     reply_to_msg_id: null,
     media_group_id: null,
-    raw_json: { _: 'message', media: { _: 'messageMediaPhoto', photo: {} } },
+    raw_json: null,
     attachments: [{
       attachment_index: 1,
       parent_attachment_index: null,
@@ -2169,7 +2217,8 @@ function storedPhotoWithPreview(msgId: number, content: string, preview: string)
 function storedText(msgId: number, content: string): NormalizedMessage {
   return {
     ...storedPhoto(msgId, content),
-    raw_json: { _: 'message' },
+    raw_json: null,
+    attachments: [],
   }
 }
 
@@ -2218,7 +2267,7 @@ function lastTerminalFrame(output: string): string {
 
 function expectSelectedAttachmentBetween(output: string, before: string, after: string): void {
   const frame = lastTerminalFrame(output)
-  const selected = frame.indexOf('› 📎 Photo')
+  const selected = frame.indexOf('› photo')
   expect(selected).toBeGreaterThan(frame.indexOf(before))
   expect(selected).toBeLessThan(frame.indexOf(after))
 }

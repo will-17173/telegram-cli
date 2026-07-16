@@ -69,7 +69,7 @@ describe('human output builders', () => {
       kind: 'table',
       title: 'Messages',
       columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
-      rows: [['22', localTimestamp('2026-07-10T01:02:03Z'), 'General', 'Ada', '20', '10:99', 'release [document: notes.pdf, 2048 bytes; video/round]']],
+      rows: [['22', localTimestamp('2026-07-10T01:02:03Z'), 'General', 'Ada', '20', '10:99', 'release\n📎 document: notes.pdf, 2048 bytes; video/round']],
       emptyText: 'No online messages found.',
     })
   })
@@ -93,10 +93,12 @@ describe('human output builders', () => {
   it('renders logical content, reply context, and media in one message cell', () => {
     const rows = [storedMessage({
       id: 1, msg_id: 11, content: 'album caption', timestamp: '2026-07-10T01:02:03Z',
-      raw_json: JSON.stringify({ grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } }),
+      media_group_id: '77',
+      attachments: [attachment({ kind: 'photo' })],
     }), storedMessage({
       id: 2, msg_id: 12, content: null, timestamp: '2026-07-10T01:02:04Z',
-      raw_json: JSON.stringify({ grouped_id: 77, media: { _: 'messageMediaPhoto', photo: {} } }),
+      media_group_id: '77',
+      attachments: [attachment({ kind: 'photo' })],
     })]
     const logical = groupLogicalMessages(rows)
     logical[0]!.replyContext = buildReplyContext(7, { ...rows[0]!, msg_id: 7, sender_name: 'Bob', content: 'original' })
@@ -104,16 +106,16 @@ describe('human output builders', () => {
     expect(logicalMessageTable(logical, 'Recent Messages', 'None')).toEqual({
       kind: 'table', title: 'Recent Messages', columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'MESSAGE'],
       rows: [['11, 12', localTimestamp(rows[0]!.timestamp), 'General', 'Ada',
-        `↳ Reply to [${localClock(rows[0]!.timestamp)}] Bob (#7): original\nalbum caption\n📎 2 Photos`]],
+        `↳ Reply to [${localClock(rows[0]!.timestamp)}] Bob (#7): original\nalbum caption\n📎 photo; photo`]],
       emptyText: 'None',
     })
   })
 
   it('renders media-only logical messages without a standalone dash', () => {
     const row = storedMessage({
-      raw_json: JSON.stringify({ media: { _: 'messageMediaPhoto', photo: {} } }),
+      attachments: [attachment({ kind: 'photo' })],
     })
-    expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[4]).toBe('📎 1 Photo')
+    expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[4]).toBe('📎 photo')
   })
   it('maps Telegram chats to the canonical Chats table', () => {
     expect(chatTable([

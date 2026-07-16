@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ListenScrollbar, calculateScrollbar, createTransientVisibility, listenContentWidth } from '../../src/presenters/ink/listen-scrollbar.js'
 import { takeListenViewport } from '../../src/presenters/ink/listen-scroll.js'
 import type { ListenMessageRow } from '../../src/presenters/listen-message.js'
+import { attachment } from '../fixtures/messages.js'
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
@@ -82,15 +83,14 @@ function listenRow(sender: string, previewRows = 0): ListenMessageRow {
     sender,
     senderId: null,
     content: null,
-    mediaSummary: null,
-    media: previewRows === 0 ? [] : [{
+    attachmentSummary: null,
+    attachments: previewRows === 0 ? [] : [{
+      ...attachment({ kind: 'photo' }),
       chatId: 1,
       messageId: 1,
-      kind: 'Photo',
-      label: 'Photo',
-      fileName: null,
-      mimeType: null,
-      downloadable: true,
+      key: '1:1:1',
+      depth: 0,
+      label: 'photo',
       previewRows,
       previewCells: [],
     }],

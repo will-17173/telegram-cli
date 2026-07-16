@@ -13,8 +13,8 @@ import {
 } from '../../services/attachment-download.js'
 import { ListenAlbumAggregator } from '../../services/listen-album-aggregator.js'
 import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../../services/auto-download-coordinator.js'
-import { attachmentDownloadTarget, attachmentFileName, discoverListenAttachments, listenAttachmentKey } from '../../services/listen-attachment.js'
 import { buildListenMessage, type ListenAttachment, type ListenMessageRow } from '../listen-message.js'
+import { attachmentDownloadTarget, attachmentFileName, presentMessageAttachments } from '../attachment.js'
 import { applyMessageArrival, applyScroll, takeListenViewport, type ListenScrollState } from './listen-scroll.js'
 import { decodeImagePreview, type PreviewCell } from './image-preview.js'
 import { ListenScrollbar, calculateScrollbar, listenContentWidth, useTransientScrollbar } from './listen-scrollbar.js'
@@ -321,8 +321,8 @@ export function registerPendingAttachmentKeys(
     pendingKeys.clear()
     return
   }
-  discoverListenAttachments(message).forEach((attachment, index) => {
-    if (attachment.downloadable) pendingKeys.add(listenAttachmentKey(attachment, index))
+  presentMessageAttachments(message).forEach((attachment) => {
+    if (attachment.downloadable) pendingKeys.add(attachment.key)
   })
 }
 
@@ -453,10 +453,7 @@ class InteractivePersistMessageError extends Error {
 export function attachmentDownloadKeyAt(attachments: ListenAttachment[], index: number): string {
   const attachment = attachments[index]
   if (attachment == null) throw new Error(`Missing attachment at index ${index}`)
-  const sourceIndex = attachments.slice(0, index).filter((candidate) => (
-    candidate.chatId === attachment.chatId && candidate.messageId === attachment.messageId
-  )).length
-  return listenAttachmentKey(attachment, sourceIndex)
+  return attachment.key
 }
 
 export function ListenImagePreview({ rows }: { rows: PreviewCell[][] }): React.JSX.Element {
@@ -518,13 +515,14 @@ export function ListenMessageBody({
     <>
       {message.replyContext == null ? null : <Text color={LISTEN_MESSAGE_COLORS.reply} wrap="truncate-end">{formatReplyContext(message.replyContext)}</Text>}
       {message.content == null ? null : <Text color={LISTEN_MESSAGE_COLORS.content} wrap="truncate-end">{message.content}</Text>}
-      {message.mediaSummary == null ? null : <Text color={LISTEN_MESSAGE_COLORS.media} wrap="truncate-end">{message.mediaSummary}</Text>}
-      {message.media.map((item, mediaIndex) => {
-        const attachmentKey = attachmentDownloadKeyAt(message.media, mediaIndex)
+      {message.attachmentSummary == null ? null : <Text color={LISTEN_MESSAGE_COLORS.media} wrap="truncate-end">{message.attachmentSummary}</Text>}
+      {message.attachments.map((item, mediaIndex) => {
+        const attachmentKey = attachmentDownloadKeyAt(message.attachments, mediaIndex)
+        const indent = '  '.repeat(item.depth)
         return (
           <ListenAttachmentWithPreview
             key={attachmentKey}
-            label={item.label}
+            label={`${indent}${item.label}`}
             downloadable={item.downloadable}
             selected={selectedAttachmentKey === attachmentKey}
             state={attachmentStates[attachmentKey] ?? { status: 'idle' }}
@@ -1601,9 +1599,9 @@ export function toListenMessage(
   const { showMedia, previewWidth, colorDepth, showChatName = false, replyContext } = renderContext
   const formatted = buildListenMessage(messages, { showMedia, showChatName, replyContext })
   const decodePreview = renderContext.decodePreview ?? decodeImagePreview
-  const media = formatted.media.map((attachment) => {
-    if (attachment.previewJpegBase64 == null || colorDepth < 24) return attachment
-    const preview = decodePreview(attachment.previewJpegBase64, normalizedPreviewWidth(previewWidth))
+  const attachments = formatted.attachments.map((attachment) => {
+    if (attachment.preview_jpeg_base64 == null || colorDepth < 24) return attachment
+    const preview = decodePreview(attachment.preview_jpeg_base64, normalizedPreviewWidth(previewWidth))
     return preview == null
       ? attachment
       : { ...attachment, previewRows: preview.rows.length, previewCells: preview.rows }
@@ -1612,7 +1610,7 @@ export function toListenMessage(
     key: `${message.chat_id}:${message.msg_id}`,
     msgId: message.msg_id,
     ...formatted,
-    media,
+    attachments,
   }
 }
 
@@ -1635,10 +1633,10 @@ function normalizedPreviewWidth(previewWidth: number): number {
 }
 
 export function collectDownloadableAttachments(messages: ListenMessage[]): DownloadableAttachment[] {
-  return messages.flatMap((message) => message.media.flatMap((attachment, index) => (
+  return messages.flatMap((message) => message.attachments.flatMap((attachment, index) => (
     attachment.downloadable === true
       ? [{
-          key: attachmentDownloadKeyAt(message.media, index),
+          key: attachmentDownloadKeyAt(message.attachments, index),
           message,
           attachment,
         }]
@@ -1646,7 +1644,7 @@ export function collectDownloadableAttachments(messages: ListenMessage[]): Downl
   )))
 }
 
-export { attachmentDownloadTarget } from '../../services/listen-attachment.js'
+export { attachmentDownloadTarget } from '../attachment.js'
 
 export function flushListenBeforeExit(aggregator: Pick<ListenAlbumAggregator, 'flush'>, exit: () => void): void {
   aggregator.flush()

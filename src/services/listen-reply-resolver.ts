@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { groupLogicalMessages } from '../presenters/logical-message.js'
-import { MessageDB, type StoredMessage, type StoredMessageInput } from '../storage/message-db.js'
+import { MessageDB, type StoredMessageInput } from '../storage/message-db.js'
 import { buildReplyContext, type ReplyContext } from './reply-context.js'
 
 export type ListenReplyResolver = {
@@ -23,7 +23,7 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
     if (logical?.replyToMessageId == null) return {}
     const replyId = logical.replyToMessageId
     const target = memory.get(messageKey(logical.first.platform, logical.first.chat_id, replyId))?.message
-    if (target != null) return { context: buildReplyContext(replyId, asStoredMessage(target)) }
+    if (target != null) return { context: buildReplyContext(replyId, target) }
     if (closed || logical.first.platform !== 'telegram') return { context: buildReplyContext(replyId) }
     return { chatId: logical.first.chat_id, replyId }
   }
@@ -107,14 +107,4 @@ export function createListenReplyResolver(dbPath: string, limit = 500): ListenRe
 
 function messageKey(platform: string, chatId: number, msgId: number): string {
   return `${platform}:${chatId}:${msgId}`
-}
-
-function asStoredMessage(message: StoredMessageInput): StoredMessage {
-  return {
-    ...message,
-    id: 0,
-    raw_json: message.raw_json == null
-      ? null
-      : typeof message.raw_json === 'string' ? message.raw_json : JSON.stringify(message.raw_json),
-  }
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildListenMessage, formatListenLine } from '../../src/presenters/listen-message.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
 import { buildReplyContext } from '../../src/services/reply-context.js'
+import { attachment } from '../fixtures/messages.js'
 
 describe('listen message formatting', () => {
   it('preserves the sender id for interactive presentation', () => {
@@ -17,17 +18,17 @@ describe('listen message formatting', () => {
     const output = formatListenLine(message, { showMedia: true })
 
     expect(row.content).toBeNull()
-    expect(row.media).toEqual([{
+    expect(row.attachments).toEqual([expect.objectContaining({
       chatId: 100,
       downloadable: true,
-      fileName: null,
-      mimeType: null,
-      kind: 'Photo',
-      label: '📎 Photo',
+      kind: 'photo',
+      label: 'photo',
       messageId: 1,
-    }])
+      key: '100:1:1',
+      depth: 0,
+    })])
     expect(output).not.toContain('(no text)')
-    expect(output).toContain('📎 1 Photo')
+    expect(output).toContain('📎 photo')
   })
 
   it('shows a media caption together with its attachment', () => {
@@ -36,11 +37,11 @@ describe('listen message formatting', () => {
     const row = buildListenMessage(message, { showMedia: true })
 
     expect(row.content).toBe('photo caption')
-    expect(row.media).toHaveLength(1)
-    expect(row.media[0]).toMatchObject({
+    expect(row.attachments).toHaveLength(1)
+    expect(row.attachments[0]).toMatchObject({
       chatId: 100,
       messageId: 11,
-      kind: 'Photo',
+      kind: 'photo',
     })
   })
 
@@ -51,11 +52,10 @@ describe('listen message formatting', () => {
     const row = buildListenMessage([first, second], { showMedia: true })
 
     expect(row.content).toBe('album caption')
-    expect(row.media.map((item) => item.messageId)).toEqual([11, 12])
-    expect(row.media.map((item) => item.label)).toEqual(['📎 Photo', '📎 Photo'])
-    expect(row.mediaSummary).toBe('📎 2 Photos')
-    expect(formatListenLine([first, second], { showMedia: true }).match(/📎 2 Photos/g)).toHaveLength(1)
-    expect(formatListenLine([first, second], { showMedia: true })).not.toContain('📎 Photo\n')
+    expect(row.attachments.map((item) => item.messageId)).toEqual([11, 12])
+    expect(row.attachments.map((item) => item.label)).toEqual(['photo', 'photo'])
+    expect(row.attachmentSummary).toBe('📎 photo; photo')
+    expect(formatListenLine([first, second], { showMedia: true }).match(/📎 photo; photo/g)).toHaveLength(1)
   })
 
   it('includes the chat id after the chat name when showChatName is enabled', () => {
@@ -73,9 +73,9 @@ describe('listen message formatting', () => {
 
     const row = buildListenMessage(message, { showMedia: true })
 
-    expect(row.media[0]).toMatchObject({
-      kind: 'Photo',
-      previewJpegBase64: 'jpeg-preview',
+    expect(row.attachments[0]).toMatchObject({
+      kind: 'photo',
+      preview_jpeg_base64: 'jpeg-preview',
     })
   })
 
@@ -84,8 +84,8 @@ describe('listen message formatting', () => {
 
     const row = buildListenMessage(message, { showMedia: false })
 
-    expect(row.media).toEqual([])
-    expect(row.mediaSummary).toBeNull()
+    expect(row.attachments).toEqual([])
+    expect(row.attachmentSummary).toBeNull()
   })
 
   it('formats resolved reply context between the header and content', () => {
@@ -117,8 +117,8 @@ describe('listen message formatting', () => {
     ], { showMedia: false })
 
     expect(row.content).toBe('album caption')
-    expect(row.media).toEqual([])
-    expect(row.mediaSummary).toBeNull()
+    expect(row.attachments).toEqual([])
+    expect(row.attachmentSummary).toBeNull()
   })
 
   it('shows contact details only when media is visible', () => {
@@ -128,8 +128,8 @@ describe('listen message formatting', () => {
       phoneNumber: '+86 13800138000',
     })
 
-    expect(formatListenLine(message, { showMedia: true })).toContain('📎 1 Contact')
-    expect(buildListenMessage(message, { showMedia: false }).media).toEqual([])
+    expect(formatListenLine(message, { showMedia: true })).toContain('📎 contact')
+    expect(buildListenMessage(message, { showMedia: false }).attachments).toEqual([])
     expect(formatListenLine(message, { showMedia: false })).not.toContain('Contact')
   })
 
@@ -139,7 +139,7 @@ describe('listen message formatting', () => {
 
     const row = buildListenMessage([first, second], { showMedia: true })
 
-    expect(row.media.map((item) => item.previewJpegBase64)).toEqual([
+    expect(row.attachments.map((item) => item.preview_jpeg_base64)).toEqual([
       'first-preview',
       'second-preview',
     ])
@@ -158,37 +158,11 @@ function mediaMessage(options: { msgId?: number; content?: string; previewJpegBa
     timestamp: '2026-07-10T07:22:00.000Z',
     reply_to_msg_id: null,
     media_group_id: null,
-    raw_json: { _: 'message', media: { _: 'messageMediaPhoto', photo: {} } },
-    attachments: [{
-      attachment_index: 1,
-      parent_attachment_index: null,
-      role: 'primary',
+    raw_json: null,
+    attachments: [attachment({
       kind: 'photo',
-      subtype: null,
-      downloadable: true,
-      file_id: null,
-      unique_file_id: null,
-      file_name: null,
-      mime_type: null,
-      file_size: null,
-      width: null,
-      height: null,
-      duration_seconds: null,
-      thumbnail_file_id: null,
-      thumbnail_unique_file_id: null,
-      thumbnail_width: null,
-      thumbnail_height: null,
-      emoji: null,
-      title: null,
-      performer: null,
-      latitude: null,
-      longitude: null,
-      address: null,
-      phone_number: null,
-      url: null,
       preview_jpeg_base64: options.previewJpegBase64 ?? null,
-      metadata: {},
-    }],
+    })],
   }
 }
 
@@ -204,7 +178,11 @@ function contactMessage(contact: Record<string, unknown>): StoredMessageInput {
     timestamp: '2026-07-10T07:22:00.000Z',
     reply_to_msg_id: null,
     media_group_id: null,
-    raw_json: { _: 'message', media: { _: 'messageMediaContact', ...contact } },
-    attachments: [],
+    raw_json: null,
+    attachments: [attachment({
+      kind: 'contact',
+      file_name: null,
+      metadata: JSON.parse(JSON.stringify(contact)) as never,
+    })],
   }
 }

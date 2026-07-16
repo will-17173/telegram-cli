@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DataService } from '../../src/services/data-service.js'
 import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
+import { attachment } from '../fixtures/messages.js'
 
 function createService(): { service: DataService; db: MessageDB } {
   const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-data-')), 'messages.db'))
@@ -58,6 +59,44 @@ describe('DataService', () => {
       }],
       human: { kind: 'text', text: '[2026-03-09T10:00:00] Alice: Hello' },
     })
+    service.close()
+  })
+
+  it('appends attachment summaries in text exports', () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-data-')), 'messages.db'))
+    db.upsertBatch([message({
+      content: 'Report',
+      attachments: [attachment({ kind: 'document', file_name: 'notes.pdf' })],
+    })])
+    const service = new DataService(db)
+
+    const result = service.exportMessages({ chat: 'TestGroup', format: 'text' })
+
+    expect(result).toMatchObject({
+      ok: true,
+      human: { kind: 'text', text: '[2026-03-09T10:00:00] Alice: Report\n📎 document: notes.pdf' },
+    })
+    service.close()
+  })
+
+  it('exports canonical attachments to JSON without presenter fields', () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-data-')), 'messages.db'))
+    db.upsertBatch([message({
+      attachments: [attachment({ kind: 'photo', preview_jpeg_base64: 'jpeg-preview' })],
+    })])
+    const service = new DataService(db)
+
+    const result = service.exportMessages({ chat: 'TestGroup', format: 'json' })
+
+    if (!result.ok || result.human?.kind !== 'text') throw new Error('expected text result')
+    const parsed = JSON.parse(result.human.text) as { data: Array<Record<string, unknown>> }
+    expect(parsed.data[0]?.attachments).toEqual([expect.objectContaining({
+      kind: 'photo',
+      preview_jpeg_base64: 'jpeg-preview',
+    })])
+    expect(JSON.stringify(parsed.data[0]?.attachments)).not.toContain('chatId')
+    expect(JSON.stringify(parsed.data[0]?.attachments)).not.toContain('key')
+    expect(JSON.stringify(parsed.data[0]?.attachments)).not.toContain('label')
     service.close()
   })
 
@@ -120,7 +159,7 @@ describe('DataService', () => {
   })
 })
 
-function message(): StoredMessageInput {
+function message(overrides: Partial<StoredMessageInput> = {}): StoredMessageInput {
   return {
     platform: 'telegram',
     chat_id: 100,
@@ -134,5 +173,6 @@ function message(): StoredMessageInput {
     media_group_id: null,
     raw_json: null,
     attachments: [],
+    ...overrides,
   }
 }
