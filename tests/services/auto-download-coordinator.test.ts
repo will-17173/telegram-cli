@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../../src/services/auto-download-coordinator.js'
 import type { StoredMessageInput } from '../../src/storage/message-db.js'
 import type { DownloadMessageMediaOptions, TelegramClientAdapter } from '../../src/telegram/types.js'
+import { attachment } from '../fixtures/messages.js'
 
 describe('AutoDownloadCoordinator', () => {
   it('defaults to three active transfers and starts the fourth FIFO transfer as one completes', async () => {
@@ -36,7 +37,7 @@ describe('AutoDownloadCoordinator', () => {
 
     coordinator.enqueue(downloadable)
     coordinator.enqueue(downloadable)
-    coordinator.enqueue(mediaMessage(6, undefined, 'messageMediaPoll'))
+    coordinator.enqueue(mediaMessage(6, undefined, 'poll'))
     await coordinator.waitForIdle()
 
     expect(client.calls).toHaveLength(1)
@@ -55,7 +56,7 @@ describe('AutoDownloadCoordinator', () => {
     await tick()
 
     expect(client.calls.map((call) => call.msgId)).toEqual([1])
-    expect(events).toContainEqual({ status: 'failed', key: '100:3:0', error: 'auto-download queue is full' })
+    expect(events).toContainEqual({ status: 'failed', key: '100:3:1', error: 'auto-download queue is full' })
 
     first.resolve()
     await coordinator.waitForIdle()
@@ -135,8 +136,8 @@ describe('AutoDownloadCoordinator', () => {
     coordinator.enqueue(mediaMessage(2, 'good.jpg'))
     await coordinator.waitForIdle()
 
-    expect(remove).toHaveBeenCalledWith('/home/Downloads/telegram-cli/.100-1-0.part', { force: true })
-    expect(events.find((event) => event.status === 'failed')).toEqual({ key: '100:1:0', status: 'failed', error: 'network failed' })
+    expect(remove).toHaveBeenCalledWith('/home/Downloads/telegram-cli/.100-1-1.part', { force: true })
+    expect(events.find((event) => event.status === 'failed')).toEqual({ key: '100:1:1', status: 'failed', error: 'network failed' })
     expect(client.calls.map((call) => call.msgId)).toEqual([1, 2])
   })
 
@@ -165,14 +166,14 @@ describe('AutoDownloadCoordinator', () => {
     coordinator.enqueue(mediaMessage(1, 'photo.jpg'))
     await coordinator.waitForIdle()
 
-    expect(client.calls[0]!.destination).toBe('/home/Downloads/telegram-cli/.100-1-0.part')
+    expect(client.calls[0]!.destination).toBe('/home/Downloads/telegram-cli/.100-1-1.part')
     expect(published).toEqual([
-      ['/home/Downloads/telegram-cli/.100-1-0.part', '/home/Downloads/telegram-cli/photo.jpg'],
-      ['/home/Downloads/telegram-cli/.100-1-0.part', '/home/Downloads/telegram-cli/photo (2).jpg'],
+      ['/home/Downloads/telegram-cli/.100-1-1.part', '/home/Downloads/telegram-cli/photo.jpg'],
+      ['/home/Downloads/telegram-cli/.100-1-1.part', '/home/Downloads/telegram-cli/photo (2).jpg'],
     ])
     expect(existing.has('/home/Downloads/telegram-cli/photo.jpg')).toBe(true)
-    expect(remove).toHaveBeenCalledWith('/home/Downloads/telegram-cli/.100-1-0.part', { force: true })
-    expect(events.at(-1)).toEqual({ status: 'completed', key: '100:1:0', path: '/home/Downloads/telegram-cli/photo (2).jpg' })
+    expect(remove).toHaveBeenCalledWith('/home/Downloads/telegram-cli/.100-1-1.part', { force: true })
+    expect(events.at(-1)).toEqual({ status: 'completed', key: '100:1:1', path: '/home/Downloads/telegram-cli/photo (2).jpg' })
   })
 
   it('normalizes Error, string, and non-error failures to strings', async () => {
@@ -256,7 +257,7 @@ describe('AutoDownloadCoordinator', () => {
     coordinator.stop()
     coordinator.stop()
     expect(coordinator.enqueue(mediaMessage(3, 'three.jpg'))).toBe(false)
-    expect(events).toContainEqual({ status: 'cancelled', key: '100:2:0' })
+    expect(events).toContainEqual({ status: 'cancelled', key: '100:2:1' })
     active.resolve()
     await coordinator.waitForIdle()
     expect(client.calls.map((call) => call.msgId)).toEqual([1])
@@ -291,8 +292,8 @@ describe('AutoDownloadCoordinator', () => {
     await tick()
 
     expect(client.calls.map((call) => call.destination)).toEqual([
-      '/home/Downloads/telegram-cli/.100-1-0.part',
-      '/home/Downloads/telegram-cli/.100-2-0.part',
+      '/home/Downloads/telegram-cli/.100-1-1.part',
+      '/home/Downloads/telegram-cli/.100-2-1.part',
     ])
     expect(events.filter((event) => event.status === 'downloading').map((event) => event.progress)).toEqual([0, 42, null, 0, 42, null])
     transfers.forEach((transfer) => transfer.resolve())
@@ -325,13 +326,17 @@ function downloadClient(implementation: (options: DownloadMessageMediaOptions, i
   }
 }
 
-function mediaMessage(msgId: number, fileName?: string, kind = 'messageMediaPhoto'): StoredMessageInput {
+function mediaMessage(msgId: number, fileName?: string, kind: 'photo' | 'poll' = 'photo'): StoredMessageInput {
   return {
     platform: 'telegram', chat_id: 100, chat_name: 'chat', msg_id: msgId,
     sender_id: 1, sender_name: 'sender', content: null, timestamp: '2026-01-01T00:00:00Z',
     reply_to_msg_id: null, media_group_id: null,
-    raw_json: { _: kind, ...(fileName == null ? {} : { file_name: fileName }) },
-    attachments: [],
+    raw_json: null,
+    attachments: [attachment({
+      kind,
+      file_name: fileName ?? null,
+      downloadable: kind !== 'poll',
+    })],
   }
 }
 
