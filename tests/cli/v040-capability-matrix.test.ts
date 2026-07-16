@@ -355,7 +355,7 @@ describe('v0.4.0 capability matrix', () => {
   it('preserves documented command descriptions and structured schema version 1', () => {
     expect(findCommand(createApp(), 'search')?.description()).toContain('locally stored')
     expect(findCommand(createApp(), 'sync')?.description()).toContain('Sync new messages')
-    expect(successPayload({ value: 1 })).toMatchObject({ schema_version: '1' })
+    expect(successPayload({ value: 1 })).toMatchObject({ schema_version: '2' })
   })
 
   it('migrates a v1 account as authenticated and defaults missing write access to enabled', () => {

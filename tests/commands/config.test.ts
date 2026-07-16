@@ -42,7 +42,7 @@ describe('config command', () => {
     ], dataDir)
 
     expect(result).toEqual({
-      stdout: '{\n  "ok": true,\n  "schema_version": "1",\n  "data": {\n    "configured": true,\n    "api_id": 12345\n  }\n}\n',
+      stdout: '{\n  "ok": true,\n  "schema_version": "2",\n  "data": {\n    "configured": true,\n    "api_id": 12345\n  }\n}\n',
       stderr: '',
       code: 0,
     })
@@ -61,7 +61,7 @@ describe('config command', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: { configured: true, proxy_configured: true },
     })
     expect(JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8'))).toEqual({ proxy })
@@ -127,7 +127,7 @@ describe('config command', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: { configured: true, api_id: 12345, proxy_configured: true },
     })
     expect(JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8'))).toEqual({
@@ -281,7 +281,7 @@ describe('config command', () => {
     expect(result.code).toBe(1)
     expect(JSON.parse(result.stdout)).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: {
         code: 'config_write_failed',
         message: 'Failed to save Telegram configuration.',
@@ -300,7 +300,7 @@ describe('config command', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: {
         code: 'config_write_failed',
         message: 'Failed to save Telegram configuration.',
@@ -351,7 +351,7 @@ describe('config command', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: {
         write_access: false,
         changed: false,
@@ -373,7 +373,7 @@ describe('config command', () => {
     expect(result.code).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: {
         write_access: value,
         changed: true,
@@ -390,7 +390,7 @@ describe('config command', () => {
     expect(result.code).toBe(1)
     expect(JSON.parse(result.stdout)).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: {
         code: 'invalid_config',
         message: 'Action must be one of: status, on, or off.',
@@ -419,7 +419,7 @@ describe('config command', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: {
         api_id: 12345,
         api_hash: `${'*'.repeat(apiHash.length - 4)}${apiHash.slice(-4)}`,
@@ -510,7 +510,7 @@ describe('config command', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: {
         api_id: 22222,
         api_hash: `${'*'.repeat('environment-secret'.length - 4)}cret`,
@@ -533,7 +533,7 @@ describe('config command', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: {
         api_id: 2040,
         api_hash: `${'*'.repeat(28)}e627`,
@@ -587,7 +587,7 @@ describe('config command', () => {
     const result = await run(['config', 'list', '--yaml'], dataDir)
 
     expect(result).toEqual({
-      stdout: `ok: true\nschema_version: "1"\ndata:\n  api_id: 12345\n  api_hash: "${'*'.repeat('yaml-secret'.length - 4)}cret"\n  credentials_source: stored\n  proxy: null\n  proxy_source: null\n  write_access: true\n`,
+      stdout: `ok: true\nschema_version: "2"\ndata:\n  api_id: 12345\n  api_hash: "${'*'.repeat('yaml-secret'.length - 4)}cret"\n  credentials_source: stored\n  proxy: null\n  proxy_source: null\n  write_access: true\n`,
       stderr: '',
       code: 0,
     })
@@ -675,7 +675,7 @@ describe('config command', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: {
         code: 'invalid_config',
         message: 'Telegram configuration is invalid.',
@@ -723,7 +723,7 @@ describe('config command', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: {
         code: 'invalid_config',
         message: 'Telegram configuration is invalid.',

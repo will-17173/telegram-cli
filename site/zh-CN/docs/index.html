@@ -256,7 +256,7 @@ tg sync @team --account work --json</code></pre>
             <pre class="command-block" dir="ltr" translate="no"><code>tg listen @team --persist --retry-seconds 5 --account work
 tg listen @team --no-interactive --no-media --auto-download --account work
 tg listen @team @ops --send-to @team --account work</code></pre>
-            <p><code translate="no">listen</code> 是无界数据流，不提供 JSON、YAML 或 Markdown 格式选项。交互式 TTY 使用 Ink；<code translate="no">--no-interactive</code> 输出纯文本。<code translate="no">--auto-download</code> 默认写入 <code translate="no">~/Downloads/telegram-cli</code>，即使 <code translate="no">--no-media</code> 隐藏附件摘要，下载仍会执行。</p>
+            <p><code translate="no">listen</code> 是无界数据流，不提供 JSON、YAML 或 Markdown 格式选项。交互式 TTY 使用 Ink；<code translate="no">--no-interactive</code> 输出纯文本。<code translate="no">--auto-download</code> 默认写入 <code translate="no">~/Downloads/telegram-cli</code>，即使 <code translate="no">--no-media</code> 隐藏渲染媒体行，规范化附件仍会持久化并可下载。</p>
           </article>
 
           <article class="workflow-recipe workflow-doc-card">
@@ -267,7 +267,7 @@ tg listen @team @ops --send-to @team --account work</code></pre>
             <pre class="command-block" dir="ltr" translate="no"><code>tg archive @ops --download-media --account work --json
 tg archive @ops --since "2026-07-12T10:00:00+08:00" --until "2026-07-14T10:00:00+08:00" --account work --json
 tg archive --all --full --output ./telegram-archive --account work --markdown</code></pre>
-            <p>传入一个或多个聊天，或者使用 <code translate="no">--all</code>，不能同时使用。<code translate="no">--full</code> 与 <code translate="no">--since</code> 冲突；<code translate="no">--rebuild</code> 会替换聊天文件，并在没有新范围时沿用初始范围。</p>
+            <p>传入一个或多个聊天，或者使用 <code translate="no">--all</code>，不能同时使用。<code translate="no">--full</code> 与 <code translate="no">--since</code> 冲突；<code translate="no">--rebuild</code> 会替换聊天文件，并在没有新范围时沿用初始范围。自定义 <code translate="no">--output</code> 目录不会被自动重置。</p>
             <aside class="callout warning callout-warning">
               <p>任一聊天或媒体失败都会以非零状态退出，并返回 <code translate="no">archive_partial_failure</code>。成功的聊天仍保留在磁盘上；脚本要检查 <code translate="no">error.details.completed</code>、<code translate="no">failed</code> 和 <code translate="no">warnings</code>，不要从 Markdown 输出推断部分失败明细。</p>
             </aside>
@@ -406,7 +406,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="data">
                   <th scope="row"><code dir="ltr" translate="no">tg data reset --yes</code></th>
                   <td><span class="scope-badge" data-scope="local">本地重置</span></td>
-                  <td>管理账号范围的本地数据，包括显式重置消息数据库和默认归档目录。</td>
+                  <td>管理账号范围的本地数据。媒体 schema 破坏性升级后需要删除旧数据库/默认归档，再重新同步。<code class="command-syntax" dir="ltr" translate="no">tg data reset --yes<br>tg sync-all</code></td>
                 </tr>
                 <tr data-command="status">
                   <th scope="row"><code dir="ltr" translate="no">tg status</code></th>
@@ -466,12 +466,12 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="download">
                   <th scope="row"><code dir="ltr" translate="no">tg download --chat &lt;chat&gt;</code></th>
                   <td><span class="scope-badge" data-scope="filesystem">文件下载</span></td>
-                  <td>下载单条消息、按 grouped_id 下载相册、消息范围、指定日期或整个聊天中的媒体，可指定目录和并发数。</td>
+                  <td>下载单条消息全部媒体、指定附件、按 grouped_id 下载相册、消息范围、指定日期或整个聊天中的媒体。附件编号从 1 开始；相册按消息 ID 和消息内编号展平。稳定媒体错误包括 <code translate="no">attachment_changed</code> 和 <code translate="no">media_access_denied</code>。<code class="command-syntax" dir="ltr" translate="no">tg download @channel 42 --attachment 2</code></td>
                 </tr>
                 <tr data-command="listen">
                   <th scope="row"><code dir="ltr" translate="no">tg listen [chats...]</code></th>
                   <td><span class="scope-badge" data-scope="live">在线流</span></td>
-                  <td>持续监听消息；交互模式可回复或执行群操作，不支持有限结果的格式标志。</td>
+                  <td>持续监听消息；交互模式可回复或执行群操作，不支持有限结果的格式标志。持久化结构化行使用有序小写 <code translate="no">attachments[]</code>。</td>
                 </tr>
                 <tr data-command="contact">
                   <th scope="row"><code dir="ltr" translate="no">tg contact</code></th>
@@ -701,14 +701,14 @@ OUTPUT=markdown tg recent --account work</code></pre>
           <h3>成功信封</h3>
           <pre class="command-block structured-example" dir="ltr" translate="no"><code>{
   "ok": true,
-  "schema_version": "1",
+  "schema_version": "2",
   "data": {}
 }</code></pre>
 
           <h3>失败信封</h3>
           <pre class="command-block structured-example" dir="ltr" translate="no"><code>{
   "ok": false,
-  "schema_version": "1",
+  "schema_version": "2",
   "error": {
     "code": "archive_partial_failure",
     "message": "Some chats or media could not be archived",

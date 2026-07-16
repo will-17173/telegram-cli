@@ -60,7 +60,7 @@ The server binds to `127.0.0.1`, has no login screen, and is intended for local 
 
 ### Follow live messages and download files
 
-The `listen` command streams new messages from one chat or many chats. It can download incoming attachments and run interactive reply or group actions.
+The `listen` command streams new messages from one chat or many chats. It persists normalized `attachments[]`, can download incoming primary media, and can run interactive reply or group actions. `--no-media` only hides rendered media rows; persistence and `--auto-download` still use the normalized attachment data.
 
 ```sh
 tg listen @team --auto-download
@@ -68,10 +68,11 @@ tg listen @team --auto-download
 
 ### Download historical media
 
-Use `download` for existing messages: a single message, one attachment, an inclusive message range, one local date, or a whole chat from newest to oldest. Use `--output` to choose the directory and `--concurrency` to cap parallel downloads.
+Use `download` for existing messages: a single message, a specific attachment, a grouped album, an inclusive message range, one local date, or a whole chat from newest to oldest. Without `--attachment`, a single message downloads every downloadable item. `--attachment N` is one-based and message-local; for `--grouped-id`, numbering is flattened by message ID and then message-local attachment index. Each transfer refetches the fresh Telegram message and matches the stored descriptor before downloading, so stable errors include `attachment_not_found`, `attachment_not_downloadable`, `attachment_changed`, and `media_access_denied`.
 
 ```sh
 tg download --chat @team --msg-id 814 --output ./media
+tg download @channel 42 --attachment 2
 tg download --chat @team --date 2026-07-15 --concurrency 2
 tg download --chat @channel --grouped-id 2637798265 --output ./album-media
 tg download --chat @channel --all --output ./channel-media
@@ -79,13 +80,25 @@ tg download --chat @channel --all --output ./channel-media
 
 ### Keep a Markdown archive
 
-The `archive` command writes incremental Markdown and optional media files. It tracks archive progress separately and does not populate SQLite.
+The `archive` command writes incremental Markdown and optional media files. It tracks archive progress separately and does not populate SQLite. Default account archives are reset by `tg data reset`; custom `--output` directories are never deleted automatically, so remove old custom archives manually or choose an empty directory after breaking upgrades.
 
 ```sh
 tg archive @team --download-media
 ```
 
 Later runs append new messages and retry referenced media that is still missing.
+
+### Reset local data after breaking storage upgrades
+
+This release uses a fresh message schema and structured output schema version 2. Old SQLite databases are intentionally not migrated. Reset local data, then re-sync or rebuild archives:
+
+```sh
+tg data reset --yes
+tg data reset --all-accounts --yes
+tg sync-all
+```
+
+Structured message rows expose `content`, `reply_to_msg_id`, `media_group_id`, and ordered lowercase `attachments[]`.
 
 ### Send messages and manage groups
 

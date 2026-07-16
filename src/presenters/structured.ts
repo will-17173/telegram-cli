@@ -1,7 +1,7 @@
 import YAML from 'yaml'
 
 export type OutputFormat = 'json' | 'yaml' | 'markdown' | 'rich'
-const SCHEMA_VERSION = '1'
+const SCHEMA_VERSION = '2'
 
 export type ResolveOutputOptions = {
   json?: boolean

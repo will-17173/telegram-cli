@@ -60,7 +60,7 @@ describe('Telegram command error boundary', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: { code: 'telegram_error', message: 'request failed' },
     })
     expect(result.stderr).toBe('')
@@ -81,7 +81,7 @@ describe('Telegram command error boundary', () => {
 
     expect(payload).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: {
         code: 'telegram_account_session_expired',
         message: 'Session for account "alice" is no longer valid. Re-add the account: tg account remove alice --force && tg account add.',
@@ -121,7 +121,7 @@ describe('Telegram command error boundary', () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: {
         code: 'data_reset_required',
         message: 'Run `tg data reset --yes` before using this version.',

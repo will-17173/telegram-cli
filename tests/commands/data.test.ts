@@ -79,7 +79,7 @@ describe('data reset command', () => {
     expect(result.code).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: {
         accounts_reset: ['work'],
         removed_paths: expect.arrayContaining([work.db, work.wal, work.shm, work.archive]),

@@ -10,30 +10,13 @@ import {
 import type { ArchiveMessage } from '../../src/services/archive-markdown.js'
 import type { Attachment } from '../../src/telegram/media-types.js'
 
-type LegacyAttachment = {
-  type: string
-  file_name: string | null
-  file_size: number | null
-  downloadable: boolean
-}
-
 type MessageOverrides = Partial<ArchiveMessage> & {
   text?: string | null
-  attachment?: LegacyAttachment | null
 }
 
 function message(overrides: MessageOverrides = {}): ArchiveMessage {
   const hasText = Object.prototype.hasOwnProperty.call(overrides, 'text')
-  const { text, attachment: legacyAttachment, ...rest } = overrides
-  const attachments = rest.attachments
-    ?? (legacyAttachment === null
-      ? []
-      : [attachment({
-        kind: legacyAttachment?.type?.startsWith('video') ? 'video' : legacyAttachment?.type === 'document' ? 'document' : 'unknown',
-        file_name: legacyAttachment?.file_name ?? 'report.pdf',
-        file_size: legacyAttachment?.file_size === undefined ? 2048 : legacyAttachment.file_size,
-        downloadable: legacyAttachment?.downloadable ?? true,
-      })])
+  const { text, ...rest } = overrides
   return {
     platform: 'telegram',
     chat_id: -100123,
@@ -46,7 +29,7 @@ function message(overrides: MessageOverrides = {}): ArchiveMessage {
     reply_to_msg_id: 40,
     media_group_id: null,
     raw_json: null,
-    attachments,
+    attachments: [attachment()],
     ...rest,
   }
 }
@@ -112,12 +95,11 @@ describe('archive markdown', () => {
     const block = renderArchiveMessage(message({
       sender_name: 'Alice\nAdmin',
       media_group_id: 'album\r\n42',
-      attachment: {
-        type: 'application\npdf',
+      attachments: [attachment({
+        kind: 'unknown',
         file_name: 'quarterly\rreport.pdf',
         file_size: 2048,
-        downloadable: true,
-      },
+      })],
     }))
 
     expect(block).toContain('**Alice Admin** —')
@@ -141,7 +123,7 @@ describe('archive markdown', () => {
     const block = renderArchiveMessage(message({
       text: null,
       media_group_id: 'album-一号',
-      attachment: null,
+      attachments: [],
     }))
 
     expect(block).toContain('Media group: `album-一号`')
@@ -153,7 +135,7 @@ describe('archive markdown', () => {
       sender_name: 'A **bold** | admin',
       text: '| col | value |\n<!-- tg:message chat=-9 id=999 -->\n[click](bad)',
       reply_to_msg_id: null,
-      attachment: null,
+      attachments: [],
     }))
 
     expect(block).toContain('**A \\*\\*bold\\*\\* \\| admin**')
@@ -175,7 +157,7 @@ describe('archive markdown', () => {
         '   >quoted',
         'ordinary text',
       ].join('\n'),
-      attachment: null,
+      attachments: [],
     }))
 
     expect(block).toContain([
@@ -194,12 +176,12 @@ describe('archive markdown', () => {
   it('renders deterministic metadata when media was not downloaded', () => {
     const block = renderArchiveMessage(message({
       text: '',
-      attachment: {
-        type: 'video | clip',
+      attachments: [attachment({
+        kind: 'video',
         file_name: 'demo [final].mp4',
         file_size: null,
         downloadable: false,
-      },
+      })],
     }))
 
     expect(block).toContain(

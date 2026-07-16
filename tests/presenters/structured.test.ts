@@ -11,18 +11,18 @@ afterEach(() => {
 })
 
 describe('structured output', () => {
-  it('wraps success data in schema version 1', () => {
+  it('wraps success data in schema version 2', () => {
     expect(successPayload({ total: 2 })).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: { total: 2 },
     })
   })
 
-  it('wraps errors in schema version 1', () => {
+  it('wraps errors in schema version 2', () => {
     expect(errorPayload('chat_not_found', "Chat 'x' not found.")).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: { code: 'chat_not_found', message: "Chat 'x' not found." },
     })
   })
@@ -45,6 +45,6 @@ describe('structured output', () => {
 
   it('serializes yaml without sorting keys', () => {
     const text = dumpStructured(successPayload({ value: '你好' }), 'yaml')
-    expect(text).toBe('ok: true\nschema_version: "1"\ndata:\n  value: 你好\n')
+    expect(text).toBe('ok: true\nschema_version: "2"\ndata:\n  value: 你好\n')
   })
 })

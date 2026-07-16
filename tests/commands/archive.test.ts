@@ -86,7 +86,7 @@ describe('archive command', () => {
     const result = await run(['archive', '@team', '--output', output, '--json'])
 
     expect(result).toMatchObject({ exitCode: 0, stderr: '' })
-    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, schema_version: '1', data: success.data })
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, schema_version: '2', data: success.data })
     expect(ArchiveService).toHaveBeenCalledWith(client.archive)
     expect(archive).toHaveBeenCalledWith(expect.objectContaining({
       account: { userId: 101, name: 'alice' },

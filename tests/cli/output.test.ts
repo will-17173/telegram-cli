@@ -35,7 +35,7 @@ describe('cli output rendering', () => {
     await renderResult(result, { json: true })
 
     expect(stdout).toHaveBeenCalledWith(
-      '{\n  "ok": true,\n  "schema_version": "1",\n  "data": {\n    "total": 2\n  }\n}\n',
+      '{\n  "ok": true,\n  "schema_version": "2",\n  "data": {\n    "total": 2\n  }\n}\n',
     )
   })
 
@@ -50,7 +50,7 @@ describe('cli output rendering', () => {
     await renderResult(result, { json: true, isTty: true })
 
     const output = String(stdout.mock.calls[0]?.[0])
-    expect(JSON.parse(output)).toEqual({ ok: true, schema_version: '1', data: { total: 2 } })
+    expect(JSON.parse(output)).toEqual({ ok: true, schema_version: '2', data: { total: 2 } })
     expect(output).not.toContain('human')
     expect(output).not.toContain('Two human-readable results.')
     expect(output).not.toMatch(/\u001b\[/)
@@ -63,7 +63,7 @@ describe('cli output rendering', () => {
 
     await renderResult(result, { yaml: true })
 
-    expect(stdout).toHaveBeenCalledWith('ok: true\nschema_version: "1"\ndata:\n  total: 2\n')
+    expect(stdout).toHaveBeenCalledWith('ok: true\nschema_version: "2"\ndata:\n  total: 2\n')
   })
 
   it('serializes only canonical data for explicit yaml output', async () => {
@@ -77,7 +77,7 @@ describe('cli output rendering', () => {
     await renderResult(result, { yaml: true, isTty: true })
 
     const output = String(stdout.mock.calls[0]?.[0])
-    expect(YAML.parse(output)).toEqual({ ok: true, schema_version: '1', data: { total: 2 } })
+    expect(YAML.parse(output)).toEqual({ ok: true, schema_version: '2', data: { total: 2 } })
     expect(output).not.toContain('Totals')
     expect(output).not.toMatch(/\u001b\[/)
     expect(renderInkResult).not.toHaveBeenCalled()
@@ -90,7 +90,7 @@ describe('cli output rendering', () => {
 
     await renderResult(result, {})
 
-    expect(stdout).toHaveBeenCalledWith('ok: true\nschema_version: "1"\ndata:\n  total: 2\n')
+    expect(stdout).toHaveBeenCalledWith('ok: true\nschema_version: "2"\ndata:\n  total: 2\n')
     expect(String(stdout.mock.calls[0]?.[0])).not.toMatch(/\u001b\[/)
     expect(renderInkResult).not.toHaveBeenCalled()
   })
@@ -106,7 +106,7 @@ describe('cli output rendering', () => {
     await renderResult(result, { isTty: false })
 
     const output = String(stdout.mock.calls[0]?.[0])
-    expect(YAML.parse(output)).toEqual({ ok: true, schema_version: '1', data: { total: 2 } })
+    expect(YAML.parse(output)).toEqual({ ok: true, schema_version: '2', data: { total: 2 } })
     expect(output).not.toMatch(/\u001b\[/)
     expect(renderInkResult).not.toHaveBeenCalled()
   })
@@ -130,7 +130,7 @@ describe('cli output rendering', () => {
       const output = String(stdout.mock.calls[0]?.[0])
       expect(format === 'json' ? JSON.parse(output) : YAML.parse(output)).toEqual({
         ok: true,
-        schema_version: '1',
+        schema_version: '2',
         data: { total: 2 },
       })
     }
@@ -149,7 +149,7 @@ describe('cli output rendering', () => {
 
     expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: { total: 2 },
     })
     expect(renderInkResult).not.toHaveBeenCalled()
@@ -181,7 +181,7 @@ describe('cli output rendering', () => {
     expect(process.exitCode).toBe(1)
     expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toEqual({
       ok: false,
-      schema_version: '1',
+      schema_version: '2',
       error: { code: 'chat_not_found', message: "Chat 'x' not found." },
     })
     expect(stderr).not.toHaveBeenCalled()

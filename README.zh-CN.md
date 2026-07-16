@@ -60,7 +60,7 @@ tg web
 
 ### 监听新消息并下载文件
 
-`listen` 可以实时接收一个或多个聊天的新消息。它还可以下载收到的附件，并在交互模式中执行回复或群组操作。
+`listen` 可以实时接收一个或多个聊天的新消息。它会持久化规范化的 `attachments[]`，可以下载收到的主媒体，并在交互模式中执行回复或群组操作。`--no-media` 只隐藏渲染出来的媒体行；持久化和 `--auto-download` 仍然使用规范化附件数据。
 
 ```sh
 tg listen @team --auto-download
@@ -68,10 +68,11 @@ tg listen @team --auto-download
 
 ### 下载历史媒体
 
-`download` 用于已存在的消息：可下载单条消息、单个附件、连续消息范围、某个本地日期，或从最新到最旧下载整个聊天的媒体。用 `--output` 指定目录，用 `--concurrency` 控制并发数。
+`download` 用于已存在的消息：可下载单条消息、指定附件、媒体组、连续消息范围、某个本地日期，或从最新到最旧下载整个聊天的媒体。单条消息不传 `--attachment` 时会下载所有可下载项。`--attachment N` 是从 1 开始的消息内编号；对 `--grouped-id`，编号按消息 ID 和消息内附件编号展平。每次传输都会重新获取 Telegram 消息并匹配已存描述符，因此稳定错误包括 `attachment_not_found`、`attachment_not_downloadable`、`attachment_changed` 和 `media_access_denied`。
 
 ```sh
 tg download --chat @team --msg-id 814 --output ./media
+tg download @channel 42 --attachment 2
 tg download --chat @team --date 2026-07-15 --concurrency 2
 tg download --chat @channel --grouped-id 2637798265 --output ./album-media
 tg download --chat @channel --all --output ./channel-media
@@ -79,13 +80,25 @@ tg download --chat @channel --all --output ./channel-media
 
 ### 保存增量 Markdown 归档
 
-`archive` 将消息增量写入 Markdown，并可同时下载媒体文件。它单独记录归档进度，不会填充 SQLite。
+`archive` 将消息增量写入 Markdown，并可同时下载媒体文件。它单独记录归档进度，不会填充 SQLite。默认账号归档会被 `tg data reset` 清理；自定义 `--output` 目录不会自动删除，破坏性升级后需要手动删除旧目录或换一个空目录。
 
 ```sh
 tg archive @team --download-media
 ```
 
 后续运行会追加新消息，并重试仍然缺失的引用媒体。
+
+### 破坏性存储升级后重置本地数据
+
+当前版本使用新的消息表结构和结构化输出 schema version 2。旧 SQLite 数据库不会迁移。请先重置本地数据，再重新同步或重建归档：
+
+```sh
+tg data reset --yes
+tg data reset --all-accounts --yes
+tg sync-all
+```
+
+结构化消息行使用 `content`、`reply_to_msg_id`、`media_group_id` 和有序的小写 `attachments[]`。
 
 ### 发送消息并管理群组
 

@@ -23,7 +23,7 @@ vi.mock('../../src/telegram/client-factory.js', () => ({
 
 import { createApp } from '../../src/cli/app.js'
 import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
-import { fixtureMessages, message } from '../fixtures/messages.js'
+import { attachment, fixtureMessages, message } from '../fixtures/messages.js'
 
 const seededDataDirs: string[] = []
 
@@ -108,11 +108,12 @@ describe('local command contracts', () => {
     const result = await run(['stats', '--json'])
 
     expect(result).toEqual({
-      stdout: '{\n  "ok": true,\n  "schema_version": "1",\n  "data": {\n    "total": 3,\n    "chats": [\n      {\n        "chat_id": 100,\n        "chat_name": "TestGroup",\n        "msg_count": 2,\n        "first_msg": "2026-03-09T10:00:00.000Z",\n        "last_msg": "2026-03-09T11:00:00.000Z"\n      },\n      {\n        "chat_id": 200,\n        "chat_name": "OtherGroup",\n        "msg_count": 1,\n        "first_msg": "2026-03-08T10:00:00.000Z",\n        "last_msg": "2026-03-08T10:00:00.000Z"\n      }\n    ]\n  }\n}\n',
+      stdout: '{\n  "ok": true,\n  "schema_version": "2",\n  "data": {\n    "total": 3,\n    "chats": [\n      {\n        "chat_id": 100,\n        "chat_name": "TestGroup",\n        "msg_count": 2,\n        "first_msg": "2026-03-09T10:00:00.000Z",\n        "last_msg": "2026-03-09T11:00:00.000Z"\n      },\n      {\n        "chat_id": 200,\n        "chat_name": "OtherGroup",\n        "msg_count": 1,\n        "first_msg": "2026-03-08T10:00:00.000Z",\n        "last_msg": "2026-03-08T10:00:00.000Z"\n      }\n    ]\n  }\n}\n',
       stderr: '',
       code: 0,
     })
     expect(() => JSON.parse(result.stdout)).not.toThrow()
+    expectNoSingularAttachmentKey(JSON.parse(result.stdout))
     expect(result.stdout).not.toMatch(/\u001b\[/)
   })
 
@@ -120,11 +121,12 @@ describe('local command contracts', () => {
     const result = await run(['whoami', '--json'])
 
     expect(result).toEqual({
-      stdout: '{\n  "ok": true,\n  "schema_version": "1",\n  "data": {\n    "user": {\n      "id": 1,\n      "name": "Test User",\n      "username": "test",\n      "first_name": "Test",\n      "last_name": "User",\n      "phone": null\n    }\n  }\n}\n',
+      stdout: '{\n  "ok": true,\n  "schema_version": "2",\n  "data": {\n    "user": {\n      "id": 1,\n      "name": "Test User",\n      "username": "test",\n      "first_name": "Test",\n      "last_name": "User",\n      "phone": null\n    }\n  }\n}\n',
       stderr: '',
       code: 0,
     })
     expect(() => JSON.parse(result.stdout)).not.toThrow()
+    expectNoSingularAttachmentKey(JSON.parse(result.stdout))
     expect(result.stdout).not.toMatch(/\u001b\[/)
   })
 
@@ -132,15 +134,16 @@ describe('local command contracts', () => {
     const result = await run(['chats', '--yaml'])
 
     expect(result).toEqual({
-      stdout: 'ok: true\nschema_version: "1"\ndata:\n  - id: 42\n    name: General\n    type: group\n    unread: 3\n',
+      stdout: 'ok: true\nschema_version: "2"\ndata:\n  - id: 42\n    name: General\n    type: group\n    unread: 3\n',
       stderr: '',
       code: 0,
     })
     expect(YAML.parse(result.stdout)).toEqual({
       ok: true,
-      schema_version: '1',
+      schema_version: '2',
       data: [{ id: 42, name: 'General', type: 'group', unread: 3 }],
     })
+    expectNoSingularAttachmentKey(YAML.parse(result.stdout))
     expect(result.stdout).not.toMatch(/\u001b\[/)
   })
 
@@ -298,15 +301,41 @@ describe('local command contracts', () => {
   })
 
   it('exports structured json messages to a file', async () => {
-    seed()
+    seed([message({
+      content: 'Report with media',
+      attachments: [attachment({
+        kind: 'photo',
+        preview_jpeg_base64: '/9j/',
+        metadata: { spoiler: true },
+      })],
+    })])
     const output = join(mkdtempSync(join(tmpdir(), 'tg-cli-export-')), 'messages.json')
     const result = await run(['export', 'TestGroup', '--format', 'json', '--output', output])
-    const payload = JSON.parse(readFileSync(output, 'utf8')) as { ok: boolean; data: Array<{ content: string }> }
+    const payload = JSON.parse(readFileSync(output, 'utf8')) as {
+      ok: boolean
+      data: Array<{
+        content: string
+        reply_to_msg_id: number | null
+        media_group_id: string | null
+        attachments: Array<Record<string, unknown>>
+      }>
+    }
 
     expect(result.code).toBe(0)
     expect(payload.ok).toBe(true)
-    expect(payload.data).toHaveLength(2)
-    expect(payload.data[0]?.content).toBe('Message 1: Web3 remote role')
+    expect(payload.data).toHaveLength(1)
+    expect(payload.data[0]?.content).toBe('Report with media')
+    expect(payload.data[0]?.reply_to_msg_id).toBeNull()
+    expect(payload.data[0]?.media_group_id).toBeNull()
+    expect(payload.data[0]?.attachments).toEqual([
+      expect.objectContaining({
+        attachment_index: 1,
+        kind: 'photo',
+        preview_jpeg_base64: '/9j/',
+        metadata: { spoiler: true },
+      }),
+    ])
+    expectNoSingularAttachmentKey(payload)
   })
 
   it('exports raw message rows in implicit structured mode without double-enveloping', async () => {
@@ -320,6 +349,7 @@ describe('local command contracts', () => {
     expect(payload.data).toEqual(expect.arrayContaining([
       expect.objectContaining({ content: 'Message 1: Web3 remote role' }),
     ]))
+    expectNoSingularAttachmentKey(payload)
     expect(typeof payload.data).not.toBe('string')
     expect(result.stdout).not.toContain('data: "{')
   })
@@ -408,6 +438,18 @@ describe('local command contracts', () => {
     expect(result.stdout).toContain('code: account_required')
   })
 })
+
+function expectNoSingularAttachmentKey(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const item of value) expectNoSingularAttachmentKey(item)
+    return
+  }
+  if (value == null || typeof value !== 'object') return
+  for (const [key, child] of Object.entries(value)) {
+    expect(key).not.toBe('attachment')
+    expectNoSingularAttachmentKey(child)
+  }
+}
 
 function todayMessages(): StoredMessageInput[] {
   const today = new Date()
