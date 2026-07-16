@@ -1129,24 +1129,31 @@ describe('InteractiveListen slash commands', () => {
 describe('interactive listen sender formatting', () => {
   it('shows the message id in the interactive header', () => {
     expect(formatInteractiveListenHeader({
-      time: '18:03', msgId: 456, sender: 'Alice', senderId: 123,
+      time: '18:03', msgId: 456, chatId: 100, sender: 'Alice', senderId: 123,
     })).toBe('[18:03] #456 Alice (123)')
   })
 
+  it('shows the chat id after the chat name in multi-chat headers', () => {
+    expect(formatInteractiveListenHeader({
+      time: '11:16', msgId: 90608, chatId: -1009876543210,
+      chatName: 'IPTV直播源总部官方群组', sender: '往事随风', senderId: 1668739640,
+    })).toBe('[11:16] #90608 IPTV直播源总部官方群组 (-1009876543210) | 往事随风 (1668739640)')
+  })
+
   it('appends sender ids in single-chat and multi-chat headers', () => {
-    expect(formatInteractiveListenSender({ sender: 'Alice', senderId: 123 }))
+    expect(formatInteractiveListenSender({ chatId: 100, sender: 'Alice', senderId: 123 }))
       .toBe('Alice (123)')
-    expect(formatInteractiveListenSender({ sender: 'Alice', senderId: 123, chatName: 'News' }))
-      .toBe('News | Alice (123)')
+    expect(formatInteractiveListenSender({ chatId: 100, sender: 'Alice', senderId: 123, chatName: 'News' }))
+      .toBe('News (100) | Alice (123)')
   })
 
   it('keeps the sender name unchanged when the id is missing', () => {
-    expect(formatInteractiveListenSender({ sender: 'Alice', senderId: null }))
+    expect(formatInteractiveListenSender({ chatId: 100, sender: 'Alice', senderId: null }))
       .toBe('Alice')
   })
 
   it('does not repeat the id when it is already the sender fallback', () => {
-    expect(formatInteractiveListenSender({ sender: '123', senderId: 123 }))
+    expect(formatInteractiveListenSender({ chatId: 100, sender: '123', senderId: 123 }))
       .toBe('123')
   })
 })
@@ -2009,6 +2016,7 @@ function message(sender: string, lineCount: number): ListenMessageRow {
   const mediaCount = Math.max(0, lineCount - 2)
   return {
     time: '16:44',
+    chatId: 100,
     sender,
     senderId: null,
     content: null,

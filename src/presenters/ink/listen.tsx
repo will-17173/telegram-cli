@@ -47,7 +47,6 @@ import type { HandlerResult } from '../../commands/types.js'
 
 export type ListenMessage = ListenMessageRow & {
   key: string
-  chatId: number
   msgId: number
 }
 
@@ -613,16 +612,16 @@ export function ListenStatus({ status, unseenCount }: { status: string; unseenCo
 }
 
 export function formatInteractiveListenSender(
-  message: Pick<ListenMessageRow, 'sender' | 'senderId' | 'chatName'>,
+  message: Pick<ListenMessageRow, 'sender' | 'senderId' | 'chatName' | 'chatId'>,
 ): string {
   const sender = message.senderId == null || message.sender === String(message.senderId)
     ? message.sender
     : `${message.sender} (${message.senderId})`
-  return message.chatName == null ? sender : `${message.chatName} | ${sender}`
+  return message.chatName == null ? sender : `${message.chatName} (${message.chatId}) | ${sender}`
 }
 
 export function formatInteractiveListenHeader(
-  message: Pick<ListenMessage, 'time' | 'msgId' | 'sender' | 'senderId' | 'chatName'>,
+  message: Pick<ListenMessage, 'time' | 'msgId' | 'sender' | 'senderId' | 'chatName' | 'chatId'>,
 ): string {
   return `[${message.time}] #${message.msgId} ${formatInteractiveListenSender(message)}`
 }
@@ -1594,7 +1593,6 @@ export function toListenMessage(
   })
   return {
     key: `${message.chat_id}:${message.msg_id}`,
-    chatId: message.chat_id,
     msgId: message.msg_id,
     ...formatted,
     media,

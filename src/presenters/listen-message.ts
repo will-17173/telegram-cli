@@ -13,6 +13,7 @@ export type ListenMessageFormatOptions = {
 
 export type ListenMessageRow = {
   time: string
+  chatId: number
   sender: string
   senderId: number | null
   chatName?: string
@@ -48,6 +49,7 @@ export function buildListenMessage(input: StoredMessageInput | StoredMessageInpu
   const media = options.showMedia ? logical.messages.flatMap(discoverListenAttachments) : []
   return {
     time: formatListenTimestamp(message.timestamp),
+    chatId: message.chat_id,
     sender: message.sender_name ?? (message.sender_id == null ? 'Unknown' : String(message.sender_id)),
     senderId: message.sender_id,
     chatName: options.showChatName ? (message.chat_name ?? 'Unknown') : undefined,
@@ -60,7 +62,7 @@ export function buildListenMessage(input: StoredMessageInput | StoredMessageInpu
 
 export function formatListenLine(message: StoredMessageInput | StoredMessageInput[], options: ListenMessageFormatOptions = {}): string {
   const row = buildListenMessage(message, options)
-  const sender = row.chatName == null ? row.sender : `${row.chatName} | ${row.sender}`
+  const sender = row.chatName == null ? row.sender : `${row.chatName} (${row.chatId}) | ${row.sender}`
   const lines = [
     `[${row.time}] ${sender}`,
     ...(row.replyContext == null ? [] : [formatReplyContext(row.replyContext)]),

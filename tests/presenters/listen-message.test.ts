@@ -58,13 +58,14 @@ describe('listen message formatting', () => {
     expect(formatListenLine([first, second], { showMedia: true })).not.toContain('📎 Photo\n')
   })
 
-  it('includes chat name when showChatName is enabled', () => {
+  it('includes the chat id after the chat name when showChatName is enabled', () => {
     const message = mediaMessage()
     const row = buildListenMessage(message, { showChatName: true })
     const output = formatListenLine(message, { showChatName: true })
 
+    expect(row.chatId).toBe(100)
     expect(row.chatName).toBe('TestGroup')
-    expect(output).toContain('TestGroup | Alice')
+    expect(output).toContain('TestGroup (100) | Alice')
   })
 
   it('associates a photo preview with its attachment when media is shown', () => {

@@ -78,6 +78,7 @@ describe('createTransientVisibility', () => {
 function listenRow(sender: string, previewRows = 0): ListenMessageRow {
   return {
     time: '12:00',
+    chatId: 1,
     sender,
     senderId: null,
     content: null,
