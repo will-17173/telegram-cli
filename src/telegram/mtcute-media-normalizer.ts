@@ -1,8 +1,8 @@
 import { Buffer } from 'node:buffer'
-import type {
+import {
   FileLocation,
-  MessageMedia,
-  MessageMediaType,
+  type MessageMedia,
+  type MessageMediaType,
 } from '@mtcute/node'
 
 import type { Attachment, JsonValue, MediaKind } from './media-types.js'
@@ -82,6 +82,7 @@ export function normalizeMtcuteMedia(input: {
     return builder.build()
   }
 
+  // Keep the compile-time sentinel visibly tied to the runtime dispatcher.
   SUPPORTED_MTCUTE_MEDIA_TYPES[type]
 
   switch (type) {
@@ -208,7 +209,7 @@ function addPhoto(builder: AttachmentBuilder, media: object): void {
     height: safeNumber(read(media, 'height')),
     preview_jpeg_base64: embeddedPreviewBase64(media),
     metadata,
-    location: media as FileLocation,
+    location: fileLocation(media),
   })
 }
 
@@ -234,7 +235,7 @@ function addVideo(builder: AttachmentBuilder, media: object): void {
     duration_seconds: safeNumber(read(media, 'duration')),
     preview_jpeg_base64: embeddedPreviewBase64(media),
     metadata,
-    location: media as FileLocation,
+    location: fileLocation(media),
   })
 }
 
@@ -254,7 +255,7 @@ function addAudio(builder: AttachmentBuilder, media: object): void {
     title,
     preview_jpeg_base64: embeddedPreviewBase64(media),
     metadata: compactMetadata({ performer, title }),
-    location: media as FileLocation,
+    location: fileLocation(media),
   })
 }
 
@@ -273,7 +274,7 @@ function addVoice(builder: AttachmentBuilder, media: object): void {
       ttl_seconds: safeNumber(read(media, 'ttlSeconds')),
       waveform: safeNumberArray(read(media, 'waveform')),
     }),
-    location: media as FileLocation,
+    location: fileLocation(media),
   })
 }
 
@@ -304,7 +305,7 @@ function addSticker(builder: AttachmentBuilder, media: object): void {
       custom_emoji_id: longToString(read(media, 'customEmojiId')),
       mask_position: maskPosition(read(media, 'maskPosition')),
     }),
-    location: media as FileLocation,
+    location: fileLocation(media),
   })
 }
 
@@ -320,7 +321,7 @@ function addDocument(builder: AttachmentBuilder, media: object): void {
     file_size: safeNumber(read(media, 'fileSize')),
     preview_jpeg_base64: embeddedPreviewBase64(media),
     metadata: {},
-    location: media as FileLocation,
+    location: fileLocation(media),
   })
 }
 
@@ -465,7 +466,11 @@ function safeFileString(source: object, property: 'fileId' | 'uniqueFileId'): st
 
 function read(source: unknown, property: string): unknown {
   if (source == null || typeof source !== 'object') return undefined
-  return (source as Record<string, unknown>)[property]
+  try {
+    return (source as Record<string, unknown>)[property]
+  } catch {
+    return undefined
+  }
 }
 
 function safeString(value: unknown): string | null {
@@ -499,13 +504,17 @@ function textValue(value: unknown): string | null {
 }
 
 function longToString(value: unknown): string | null {
-  if (value == null) return null
-  if (typeof value === 'bigint') return value.toString()
-  if (typeof value === 'object' && typeof (value as { toString?: unknown }).toString === 'function') {
-    const stringified = (value as { toString(): string }).toString()
-    return safeString(stringified)
+  try {
+    if (value == null) return null
+    if (typeof value === 'bigint') return value.toString()
+    if (typeof value === 'object' && typeof (value as { toString?: unknown }).toString === 'function') {
+      const stringified = (value as { toString(): string }).toString()
+      return safeString(stringified)
+    }
+    return null
+  } catch {
+    return null
   }
-  return null
 }
 
 function maskPosition(value: unknown): JsonValue {
@@ -542,4 +551,8 @@ function compactMetadata(values: Record<string, JsonValue | undefined>): JsonVal
 
 function isSupportedMediaType(value: string | null): value is MessageMediaType {
   return value != null && value in SUPPORTED_MTCUTE_MEDIA_TYPES
+}
+
+function fileLocation(value: unknown): FileLocation | null {
+  return value instanceof FileLocation ? value : null
 }

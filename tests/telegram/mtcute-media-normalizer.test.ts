@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import type { MessageMedia } from '@mtcute/node'
+import { FileLocation, type MessageMedia } from '@mtcute/node'
 import { describe, expect, it } from 'vitest'
 
 import { normalizeMtcuteMedia } from '../../src/telegram/mtcute-media-normalizer.js'
@@ -43,7 +43,36 @@ describe('normalizeMtcuteMedia', () => {
         ttl_seconds: 12,
       },
     }])
-    expect(result.locations.get(1)).toBe(photoFixture)
+    expect(result.locations.size).toBe(0)
+  })
+
+  it('registers locations only for real mtcute FileLocation instances', () => {
+    const structural = normalizeMtcuteMedia({
+      media: media({
+        type: 'document',
+        fileId: 'looks-downloadable',
+      }),
+    })
+    const realLocation = Object.assign(new FileLocation(new Uint8Array([1, 2, 3])), {
+      type: 'document',
+      fileId: 'real-file',
+      uniqueFileId: 'real-unique-file',
+    }) as unknown as MessageMedia
+    const real = normalizeMtcuteMedia({ media: realLocation })
+
+    expect(structural.attachments[0]).toMatchObject({
+      kind: 'document',
+      downloadable: true,
+      file_id: 'looks-downloadable',
+    })
+    expect(structural.locations.size).toBe(0)
+    expect(real.attachments[0]).toMatchObject({
+      kind: 'document',
+      downloadable: true,
+      file_id: 'real-file',
+      unique_file_id: 'real-unique-file',
+    })
+    expect(real.locations.get(1)).toBe(realLocation)
   })
 
   it('maps video subtypes from media.type and video flags, not MIME guessing', () => {
@@ -368,6 +397,59 @@ describe('normalizeMtcuteMedia', () => {
       file_id: null,
       unique_file_id: null,
     })
+  })
+
+  it('treats throwing high-level scalar getters as absent without dropping attachments', () => {
+    const video = normalizeMtcuteMedia({
+      media: media({
+        type: 'video',
+        get duration(): never {
+          throw new Error('bad duration')
+        },
+        get mimeType(): never {
+          throw new Error('bad mime type')
+        },
+      }),
+    })
+    const venue = normalizeMtcuteMedia({
+      media: media({
+        type: 'venue',
+        title: 'Venue',
+        address: '1 Main St',
+        get location(): never {
+          throw new Error('bad venue location')
+        },
+      }),
+    })
+    const sticker = normalizeMtcuteMedia({
+      media: media({
+        type: 'sticker',
+        sourceType: 'static',
+        customEmojiId: {
+          toString(): never {
+            throw new Error('bad custom emoji id')
+          },
+        },
+      }),
+    })
+
+    expect(video.attachments[0]).toMatchObject({
+      kind: 'video',
+      mime_type: null,
+      duration_seconds: null,
+    })
+    expect(venue.attachments[0]).toMatchObject({
+      kind: 'venue',
+      title: 'Venue',
+      address: '1 Main St',
+      latitude: null,
+      longitude: null,
+    })
+    expect(sticker.attachments[0]).toMatchObject({
+      kind: 'sticker',
+      subtype: 'static',
+    })
+    expect(sticker.attachments[0]?.metadata).not.toHaveProperty('custom_emoji_id')
   })
 })
 
