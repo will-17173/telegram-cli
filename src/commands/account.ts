@@ -1,7 +1,6 @@
 import { mkdtempSync, mkdirSync, renameSync, rmSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { createInterface } from 'node:readline/promises'
 import type { Command } from 'commander'
 
 import { getAccountRegistryPath, getDataDir } from '../config/env.js'
@@ -463,17 +462,20 @@ async function promptForAccount(store: AccountStore, options: SwitchAccountOptio
     process.stdout.write(`${index + 1}. ${account.name} — ${normalizeDisplayName(account.display_name)}${current}\n`)
   }
 
-  const prompt = createInterface({ input: process.stdin, output: process.stdout })
+  const interrupt = createInterruptScope()
   try {
     while (true) {
-      const answer = (await prompt.question('Account number: ')).trim()
+      const answer = (await readVisibleInput('Account number: ', {
+        output: process.stdout,
+        signal: interrupt.signal,
+      })).trim()
       const selectedIndex = Number(answer) - 1
       const selected = Number.isInteger(selectedIndex) ? registry.accounts[selectedIndex] : undefined
       if (selected) return selected.name
       process.stdout.write(`Enter a number from 1 to ${registry.accounts.length}.\n`)
     }
   } finally {
-    prompt.close()
+    interrupt.dispose()
   }
 }
 

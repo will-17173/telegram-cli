@@ -63,6 +63,7 @@ vi.mock('@mtcute/node', () => ({
 }))
 
 let tempDirs: string[] = []
+type StdinInput = string | { signal: 'SIGINT' }
 
 afterEach(() => {
   for (const dir of tempDirs) {
@@ -102,7 +103,7 @@ async function run(
   args: string[],
   dataDir: string,
   stdinIsTty = false,
-  stdinInput?: string | string[],
+  stdinInput?: StdinInput | StdinInput[],
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   const originalStdoutWrite = process.stdout.write
   const originalStderrWrite = process.stderr.write
@@ -141,7 +142,9 @@ async function run(
       const sendInput = (index: number): void => {
         if (index >= inputs.length) return
         setImmediate(() => {
-          process.stdin.emit('data', `${inputs[index]}\n`)
+          const input = inputs[index]
+          if (typeof input === 'string') process.stdin.emit('data', `${input}\n`)
+          else process.emit(input.signal)
           sendInput(index + 1)
         })
       }
@@ -309,6 +312,26 @@ describe('account commands', () => {
     expect(result.stdout).toContain('2. bob')
     const registry = JSON.parse(readFileSync(getAccountRegistryPath(dataDir), 'utf8')) as { current_account: string | null }
     expect(registry.current_account).toBe('bob')
+  })
+
+  it('exits 130 when Ctrl-C interrupts interactive account selection', async () => {
+    const dataDir = createDataDir()
+    seedAccounts(dataDir, {
+      version: 1,
+      current_account: 'alice',
+      accounts: [
+        { name: 'alice', user_id: 1001, username: 'alice', phone: '13800138000', display_name: 'Alice' },
+        { name: 'bob', user_id: 2002, username: 'bob', phone: '13900139000', display_name: 'Bob' },
+      ],
+    })
+
+    const result = await run(['account', 'switch'], dataDir, true, { signal: 'SIGINT' })
+    const registry = JSON.parse(readFileSync(getAccountRegistryPath(dataDir), 'utf8')) as { current_account: string | null }
+
+    expect(result.code).toBe(130)
+    expect(result.stdout).toContain('Select an account:')
+    expect(result.stdout).toContain('Operation interrupted.')
+    expect(registry.current_account).toBe('alice')
   })
 
   it('removes an existing account with --force', async () => {
