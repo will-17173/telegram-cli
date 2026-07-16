@@ -144,7 +144,7 @@ export function registerTelegramCommands(app: Command): void {
     })
 
   app.command('history')
-    .description('Fetch chat history and store it locally')
+    .description('Backfill older chat history from the local oldest message')
     .argument('<chat>')
     .option('-n, --limit <limit>', 'Max messages to fetch', '1000')
     .option('--delay <delay>', 'Seconds between history pages', '1')

@@ -41,10 +41,13 @@ export class SyncService {
   async history(options: SyncOptions): Promise<HandlerResult> {
     const invalid = validateHistoryOptions(options)
     if (invalid) return invalid
+    const chatId = this.db.resolveChatId(options.chat)
+    const offset = chatId == null ? null : this.db.getFirstMsgOffset(chatId)
     try {
       const messages = await this.tg.fetchHistory({
         chat: parseChat(options.chat),
         limit: options.limit,
+        ...(offset == null ? {} : { offset }),
         pageDelay: options.pageDelay,
         onProgress: options.onProgress,
       })

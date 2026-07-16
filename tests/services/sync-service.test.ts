@@ -34,6 +34,34 @@ describe('SyncService', () => {
     sync.close()
   })
 
+  it('history backfills older messages from the local oldest message', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-')), 'messages.db'))
+    const messages = Array.from({ length: 6001 }, (_, index) => {
+      const msgId = 10000 - index
+      return message({
+        msg_id: msgId,
+        timestamp: new Date(Date.UTC(2026, 2, 9, 10, 0, msgId)).toISOString(),
+      })
+    })
+    const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
+    const sync = new SyncService(fake, db)
+    db.insertBatch(messages.filter((item) => item.msg_id >= 5000 && item.msg_id <= 8000))
+
+    const result = await sync.history({ chat: 'TestGroup', limit: 1000, pageDelay: 2.5 })
+
+    expect(result).toMatchObject({ ok: true, data: { stored: 1000, chat: 'TestGroup' } })
+    expect(fake.fetchHistoryCalls).toHaveLength(1)
+    expect(fake.fetchHistoryCalls[0]).toMatchObject({
+      chat: 'TestGroup',
+      limit: 1000,
+      offset: { id: 5000, date: Math.floor(Date.parse(messages.find((item) => item.msg_id === 5000)!.timestamp) / 1000) },
+      pageDelay: 2.5,
+    })
+    expect(db.getFirstMsgId(100)).toBe(4000)
+    expect(db.getLastMsgId(100)).toBe(8000)
+    sync.close()
+  })
+
   it('syncs all dialogs and continues on available chats', async () => {
     const { sync, fake } = service()
     const result = await sync.refresh({ limit: 5000, delay: 0 })

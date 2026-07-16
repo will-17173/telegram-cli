@@ -145,6 +145,8 @@ tg search "release" --chat @team
 
 每个账号都有独立的会话和 SQLite 数据库。添加 `--account work` 可以为单次命令选择账号，且不会改变默认账号。
 
+使用 `sync <chat>` 从本地最新消息继续更新。使用 `history <chat>` 从本地最旧消息继续向更旧回填；如果这个聊天在本地还没有消息，`history` 会从 Telegram 最新消息开始拉取。
+
 ## 保护远端数据
 
 在只读工作流或自动化任务前关闭远端写入：

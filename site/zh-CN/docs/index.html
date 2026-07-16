@@ -189,7 +189,7 @@ tg search "release" --chat @team --account work --json</code></pre>
           <dl class="definition-grid">
             <div>
               <dt>SQLite 持久化</dt>
-              <dd><code translate="no">history</code> 是按条数上限回填历史，默认最多 1000 条；<code translate="no">sync</code> 是增量更新。一个聊天尚未出现在本地数据库时，<code translate="no">sync</code>、<code translate="no">sync-all</code> 和 <code translate="no">refresh</code> 的首次抓取最多 500 条，即使传入更大的 <code translate="no">--limit</code>。</dd>
+              <dd><code translate="no">history</code> 会从本地最旧消息继续向更旧回填，默认最多 1000 条；<code translate="no">sync</code> 会从本地最新消息增量更新。一个聊天尚未出现在本地数据库时，<code translate="no">sync</code>、<code translate="no">sync-all</code> 和 <code translate="no">refresh</code> 的首次抓取最多 500 条，即使传入更大的 <code translate="no">--limit</code>。</dd>
             </div>
             <div>
               <dt>Markdown 文件归档</dt>
@@ -421,7 +421,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="history">
                   <th scope="row"><code dir="ltr" translate="no">tg history &lt;chat&gt;</code></th>
                   <td><span class="scope-badge" data-scope="persist">写入本地</span></td>
-                  <td>按条数上限回填并保存聊天历史；默认上限 1000，不接受时间范围选项。</td>
+                  <td>从本地最旧消息继续向更旧回填并保存；默认上限 1000，本地无消息时从最新开始。</td>
                 </tr>
                 <tr data-command="sync">
                   <th scope="row"><code dir="ltr" translate="no">tg sync &lt;chat&gt;</code></th>

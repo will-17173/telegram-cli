@@ -197,6 +197,12 @@ describe('cli help', () => {
     }
   })
 
+  it('describes history as an older-message backfill', () => {
+    const history = createApp().commands.find((command) => command.name() === 'history')
+
+    expect(history?.description()).toBe('Backfill older chat history from the local oldest message')
+  })
+
   it('documents send attachments and optional message text', () => {
     const send = createApp().commands.find((command) => command.name() === 'send')
     const help = send?.helpInformation() ?? ''

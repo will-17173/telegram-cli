@@ -145,6 +145,8 @@ Check a command’s execution scope before you run it:
 
 Each account has a separate session and SQLite database. Add `--account work` to select an account for one command without changing the default.
 
+Use `sync <chat>` to update a chat from the newest locally stored message. Use `history <chat>` to continue backfilling older messages from the oldest locally stored message; if the chat has no local rows yet, `history` starts from the newest Telegram messages.
+
 ## Protect remote data
 
 Disable remote writes before read-only workflows or automation:

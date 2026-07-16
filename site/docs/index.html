@@ -257,7 +257,7 @@ tg search "release" --account work --json</code></pre>
                   <th scope="row">Synchronization</th>
                   <td>Telegram</td>
                   <td>SQLite</td>
-                  <td><code>history</code> is count-bounded; sync commands are incremental.</td>
+                  <td><code>history</code> backfills older messages from the local oldest row; sync commands update from the local newest row.</td>
                 </tr>
                 <tr>
                   <th scope="row">Local analysis</th>
@@ -283,7 +283,7 @@ tg search "release" --account work --json</code></pre>
 
           <aside class="callout callout-warning">
             <h3>Similar names do not imply similar storage</h3>
-            <p><code>read</code> displays a time-bounded live range without saving it. <code>history</code> saves a count-bounded backfill. Persistence commands accept limit and delay controls, not <code>--since</code>/<code>--until</code>. Fetch enough history, then apply time filters locally.</p>
+            <p><code>read</code> displays a time-bounded live range without saving it. <code>history</code> saves a count-bounded older backfill from the local oldest row, or starts from the newest Telegram messages when the chat has no local rows. Persistence commands accept limit and delay controls, not <code>--since</code>/<code>--until</code>. Fetch enough history, then apply time filters locally.</p>
           </aside>
 
           <nav class="section-pager docs-pagination" aria-label="Execution model section navigation">
@@ -583,7 +583,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="history">
                   <th scope="row"><code>history</code></th>
                   <td><span class="scope-badge" data-scope="persist">Persist</span></td>
-                  <td>Fetch and store a count-bounded historical backfill; default limit 1000.<code class="command-syntax">tg history @team --limit 1000 --delay 1</code></td>
+                  <td>Fetch and store older messages before the local oldest row; default limit 1000.<code class="command-syntax">tg history @team --limit 1000 --delay 1</code></td>
                 </tr>
                 <tr data-command="sync">
                   <th scope="row"><code>sync</code></th>
