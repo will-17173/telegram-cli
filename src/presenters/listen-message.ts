@@ -46,7 +46,7 @@ export function buildListenMessage(input: StoredMessageInput | StoredMessageInpu
   }
   if (logical == null) throw new Error('Cannot format an empty listen message group')
   const message = logical.first
-  const attachments = options.showMedia ? logical.messages.flatMap((message) => presentMessageAttachments(message)) : []
+  const attachments = logical.messages.flatMap((message) => presentMessageAttachments(message))
   return {
     time: formatListenTimestamp(message.timestamp),
     chatId: message.chat_id,
@@ -55,7 +55,7 @@ export function buildListenMessage(input: StoredMessageInput | StoredMessageInpu
     chatName: options.showChatName ? (message.chat_name ?? 'Unknown') : undefined,
     content: contentPreview(logical.content, attachments.length > 0),
     attachments,
-    attachmentSummary: options.showMedia ? summarizeLogicalMedia(logical) : null,
+    attachmentSummary: summarizeLogicalMedia(logical),
     replyContext: options.replyContext ?? logical.replyContext,
   }
 }

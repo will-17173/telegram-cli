@@ -79,13 +79,19 @@ describe('listen message formatting', () => {
     })
   })
 
-  it('does not expose a photo preview when media is hidden', () => {
+  it('keeps row attachments and summary when rendered media is hidden', () => {
     const message = mediaMessage({ previewJpegBase64: 'jpeg-preview' })
 
     const row = buildListenMessage(message, { showMedia: false })
 
-    expect(row.attachments).toEqual([])
-    expect(row.attachmentSummary).toBeNull()
+    expect(row.content).toBeNull()
+    expect(row.attachments).toHaveLength(1)
+    expect(row.attachments[0]).toMatchObject({
+      kind: 'photo',
+      preview_jpeg_base64: 'jpeg-preview',
+    })
+    expect(row.attachmentSummary).toBe('📎 photo')
+    expect(formatListenLine(message, { showMedia: false })).toContain('📎 photo')
   })
 
   it('formats resolved reply context between the header and content', () => {
@@ -110,18 +116,18 @@ describe('listen message formatting', () => {
     })).toContain('↳ Reply to message #99 (not found locally)')
   })
 
-  it('keeps an album caption while hiding its media summary', () => {
+  it('keeps an album caption, attachments, and summary when rendered media is hidden', () => {
     const row = buildListenMessage([
       mediaMessage({ msgId: 11 }),
       mediaMessage({ msgId: 12, content: 'album caption' }),
     ], { showMedia: false })
 
     expect(row.content).toBe('album caption')
-    expect(row.attachments).toEqual([])
-    expect(row.attachmentSummary).toBeNull()
+    expect(row.attachments.map((item) => item.messageId)).toEqual([11, 12])
+    expect(row.attachmentSummary).toBe('📎 photo; photo')
   })
 
-  it('shows contact details only when media is visible', () => {
+  it('keeps contact summary available when rendered media is hidden', () => {
     const message = contactMessage({
       firstName: 'Zhang',
       lastName: 'San',
@@ -129,8 +135,8 @@ describe('listen message formatting', () => {
     })
 
     expect(formatListenLine(message, { showMedia: true })).toContain('📎 contact')
-    expect(buildListenMessage(message, { showMedia: false }).attachments).toEqual([])
-    expect(formatListenLine(message, { showMedia: false })).not.toContain('Contact')
+    expect(buildListenMessage(message, { showMedia: false }).attachments).toHaveLength(1)
+    expect(formatListenLine(message, { showMedia: false })).toContain('📎 contact')
   })
 
   it('keeps each album photo associated with its own preview', () => {

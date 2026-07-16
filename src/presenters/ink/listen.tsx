@@ -48,6 +48,7 @@ import type { HandlerResult } from '../../commands/types.js'
 export type ListenMessage = ListenMessageRow & {
   key: string
   msgId: number
+  showMedia: boolean
 }
 
 export type AttachmentDownloadState =
@@ -511,12 +512,13 @@ export function ListenMessageBody({
   selectedAttachmentKey?: string | null
   attachmentStates?: Record<string, AttachmentDownloadState>
 }): React.JSX.Element {
+  const showAttachmentRows = message.showMedia
   return (
     <>
       {message.replyContext == null ? null : <Text color={LISTEN_MESSAGE_COLORS.reply} wrap="truncate-end">{formatReplyContext(message.replyContext)}</Text>}
       {message.content == null ? null : <Text color={LISTEN_MESSAGE_COLORS.content} wrap="truncate-end">{message.content}</Text>}
       {message.attachmentSummary == null ? null : <Text color={LISTEN_MESSAGE_COLORS.media} wrap="truncate-end">{message.attachmentSummary}</Text>}
-      {message.attachments.map((item, mediaIndex) => {
+      {showAttachmentRows ? message.attachments.map((item, mediaIndex) => {
         const attachmentKey = attachmentDownloadKeyAt(message.attachments, mediaIndex)
         const indent = '  '.repeat(item.depth)
         return (
@@ -529,7 +531,7 @@ export function ListenMessageBody({
             previewCells={item.previewCells}
           />
         )
-      })}
+      }) : null}
     </>
   )
 }
@@ -1600,7 +1602,7 @@ export function toListenMessage(
   const formatted = buildListenMessage(messages, { showMedia, showChatName, replyContext })
   const decodePreview = renderContext.decodePreview ?? decodeImagePreview
   const attachments = formatted.attachments.map((attachment) => {
-    if (attachment.preview_jpeg_base64 == null || colorDepth < 24) return attachment
+    if (!showMedia || attachment.preview_jpeg_base64 == null || colorDepth < 24) return attachment
     const preview = decodePreview(attachment.preview_jpeg_base64, normalizedPreviewWidth(previewWidth))
     return preview == null
       ? attachment
@@ -1609,6 +1611,7 @@ export function toListenMessage(
   return {
     key: `${message.chat_id}:${message.msg_id}`,
     msgId: message.msg_id,
+    showMedia,
     ...formatted,
     attachments,
   }
@@ -1633,15 +1636,17 @@ function normalizedPreviewWidth(previewWidth: number): number {
 }
 
 export function collectDownloadableAttachments(messages: ListenMessage[]): DownloadableAttachment[] {
-  return messages.flatMap((message) => message.attachments.flatMap((attachment, index) => (
-    attachment.downloadable === true
+  return messages.flatMap((message) => message.showMedia
+    ? message.attachments.flatMap((attachment, index) => (
+      attachment.downloadable === true
       ? [{
           key: attachmentDownloadKeyAt(message.attachments, index),
           message,
           attachment,
         }]
       : []
-  )))
+    ))
+    : [])
 }
 
 export { attachmentDownloadTarget } from '../attachment.js'

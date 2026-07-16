@@ -1589,6 +1589,7 @@ describe('collectDownloadableAttachments', () => {
       key: '100:1',
       chatId: 100,
       msgId: 1,
+      showMedia: true,
       time: '16:44',
       sender: 'Alice',
       senderId: null,
@@ -1752,7 +1753,7 @@ describe('interactive album messages', () => {
     expect(output.indexOf('📎 photo; photo')).toBeLessThan(output.indexOf('Download'))
   })
 
-  it('renders a missing reply and hides all media when showMedia is false', () => {
+  it('renders a missing reply and hides attachment rows when showMedia is false', () => {
     const row = toListenMessage([storedPhoto(11, 'current')], {
       showMedia: false,
       previewWidth: 24,
@@ -1760,10 +1761,12 @@ describe('interactive album messages', () => {
       replyContext: { messageId: 99, resolved: false },
     })
 
+    expect(row.attachments).toHaveLength(1)
+    expect(row.attachmentSummary).toBe('📎 photo')
     const output = renderToString(<ListenMessageBody message={row} />)
     expect(output).toContain('↳ Reply to message #99 (not found locally)')
     expect(output).toContain('current')
-    expect(output).not.toContain('📎')
+    expect(output).toContain('📎 photo')
     expect(output).not.toContain('Download')
   })
 
@@ -2062,6 +2065,7 @@ describe('interactive album messages', () => {
     })
 
     expect(decodePreview).not.toHaveBeenCalled()
+    expect(row.attachments).toHaveLength(1)
     expect(row.attachments.every((item) => item.previewRows == null && item.previewCells == null)).toBe(true)
   })
 
