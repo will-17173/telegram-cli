@@ -99,6 +99,18 @@ describe('GuardDB', () => {
     store.close()
   })
 
+  it('returns stopped runtime state for a fresh database', () => {
+    const store = db()
+    expect(store.getRuntimeState()).toEqual({
+      status: 'stopped',
+      started_at: null,
+      updated_at: null,
+      queue_length: 0,
+      error: null,
+    })
+    store.close()
+  })
+
   it('clamps activity limits to a bounded range', () => {
     const store = db()
     const group = store.upsertManagedGroup({

@@ -93,7 +93,7 @@ export type GuardActivityPage = {
 export type GuardRuntimeState = {
   status: GuardRuntimeStatus
   started_at: string | null
-  updated_at: string
+  updated_at: string | null
   queue_length: number
   error: string | null
 }
@@ -419,12 +419,12 @@ export class GuardDB {
     return this.getRuntimeState() as GuardRuntimeState
   }
 
-  getRuntimeState(): GuardRuntimeState | null {
+  getRuntimeState(): GuardRuntimeState {
     return this.db.prepare(`
       SELECT status, started_at, updated_at, queue_length, error
       FROM guard_runtime_state
       WHERE id = 1
-    `).get() as GuardRuntimeState | undefined ?? null
+    `).get() as GuardRuntimeState | undefined ?? defaultRuntimeState()
   }
 
   private eventById(id: number): GuardEventRecord | null {
@@ -626,6 +626,16 @@ function normalizeActivityLimit(limit: number | undefined): number {
   if (limit == null) return 50
   if (!Number.isFinite(limit)) return 50
   return Math.min(500, Math.max(1, Math.trunc(limit)))
+}
+
+function defaultRuntimeState(): GuardRuntimeState {
+  return {
+    status: 'stopped',
+    started_at: null,
+    updated_at: null,
+    queue_length: 0,
+    error: null,
+  }
 }
 
 function hasOwn<T extends object>(value: T, key: keyof T): boolean {
