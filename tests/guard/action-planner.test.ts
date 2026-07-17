@@ -104,6 +104,24 @@ describe('planGuardActions', () => {
     }).map((action) => action.reason)).toEqual(['actor is the current account', 'actor is the current account'])
   })
 
+  it('deduplicates skipped actions for ignored actors', () => {
+    const actions = planGuardActions({
+      event: event({ user: { id: 99, display_name: 'Admin', username: 'admin', is_admin: true, is_bot: false } }),
+      matches: [
+        match({ id: 1, actions: [{ type: 'delete_message' }, { type: 'delete_message' }] }),
+        match({ id: 2, actions: [{ type: 'delete_message' }, { type: 'reply', text: 'Stop' }] }),
+      ],
+      policy: policy(),
+      writeAccess: true,
+      cooldowns: new Map(),
+    })
+
+    expect(actions).toEqual([
+      { rule_id: 1, type: 'delete_message', action: { type: 'delete_message' }, status: 'skipped', reason: 'actor is an admin' },
+      { rule_id: 2, type: 'reply', action: { type: 'reply', text: 'Stop' }, status: 'skipped', reason: 'actor is an admin' },
+    ])
+  })
+
   it('skips disabled destructive actions and applies reply cooldown', () => {
     const actions = planGuardActions({
       event: event(),

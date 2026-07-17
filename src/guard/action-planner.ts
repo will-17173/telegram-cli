@@ -33,13 +33,12 @@ const writeActionTypes = new Set<GuardAction['type']>([
 ])
 
 export function planGuardActions(input: PlanGuardActionsInput): PlannedGuardAction[] {
-  const flattenedActions = flattenActions(input.matches)
+  const deduplicatedActions = deduplicateActions(flattenActions(input.matches))
   const ignoredActorReason = getIgnoredActorReason(input.event, input.policy)
   if (ignoredActorReason != null) {
-    return flattenedActions.map(({ rule_id, action }) => plannedAction(rule_id, action, 'skipped', ignoredActorReason))
+    return deduplicatedActions.map(({ rule_id, action }) => plannedAction(rule_id, action, 'skipped', ignoredActorReason))
   }
 
-  const deduplicatedActions = deduplicateActions(flattenedActions)
   return deduplicatedActions.map(({ rule_id, action }) => {
     const disabledReason = getDisabledActionReason(action, input.policy)
     if (disabledReason != null) return plannedAction(rule_id, action, 'skipped', disabledReason)
