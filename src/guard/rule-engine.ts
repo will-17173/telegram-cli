@@ -25,7 +25,7 @@ export function evaluateGuardRules(input: EvaluateGuardRulesInput): GuardRuleMat
     .filter((rule) => rule.enabled && rule.conditions.length > 0)
     .filter((rule) => rule.conditions.every((condition) => conditionMatches(condition, input.event, input.context)))
     .map((rule) => ({ rule }))
-    .sort((left, right) => right.rule.priority - left.rule.priority)
+    .sort((left, right) => right.rule.priority - left.rule.priority || left.rule.id - right.rule.id)
 }
 
 function conditionMatches(
@@ -79,13 +79,15 @@ function messageContainsUrl(text: string | null): boolean {
 
 function messageContainsInviteLink(text: string | null): boolean {
   if (text == null) return false
-  return /\bhttps?:\/\/t\.me\/(?:\+[A-Za-z0-9_-]+|joinchat\/[A-Za-z0-9_-]+)/i.test(text)
+  return /\b(?:https?:\/\/)?t\.me\/(?:\+[A-Za-z0-9_-]+|joinchat\/[A-Za-z0-9_-]+)/i.test(text)
 }
 
 function messageRepeated(event: GuardEvent, recentMessages: GuardRecentMessage[], windowSeconds: number): boolean {
-  if (event.text == null) return false
+  const normalizedEventText = normalizeMessageText(event.text)
+  if (normalizedEventText == null) return false
   return recentMessages.some((message) => {
-    return message.text === event.text && isWithinWindow(event.created_at, message.created_at, windowSeconds)
+    return normalizeMessageText(message.text) === normalizedEventText
+      && isWithinWindow(event.created_at, message.created_at, windowSeconds)
   })
 }
 
@@ -111,6 +113,11 @@ function messageCommandMatches(text: string | null, command: string): boolean {
   if (text == null) return false
   const [firstToken] = text.trimStart().split(/\s+/, 1)
   return firstToken === command
+}
+
+function normalizeMessageText(text: string | null): string | null {
+  if (text == null) return null
+  return text.trim().toLowerCase()
 }
 
 function isWithinWindow(referenceCreatedAt: string, candidateCreatedAt: string, windowSeconds: number): boolean {

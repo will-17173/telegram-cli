@@ -54,13 +54,33 @@ describe('evaluateGuardRules', () => {
 
   it('matches invite links and commands', () => {
     expect(evaluateGuardRules({
-      event: event({ text: '/rules https://t.me/+abcdef' }),
+      event: event({ text: '/rules t.me/+abcdef' }),
       rules: [
         rule({ id: 1, conditions: [{ type: 'message_contains_invite_link' }] }),
         rule({ id: 2, conditions: [{ type: 'message_command', command: '/rules' }] }),
       ],
       context: { warning_count: 0, recent_messages: [] },
     }).map((match) => match.rule.id)).toEqual([1, 2])
+
+    expect(evaluateGuardRules({
+      event: event({ text: 'join t.me/joinchat/abcdef' }),
+      rules: [rule({ id: 3, conditions: [{ type: 'message_contains_invite_link' }] })],
+      context: { warning_count: 0, recent_messages: [] },
+    }).map((match) => match.rule.id)).toEqual([3])
+  })
+
+  it('sorts same-priority matches by id ascending', () => {
+    const matches = evaluateGuardRules({
+      event: event({ text: 'hello' }),
+      rules: [
+        rule({ id: 3, priority: 10, conditions: [{ type: 'message_contains_text', text: 'hello' }] }),
+        rule({ id: 1, priority: 10, conditions: [{ type: 'message_contains_text', text: 'hello' }] }),
+        rule({ id: 2, priority: 20, conditions: [{ type: 'message_contains_text', text: 'hello' }] }),
+      ],
+      context: { warning_count: 0, recent_messages: [] },
+    })
+
+    expect(matches.map((match) => match.rule.id)).toEqual([2, 1, 3])
   })
 
   it('matches member age and warning count', () => {
@@ -93,7 +113,7 @@ describe('evaluateGuardRules', () => {
 
   it('matches repeated messages and message rate', () => {
     const matches = evaluateGuardRules({
-      event: event({ text: 'same', created_at: '2026-07-17T12:00:05.000Z' }),
+      event: event({ text: ' same ', created_at: '2026-07-17T12:00:05.000Z' }),
       rules: [
         rule({ id: 4, conditions: [{ type: 'message_repeated', window_seconds: 10 }] }),
         rule({ id: 5, conditions: [{ type: 'message_rate_exceeded', window_seconds: 10, max_messages: 2 }] }),
@@ -101,13 +121,26 @@ describe('evaluateGuardRules', () => {
       context: {
         warning_count: 0,
         recent_messages: [
-          { text: 'same', created_at: '2026-07-17T12:00:01.000Z' },
+          { text: 'SAME', created_at: '2026-07-17T12:00:01.000Z' },
           { text: 'other', created_at: '2026-07-17T12:00:02.000Z' },
         ],
       },
     })
 
     expect(matches.map((match) => match.rule.id)).toEqual([4, 5])
+  })
+
+  it('excludes repeated messages outside the configured window', () => {
+    expect(evaluateGuardRules({
+      event: event({ text: 'spam', created_at: '2026-07-17T12:00:12.000Z' }),
+      rules: [rule({ id: 4, conditions: [{ type: 'message_repeated', window_seconds: 10 }] })],
+      context: {
+        warning_count: 0,
+        recent_messages: [
+          { text: 'spam', created_at: '2026-07-17T12:00:01.000Z' },
+        ],
+      },
+    })).toEqual([])
   })
 
   it('does not match disabled rules or nonmatching AND groups', () => {
