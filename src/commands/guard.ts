@@ -2,6 +2,7 @@ import type { Command } from 'commander'
 import { GuardRuntime } from '../guard/runtime.js'
 import { startWebServer } from '../web/server.js'
 import type { GuardActionExecutor } from '../guard/action-queue.js'
+import type { WebServerHandle } from '../web/server.js'
 import type {
   GuardActionRecordInput,
   GuardEventRecord,
@@ -29,12 +30,17 @@ export function registerGuardCommand(app: Command): void {
         executor: createNoopExecutor(),
         writeAccess: () => false,
       })
-      const server = await startWebServer({ port })
-      await runtime.start()
+      let server: WebServerHandle | undefined
+      try {
+        server = await startWebServer({ port })
+        await runtime.start()
+      } catch (error) {
+        if (server != null) await closeAfterStartupFailure(server, error)
+        throw error
+      }
       process.stdout.write(`Telegram Guard: ${server.url}\n`)
       await waitForShutdown(async () => {
-        await runtime.stop()
-        await server.close()
+        await stopRuntimeAndCloseServer(runtime, server)
       })
     })
 }
@@ -69,6 +75,34 @@ function createNoopExecutor(): GuardActionExecutor {
     reply: async () => undefined,
     sendMessage: async () => undefined,
   }
+}
+
+async function closeAfterStartupFailure(server: WebServerHandle, startupError: unknown): Promise<void> {
+  try {
+    await server.close()
+  } catch (closeError) {
+    throw new AggregateError([startupError, closeError], 'Failed to start guard runtime and close web server')
+  }
+}
+
+async function stopRuntimeAndCloseServer(runtime: Pick<GuardRuntime, 'stop'>, server: WebServerHandle): Promise<void> {
+  let stopError: unknown
+  try {
+    await runtime.stop()
+  } catch (error) {
+    stopError = error
+  }
+
+  try {
+    await server.close()
+  } catch (closeError) {
+    if (stopError != null) {
+      throw new AggregateError([stopError, closeError], 'Failed to stop guard runtime and close web server')
+    }
+    throw closeError
+  }
+
+  if (stopError != null) throw stopError
 }
 
 function waitForShutdown(close: () => Promise<void>): Promise<void> {

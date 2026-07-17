@@ -30,10 +30,18 @@ vi.mock('../../src/guard/runtime.js', () => ({
 
 afterEach(() => {
   vi.restoreAllMocks()
-  startWebServer.mockClear()
+  startWebServer.mockReset()
+  startWebServer.mockImplementation(async () => ({
+    host: '127.0.0.1',
+    port: 8734,
+    url: 'http://127.0.0.1:8734/',
+    close: vi.fn(async () => undefined),
+  }))
   runtimeMocks.constructor.mockClear()
-  runtimeMocks.start.mockClear()
-  runtimeMocks.stop.mockClear()
+  runtimeMocks.start.mockReset()
+  runtimeMocks.start.mockImplementation(async () => undefined)
+  runtimeMocks.stop.mockReset()
+  runtimeMocks.stop.mockImplementation(async () => undefined)
 })
 
 describe('guard command', () => {
@@ -72,6 +80,49 @@ describe('guard command', () => {
     expect(await options.store.listEnabledGroups()).toEqual([])
     await expect(options.executor.deleteMessage({ chat: 1, messageId: 2 })).resolves.toBeUndefined()
     expect(runtimeMocks.start).toHaveBeenCalledOnce()
+    expect(runtimeMocks.stop).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+    expect(runtimeMocks.stop.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0])
+  })
+
+  it('closes the web server when runtime startup fails', async () => {
+    const close = vi.fn(async () => undefined)
+    const error = new Error('runtime failed')
+    runtimeMocks.start.mockRejectedValueOnce(error)
+    startWebServer.mockResolvedValueOnce({
+      host: '127.0.0.1',
+      port: 9002,
+      url: 'http://127.0.0.1:9002/',
+      close,
+    })
+    const app = createApp()
+
+    await expect(app.parseAsync(['node', 'tg', 'guard', 'start', '--port', '9002']))
+      .rejects.toThrow(error)
+
+    expect(runtimeMocks.start).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+    expect(runtimeMocks.stop).not.toHaveBeenCalled()
+  })
+
+  it('closes the web server when runtime shutdown fails', async () => {
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const close = vi.fn(async () => undefined)
+    const error = new Error('runtime stop failed')
+    runtimeMocks.stop.mockRejectedValueOnce(error)
+    startWebServer.mockResolvedValueOnce({
+      host: '127.0.0.1',
+      port: 9003,
+      url: 'http://127.0.0.1:9003/',
+      close,
+    })
+    const app = createApp()
+
+    const running = app.parseAsync(['node', 'tg', 'guard', 'start', '--port', '9003'])
+    await vi.waitFor(() => expect(write).toHaveBeenCalledWith('Telegram Guard: http://127.0.0.1:9003/\n'))
+    process.emit('SIGTERM')
+    await expect(running).rejects.toThrow(error)
+
     expect(runtimeMocks.stop).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
     expect(runtimeMocks.stop.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0])
