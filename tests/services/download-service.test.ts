@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Long } from '@mtcute/node'
 
 import { DownloadService } from '../../src/services/download-service.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../../src/telegram/archive-types.js'
@@ -27,6 +28,7 @@ function message(
   timestamp = '2026-07-15T12:00:00.000Z',
   attachments: Attachment[] = [attachment(id)],
   mediaGroupId: string | null = null,
+  overrides: Partial<ArchiveMessage> = {},
 ): ArchiveMessage {
   return {
     platform: 'telegram',
@@ -41,6 +43,7 @@ function message(
     media_group_id: mediaGroupId,
     raw_json: null,
     attachments,
+    ...overrides,
   }
 }
 
@@ -479,6 +482,43 @@ describe('DownloadService', () => {
       'downloading: message 2 attachment 1 -> photo-2.jpg',
       'download progress: scanned 4 messages, found 3 media, downloaded 3, failed 0',
     ])
+  })
+
+  it('uses the runtime input peer from history messages when refetching media', async () => {
+    const output = outputDirectory()
+    const downloadPeer = { _: 'inputPeerChannel', channelId: 123, accessHash: Long.fromNumber(456) } as const
+    const source = sourceFor([[message(42, undefined, undefined, undefined, { download_peer: downloadPeer })]])
+
+    const result = await new DownloadService(source).download({
+      chat: '-1000000000123',
+      messageId: 42,
+      output,
+    })
+
+    expect(result).toMatchObject({ ok: true, data: { downloaded: 1 } })
+    expect(source.downloadMedia).toHaveBeenCalledWith(expect.objectContaining({
+      chat: '-1000000000123',
+      msgId: 42,
+      attachment: expect.objectContaining({ downloadPeer }),
+    }))
+  })
+
+  it('emits a plain notice with the failure reason for each failed download', async () => {
+    const output = outputDirectory()
+    const source = sourceFor([[message(42)]])
+    source.downloadMedia.mockRejectedValueOnce(new Error('CHANNEL_INVALID'))
+    const notices: string[] = []
+
+    const result = await new DownloadService(source, {
+      onNotice: (notice) => notices.push(notice),
+    }).download({
+      chat: '@channel',
+      messageId: 42,
+      output,
+    })
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'download_partial_failure' } })
+    expect(notices).toContain('download failed: message 42 attachment 1: CHANNEL_INVALID')
   })
 
   it('waits and retries when Telegram reports FLOOD_WAIT', async () => {

@@ -419,7 +419,7 @@ export class DownloadService {
           await this.source.downloadMedia({
             chat: target.chat,
             msgId: target.message.msg_id,
-            attachment: toAttachmentLocator(target.attachment),
+            attachment: toAttachmentLocator(target.attachment, target.message.download_peer),
             destination: temporary,
           })
           break
@@ -458,14 +458,16 @@ export class DownloadService {
       }
     } catch (error) {
       result.failed += 1
+      const failureMessage = errorMessage(error)
       result.failures.push({
         msg_id: target.message.msg_id,
         selection_index: target.selectionIndex,
         attachment_index: target.attachment.attachment_index,
         kind: target.attachment.kind,
         code: downloadFailureCode(error),
-        error: errorMessage(error),
+        error: failureMessage,
       })
+      this.onNotice(`download failed: message ${target.message.msg_id} attachment ${target.attachment.attachment_index}: ${failureMessage}`)
     } finally {
       await rm(temporary, { force: true }).catch(() => undefined)
     }

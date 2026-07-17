@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Infer file extensions for Web UI media downloads when Telegram does not provide an original file name.
 - Download live `tg listen` media from transient Telegram file locations when available, avoiding `CHANNEL_INVALID` failures caused by refetching incomplete channel peers.
+- Reuse runtime input peers while refetching `tg download` media, avoiding repeated channel download failures when numeric channel IDs cannot be resolved by Telegram.
 - Stop `tg listen` from inserting live messages into the local message database, so live updates do not advance later sync cursors.
 
 ## [0.7.1] - 2026-07-17
