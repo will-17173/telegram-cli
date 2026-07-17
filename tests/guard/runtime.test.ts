@@ -91,6 +91,7 @@ class FakeRuntimeStore implements GuardRuntimeStore {
   updatedGroups: Array<{ id: number; patch: Partial<Pick<GuardManagedGroup, 'title' | 'enabled' | 'policy' | 'runtime_status'>> }> = []
   updateGroupError: Error | null = null
   updateGroupErrorForId: number | null = null
+  errorStatusUpdateError: Error | null = null
 
   listEnabledGroups(): GuardManagedGroup[] {
     return this.groups.filter((item) => item.enabled)
@@ -129,6 +130,9 @@ class FakeRuntimeStore implements GuardRuntimeStore {
     id: number,
     patch: Partial<Pick<GuardManagedGroup, 'title' | 'enabled' | 'policy' | 'runtime_status'>>,
   ): GuardManagedGroup | null {
+    if (patch.runtime_status === 'error' && this.errorStatusUpdateError != null) {
+      throw this.errorStatusUpdateError
+    }
     if (this.updateGroupError != null && (this.updateGroupErrorForId == null || this.updateGroupErrorForId === id)) {
       throw this.updateGroupError
     }
@@ -258,12 +262,57 @@ describe('GuardRuntime', () => {
     ])
   })
 
+  it('serializes event processing so later events see cooldown state', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group()]
+    store.rules.set(1, [rule({ actions: [{ type: 'send_message', text: 'Stop' }] })])
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const fakeExecutor = executor({
+      sendMessage: vi.fn(async () => {
+        if (store.actions.length === 0) await firstBlocked
+      }),
+    })
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => true })
+
+    const firstRun = runtime.handleEvent(event({ message_id: 10 }))
+    await Promise.resolve()
+    const secondRun = runtime.handleEvent(event({ message_id: 11, created_at: '2026-07-17T12:00:01.000Z' }))
+    await Promise.resolve()
+
+    releaseFirst()
+    await Promise.all([firstRun, secondRun])
+
+    expect(fakeExecutor.sendMessage).toHaveBeenCalledTimes(1)
+    expect(store.actions).toEqual([
+      {
+        event_id: 1,
+        rule_id: 1,
+        action_type: 'send_message',
+        status: 'executed',
+        details: { text: 'Stop' },
+        created_at: now,
+      },
+      {
+        event_id: 2,
+        rule_id: 1,
+        action_type: 'send_message',
+        status: 'skipped',
+        details: { reason: 'reply cooldown is active' },
+        created_at: '2026-07-17T12:00:01.000Z',
+      },
+    ])
+  })
+
   it('start marks starting before group updates, running after success, and stop clears groups', async () => {
     const store = new FakeRuntimeStore()
     store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002, runtime_status: 'paused' })]
     const runtime = new GuardRuntime({ store, executor: executor(), writeAccess: () => true })
 
     await runtime.start()
+    store.groups[1] = { ...store.groups[1] as GuardManagedGroup, enabled: false }
     await runtime.stop()
 
     expect(store.updatedGroups).toEqual([
@@ -279,6 +328,21 @@ describe('GuardRuntime', () => {
     ])
   })
 
+  it('stop clears groups that were started even when they are no longer enabled', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002 })]
+    const runtime = new GuardRuntime({ store, executor: executor(), writeAccess: () => true })
+
+    await runtime.start()
+    store.groups[1] = { ...store.groups[1] as GuardManagedGroup, enabled: false }
+    await runtime.stop()
+
+    expect(store.updatedGroups.slice(-2)).toEqual([
+      { id: 1, patch: { runtime_status: 'stopped' } },
+      { id: 2, patch: { runtime_status: 'stopped' } },
+    ])
+  })
+
   it('start records error state and rethrows when startup fails', async () => {
     const store = new FakeRuntimeStore()
     store.groups = [group()]
@@ -290,6 +354,22 @@ describe('GuardRuntime', () => {
     expect(store.runtimeStates).toEqual([
       { status: 'starting', started_at: expect.any(String), queue_length: 0, error: null },
       { status: 'error', started_at: null, queue_length: 0, error: 'group update failed' },
+    ])
+  })
+
+  it('start rethrows the original error when touched-group cleanup fails', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002 })]
+    store.updateGroupError = new Error('startup failed')
+    store.updateGroupErrorForId = 2
+    store.errorStatusUpdateError = new Error('cleanup failed')
+    const runtime = new GuardRuntime({ store, executor: executor(), writeAccess: () => true })
+
+    await expect(runtime.start()).rejects.toThrow('startup failed')
+
+    expect(store.runtimeStates).toEqual([
+      { status: 'starting', started_at: expect.any(String), queue_length: 0, error: null },
+      { status: 'error', started_at: null, queue_length: 0, error: 'startup failed' },
     ])
   })
 

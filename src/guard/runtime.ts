@@ -65,6 +65,8 @@ export class GuardRuntime {
   private readonly queue: GuardActionQueue
   private readonly writeAccess: () => boolean
   private readonly cooldowns = new Map<string, string>()
+  private readonly startedGroupIds = new Set<number>()
+  private eventProcessing: Promise<void> = Promise.resolve()
 
   constructor(options: GuardRuntimeOptions) {
     this.store = options.store
@@ -87,6 +89,7 @@ export class GuardRuntime {
       for (const group of groups) {
         await this.store.updateManagedGroup(group.id, { runtime_status: 'running' })
         touchedGroupIds.push(group.id)
+        this.startedGroupIds.add(group.id)
       }
       await this.store.setRuntimeState({
         status: 'running',
@@ -101,18 +104,17 @@ export class GuardRuntime {
         queue_length: 0,
         error: errorMessage(error),
       })
-      for (const groupId of touchedGroupIds) {
-        await this.store.updateManagedGroup(groupId, { runtime_status: 'error' })
-      }
+      await this.markGroupsBestEffort(touchedGroupIds, 'error')
       throw error
     }
   }
 
   async stop(): Promise<void> {
-    const groups = await this.store.listEnabledGroups()
-    for (const group of groups) {
-      await this.store.updateManagedGroup(group.id, { runtime_status: 'stopped' })
+    const startedGroupIds = [...this.startedGroupIds]
+    for (const groupId of startedGroupIds) {
+      await this.store.updateManagedGroup(groupId, { runtime_status: 'stopped' })
     }
+    this.startedGroupIds.clear()
     await this.store.setRuntimeState({
       status: 'stopped',
       started_at: null,
@@ -122,6 +124,15 @@ export class GuardRuntime {
   }
 
   async handleEvent(event: GuardEvent): Promise<void> {
+    const current = this.eventProcessing.then(
+      () => this.processEvent(event),
+      () => this.processEvent(event),
+    )
+    this.eventProcessing = current.then(() => undefined, () => undefined)
+    return current
+  }
+
+  private async processEvent(event: GuardEvent): Promise<void> {
     const groups = await this.store.listEnabledGroups()
     const group = groups.find((candidate) => candidate.id === event.group_id)
     if (group == null) return
@@ -168,6 +179,16 @@ export class GuardRuntime {
         details: result.details,
         created_at: event.created_at,
       })
+    }
+  }
+
+  private async markGroupsBestEffort(groupIds: readonly number[], runtimeStatus: GuardRuntimeStatus): Promise<void> {
+    for (const groupId of groupIds) {
+      try {
+        await this.store.updateManagedGroup(groupId, { runtime_status: runtimeStatus })
+      } catch {
+        // Startup cleanup is best-effort; preserve the original startup failure.
+      }
     }
   }
 
