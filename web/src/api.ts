@@ -106,6 +106,58 @@ export type SyncTaskState =
   | { status: 'done'; account: string; chat_id: number; limit: number; started_at: string; finished_at: string; synced: number }
   | { status: 'error'; account: string; chat_id: number; limit: number; started_at: string; finished_at: string; error: { code: string; message: string; details?: unknown } }
 
+export type GuardRuntimeState = {
+  status: string
+  started_at: string | null
+  queue_length: number
+  error: string | null
+  updated_at?: string | null
+}
+
+export type GuardPolicy = {
+  allow_delete: boolean
+  allow_mute: boolean
+  allow_ban: boolean
+  ignore_admins: boolean
+  ignore_bots: boolean
+  reply_cooldown_seconds: number
+  action_cooldown_seconds: number
+}
+
+export type GuardGroup = {
+  id: number
+  account: string
+  chat_id: number
+  title: string | null
+  enabled: boolean
+  runtime_status: string
+  policy: GuardPolicy
+}
+
+export type GuardRule = {
+  id: number
+  group_id: number
+  name: string
+  enabled: boolean
+  priority: number
+  conditions: JsonValue[]
+  actions: JsonValue[]
+}
+
+export type GuardActivityItem = {
+  event_id: number
+  group_id: number
+  event_type: string
+  chat_id: number
+  message_id: number | null
+  user_id: number | null
+  action_id: number
+  rule_id: number | null
+  action_type: string
+  action_status: string
+  created_at: string
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path)
   return unwrap<T>(response)
@@ -117,6 +169,20 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
+  return unwrap<T>(response)
+}
+
+export async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return unwrap<T>(response)
+}
+
+export async function deleteJson<T>(path: string): Promise<T> {
+  const response = await fetch(path, { method: 'DELETE' })
   return unwrap<T>(response)
 }
 

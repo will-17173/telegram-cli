@@ -4,6 +4,10 @@ import {
   postJson,
   type AccountData,
   type ChatSummary,
+  type GuardActivityItem,
+  type GuardGroup,
+  type GuardRule,
+  type GuardRuntimeState,
   type MessageAttachment,
   type MessageRow,
   type Page,
@@ -123,6 +127,7 @@ const SENDER_AVATAR_BACKGROUNDS = [
 ]
 
 export function App() {
+  const [view, setView] = useState<'messages' | 'guard'>('messages')
   const [accounts, setAccounts] = useState<AccountData>({ current_account: null, accounts: [] })
   const [account, setAccount] = useState('')
   const [chatQuery, setChatQuery] = useState('')
@@ -445,11 +450,20 @@ export function App() {
             ))}
           </select>
         </label>
+        <nav className="view-tabs" aria-label="Workspace view">
+          <button className={view === 'messages' ? 'active-tab' : ''} onClick={() => setView('messages')} type="button">
+            Messages
+          </button>
+          <button className={view === 'guard' ? 'active-tab' : ''} onClick={() => setView('guard')} type="button">
+            Guard
+          </button>
+        </nav>
         <span className={`sync-pill sync-pill-${syncTask.status}`} role="status" aria-live="polite" title={syncTask.status === 'error' ? syncErrorText(syncTask) : undefined}>Sync {syncTask.status}</span>
       </header>
 
       {error && <div className="error-strip" role="alert">{error}</div>}
 
+      {view === 'messages' ? (
       <section className="workspace" aria-label="Telegram message browser">
         <aside className="sidebar">
           <div className="sidebar-tools">
@@ -755,6 +769,7 @@ export function App() {
           )}
         </section>
       </section>
+      ) : <GuardWorkbench />}
       {blacklistOpen && (
         <div className="modal-backdrop" role="presentation">
           <section className="blacklist-modal" role="dialog" aria-modal="true" aria-labelledby="sender-blacklist-title">
@@ -797,6 +812,186 @@ export function App() {
         </div>
       )}
     </main>
+  )
+}
+
+function GuardWorkbench() {
+  const [status, setStatus] = useState<GuardRuntimeState | null>(null)
+  const [groups, setGroups] = useState<GuardGroup[]>([])
+  const [rules, setRules] = useState<GuardRule[]>([])
+  const [activity, setActivity] = useState<GuardActivityItem[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [loadingRules, setLoadingRules] = useState(false)
+  const [error, setError] = useState('')
+
+  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null
+  const enabledGroups = groups.filter((group) => group.enabled).length
+  const enabledRules = rules.filter((rule) => rule.enabled).length
+
+  useEffect(() => {
+    void loadGuard()
+  }, [])
+
+  useEffect(() => {
+    if (selectedGroupId == null) {
+      setRules([])
+      return
+    }
+    setLoadingRules(true)
+    setError('')
+    getJson<Page<GuardRule>>(`/api/guard/rules?group_id=${selectedGroupId}`)
+      .then((page) => setRules(page.items))
+      .catch((caught) => setError(errorText(caught)))
+      .finally(() => setLoadingRules(false))
+  }, [selectedGroupId])
+
+  async function loadGuard() {
+    setLoading(true)
+    setError('')
+    try {
+      const [statusData, groupsData, activityData] = await Promise.all([
+        getJson<{ runtime: GuardRuntimeState; groups: Page<GuardGroup> }>('/api/guard/status'),
+        getJson<Page<GuardGroup>>('/api/guard/groups'),
+        getJson<Page<GuardActivityItem>>('/api/guard/activity'),
+      ])
+      setStatus(statusData.runtime)
+      setGroups(groupsData.items)
+      setSelectedGroupId((current) => current ?? groupsData.items[0]?.id ?? null)
+      setActivity(activityData.items)
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section className="guard-workbench" aria-label="Telegram Guard workbench">
+      <div className="guard-overview">
+        <div>
+          <span className="panel-kicker">Guard console</span>
+          <h1>Group automation</h1>
+          <p>{status?.error ?? 'Local rules, group policy, and moderation activity from the guard database.'}</p>
+        </div>
+        <button className="secondary-action" type="button" onClick={() => void loadGuard()} disabled={loading}>
+          Refresh
+        </button>
+      </div>
+
+      {error && <div className="guard-error" role="alert">{error}</div>}
+
+      <section className="guard-metrics" aria-label="Guard runtime summary">
+        <div className="guard-metric guard-metric-runtime">
+          <span>Runtime</span>
+          <strong>{status?.status ?? 'stopped'}</strong>
+          <small>{status?.started_at == null ? 'Not started' : `Started ${formatDate(status.started_at)}`}</small>
+        </div>
+        <div className="guard-metric">
+          <span>Groups</span>
+          <strong>{enabledGroups}/{groups.length}</strong>
+          <small>Enabled for automation</small>
+        </div>
+        <div className="guard-metric">
+          <span>Queue</span>
+          <strong>{status?.queue_length ?? 0}</strong>
+          <small>Pending actions</small>
+        </div>
+        <div className="guard-metric">
+          <span>Activity</span>
+          <strong>{activity.length}</strong>
+          <small>Recent action records</small>
+        </div>
+      </section>
+
+      <section className="guard-grid">
+        <section className="guard-panel guard-groups-panel" aria-label="Managed groups">
+          <div className="guard-panel-heading">
+            <div>
+              <span className="panel-kicker">Managed groups</span>
+              <h2>{groups.length} groups</h2>
+            </div>
+            <span className="guard-count">{loading ? 'Loading' : `${enabledGroups} enabled`}</span>
+          </div>
+          <div className="guard-list" aria-busy={loading}>
+            {groups.map((group) => (
+              <button
+                className={group.id === selectedGroupId ? 'guard-group-row guard-row-selected' : 'guard-group-row'}
+                key={group.id}
+                type="button"
+                onClick={() => setSelectedGroupId(group.id)}
+                aria-pressed={group.id === selectedGroupId}
+              >
+                <span className="guard-row-main">
+                  <strong>{group.title ?? `Chat ${displayChatId(group.chat_id)}`}</strong>
+                  <small>{group.account} · {displayChatId(group.chat_id)}</small>
+                </span>
+                <span className={`guard-status guard-status-${group.runtime_status}`}>{group.runtime_status}</span>
+              </button>
+            ))}
+            {!loading && groups.length === 0 && <p className="empty-note">No managed groups found.</p>}
+          </div>
+        </section>
+
+        <section className="guard-panel guard-detail-panel" aria-label="Selected group rules and policy">
+          <div className="guard-panel-heading">
+            <div>
+              <span className="panel-kicker">Rules</span>
+              <h2>{selectedGroup == null ? 'Select a group' : selectedGroup.title ?? `Chat ${displayChatId(selectedGroup.chat_id)}`}</h2>
+            </div>
+            <span className="guard-count">{loadingRules ? 'Loading' : `${enabledRules}/${rules.length} enabled`}</span>
+          </div>
+
+          {selectedGroup != null && (
+            <div className="guard-policy-strip" aria-label="Group policy">
+              <span className={selectedGroup.enabled ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.enabled ? 'Enabled' : 'Disabled'}</span>
+              <span className={selectedGroup.policy.allow_delete ? 'policy-chip policy-chip-on' : 'policy-chip'}>Delete</span>
+              <span className={selectedGroup.policy.allow_mute ? 'policy-chip policy-chip-on' : 'policy-chip'}>Mute</span>
+              <span className={selectedGroup.policy.allow_ban ? 'policy-chip policy-chip-on' : 'policy-chip'}>Ban</span>
+              <span className="policy-chip">Ignore admins {selectedGroup.policy.ignore_admins ? 'on' : 'off'}</span>
+              <span className="policy-chip">Cooldown {selectedGroup.policy.action_cooldown_seconds}s</span>
+            </div>
+          )}
+
+          <div className="guard-rule-list" aria-busy={loadingRules}>
+            {rules.map((rule) => (
+              <article className={rule.enabled ? 'guard-rule-row' : 'guard-rule-row guard-rule-disabled'} key={rule.id}>
+                <div>
+                  <strong>{rule.name}</strong>
+                  <small>Priority {rule.priority} · {rule.conditions.length} conditions · {rule.actions.length} actions</small>
+                </div>
+                <span>{rule.enabled ? 'enabled' : 'disabled'}</span>
+              </article>
+            ))}
+            {!loadingRules && selectedGroup != null && rules.length === 0 && <p className="empty-note">No rules configured for this group.</p>}
+          </div>
+        </section>
+      </section>
+
+      <section className="guard-panel" aria-label="Recent guard activity">
+        <div className="guard-panel-heading">
+          <div>
+            <span className="panel-kicker">Activity</span>
+            <h2>Recent actions</h2>
+          </div>
+          <span className="guard-count">{activity.length} records</span>
+        </div>
+        <div className="guard-activity-list">
+          {activity.map((item) => (
+            <div className="guard-activity-row" key={`${item.event_id}:${item.action_id}`}>
+              <span className={`guard-activity-mark guard-activity-${item.action_status}`} aria-hidden="true" />
+              <div>
+                <strong>{item.action_type}</strong>
+                <small>{item.event_type} · Chat {displayChatId(item.chat_id)}{item.user_id == null ? '' : ` · User ${item.user_id}`}</small>
+              </div>
+              <span>{item.action_status}</span>
+              <time dateTime={item.created_at}>{formatDate(item.created_at)}</time>
+            </div>
+          ))}
+          {activity.length === 0 && <p className="empty-note">No guard activity recorded yet.</p>}
+        </div>
+      </section>
+    </section>
   )
 }
 
