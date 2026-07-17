@@ -70,6 +70,8 @@ tg listen @team --auto-download
 
 Use `download` for existing messages: a single message, a specific attachment, a grouped album, an inclusive message range, one local date, or a whole chat from newest to oldest. Without `--attachment`, a single message downloads every downloadable item. `--attachment N` is one-based and message-local; for `--grouped-id`, numbering is flattened by message ID and then message-local attachment index. Each transfer refetches the fresh Telegram message and matches the stored descriptor before downloading, so stable errors include `attachment_not_found`, `attachment_not_downloadable`, `attachment_changed`, and `media_access_denied`.
 
+Downloaded attachments are remembered in the local account database. By default, later `tg download` runs skip attachments that were already downloaded and print an `already downloaded` notice in plain output. Use `--force` to download them again and refresh the saved status.
+
 ```sh
 tg download --chat @team --msg-id 814 --output ./media
 tg download @channel 42 --attachment 2
@@ -80,7 +82,7 @@ tg download --chat @channel --all --output ./channel-media
 
 ### Keep a Markdown archive
 
-The `archive` command writes incremental Markdown and optional media files. It tracks archive progress separately and does not populate SQLite. Default account archives are reset by `tg data reset`; custom `--output` directories are never deleted automatically, so remove old custom archives manually or choose an empty directory after breaking upgrades.
+The `archive` command writes incremental Markdown and optional media files. It tracks archive progress separately from message sync; when `--download-media` saves or reuses a media file, it also records that attachment as downloaded in the local account database. Default account archives are reset by `tg data reset`; custom `--output` directories are never deleted automatically, so remove old custom archives manually or choose an empty directory after breaking upgrades.
 
 ```sh
 tg archive @team --download-media
@@ -153,7 +155,7 @@ Check a command’s execution scope before you run it:
 | Online read | `inbox`, `read`, `search-online` | Queries Telegram without storing returned messages. |
 | Local persistence | `history`, `sync`, `sync-all`, `refresh` | Stores fetched messages in the selected account’s SQLite database. |
 | Local read | `search`, `recent`, `stats`, `export`, `web` | Reads local SQLite data without connecting to Telegram. |
-| File archive | `archive` | Reads Telegram and writes Markdown or media files without writing to SQLite. |
+| File archive | `archive` | Reads Telegram and writes Markdown or media files; `--download-media` also updates attachment download status in SQLite. |
 | Remote write | `send`, `edit`, `delete`, notification, folder, and group actions | Changes Telegram messages or settings. |
 
 Each account has a separate session and SQLite database. Add `--account work` to select an account for one command without changing the default.

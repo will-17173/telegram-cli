@@ -70,6 +70,8 @@ tg listen @team --auto-download
 
 `download` 用于已存在的消息：可下载单条消息、指定附件、媒体组、连续消息范围、某个本地日期，或从最新到最旧下载整个聊天的媒体。单条消息不传 `--attachment` 时会下载所有可下载项。`--attachment N` 是从 1 开始的消息内编号；对 `--grouped-id`，编号按消息 ID 和消息内附件编号展平。每次传输都会重新获取 Telegram 消息并匹配已存描述符，因此稳定错误包括 `attachment_not_found`、`attachment_not_downloadable`、`attachment_changed` 和 `media_access_denied`。
 
+已下载的附件会记录在当前账号的本地数据库中。后续运行 `tg download` 时默认跳过已经下载过的附件，并在普通输出中提示 `already downloaded`。如果需要重新下载并刷新状态，使用 `--force`。
+
 ```sh
 tg download --chat @team --msg-id 814 --output ./media
 tg download @channel 42 --attachment 2
@@ -80,7 +82,7 @@ tg download --chat @channel --all --output ./channel-media
 
 ### 保存增量 Markdown 归档
 
-`archive` 将消息增量写入 Markdown，并可同时下载媒体文件。它单独记录归档进度，不会填充 SQLite。默认账号归档会被 `tg data reset` 清理；自定义 `--output` 目录不会自动删除，破坏性升级后需要手动删除旧目录或换一个空目录。
+`archive` 将消息增量写入 Markdown，并可同时下载媒体文件。它的归档进度独立于消息同步；当 `--download-media` 保存或复用媒体文件时，也会把对应附件在当前账号本地数据库中标记为已下载。默认账号归档会被 `tg data reset` 清理；自定义 `--output` 目录不会自动删除，破坏性升级后需要手动删除旧目录或换一个空目录。
 
 ```sh
 tg archive @team --download-media
@@ -153,7 +155,7 @@ tg search "release" --chat @team
 | 在线读取 | `inbox`、`read`、`search-online` | 查询 Telegram，不保存返回的消息。 |
 | 写入本地 | `history`、`sync`、`sync-all`、`refresh` | 将消息保存到所选账号的 SQLite 数据库。 |
 | 仅本地 | `search`、`recent`、`stats`、`export`、`web` | 读取本地 SQLite，不连接 Telegram。 |
-| 文件归档 | `archive` | 读取 Telegram 并写入 Markdown 或媒体文件，不写入 SQLite。 |
+| 文件归档 | `archive` | 读取 Telegram 并写入 Markdown 或媒体文件；`--download-media` 还会更新 SQLite 中的附件下载状态。 |
 | 远端写入 | `send`、`edit`、`delete`，以及通知、文件夹和群组操作 | 修改 Telegram 消息或设置。 |
 
 每个账号都有独立的会话和 SQLite 数据库。添加 `--account work` 可以为单次命令选择账号，且不会改变默认账号。

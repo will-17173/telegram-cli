@@ -51,6 +51,7 @@ describe('DataService', () => {
         sender_id: 1,
         sender_name: 'Alice',
         content: 'Hello',
+        downloaded: false,
         timestamp: '2026-03-09T10:00:00.000Z',
         reply_to_msg_id: null,
         media_group_id: null,

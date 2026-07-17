@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
+import { MESSAGE_DB_SCHEMA_VERSION, MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
 
 const fakeClient = vi.hoisted(() => ({
   fetchHistory: vi.fn(),
@@ -177,7 +177,7 @@ describe('SyncTaskRunner', () => {
           message: 'Run `tg data reset --yes` before using this version.',
           details: {
             path: dbPath,
-            expected: 1,
+            expected: MESSAGE_DB_SCHEMA_VERSION,
             actual: 0,
           },
         },

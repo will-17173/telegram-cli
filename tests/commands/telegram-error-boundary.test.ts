@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MESSAGE_DB_SCHEMA_VERSION } from '../../src/storage/message-db.js'
 
 const client = vi.hoisted(() => ({
   listChats: vi.fn(),
@@ -127,7 +128,7 @@ describe('Telegram command error boundary', () => {
         message: 'Run `tg data reset --yes` before using this version.',
         details: {
           path: dbPath,
-          expected: 1,
+          expected: MESSAGE_DB_SCHEMA_VERSION,
           actual: 0,
         },
       },

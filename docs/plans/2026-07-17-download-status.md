@@ -885,7 +885,7 @@ git commit -m "feat: show download status in web messages"
 - Modify: `README.zh-CN.md`
 - Modify: `docs/plans/2026-07-17-download-status.md`
 
-- [ ] **Step 1: Update README download docs**
+- [x] **Step 1: Update README download docs**
 
 In `README.md`, update the download paragraph to include:
 
@@ -899,7 +899,7 @@ In `README.zh-CN.md`, add the matching Chinese text:
 已下载的附件会记录在当前账号的本地数据库中。后续运行 `tg download` 时默认跳过已经下载过的附件，并在普通输出中提示 `already downloaded`。如果需要重新下载并刷新状态，使用 `--force`。
 ```
 
-- [ ] **Step 2: Run full verification**
+- [x] **Step 2: Run full verification**
 
 Run: `pnpm test`
 
@@ -913,7 +913,7 @@ Run: `pnpm build`
 
 Expected: production build completes successfully.
 
-- [ ] **Step 3: Commit docs and verification marker**
+- [x] **Step 3: Commit docs and verification marker**
 
 ```bash
 git add README.md README.zh-CN.md docs/plans/2026-07-17-download-status.md
