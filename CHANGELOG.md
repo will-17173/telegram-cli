@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-17
+
+### Added
+
+- Persist per-attachment download status in the local account database, including saved path and download time.
+- Skip already downloaded attachments by default in `tg download`, print an `already downloaded` notice in plain output, and add `--force` to redownload and refresh status.
+- Show message and attachment download status in `tg web`, and expose download status through local query and Web API responses.
+
+### Changed
+
+- Record archive media saved or reused by `tg archive --download-media` as downloaded in the local account database.
+
+### Fixed
+
+- Return an empty `tg web` chat list for authenticated accounts that do not have a local message database yet instead of reporting `internal_error`.
+
 ## [0.7.0] - 2026-07-17
 
 ### Added
