@@ -842,19 +842,22 @@ function GuardWorkbench() {
     }
     const requestId = ruleRequestId.current + 1
     ruleRequestId.current = requestId
+    void loadGuardRules(selectedGroupId, requestId)
+  }, [selectedGroupId])
+
+  async function loadGuardRules(groupId: number, requestId = ruleRequestId.current + 1): Promise<void> {
+    ruleRequestId.current = requestId
     setLoadingRules(true)
     setError('')
-    getJson<Page<GuardRule>>(`/api/guard/rules?group_id=${selectedGroupId}`)
-      .then((page) => {
-        if (requestId === ruleRequestId.current) setRules(page.items)
-      })
-      .catch((caught) => {
-        if (requestId === ruleRequestId.current) setError(errorText(caught))
-      })
-      .finally(() => {
-        if (requestId === ruleRequestId.current) setLoadingRules(false)
-      })
-  }, [selectedGroupId])
+    try {
+      const page = await getJson<Page<GuardRule>>(`/api/guard/rules?group_id=${groupId}`)
+      if (requestId === ruleRequestId.current) setRules(page.items)
+    } catch (caught) {
+      if (requestId === ruleRequestId.current) setError(errorText(caught))
+    } finally {
+      if (requestId === ruleRequestId.current) setLoadingRules(false)
+    }
+  }
 
   async function loadGuard() {
     setLoading(true)
@@ -867,7 +870,18 @@ function GuardWorkbench() {
       ])
       setStatus(statusData.runtime)
       setGroups(groupsData.items)
-      setSelectedGroupId((current) => nextGuardGroupId(groupsData.items, current))
+      const currentGroupId = nextGuardGroupId(groupsData.items, selectedGroupId)
+      const requestId = ruleRequestId.current + 1
+      if (currentGroupId == null) {
+        ruleRequestId.current = requestId
+        setRules([])
+      } else if (currentGroupId === selectedGroupId) {
+        void loadGuardRules(currentGroupId, requestId)
+      } else {
+        ruleRequestId.current = requestId
+        setRules([])
+      }
+      setSelectedGroupId(currentGroupId)
       setActivity(activityData.items)
     } catch (caught) {
       setError(errorText(caught))
