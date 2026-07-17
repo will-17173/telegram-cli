@@ -13,6 +13,8 @@ type ApiError = {
   message: string
 }
 
+type GuardValidationCode = 'invalid_rule_condition' | 'invalid_rule_action'
+
 const RUNTIME_STATUSES = new Set<GuardRuntimeStatus>(['stopped', 'starting', 'running', 'paused', 'error'])
 
 export async function handleGuardApiRequest(request: Request, context: ApiContext & { dataDir: string }): Promise<Response> {
@@ -22,18 +24,22 @@ export async function handleGuardApiRequest(request: Request, context: ApiContex
   try {
     if (url.pathname === '/api/guard/status') {
       if (request.method !== 'GET') return notFound()
-      return success(db.getRuntimeState())
+      return success({
+        runtime: db.getRuntimeState(),
+        groups: { items: db.listManagedGroups() },
+      })
     }
 
     if (url.pathname === '/api/guard/groups') {
-      if (request.method === 'GET') return success(db.listManagedGroups())
+      if (request.method === 'GET') return success({ items: db.listManagedGroups() })
       if (request.method === 'POST') return await createGroup(request, db)
       return notFound()
     }
 
     const groupId = pathId(url.pathname, '/api/guard/groups/')
     if (groupId != null) {
-      if (request.method === 'PATCH') return await updateGroup(request, db, groupId)
+      if (!groupId.ok) return invalidPathId('group id')
+      if (request.method === 'PATCH') return await updateGroup(request, db, groupId.id)
       return notFound()
     }
 
@@ -50,8 +56,9 @@ export async function handleGuardApiRequest(request: Request, context: ApiContex
 
     const ruleId = pathId(url.pathname, '/api/guard/rules/')
     if (ruleId != null) {
-      if (request.method === 'PATCH') return await updateRule(request, db, ruleId)
-      if (request.method === 'DELETE') return deleteRule(db, ruleId)
+      if (!ruleId.ok) return invalidPathId('rule id')
+      if (request.method === 'PATCH') return await updateRule(request, db, ruleId.id)
+      if (request.method === 'DELETE') return deleteRule(db, ruleId.id)
       return notFound()
     }
 
@@ -95,7 +102,7 @@ async function updateGroup(request: Request, db: GuardDB, id: number): Promise<R
 }
 
 function listRules(url: URL, db: GuardDB): Response {
-  return success(db.listRules(requiredPositiveIntParam(url, 'group_id')))
+  return success({ items: db.listRules(requiredPositiveIntParam(url, 'group_id')) })
 }
 
 async function createRule(request: Request, db: GuardDB): Promise<Response> {
@@ -171,13 +178,13 @@ function listActivity(url: URL, db: GuardDB): Response {
 
 function parseConditions(input: unknown) {
   const parsed = parseGuardConditions(input)
-  if (!parsed.ok) throw invalidRequest(parsed.error.message)
+  if (!parsed.ok) throw validationError(parsed.error.code, parsed.error.message)
   return parsed.value
 }
 
 function parseActions(input: unknown) {
   const parsed = parseGuardActions(input)
-  if (!parsed.ok) throw invalidRequest(parsed.error.message)
+  if (!parsed.ok) throw validationError(parsed.error.code, parsed.error.message)
   return parsed.value
 }
 
@@ -202,12 +209,12 @@ function policyFromBody(input: unknown, fallback: GuardGroupPolicy): GuardGroupP
   }
 }
 
-function pathId(pathname: string, prefix: string): number | undefined {
+function pathId(pathname: string, prefix: string): { ok: true; id: number } | { ok: false } | undefined {
   if (!pathname.startsWith(prefix)) return undefined
   const raw = pathname.slice(prefix.length)
-  if (!/^\d+$/.test(raw)) return undefined
+  if (!/^\d+$/.test(raw)) return { ok: false }
   const id = Number(raw)
-  return Number.isSafeInteger(id) && id > 0 ? id : undefined
+  return Number.isSafeInteger(id) && id > 0 ? { ok: true, id } : { ok: false }
 }
 
 function requiredPositiveIntParam(url: URL, name: string): number {
@@ -325,12 +332,30 @@ function invalidRequest(message: string): ApiError {
   return { status: 400, code: 'invalid_request', message }
 }
 
+function invalidPathId(label: string): Response {
+  return failure(400, 'invalid_request', `${label} must be a positive integer.`)
+}
+
+function validationError(code: GuardValidationCode, message: string): ApiError {
+  return { status: 400, code, message }
+}
+
 function errorResponse(error: unknown): Response {
   if (isApiError(error)) return failure(error.status, error.code, error.message)
 
   const message = error instanceof Error ? error.message : String(error)
+  const validationCode = guardValidationCode(message)
+  if (validationCode != null) return failure(400, validationCode, message)
   if (isKnownValidationMessage(message)) return failure(400, 'invalid_request', message)
   return failure(500, 'internal_error', 'Internal guard web API error.')
+}
+
+function guardValidationCode(message: string): GuardValidationCode | undefined {
+  if (message.startsWith('condition ')) return 'invalid_rule_condition'
+  if (message === 'conditions must be an array.') return 'invalid_rule_condition'
+  if (message.startsWith('action ')) return 'invalid_rule_action'
+  if (message === 'actions must be an array.') return 'invalid_rule_action'
+  return undefined
 }
 
 function isKnownValidationMessage(message: string): boolean {
@@ -343,7 +368,7 @@ function isApiError(error: unknown): error is ApiError {
   return typeof error === 'object'
     && error !== null
     && (error as { status?: unknown }).status === 400
-    && (error as { code?: unknown }).code === 'invalid_request'
+    && typeof (error as { code?: unknown }).code === 'string'
     && typeof (error as { message?: unknown }).message === 'string'
 }
 

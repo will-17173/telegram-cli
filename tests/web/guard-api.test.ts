@@ -86,11 +86,14 @@ describe('guard web API', () => {
     expect(await json(status)).toEqual({
       ok: true,
       data: {
-        status: 'stopped',
-        started_at: null,
-        updated_at: null,
-        queue_length: 0,
-        error: null,
+        runtime: {
+          status: 'stopped',
+          started_at: null,
+          updated_at: null,
+          queue_length: 0,
+          error: null,
+        },
+        groups: { items: [] },
       },
     })
 
@@ -100,7 +103,9 @@ describe('guard web API', () => {
     expect(groups.status).toBe(200)
     expect(await json(groups)).toMatchObject({
       ok: true,
-      data: [{ id: groupId, account: 'work', chat_id: -1001, title: 'Team', enabled: true }],
+      data: {
+        items: [{ id: groupId, account: 'work', chat_id: -1001, title: 'Team', enabled: true }],
+      },
     })
   })
 
@@ -141,7 +146,7 @@ describe('guard web API', () => {
     expect(list.status).toBe(200)
     expect(await json(list)).toMatchObject({
       ok: true,
-      data: [{ id: ruleId, name: 'No promo links' }],
+      data: { items: [{ id: ruleId, name: 'No promo links' }] },
     })
 
     const deleted = await api(root, `/api/guard/rules/${ruleId}`, { method: 'DELETE' })
@@ -149,7 +154,7 @@ describe('guard web API', () => {
     expect(await json(deleted)).toEqual({ ok: true, data: { deleted: true } })
 
     const empty = await api(root, `/api/guard/rules?group_id=${groupId}`)
-    expect(await json(empty)).toEqual({ ok: true, data: [] })
+    expect(await json(empty)).toEqual({ ok: true, data: { items: [] } })
   })
 
   it('tests sample text against current group rules', async () => {
@@ -243,9 +248,45 @@ describe('guard web API', () => {
     expect(await json(response)).toMatchObject({
       ok: false,
       error: {
-        code: 'invalid_request',
+        code: 'invalid_rule_condition',
         message: 'condition 1 has an invalid regex pattern.',
       },
+    })
+  })
+
+  it('returns JSON failure for malformed path IDs', async () => {
+    const root = makeRoot()
+
+    const groupResponse = await api(root, '/api/guard/groups/not-a-number', jsonPatch({ enabled: false }))
+    expect(groupResponse.status).toBe(400)
+    expect(await json(groupResponse)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+
+    const ruleResponse = await api(root, '/api/guard/rules/not-a-number', { method: 'DELETE' })
+    expect(ruleResponse.status).toBe(400)
+    expect(await json(ruleResponse)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request' },
+    })
+  })
+
+  it('returns JSON failure for not-found updates and deletes', async () => {
+    const root = makeRoot()
+
+    const groupResponse = await api(root, '/api/guard/groups/999', jsonPatch({ enabled: false }))
+    expect(groupResponse.status).toBe(404)
+    expect(await json(groupResponse)).toMatchObject({
+      ok: false,
+      error: { code: 'not_found', message: 'Guard group not found.' },
+    })
+
+    const ruleResponse = await api(root, '/api/guard/rules/999', { method: 'DELETE' })
+    expect(ruleResponse.status).toBe(404)
+    expect(await json(ruleResponse)).toMatchObject({
+      ok: false,
+      error: { code: 'not_found', message: 'Guard rule not found.' },
     })
   })
 
