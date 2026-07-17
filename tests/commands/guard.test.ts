@@ -14,8 +14,28 @@ const runtimeMocks = vi.hoisted(() => ({
   stop: vi.fn(async () => undefined),
 }))
 
+const guardDbMocks = vi.hoisted(() => ({
+  constructor: vi.fn(),
+  close: vi.fn(),
+  listEnabledGroups: vi.fn(() => []),
+  listRules: vi.fn(() => []),
+  getWarningCount: vi.fn(() => 0),
+  getRecentMessages: vi.fn(() => []),
+  recordEvent: vi.fn((input) => ({ ...input, id: 1 })),
+  recordAction: vi.fn(),
+  incrementWarning: vi.fn(() => 1),
+  updateManagedGroup: vi.fn(() => null),
+  setRuntimeState: vi.fn(),
+}))
+
 vi.mock('../../src/web/server.js', () => ({
   startWebServer,
+}))
+
+vi.mock('../../src/config/env.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../src/config/env.js')>(),
+  getDataDir: () => '/tmp/tg-guard-command-test',
+  getTelegramWriteAccess: () => true,
 }))
 
 vi.mock('../../src/guard/runtime.js', () => ({
@@ -24,6 +44,24 @@ vi.mock('../../src/guard/runtime.js', () => ({
     return {
       start: runtimeMocks.start,
       stop: runtimeMocks.stop,
+    }
+  }),
+}))
+
+vi.mock('../../src/storage/guard-db.js', () => ({
+  GuardDB: vi.fn(function GuardDB(path) {
+    guardDbMocks.constructor(path)
+    return {
+      close: guardDbMocks.close,
+      listEnabledGroups: guardDbMocks.listEnabledGroups,
+      listRules: guardDbMocks.listRules,
+      getWarningCount: guardDbMocks.getWarningCount,
+      getRecentMessages: guardDbMocks.getRecentMessages,
+      recordEvent: guardDbMocks.recordEvent,
+      recordAction: guardDbMocks.recordAction,
+      incrementWarning: guardDbMocks.incrementWarning,
+      updateManagedGroup: guardDbMocks.updateManagedGroup,
+      setRuntimeState: guardDbMocks.setRuntimeState,
     }
   }),
 }))
@@ -42,6 +80,18 @@ afterEach(() => {
   runtimeMocks.start.mockImplementation(async () => undefined)
   runtimeMocks.stop.mockReset()
   runtimeMocks.stop.mockImplementation(async () => undefined)
+  guardDbMocks.constructor.mockClear()
+  guardDbMocks.close.mockReset()
+  guardDbMocks.close.mockImplementation(() => undefined)
+  guardDbMocks.listEnabledGroups.mockClear()
+  guardDbMocks.listRules.mockClear()
+  guardDbMocks.getWarningCount.mockClear()
+  guardDbMocks.getRecentMessages.mockClear()
+  guardDbMocks.recordEvent.mockClear()
+  guardDbMocks.recordAction.mockClear()
+  guardDbMocks.incrementWarning.mockClear()
+  guardDbMocks.updateManagedGroup.mockClear()
+  guardDbMocks.setRuntimeState.mockClear()
 })
 
 describe('guard command', () => {
@@ -73,16 +123,20 @@ describe('guard command', () => {
     process.emit('SIGTERM')
     await running
 
-    expect(startWebServer).toHaveBeenCalledWith({ port: 9001 })
+    expect(startWebServer).toHaveBeenCalledWith({ port: 9001, dataDir: '/tmp/tg-guard-command-test' })
+    expect(guardDbMocks.constructor).toHaveBeenCalledWith('/tmp/tg-guard-command-test/guard.db')
     expect(runtimeMocks.constructor).toHaveBeenCalledOnce()
     const options = runtimeMocks.constructor.mock.calls[0]?.[0]
-    expect(options.writeAccess()).toBe(false)
+    expect(options.store).toMatchObject({ listEnabledGroups: guardDbMocks.listEnabledGroups })
+    expect(options.writeAccess()).toBe(true)
     expect(await options.store.listEnabledGroups()).toEqual([])
     await expect(options.executor.deleteMessage({ chat: 1, messageId: 2 })).resolves.toBeUndefined()
     expect(runtimeMocks.start).toHaveBeenCalledOnce()
     expect(runtimeMocks.stop).toHaveBeenCalledOnce()
+    expect(guardDbMocks.close).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
     expect(runtimeMocks.stop.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0])
+    expect(guardDbMocks.close.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0])
   })
 
   it('closes the web server when runtime startup fails', async () => {
@@ -101,6 +155,7 @@ describe('guard command', () => {
       .rejects.toThrow(error)
 
     expect(runtimeMocks.start).toHaveBeenCalledOnce()
+    expect(guardDbMocks.close).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
     expect(runtimeMocks.stop).not.toHaveBeenCalled()
   })
@@ -124,6 +179,7 @@ describe('guard command', () => {
     await expect(running).rejects.toThrow(error)
 
     expect(runtimeMocks.stop).toHaveBeenCalledOnce()
+    expect(guardDbMocks.close).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
     expect(runtimeMocks.stop.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0])
   })
@@ -138,6 +194,7 @@ describe('guard command', () => {
     await expect(app.parseAsync(['node', 'tg', 'guard', 'start', '--port', '70000']))
       .rejects.toThrow('--port must be a positive integer')
     expect(startWebServer).not.toHaveBeenCalled()
+    expect(guardDbMocks.constructor).not.toHaveBeenCalled()
     expect(runtimeMocks.constructor).not.toHaveBeenCalled()
   })
 })

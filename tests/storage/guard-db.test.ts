@@ -99,6 +99,31 @@ describe('GuardDB', () => {
     store.close()
   })
 
+  it('implements guard runtime store helpers', () => {
+    const store = db()
+    const enabled = store.upsertManagedGroup({
+      account: 'work',
+      chat_id: -1001,
+      title: 'Enabled',
+      enabled: true,
+      policy: store.defaultPolicy(),
+    })
+    store.upsertManagedGroup({
+      account: 'work',
+      chat_id: -1002,
+      title: 'Disabled',
+      enabled: false,
+      policy: store.defaultPolicy(),
+    })
+
+    expect(store.listEnabledGroups()).toMatchObject([{ id: enabled.id, title: 'Enabled' }])
+    expect(store.getWarningCount(enabled.id, 99)).toBe(0)
+    store.incrementWarning(enabled.id, 99, '2026-07-17T12:00:00.000Z')
+    expect(store.getWarningCount(enabled.id, 99)).toBe(1)
+    expect(store.getRecentMessages(enabled.id, 99, '2026-07-17T12:00:00.000Z')).toEqual([])
+    store.close()
+  })
+
   it('returns stopped runtime state for a fresh database', () => {
     const store = db()
     expect(store.getRuntimeState()).toEqual({

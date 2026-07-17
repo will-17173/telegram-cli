@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { parseGuardActions, parseGuardConditions } from '../guard/schema.js'
-import type { GuardAction, GuardCondition, GuardGroupPolicy, GuardManagedGroup, GuardRule } from '../guard/types.js'
+import type { GuardAction, GuardCondition, GuardEvent, GuardGroupPolicy, GuardManagedGroup, GuardRule } from '../guard/types.js'
 
 export type GuardActionStatus = 'executed' | 'skipped' | 'dry_run' | 'failed' | 'delayed'
 export type GuardRuntimeStatus = 'stopped' | 'starting' | 'running' | 'paused' | 'error'
@@ -41,7 +41,7 @@ export type GuardMemberState = {
 export type GuardEventRecord = {
   id: number
   group_id: number
-  event_type: string
+  event_type: GuardEvent['type']
   chat_id: number
   message_id: number | null
   user_id: number | null
@@ -55,7 +55,7 @@ export type GuardActionRecord = {
   id: number
   event_id: number
   rule_id: number | null
-  action_type: string
+  action_type: GuardAction['type']
   status: GuardActionStatus
   details: unknown
   created_at: string
@@ -124,7 +124,7 @@ type ActivityRow = {
   action_id: number
   event_id: number
   group_id: number
-  event_type: string
+  event_type: GuardEvent['type']
   chat_id: number
   message_id: number | null
   user_id: number | null
@@ -263,6 +263,10 @@ export class GuardDB {
     return rows.map(hydrateManagedGroup)
   }
 
+  listEnabledGroups(): GuardManagedGroup[] {
+    return this.listManagedGroups().filter((group) => group.enabled)
+  }
+
   managedGroupById(id: number): GuardManagedGroup | null {
     const row = this.db.prepare('SELECT * FROM guard_managed_groups WHERE id = ?').get(id) as ManagedGroupRow | undefined
     return row == null ? null : hydrateManagedGroup(row)
@@ -354,6 +358,14 @@ export class GuardDB {
       WHERE group_id = ? AND user_id = ?
     `).get(groupId, userId) as MemberStateRow | undefined
     return row ?? null
+  }
+
+  getWarningCount(groupId: number, userId: number): number {
+    return this.getMemberState(groupId, userId)?.warning_count ?? 0
+  }
+
+  getRecentMessages(_groupId: number, _userId: number, _before: string): [] {
+    return []
   }
 
   recordEvent(input: GuardEventInput): GuardEventRecord {
