@@ -148,6 +148,17 @@ describe('WebQueryService', () => {
     })
   })
 
+  it('returns an empty chat page when the account has no local message database yet', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const service = new WebQueryService({ dataDir: root })
+
+    expect(service.chats({ account: 'work', limit: 10, offset: 0 })).toEqual({
+      items: [],
+      total: 0,
+    })
+  })
+
   it('lists chats with counts and time coverage', () => {
     const root = makeRoot()
     seedAccount(root)

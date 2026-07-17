@@ -216,6 +216,19 @@ describe('handleApiRequest', () => {
     })
   })
 
+  it('returns an empty chat page for an account without a local message database', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+
+    const response = await api(root, '/api/chats?account=work')
+
+    expect(response.status).toBe(200)
+    expect(await json(response)).toEqual({
+      ok: true,
+      data: { items: [], total: 0 },
+    })
+  })
+
   it('returns HTTP 409 data_reset_required for old local schemas', async () => {
     const root = makeRoot()
     seedAccount(root)

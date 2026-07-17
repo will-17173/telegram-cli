@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { AccountStore } from '../account/account-store.js'
 import { resolveAccountContext } from '../account/account-context.js'
@@ -26,6 +27,7 @@ export class WebQueryService {
 
   chats(input: { account?: string; q?: string; limit?: number; offset?: number }): WebPage<WebChatSummary> {
     const context = resolveAccountContext({ explicitName: input.account, dataDir: this.options.dataDir })
+    if (!existsSync(context.dbPath)) return { items: [], total: 0 }
     const db = new MessageDB(context.dbPath, { readonly: true })
     try {
       const page = db.getChatsPage({
@@ -44,6 +46,7 @@ export class WebQueryService {
 
   messages(input: { account?: string; chatId: number; q?: string; senderId?: number; senderName?: string; text?: string; since?: string; until?: string; limit?: number; offset?: number; cursor?: string }): WebPage<WebMessage> {
     const context = resolveAccountContext({ explicitName: input.account, dataDir: this.options.dataDir })
+    if (!existsSync(context.dbPath)) return { items: [], total: 0, next_cursor: null }
     const db = new MessageDB(context.dbPath, { readonly: true })
     try {
       const page = db.getMessagesPage({
