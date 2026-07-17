@@ -685,6 +685,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <td><span class="scope-badge" data-scope="local">Local</span></td>
                   <td>Save credentials/proxy settings, inspect effective config, and control write access.<code class="command-syntax">tg config write-access status --json</code></td>
                 </tr>
+                <tr data-command="guard">
+                  <th scope="row"><code>guard</code></th>
+                  <td><span class="scope-badge" data-scope="local">Local</span> <span class="scope-badge" data-scope="write">Automation</span></td>
+                  <td>Start the local Telegram Guard daemon and browser workbench for group automation rules.<code class="command-syntax">tg guard start --port 8734</code></td>
+                </tr>
                 <tr data-command="web">
                   <th scope="row"><code>web</code></th>
                   <td><span class="scope-badge" data-scope="local">Local</span></td>
@@ -1336,7 +1341,7 @@ tg config write-access on</code></pre>
         </section>
       </article>
 
-      <aside class="docs-status-card docs-page-outline" data-command-count="35" data-group-command-count="48" aria-label="Page status">
+      <aside class="docs-status-card docs-page-outline" data-command-count="36" data-group-command-count="48" aria-label="Page status">
         <p class="mini-label">This page</p>
         <strong>v0.7.3</strong>
         <dl>

@@ -523,6 +523,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <td><span class="scope-badge" data-scope="local">本地配置</span></td>
                   <td>管理 API 凭据、代理和远端写入总开关；改变开关不等于授权具体写操作。</td>
                 </tr>
+                <tr data-command="guard">
+                  <th scope="row"><code dir="ltr" translate="no">tg guard</code></th>
+                  <td><span class="scope-badge" data-scope="local">本地管理</span> <span class="scope-badge" data-scope="write">自动化</span></td>
+                  <td>启动本地 Telegram Guard 守护进程与浏览器工作台，用于配置群管理自动化规则。</td>
+                </tr>
                 <tr data-command="web">
                   <th scope="row"><code dir="ltr" translate="no">tg web</code></th>
                   <td><span class="scope-badge" data-scope="local">本地管理</span></td>
@@ -861,7 +866,7 @@ tg config write-access on --json</code></pre>
         </section>
       </article>
 
-      <aside class="docs-status-card docs-page-outline" data-command-count="35" data-group-command-count="48" aria-label="本页范围说明">
+      <aside class="docs-status-card docs-page-outline" data-command-count="36" data-group-command-count="48" aria-label="本页范围说明">
         <p class="status-card-label docs-outline-label">THIS PAGE</p>
         <h2>命令信号</h2>
         <dl class="scope-key">
