@@ -4,6 +4,7 @@ import type { GuardActionExecutor } from '../../src/guard/action-queue.js'
 import type {
   GuardActionRecordInput,
   GuardEventRecordInput,
+  GuardRuntimeListener,
   GuardRuntimeStateInput,
   GuardRuntimeStore,
 } from '../../src/guard/runtime.js'
@@ -78,6 +79,26 @@ function executor(overrides: Partial<GuardActionExecutor> = {}): GuardActionExec
     reply: vi.fn(async () => undefined),
     sendMessage: vi.fn(async () => undefined),
     ...overrides,
+  }
+}
+
+type ListenerStartInput = Parameters<GuardRuntimeListener['start']>[0]
+
+function listener(): GuardRuntimeListener & {
+  starts: ListenerStartInput[]
+  stops: Array<ReturnType<typeof vi.fn>>
+} {
+  const starts: ListenerStartInput[] = []
+  const stops: Array<ReturnType<typeof vi.fn>> = []
+  return {
+    starts,
+    stops,
+    start: vi.fn(async (input) => {
+      const stop = vi.fn(async () => undefined)
+      starts.push(input)
+      stops.push(stop)
+      return { stop }
+    }),
   }
 }
 
@@ -303,6 +324,66 @@ describe('GuardRuntime', () => {
         details: { reason: 'reply cooldown is active' },
         created_at: '2026-07-17T12:00:01.000Z',
       },
+    ])
+  })
+
+  it('starts listeners for enabled groups and routes emitted events through runtime', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002 })]
+    store.rules.set(1, [rule({ actions: [{ type: 'warn', reason: 'No links' }] })])
+    const fakeListener = listener()
+    const runtime = new GuardRuntime({
+      store,
+      executor: executor(),
+      writeAccess: () => true,
+      listener: fakeListener,
+    })
+
+    await runtime.start()
+    await fakeListener.starts[0]?.onEvent(event())
+
+    expect(fakeListener.start).toHaveBeenCalledTimes(2)
+    expect(fakeListener.starts.map((start) => ({
+      account: start.account,
+      groupId: start.groupId,
+      chatId: start.chatId,
+    }))).toEqual([
+      { account: 'work', groupId: 1, chatId: -1001 },
+      { account: 'work', groupId: 2, chatId: -1002 },
+    ])
+    expect(store.events).toHaveLength(1)
+    expect(store.actions).toEqual([
+      {
+        event_id: 1,
+        rule_id: 1,
+        action_type: 'warn',
+        status: 'executed',
+        details: { warning_increment: true, reason: 'No links' },
+        created_at: now,
+      },
+    ])
+  })
+
+  it('stops listener handles before clearing runtime state', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002 })]
+    const fakeListener = listener()
+    const runtime = new GuardRuntime({
+      store,
+      executor: executor(),
+      writeAccess: () => true,
+      listener: fakeListener,
+    })
+
+    await runtime.start()
+    await runtime.stop()
+
+    expect(fakeListener.stops).toHaveLength(2)
+    expect(fakeListener.stops[0]).toHaveBeenCalledTimes(1)
+    expect(fakeListener.stops[1]).toHaveBeenCalledTimes(1)
+    expect(store.updatedGroups.slice(-2)).toEqual([
+      { id: 1, patch: { runtime_status: 'stopped' } },
+      { id: 2, patch: { runtime_status: 'stopped' } },
     ])
   })
 

@@ -54,24 +54,43 @@ export type GuardRuntimeStore = {
   setRuntimeState(input: GuardRuntimeStateInput): MaybePromise<unknown>
 }
 
+export type GuardRuntimeListenerStartInput = {
+  account: string
+  groupId: number
+  chatId: number
+  onEvent: (event: GuardEvent) => Promise<void>
+}
+
+export type GuardRuntimeListenerHandle = {
+  stop(): Promise<void>
+}
+
+export type GuardRuntimeListener = {
+  start(input: GuardRuntimeListenerStartInput): Promise<GuardRuntimeListenerHandle>
+}
+
 export type GuardRuntimeOptions = {
   store: GuardRuntimeStore
   executor: GuardActionExecutor
   writeAccess: () => boolean
+  listener?: GuardRuntimeListener
 }
 
 export class GuardRuntime {
   private readonly store: GuardRuntimeStore
   private readonly queue: GuardActionQueue
   private readonly writeAccess: () => boolean
+  private readonly listener: GuardRuntimeListener | null
   private readonly cooldowns = new Map<string, string>()
   private readonly startedGroupIds = new Set<number>()
+  private listenerHandles: GuardRuntimeListenerHandle[] = []
   private eventProcessing: Promise<void> = Promise.resolve()
 
   constructor(options: GuardRuntimeOptions) {
     this.store = options.store
     this.queue = new GuardActionQueue({ executor: options.executor })
     this.writeAccess = options.writeAccess
+    this.listener = options.listener ?? null
   }
 
   async start(): Promise<void> {
@@ -90,6 +109,15 @@ export class GuardRuntime {
         await this.store.updateManagedGroup(group.id, { runtime_status: 'running' })
         touchedGroupIds.push(group.id)
         this.startedGroupIds.add(group.id)
+        if (this.listener != null) {
+          const handle = await this.listener.start({
+            account: group.account,
+            groupId: group.id,
+            chatId: group.chat_id,
+            onEvent: (event) => this.handleEvent(event),
+          })
+          this.listenerHandles.push(handle)
+        }
       }
       await this.store.setRuntimeState({
         status: 'running',
@@ -104,12 +132,19 @@ export class GuardRuntime {
         queue_length: 0,
         error: errorMessage(error),
       })
+      await this.stopListenerHandlesBestEffort()
       await this.markGroupsBestEffort(touchedGroupIds, 'error')
       throw error
     }
   }
 
   async stop(): Promise<void> {
+    const listenerHandles = this.listenerHandles
+    this.listenerHandles = []
+    for (const handle of listenerHandles) {
+      await handle.stop()
+    }
+
     const startedGroupIds = [...this.startedGroupIds]
     for (const groupId of startedGroupIds) {
       await this.store.updateManagedGroup(groupId, { runtime_status: 'stopped' })
@@ -179,6 +214,18 @@ export class GuardRuntime {
         details: result.details,
         created_at: event.created_at,
       })
+    }
+  }
+
+  private async stopListenerHandlesBestEffort(): Promise<void> {
+    const listenerHandles = this.listenerHandles
+    this.listenerHandles = []
+    for (const handle of listenerHandles) {
+      try {
+        await handle.stop()
+      } catch {
+        // Startup cleanup is best-effort; preserve the original startup failure.
+      }
     }
   }
 
