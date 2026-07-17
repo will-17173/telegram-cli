@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Process `tg download --all` one history page at a time, downloading each page before scanning older messages and printing progress notices in plain output.
+- Format attachment sizes in human and listen output with compact KB, MB, and GB units.
 
 ### Fixed
 

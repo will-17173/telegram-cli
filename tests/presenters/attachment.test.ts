@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   attachmentSummary,
+  formatAttachmentSize,
   presentMessageAttachments,
 } from '../../src/presenters/attachment.js'
 import { attachment, message } from '../fixtures/messages.js'
@@ -65,6 +66,14 @@ describe('attachment presenter', () => {
     expect(attachmentSummary([
       attachment({ kind: 'document', file_name: 'notes.pdf', file_size: 2048 }),
       attachment({ attachment_index: 2, kind: 'video', subtype: 'round' }),
-    ])).toBe('📎 document: notes.pdf, 2048 bytes; video/round')
+    ])).toBe('📎 document: notes.pdf, 2 KB; video/round')
+  })
+
+  it('formats attachment sizes with compact binary units', () => {
+    expect(formatAttachmentSize(1024)).toBe('1024 bytes')
+    expect(formatAttachmentSize(1025)).toBe('1 KB')
+    expect(formatAttachmentSize(100773)).toBe('98.4 KB')
+    expect(formatAttachmentSize(1536 * 1024)).toBe('1.5 MB')
+    expect(formatAttachmentSize(2 * 1024 * 1024 * 1024)).toBe('2 GB')
   })
 })

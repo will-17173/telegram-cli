@@ -80,7 +80,7 @@ describe('human output builders', () => {
       kind: 'table',
       title: 'Messages',
       columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'REPLY TO', 'MEDIA GROUP', 'MESSAGE'],
-      rows: [['22', localTimestamp('2026-07-10T01:02:03Z'), 'General', 'Ada', '20', '10:99', 'release\n📎 document: notes.pdf, 2048 bytes; video/round']],
+      rows: [['22', localTimestamp('2026-07-10T01:02:03Z'), 'General', 'Ada', '20', '10:99', 'release\n📎 document: notes.pdf, 2 KB; video/round']],
       emptyText: 'No online messages found.',
     })
   })

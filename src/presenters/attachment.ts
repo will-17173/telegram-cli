@@ -71,6 +71,19 @@ export function summarizeAttachments(attachments: Attachment[]): string {
   return attachmentSummary(attachments) ?? ''
 }
 
+export function formatAttachmentSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 1024) return `${bytes} bytes`
+  const units = [
+    { threshold: 1024 * 1024 * 1024, suffix: 'GB' },
+    { threshold: 1024 * 1024, suffix: 'MB' },
+    { threshold: 1024, suffix: 'KB' },
+  ]
+  const unit = units.find((candidate) => bytes > candidate.threshold) ?? units.at(-1)!
+  const value = bytes / unit.threshold
+  const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/u, '')
+  return `${formatted} ${unit.suffix}`
+}
+
 export function attachmentFileName(attachment: PresentedAttachment): string {
   if (attachment.file_name != null) return attachment.file_name
   const extension = attachment.mime_type == null
@@ -100,7 +113,7 @@ function parentDepth(attachmentIndex: number, parentIndex: number, depths: Map<n
 function summarizeAttachment(attachment: Attachment): string {
   const details = [
     attachment.file_name,
-    attachment.file_size == null ? null : `${attachment.file_size} bytes`,
+    attachment.file_size == null ? null : formatAttachmentSize(attachment.file_size),
   ].filter((value): value is string => value != null)
   const label = attachmentLabel(attachment)
   return details.length === 0 ? label : `${label}: ${details.join(', ')}`
