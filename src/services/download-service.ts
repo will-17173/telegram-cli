@@ -21,6 +21,7 @@ export type DownloadInput = {
   until?: Date
   all?: boolean
   force?: boolean
+  extensions?: string[]
   output: string
   concurrency?: number
 }
@@ -304,6 +305,10 @@ export class DownloadService {
           }
           continue
         }
+        if (!matchesExtensionFilter(message, attachment, input)) {
+          this.lastSkips.push(skipFor(message, attachment, selectionIndex, 'extension_mismatch'))
+          continue
+        }
         if (this.skipAlreadyDownloaded(message, attachment, selectionIndex, input)) continue
         const destination = uniqueDestination(input.output, fileNameForAttachment(message, attachment), this.exists, reserved)
         reserved.add(destination)
@@ -338,6 +343,10 @@ export class DownloadService {
         } else if (input.attachment == null) {
           this.lastSkips.push(skipFor(message, attachment, selectionIndex, 'attachment_not_downloadable'))
         }
+        continue
+      }
+      if (!matchesExtensionFilter(message, attachment, input)) {
+        this.lastSkips.push(skipFor(message, attachment, selectionIndex, 'extension_mismatch'))
         continue
       }
       if (this.skipAlreadyDownloaded(message, attachment, selectionIndex, input)) continue
@@ -471,6 +480,7 @@ function validateDownloadInput(input: DownloadInput): HandlerResult<never> | nul
   if (input.fromId != null && !isPositiveInteger(input.fromId)) return invalidOption('from id must be a positive integer.')
   if (input.toId != null && !isPositiveInteger(input.toId)) return invalidOption('to id must be a positive integer.')
   if (input.concurrency != null && !isPositiveInteger(input.concurrency)) return invalidOption('concurrency must be a positive integer.')
+  if (input.extensions != null && normalizeExtensions(input.extensions).size === 0) return invalidOption('extension filter must include at least one extension.')
   if (input.since != null && input.until != null && input.since.getTime() >= input.until.getTime()) {
     return invalidOption('since must be earlier than until.')
   }
@@ -545,6 +555,23 @@ function fileNameForAttachment(message: ArchiveMessage, attachment: Attachment):
   if (raw) return raw
   const extension = extensionForAttachment(attachment)
   return `${message.chat_id}-${message.msg_id}-${attachment.attachment_index}.${extension}`
+}
+
+function matchesExtensionFilter(message: ArchiveMessage, attachment: Attachment, input: DownloadInput): boolean {
+  if (input.extensions == null) return true
+  const extensions = normalizeExtensions(input.extensions)
+  if (extensions.size === 0) return true
+  const extension = extname(fileNameForAttachment(message, attachment))
+    .replace(/^\./, '')
+    .toLowerCase()
+  return extension !== '' && extensions.has(extension)
+}
+
+function normalizeExtensions(extensions: string[]): Set<string> {
+  return new Set(extensions
+    .flatMap((item) => item.split(','))
+    .map((item) => item.trim().replace(/^\./, '').toLowerCase())
+    .filter(Boolean))
 }
 
 function extensionForAttachment(attachment: Attachment): string {

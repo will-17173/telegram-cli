@@ -32,7 +32,7 @@ vi.mock('../../src/cli/output.js', () => ({ renderResult }))
 
 import { createApp } from '../../src/cli/app.js'
 
-function archiveMessage(id: number, groupedId: string | null = null): ArchiveMessage {
+function archiveMessage(id: number, groupedId: string | null = null, attachments: Attachment[] = [attachment(id)]): ArchiveMessage {
   return {
     platform: 'telegram',
     chat_id: -100,
@@ -45,11 +45,11 @@ function archiveMessage(id: number, groupedId: string | null = null): ArchiveMes
     reply_to_msg_id: null,
     media_group_id: groupedId,
     raw_json: null,
-    attachments: [attachment(id)],
+    attachments,
   }
 }
 
-function attachment(id: number, index = 1): Attachment {
+function attachment(id: number, index = 1, overrides: Partial<Attachment> = {}): Attachment {
   return {
     attachment_index: index,
     parent_attachment_index: null,
@@ -79,6 +79,7 @@ function attachment(id: number, index = 1): Attachment {
     url: null,
     preview_jpeg_base64: null,
     metadata: {},
+    ...overrides,
   }
 }
 
@@ -281,6 +282,34 @@ describe('download command', () => {
       ok: true,
       data: expect.objectContaining({ requested: 1, downloaded: 1 }),
     }), expect.any(Object))
+  })
+
+  it('filters downloads by extension option', async () => {
+    const output = join(dataDir, 'filtered-media')
+    archive.iterHistoryPages.mockImplementationOnce((_input: unknown) => (async function* () {
+      yield [
+        archiveMessage(43, null, [attachment(43, 1, { file_name: 'clip.webm', mime_type: 'video/webm', kind: 'video' })]),
+        archiveMessage(42, null, [attachment(42, 1, { file_name: 'photo.jpg', mime_type: 'image/jpeg' })]),
+      ]
+    })())
+
+    await createApp().exitOverride().parseAsync([
+      'node', 'tg', 'download', '@channel',
+      '--all',
+      '--ext', 'jpg,.png',
+      '--output', output,
+      '--json',
+    ])
+
+    expect(archive.downloadMedia.mock.calls.map(([input]) => input.msgId)).toEqual([42])
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({
+        requested: 1,
+        downloaded: 1,
+        skipped: 1,
+      }),
+    }), expect.objectContaining({ json: true }))
   })
 
   it('prints already-downloaded notices and skips plain download output', async () => {

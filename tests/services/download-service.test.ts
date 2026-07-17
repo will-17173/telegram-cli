@@ -368,6 +368,42 @@ describe('DownloadService', () => {
     expect(existsSync(join(output, '-100-2-1.bin'))).toBe(false)
   })
 
+  it('downloads only attachments matching requested extensions', async () => {
+    const output = outputDirectory()
+    const source = sourceFor([[
+      message(4, '2026-07-15T13:00:00.000Z', [attachment(4, { file_name: 'clip.WEBM', mime_type: 'video/webm', kind: 'video' })]),
+      message(3, '2026-07-15T12:00:00.000Z', [attachment(3, { file_name: 'photo.JPG', mime_type: 'image/jpeg' })]),
+      message(2, '2026-07-15T11:00:00.000Z', [attachment(2, { file_name: null, mime_type: 'image/png' })]),
+      message(1, '2026-07-15T10:00:00.000Z', [attachment(1, { file_name: 'document.pdf', mime_type: 'application/pdf', kind: 'document' })]),
+    ]])
+
+    const result = await new DownloadService(source).download({
+      chat: '@channel',
+      all: true,
+      output,
+      extensions: ['jpg', '.png'],
+      concurrency: 1,
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        requested: 2,
+        downloaded: 2,
+        skipped: 2,
+        skips: [
+          { msg_id: 4, attachment_index: 1, reason: 'extension_mismatch' },
+          { msg_id: 1, attachment_index: 1, reason: 'extension_mismatch' },
+        ],
+      },
+    })
+    expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId)).toEqual([3, 2])
+    expect(existsSync(join(output, 'photo.JPG'))).toBe(true)
+    expect(existsSync(join(output, '-100-2-1.png'))).toBe(true)
+    expect(existsSync(join(output, 'clip.WEBM'))).toBe(false)
+    expect(existsSync(join(output, 'document.pdf'))).toBe(false)
+  })
+
   it('can traverse all channel media from newest to oldest with a concurrency limit', async () => {
     const output = outputDirectory()
     const source = sourceFor([[message(5), message(4)], [message(3), message(2)]])

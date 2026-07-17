@@ -55,6 +55,7 @@ type DownloadFlags = MachineOptions & {
   until?: string
   all?: boolean
   force?: boolean
+  ext?: string[]
   output?: string
   concurrency?: string
 }
@@ -305,6 +306,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--until <until>', 'Only download media before this time')
     .option('--all', 'Download all media from the chat, newest to oldest')
     .option('--force', 'Redownload media even when local status says it was already downloaded')
+    .option('--ext <extensions>', 'Only download files with matching extensions, comma-separated or repeated', collectDownloadExtensions, [])
     .option('-o, --output <path>', 'Download directory')
     .option('-j, --concurrency <count>', 'Concurrent downloads', '3')
     .option('--json')
@@ -606,6 +608,7 @@ function buildDownloadInput(
       ...(until == null ? {} : { until }),
       ...(options.all === true ? { all: true } : {}),
       ...(options.force === true ? { force: true } : {}),
+      ...(options.ext == null || options.ext.length === 0 ? {} : { extensions: options.ext }),
       output: options.output ?? defaultDownloadOutput(),
       ...(concurrency == null ? {} : { concurrency }),
     },
@@ -646,6 +649,13 @@ function localGroupedDownloadMessages(
 function parsePositiveInteger(value: string): number | undefined {
   const parsed = Number.parseInt(value, 10)
   return String(parsed) === value.trim() && parsed > 0 ? parsed : undefined
+}
+
+function collectDownloadExtensions(value: string, previous: string[]): string[] {
+  return [
+    ...previous,
+    ...value.split(',').map((item) => item.trim()).filter(Boolean),
+  ]
 }
 
 function parseLocalDate(value: string): Date | undefined {
