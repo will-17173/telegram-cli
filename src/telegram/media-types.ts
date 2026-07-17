@@ -1,3 +1,5 @@
+import type { tl } from '@mtcute/node'
+
 export const MEDIA_KINDS = [
   'photo',
   'video',
@@ -64,6 +66,7 @@ export type Attachment = {
 export type NormalizedMessage = {
   platform: 'telegram'
   chat_id: number
+  download_peer?: tl.TypeInputPeer
   chat_name: string
   msg_id: number
   sender_id: number | null

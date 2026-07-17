@@ -3,6 +3,7 @@ import type { Attachment, MediaKind, NormalizedMessage } from '../telegram/media
 export type PresentedAttachment = Attachment & {
   chatId: number
   messageId: number
+  downloadPeer?: NormalizedMessage['download_peer']
   key: string
   depth: number
   label: string
@@ -49,6 +50,7 @@ export function presentMessageAttachments(message: NormalizedMessage): Presented
       ...attachment,
       chatId: message.chat_id,
       messageId: message.msg_id,
+      ...(message.download_peer == null ? {} : { downloadPeer: message.download_peer }),
       key: `${message.chat_id}:${message.msg_id}:${attachment.attachment_index}`,
       depth,
       label: attachmentLabel(attachment),

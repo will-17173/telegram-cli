@@ -91,7 +91,7 @@ export class MtcuteArchive implements TelegramArchiveAdapter {
 
   async downloadMedia(input: DownloadMessageMediaOptions): Promise<void> {
     await this.ensureReady()
-    const [message] = await this.client.getMessages(normalizeChatId(input.chat), input.msgId)
+    const [message] = await this.client.getMessages(input.attachment.downloadPeer ?? normalizeChatId(input.chat), input.msgId)
     if (message == null) {
       throw new AttachmentLookupError(
         'attachment_changed',

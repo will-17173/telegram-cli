@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { Long } from '@mtcute/node'
 import {
   AttachmentLookupError,
   matchFreshAttachment,
@@ -72,6 +73,15 @@ describe('toAttachmentLocator', () => {
       height: null,
       duration_seconds: null,
     })
+  })
+
+  it('carries an optional runtime download peer', () => {
+    const downloadPeer = { _: 'inputPeerChannel', channelId: 123, accessHash: Long.fromNumber(456) } as const
+
+    expect(toAttachmentLocator({
+      ...attachment(),
+      downloadPeer,
+    })).toEqual(expect.objectContaining({ downloadPeer }))
   })
 })
 

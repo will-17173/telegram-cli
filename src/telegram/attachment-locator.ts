@@ -1,3 +1,5 @@
+import type { tl } from '@mtcute/node'
+
 import type { Attachment } from './media-types.js'
 
 export type AttachmentLocator = Pick<
@@ -12,7 +14,9 @@ export type AttachmentLocator = Pick<
   | 'width'
   | 'height'
   | 'duration_seconds'
->
+> & {
+  downloadPeer?: tl.TypeInputPeer
+}
 
 export type AttachmentLookupCode =
   | 'attachment_not_found'
@@ -38,9 +42,9 @@ export type DownloadMessageMediaOptions = {
 }
 
 export function toAttachmentLocator(
-  attachment: Attachment,
+  attachment: Attachment & { downloadPeer?: tl.TypeInputPeer },
 ): AttachmentLocator {
-  return {
+  const locator: AttachmentLocator = {
     attachment_index: attachment.attachment_index,
     unique_file_id: attachment.unique_file_id,
     kind: attachment.kind,
@@ -52,6 +56,8 @@ export function toAttachmentLocator(
     height: attachment.height,
     duration_seconds: attachment.duration_seconds,
   }
+  if (attachment.downloadPeer != null) locator.downloadPeer = attachment.downloadPeer
+  return locator
 }
 
 export function selectStoredAttachment(

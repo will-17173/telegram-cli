@@ -1,4 +1,4 @@
-import { FileLocation, tl } from '@mtcute/node'
+import { FileLocation, Long, tl } from '@mtcute/node'
 import type { Message, TelegramClient } from '@mtcute/node'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -8,6 +8,7 @@ describe('MtcuteTelegramClient media downloads', () => {
   it('refetches media received by listen before downloading', async () => {
     const media = new FileLocation(new Uint8Array([1, 2, 3]), 3)
     const freshMedia = mediaObject(media, 'unique-listened')
+    const inputPeer = { _: 'inputPeerChannel', channelId: 123, accessHash: Long.fromNumber(456) } as const
     const onNewMessage = event<Message>()
     const onConnectionState = event<'offline' | 'connecting' | 'updating' | 'connected'>()
     const getMessages = vi.fn().mockResolvedValue([message(502729, freshMedia)])
@@ -37,11 +38,11 @@ describe('MtcuteTelegramClient media downloads', () => {
     await telegram.downloadMessageMedia({
       chat: -100123,
       msgId: 502729,
-      attachment: locator('unique-listened'),
+      attachment: { ...locator('unique-listened'), downloadPeer: inputPeer },
       destination: '/tmp/video.mp4',
     })
 
-    expect(getMessages).toHaveBeenCalledWith(-100123, 502729)
+    expect(getMessages).toHaveBeenCalledWith(inputPeer, 502729)
     expect(downloadToFile).toHaveBeenCalledWith('/tmp/video.mp4', expect.any(FileLocation), {
       progressCallback: undefined,
     })
@@ -73,6 +74,39 @@ describe('MtcuteTelegramClient media downloads', () => {
     expect(downloadToFile).toHaveBeenCalledWith('/tmp/photo.jpg', expect.any(FileLocation), {
       progressCallback: undefined,
     })
+  })
+
+  it('normalizes listened messages with a runtime download peer', async () => {
+    const media = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+    const inputPeer = { _: 'inputPeerChannel', channelId: 123, accessHash: Long.fromNumber(456) } as const
+    const onNewMessage = event<Message>()
+    const onConnectionState = event<'offline' | 'connecting' | 'updating' | 'connected'>()
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      onNewMessage,
+      onConnectionState,
+      startUpdatesLoop: vi.fn().mockResolvedValue(undefined),
+      stopUpdatesLoop: vi.fn().mockResolvedValue(undefined),
+    } as unknown as TelegramClient
+    const telegram = new MtcuteTelegramClient(client)
+    const controller = new AbortController()
+    const received = vi.fn()
+    const listening = telegram.listen({
+      signal: controller.signal,
+      onMessage: received,
+    })
+
+    await vi.waitFor(() => expect(onNewMessage.add).toHaveBeenCalledOnce())
+    onNewMessage.emit(message(502729, mediaObject(media, 'unique-listened'), {
+      chat: { id: -1000000000123, type: 'chat', title: 'Engineering', inputPeer },
+    }))
+    await vi.waitFor(() => expect(received).toHaveBeenCalledOnce())
+
+    expect(received.mock.calls[0]?.[0]).toMatchObject({ download_peer: inputPeer })
+
+    controller.abort()
+    await listening
   })
 
   it('rejects changed media when the fresh message does not match the locator', async () => {
@@ -138,7 +172,7 @@ function event<T>() {
   }
 }
 
-function message(id: number, media: unknown): Message {
+function message(id: number, media: unknown, overrides: Record<string, unknown> = {}): Message {
   return {
     id,
     chat: { id: -100123, type: 'chat', title: 'Engineering' },
@@ -147,5 +181,6 @@ function message(id: number, media: unknown): Message {
     date: new Date('2026-07-13T13:11:00.000Z'),
     raw: { _: 'message', id },
     media,
+    ...overrides,
   } as unknown as Message
 }

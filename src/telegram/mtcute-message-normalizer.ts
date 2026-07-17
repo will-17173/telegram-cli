@@ -25,6 +25,7 @@ export function normalizeMtcuteMessageWithLocations(message: Message): Normalize
     message: {
       platform: 'telegram',
       chat_id: message.chat.id,
+      ...downloadPeerFields(message.chat),
       chat_name: peerDisplayName(message.chat),
       msg_id: message.id,
       sender_id: typeof message.sender.id === 'number' ? message.sender.id : null,
@@ -38,6 +39,22 @@ export function normalizeMtcuteMessageWithLocations(message: Message): Normalize
     },
     locations: normalizedMedia.locations,
   }
+}
+
+function downloadPeerFields(peer: unknown): Pick<NormalizedMessage, 'download_peer'> | Record<string, never> {
+  if (peer == null || typeof peer !== 'object' || !('inputPeer' in peer)) return {}
+  try {
+    const inputPeer = (peer as { inputPeer?: unknown }).inputPeer
+    return isInputPeer(inputPeer) ? { download_peer: inputPeer } : {}
+  } catch {
+    return {}
+  }
+}
+
+function isInputPeer(value: unknown): value is NonNullable<NormalizedMessage['download_peer']> {
+  if (value == null || typeof value !== 'object') return false
+  const kind = (value as { _?: unknown })._
+  return typeof kind === 'string' && kind.startsWith('inputPeer')
 }
 
 function peerDisplayName(peer: unknown): string {
