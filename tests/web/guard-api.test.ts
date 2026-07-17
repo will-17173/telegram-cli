@@ -174,6 +174,48 @@ describe('guard web API', () => {
     })
   })
 
+  it('tests sample warning counts against current group rules', async () => {
+    const root = makeRoot()
+    const groupId = await createGroup(root)
+    const response = await api(root, '/api/guard/rules', jsonPost({
+      group_id: groupId,
+      name: 'Warn limit',
+      enabled: true,
+      priority: 100,
+      conditions: [{ type: 'member_warning_count_at_least', count: 2 }],
+      actions: [{ type: 'record_only', reason: 'warn limit' }],
+    }))
+    const body = await json(response) as { data: { id: number } }
+    const ruleId = body.data.id
+
+    const low = await api(root, '/api/guard/rules/test', jsonPost({
+      group_id: groupId,
+      text: 'hello',
+      warning_count: 1,
+    }))
+    expect(low.status).toBe(200)
+    expect(await json(low)).toEqual({ ok: true, data: { matched_rule_ids: [] } })
+
+    const high = await api(root, '/api/guard/rules/test', jsonPost({
+      group_id: groupId,
+      text: 'hello',
+      warning_count: 2,
+    }))
+    expect(high.status).toBe(200)
+    expect(await json(high)).toEqual({ ok: true, data: { matched_rule_ids: [ruleId] } })
+
+    const invalid = await api(root, '/api/guard/rules/test', jsonPost({
+      group_id: groupId,
+      text: 'hello',
+      warning_count: -1,
+    }))
+    expect(invalid.status).toBe(400)
+    expect(await json(invalid)).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_request', message: 'warning_count must be a non-negative integer.' },
+    })
+  })
+
   it('returns guard activity', async () => {
     const root = makeRoot()
     const groupId = await createGroup(root)

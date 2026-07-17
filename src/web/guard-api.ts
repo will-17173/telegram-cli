@@ -142,6 +142,7 @@ async function testRules(request: Request, db: GuardDB): Promise<Response> {
   const body = await jsonObjectRequest(request)
   const groupId = requiredPositiveInteger(body, 'group_id')
   const text = requiredString(body, 'text')
+  const warningCount = optionalNonNegativeBodyInteger(body, 'warning_count') ?? 0
   const group = db.managedGroupById(groupId)
   if (group == null) return failure(404, 'not_found', 'Guard group not found.')
 
@@ -161,7 +162,7 @@ async function testRules(request: Request, db: GuardDB): Promise<Response> {
       current_account_user_id: null,
     },
     context: {
-      warning_count: 0,
+      warning_count: warningCount,
       recent_messages: [],
     },
   })
@@ -290,6 +291,13 @@ function optionalNonNegativeInteger(body: Record<string, unknown>, name: string)
   if (!hasOwn(body, name)) return undefined
   const value = body[name]
   if (!isSafeInteger(value) || value < 0) throw invalidRequest(`policy.${name} must be a non-negative integer.`)
+  return value
+}
+
+function optionalNonNegativeBodyInteger(body: Record<string, unknown>, name: string): number | undefined {
+  if (!hasOwn(body, name)) return undefined
+  const value = body[name]
+  if (!isSafeInteger(value) || value < 0) throw invalidRequest(`${name} must be a non-negative integer.`)
   return value
 }
 
