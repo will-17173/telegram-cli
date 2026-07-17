@@ -38,6 +38,7 @@ function parseCondition(item: Record<string, unknown>, position: number): GuardV
     }
     case 'message_matches_regex': {
       if (!nonEmptyString(item.pattern)) return conditionError(`condition ${position} pattern must be a non-empty string.`)
+      if ('flags' in item && typeof item.flags !== 'string') return conditionError(`condition ${position} flags must be a string.`)
       const flags = typeof item.flags === 'string' ? item.flags : undefined
       try {
         new RegExp(item.pattern, flags)
@@ -78,8 +79,9 @@ function parseCondition(item: Record<string, unknown>, position: number): GuardV
 function parseAction(item: Record<string, unknown>, position: number): GuardValidationResult<GuardAction> {
   switch (item.type) {
     case 'delete_message':
+      return { ok: true, value: { type: 'delete_message' } }
     case 'ban':
-      return { ok: true, value: { type: item.type, ...(typeof item.reason === 'string' ? { reason: item.reason } : {}) } as GuardAction }
+      return { ok: true, value: { type: 'ban', ...(typeof item.reason === 'string' ? { reason: item.reason } : {}) } }
     case 'warn':
     case 'record_only':
       return nonEmptyString(item.reason)
