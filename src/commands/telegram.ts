@@ -9,7 +9,7 @@ import type { TelegramChatType, TelegramClientAdapter, TelegramUser } from '../t
 import type { ArchiveMessage } from '../telegram/archive-types.js'
 import { MessageService } from '../services/message-service.js'
 import { SyncService } from '../services/sync-service.js'
-import { DownloadService, type DownloadInput } from '../services/download-service.js'
+import { DownloadService, type DownloadInput, type DownloadStatusStore } from '../services/download-service.js'
 import { ListenAlbumAggregator } from '../services/listen-album-aggregator.js'
 import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../services/auto-download-coordinator.js'
 import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '../presenters/human.js'
@@ -54,6 +54,7 @@ type DownloadFlags = MachineOptions & {
   since?: string
   until?: string
   all?: boolean
+  force?: boolean
   output?: string
   concurrency?: string
 }
@@ -303,6 +304,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--since <since>', 'Only download media after this time')
     .option('--until <until>', 'Only download media before this time')
     .option('--all', 'Download all media from the chat, newest to oldest')
+    .option('--force', 'Redownload media even when local status says it was already downloaded')
     .option('-o, --output <path>', 'Download directory')
     .option('-j, --concurrency <count>', 'Concurrent downloads', '3')
     .option('--json')
@@ -325,10 +327,20 @@ export function registerTelegramCommands(app: Command): void {
             },
           }
         }
-        return new DownloadService(client.archive).download({
-          ...input.data,
-          ...(groupedMessages.length === 0 ? {} : { groupedMessages }),
-        })
+        const downloadDb = new MessageDB(context.dbPath)
+        try {
+          return await new DownloadService(client.archive, {
+            downloadStatusStore: messageDbDownloadStatusStore(downloadDb),
+            onNotice: (message) => {
+              if (!effectiveOutputIsStructured(options)) process.stderr.write(`${message}\n`)
+            },
+          }).download({
+            ...input.data,
+            ...(groupedMessages.length === 0 ? {} : { groupedMessages }),
+          })
+        } finally {
+          downloadDb.close()
+        }
       }, command)
     })
 
@@ -615,10 +627,25 @@ function buildDownloadInput(
       ...(since == null ? {} : { since }),
       ...(until == null ? {} : { until }),
       ...(options.all === true ? { all: true } : {}),
+      ...(options.force === true ? { force: true } : {}),
       output: options.output ?? defaultDownloadOutput(),
       ...(concurrency == null ? {} : { concurrency }),
     },
   }
+}
+
+function messageDbDownloadStatusStore(db: MessageDB): DownloadStatusStore {
+  return {
+    isAttachmentDownloaded: ({ chatId, msgId, attachmentIndex }) => {
+      const [message] = db.getMessagesByKeys([{ chatId, msgId }])
+      return message?.attachments.find((attachment) => attachment.attachment_index === attachmentIndex)?.downloaded === true
+    },
+    markAttachmentDownloaded: (input) => db.markAttachmentDownloaded(input),
+  }
+}
+
+function effectiveOutputIsStructured(options: { json?: boolean; yaml?: boolean }): boolean {
+  return options.json === true || options.yaml === true
 }
 
 function localGroupedDownloadMessages(

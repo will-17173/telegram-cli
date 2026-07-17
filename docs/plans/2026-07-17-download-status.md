@@ -253,7 +253,7 @@ git commit -m "feat: persist attachment download status"
 - Modify: `tests/services/download-service.test.ts`
 - Modify: `tests/commands/download.test.ts`
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 Add a fake status store to `tests/services/download-service.test.ts`:
 
@@ -323,13 +323,13 @@ it('redownloads already downloaded attachments with force', async () => {
 })
 ```
 
-- [ ] **Step 2: Run service tests and verify failure**
+- [x] **Step 2: Run service tests and verify failure**
 
 Run: `pnpm exec vitest run tests/services/download-service.test.ts`
 
 Expected: FAIL because `force`, `downloadStatusStore`, `already_downloaded`, and runtime notices are not implemented.
 
-- [ ] **Step 3: Implement service options and skip logic**
+- [x] **Step 3: Implement service options and skip logic**
 
 In `src/services/download-service.ts`, extend input and result types:
 
@@ -411,11 +411,11 @@ if (marked === false) {
 }
 ```
 
-- [ ] **Step 4: Add command parser tests**
+- [x] **Step 4: Add command parser tests**
 
 In `tests/commands/download.test.ts`, add a test that runs `tg download @channel 42 --force --json` and asserts the fake download client was called even when the local attachment is marked downloaded. Add a stderr/stdout test for plain output that expects `already downloaded: message 42 attachment 1`.
 
-- [ ] **Step 5: Wire command options**
+- [x] **Step 5: Wire command options**
 
 In `src/commands/telegram.ts`, add:
 
@@ -447,13 +447,13 @@ function effectiveOutputIsStructured(options: { json?: boolean; yaml?: boolean }
 
 Ensure `downloadDb.close()` runs in `finally`.
 
-- [ ] **Step 6: Run focused download tests**
+- [x] **Step 6: Run focused download tests**
 
 Run: `pnpm exec vitest run tests/services/download-service.test.ts tests/commands/download.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit download behavior**
+- [x] **Step 7: Commit download behavior**
 
 ```bash
 git add src/services/download-service.ts src/commands/telegram.ts tests/services/download-service.test.ts tests/commands/download.test.ts docs/plans/2026-07-17-download-status.md

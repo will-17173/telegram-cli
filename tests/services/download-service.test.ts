@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DownloadService } from '../../src/services/download-service.js'
 import type { ArchiveChat, ArchiveMessage, TelegramArchiveAdapter } from '../../src/telegram/archive-types.js'
 import type { Attachment } from '../../src/telegram/media-types.js'
+import type { DownloadStatusStore } from '../../src/services/download-service.js'
 
 const directories: string[] = []
 
@@ -106,7 +107,88 @@ function sourceFor(pages: ArchiveMessage[][]): TelegramArchiveAdapter & {
   }
 }
 
+function statusStore(downloaded = new Set<string>()): DownloadStatusStore & { marked: unknown[] } {
+  const marked: unknown[] = []
+  return {
+    marked,
+    isAttachmentDownloaded: ({ chatId, msgId, attachmentIndex }) => downloaded.has(`${chatId}:${msgId}:${attachmentIndex}`),
+    markAttachmentDownloaded: (input) => {
+      marked.push(input)
+      downloaded.add(`${input.chatId}:${input.msgId}:${input.attachmentIndex}`)
+      return true
+    },
+  }
+}
+
 describe('DownloadService', () => {
+  it('skips already downloaded attachments by default and emits a notice', async () => {
+    const output = outputDirectory()
+    const source = sourceFor([[message(42)]])
+    const notices: string[] = []
+    const store = statusStore(new Set(['-100:42:1']))
+
+    const result = await new DownloadService(source, {
+      downloadStatusStore: store,
+      onNotice: (notice) => notices.push(notice),
+    }).download({ chat: '@channel', messageId: 42, output })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        requested: 0,
+        downloaded: 0,
+        skipped: 1,
+        already_downloaded: 1,
+        skips: [{ msg_id: 42, attachment_index: 1, reason: 'already_downloaded' }],
+      },
+    })
+    expect(notices).toEqual(['already downloaded: message 42 attachment 1'])
+    expect(source.downloadMedia).not.toHaveBeenCalled()
+  })
+
+  it('redownloads already downloaded attachments with force', async () => {
+    const output = outputDirectory()
+    const source = sourceFor([[message(42)]])
+    const store = statusStore(new Set(['-100:42:1']))
+
+    const result = await new DownloadService(source, { downloadStatusStore: store }).download({
+      chat: '@channel',
+      messageId: 42,
+      output,
+      force: true,
+    })
+
+    expect(result).toMatchObject({ ok: true, data: { requested: 1, downloaded: 1, already_downloaded: 0 } })
+    expect(source.downloadMedia).toHaveBeenCalledTimes(1)
+    expect(store.marked).toHaveLength(1)
+  })
+
+  it('keeps successful downloads when status marking fails and records a warning', async () => {
+    const output = outputDirectory()
+    const source = sourceFor([[message(42)]])
+    const store: DownloadStatusStore = {
+      isAttachmentDownloaded: () => false,
+      markAttachmentDownloaded: () => false,
+    }
+
+    const result = await new DownloadService(source, {
+      downloadStatusStore: store,
+      now: () => new Date('2026-07-17T10:00:00.000Z'),
+    }).download({ chat: '@channel', messageId: 42, output })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        downloaded: 1,
+        warnings: [{
+          msg_id: 42,
+          attachment_index: 1,
+          code: 'download_status_update_failed',
+        }],
+      },
+    })
+  })
+
   it('downloads all media attached to one message into the selected directory', async () => {
     const output = outputDirectory()
     const source = sourceFor([[message(42), message(41)]])

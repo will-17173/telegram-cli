@@ -20,6 +20,7 @@ export type DownloadInput = {
   since?: Date
   until?: Date
   all?: boolean
+  force?: boolean
   output: string
   concurrency?: number
 }
@@ -50,23 +51,40 @@ export type DownloadFailure = {
   error: string
 }
 
+export type DownloadWarning = {
+  msg_id: number
+  attachment_index: number
+  code: 'download_status_update_failed'
+  message: string
+}
+
+export type DownloadStatusStore = {
+  isAttachmentDownloaded(input: { chatId: number; msgId: number; attachmentIndex: number }): boolean
+  markAttachmentDownloaded(input: { chatId: number; msgId: number; attachmentIndex: number; path: string; downloadedAt: string }): boolean
+}
+
 export type DownloadResult = {
   chat: string | number
   output: string
   requested: number
   downloaded: number
   skipped: number
+  already_downloaded: number
   failed: number
   flood_waits: number
   files: DownloadedMedia[]
   skips: DownloadSkip[]
   failures: DownloadFailure[]
+  warnings: DownloadWarning[]
 }
 
 type DownloadDependencies = {
   sleep?: (milliseconds: number) => Promise<void>
   exists?: (path: string) => boolean
   uuid?: () => string
+  now?: () => Date
+  onNotice?: (message: string) => void
+  downloadStatusStore?: DownloadStatusStore
 }
 
 type DownloadTarget = {
@@ -83,6 +101,9 @@ export class DownloadService {
   private readonly sleep: (milliseconds: number) => Promise<void>
   private readonly exists: (path: string) => boolean
   private readonly uuid: () => string
+  private readonly now: () => Date
+  private readonly onNotice: (message: string) => void
+  private readonly downloadStatusStore?: DownloadStatusStore
 
   constructor(
     private readonly source: TelegramArchiveAdapter,
@@ -91,6 +112,9 @@ export class DownloadService {
     this.sleep = dependencies.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)))
     this.exists = dependencies.exists ?? existsSync
     this.uuid = dependencies.uuid ?? randomUUID
+    this.now = dependencies.now ?? (() => new Date())
+    this.onNotice = dependencies.onNotice ?? (() => undefined)
+    this.downloadStatusStore = dependencies.downloadStatusStore
   }
 
   async download(input: DownloadInput): Promise<HandlerResult<DownloadResult>> {
@@ -120,11 +144,13 @@ export class DownloadService {
       requested: targets.length,
       downloaded: 0,
       skipped: this.lastSkips.length,
+      already_downloaded: this.lastAlreadyDownloaded,
       failed: 0,
       flood_waits: 0,
       files: [],
       skips: this.lastSkips,
       failures: [],
+      warnings: [],
     }
 
     await mkdir(input.output, { recursive: true })
@@ -163,10 +189,12 @@ export class DownloadService {
   }
 
   private lastSkips: DownloadSkip[] = []
+  private lastAlreadyDownloaded = 0
   private lastSelectionError: CommandFailure['error'] | null = null
 
   private async collectTargets(input: DownloadInput): Promise<DownloadTarget[]> {
     this.lastSkips = []
+    this.lastAlreadyDownloaded = 0
     this.lastSelectionError = null
     if (input.groupedMessages != null) return this.targetsFromGroupedMessages(input.groupedMessages, input)
 
@@ -217,6 +245,7 @@ export class DownloadService {
           }
           continue
         }
+        if (this.skipAlreadyDownloaded(message, attachment, selectionIndex, input)) continue
         const destination = uniqueDestination(input.output, fileNameForAttachment(message, attachment), this.exists, reserved)
         reserved.add(destination)
         targets.push({ chat: input.chat, message, attachment, selectionIndex, destination })
@@ -252,6 +281,7 @@ export class DownloadService {
         }
         continue
       }
+      if (this.skipAlreadyDownloaded(message, attachment, selectionIndex, input)) continue
       const destination = uniqueDestination(input.output, fileNameForAttachment(message, attachment), this.exists, reserved)
       reserved.add(destination)
       targets.push({ chat: input.chat, message, attachment, selectionIndex, destination })
@@ -263,6 +293,25 @@ export class DownloadService {
       }
     }
     return targets
+  }
+
+  private skipAlreadyDownloaded(
+    message: ArchiveMessage,
+    attachment: Attachment,
+    selectionIndex: number,
+    input: DownloadInput,
+  ): boolean {
+    if (input.force === true) return false
+    const downloaded = this.downloadStatusStore?.isAttachmentDownloaded({
+      chatId: message.chat_id,
+      msgId: message.msg_id,
+      attachmentIndex: attachment.attachment_index,
+    }) === true
+    if (!downloaded) return false
+    this.lastSkips.push(skipFor(message, attachment, selectionIndex, 'already_downloaded'))
+    this.lastAlreadyDownloaded += 1
+    this.onNotice(`already downloaded: message ${message.msg_id} attachment ${attachment.attachment_index}`)
+    return true
   }
 
   private async runDownloads(targets: DownloadTarget[], concurrency: number, result: DownloadResult): Promise<void> {
@@ -312,6 +361,21 @@ export class DownloadService {
         kind: target.attachment.kind,
         path: target.destination,
       })
+      const marked = this.downloadStatusStore?.markAttachmentDownloaded({
+        chatId: target.message.chat_id,
+        msgId: target.message.msg_id,
+        attachmentIndex: target.attachment.attachment_index,
+        path: target.destination,
+        downloadedAt: this.now().toISOString(),
+      })
+      if (marked === false) {
+        result.warnings.push({
+          msg_id: target.message.msg_id,
+          attachment_index: target.attachment.attachment_index,
+          code: 'download_status_update_failed',
+          message: `Downloaded media but could not update local status for message ${target.message.msg_id} attachment ${target.attachment.attachment_index}.`,
+        })
+      }
     } catch (error) {
       result.failed += 1
       result.failures.push({
@@ -505,6 +569,7 @@ function downloadSummary(result: DownloadResult): HumanOutput {
       { label: 'Requested', value: String(result.requested) },
       { label: 'Downloaded', value: String(result.downloaded), tone: result.failed === 0 ? 'success' : 'warning' },
       { label: 'Skipped', value: String(result.skipped) },
+      { label: 'Already Downloaded', value: String(result.already_downloaded) },
       { label: 'Failed', value: String(result.failed), tone: result.failed === 0 ? 'default' : 'danger' },
       { label: 'Flood Waits', value: String(result.flood_waits), tone: result.flood_waits === 0 ? 'default' : 'warning' },
       { label: 'Output', value: result.output },

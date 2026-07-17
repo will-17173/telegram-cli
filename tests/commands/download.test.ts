@@ -137,6 +137,32 @@ function seedGroupedAlbum(dataDir: string, groupedId = 'album-1'): void {
   db.close()
 }
 
+function seedDownloadedMessage(dataDir: string, chatId = -100): void {
+  const db = new MessageDB(accountDbPath(dataDir, 'alice'))
+  db.upsertBatch([{
+    platform: 'telegram',
+    chat_id: chatId,
+    chat_name: 'Channel',
+    msg_id: 42,
+    sender_id: 1,
+    sender_name: 'Alice',
+    content: null,
+    timestamp: '2026-07-15T12:00:00.000Z',
+    reply_to_msg_id: null,
+    media_group_id: null,
+    raw_json: null,
+    attachments: [attachment(42)],
+  }])
+  db.markAttachmentDownloaded({
+    chatId,
+    msgId: 42,
+    attachmentIndex: 1,
+    path: join(dataDir, 'existing', 'photo-42.jpg'),
+    downloadedAt: '2026-07-17T10:00:00.000Z',
+  })
+  db.close()
+}
+
 describe('download command', () => {
   let dataDir = ''
 
@@ -242,6 +268,69 @@ describe('download command', () => {
       ok: true,
       data: expect.objectContaining({ requested: 1, downloaded: 1 }),
     }), expect.any(Object))
+  })
+
+  it('prints already-downloaded notices and skips plain download output', async () => {
+    const output = join(dataDir, 'media')
+    seedDownloadedMessage(dataDir)
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'download', '@channel', '42', '--output', output])
+      expect(stderr.mock.calls.map(([chunk]) => chunk)).toContain('already downloaded: message 42 attachment 1\n')
+    } finally {
+      stderr.mockRestore()
+    }
+
+    expect(archive.downloadMedia).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({
+        requested: 0,
+        downloaded: 0,
+        skipped: 1,
+        already_downloaded: 1,
+      }),
+    }), expect.any(Object))
+  })
+
+  it('redownloads already-downloaded media when --force is selected', async () => {
+    const output = join(dataDir, 'media')
+    seedDownloadedMessage(dataDir)
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'download', '@channel', '42', '--force', '--output', output, '--json'])
+
+    expect(archive.downloadMedia).toHaveBeenCalledWith(expect.objectContaining({
+      msgId: 42,
+      attachment: expect.objectContaining({ attachment_index: 1 }),
+    }))
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({
+        requested: 1,
+        downloaded: 1,
+        already_downloaded: 0,
+      }),
+    }), expect.objectContaining({ json: true }))
+  })
+
+  it('does not print already-downloaded notices for json output', async () => {
+    const output = join(dataDir, 'media')
+    seedDownloadedMessage(dataDir)
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'download', '@channel', '42', '--output', output, '--json'])
+      expect(stderr.mock.calls.map(([chunk]) => chunk)).not.toContain('already downloaded: message 42 attachment 1\n')
+    } finally {
+      stderr.mockRestore()
+    }
+
+    expect(archive.downloadMedia).not.toHaveBeenCalled()
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({
+        already_downloaded: 1,
+      }),
+    }), expect.objectContaining({ json: true }))
   })
 
   it('maps --grouped-id to album media downloads', async () => {
