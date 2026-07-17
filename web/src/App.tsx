@@ -825,6 +825,9 @@ function GuardWorkbench() {
   const [loadingRules, setLoadingRules] = useState(false)
   const [error, setError] = useState('')
   const ruleRequestId = useRef(0)
+  const selectedGroupIdRef = useRef(selectedGroupId)
+
+  selectedGroupIdRef.current = selectedGroupId
 
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null
   const enabledGroups = groups.filter((group) => group.enabled).length
@@ -842,6 +845,7 @@ function GuardWorkbench() {
     }
     const requestId = ruleRequestId.current + 1
     ruleRequestId.current = requestId
+    setRules([])
     void loadGuardRules(selectedGroupId, requestId)
   }, [selectedGroupId])
 
@@ -870,7 +874,7 @@ function GuardWorkbench() {
       ])
       setStatus(statusData.runtime)
       setGroups(groupsData.items)
-      const currentGroupId = nextGuardGroupId(groupsData.items, selectedGroupId)
+      const currentGroupId = nextGuardGroupId(groupsData.items, selectedGroupIdRef.current)
       const requestId = ruleRequestId.current + 1
       if (currentGroupId == null) {
         ruleRequestId.current = requestId

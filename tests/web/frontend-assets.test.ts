@@ -114,9 +114,11 @@ describe('web frontend source', () => {
 
     expect(app).toContain("getJson<{ runtime: GuardRuntimeState; groups: Page<GuardGroup> }>('/api/guard/status')")
     expect(app).toContain('ruleRequestId')
+    expect(app).toContain('selectedGroupIdRef')
     expect(app).toContain('requestId === ruleRequestId.current')
+    expect(app).toContain('setRules([])')
     expect(app).toContain('loadGuardRules(currentGroupId, requestId)')
-    expect(app).toContain('nextGuardGroupId(groupsData.items, selectedGroupId)')
+    expect(app).toContain('nextGuardGroupId(groupsData.items, selectedGroupIdRef.current)')
     expect(app).toContain('setSelectedGroupId(currentGroupId)')
     expect(app).toContain('item.action_created_at')
     expect(api).toContain('action_created_at: string')
