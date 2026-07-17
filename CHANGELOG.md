@@ -9,9 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.2] - 2026-07-17
 
+### Added
+
+- Add `tg download --ext <extensions>` to download only matching file extensions, with case-insensitive matching and comma-separated or repeated values.
+
+### Changed
+
+- Process `tg download --all` one history page at a time, downloading each page before scanning older messages and printing progress notices in plain output.
+
 ### Fixed
 
 - Infer file extensions for Web UI media downloads when Telegram does not provide an original file name.
+- Download live `tg listen` media from transient Telegram file locations when available, avoiding `CHANNEL_INVALID` failures caused by refetching incomplete channel peers.
 - Stop `tg listen` from inserting live messages into the local message database, so live updates do not advance later sync cursors.
 
 ## [0.7.1] - 2026-07-17

@@ -70,14 +70,14 @@ tg listen @team --auto-download
 
 `download` 用于已存在的消息：可下载单条消息、指定附件、媒体组、连续消息范围、某个本地日期，或从最新到最旧下载整个聊天的媒体。单条消息不传 `--attachment` 时会下载所有可下载项。`--attachment N` 是从 1 开始的消息内编号；对 `--grouped-id`，编号按消息 ID 和消息内附件编号展平。每次传输都会重新获取 Telegram 消息并匹配已存描述符，因此稳定错误包括 `attachment_not_found`、`attachment_not_downloadable`、`attachment_changed` 和 `media_access_denied`。
 
-已下载的附件会记录在当前账号的本地数据库中。后续运行 `tg download` 时默认跳过已经下载过的附件，并在普通输出中提示 `already downloaded`。如果需要重新下载并刷新状态，使用 `--force`。
+已下载的附件会记录在当前账号的本地数据库中。后续运行 `tg download` 时默认跳过已经下载过的附件，并在普通输出中提示 `already downloaded`。如果需要重新下载并刷新状态，使用 `--force`。使用 `--ext jpg,png` 或重复传入 `--ext` 可以只下载指定扩展名；匹配时忽略大小写，也可以带或不带开头的点。
 
 ```sh
 tg download --chat @team --msg-id 814 --output ./media
 tg download @channel 42 --attachment 2
 tg download --chat @team --date 2026-07-15 --concurrency 2
 tg download --chat @channel --grouped-id 2637798265 --output ./album-media
-tg download --chat @channel --all --output ./channel-media
+tg download --chat @channel --all --ext jpg,png --output ./channel-media
 ```
 
 ### 保存增量 Markdown 归档

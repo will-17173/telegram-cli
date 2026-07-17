@@ -628,7 +628,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="download">
                   <th scope="row"><code>download</code></th>
                   <td><span class="scope-badge scope-files" data-scope="filesystem">Files</span></td>
-                  <td>Download all media from one message, a selected attachment, a grouped album, a range, a date, or an entire chat. Attachment numbers are one-based; albums flatten by message ID and local index. Stable media errors include <code>attachment_changed</code> and <code>media_access_denied</code>.<code class="command-syntax">tg download @channel 42 --attachment 2</code></td>
+                  <td>Download all media from one message, a selected attachment, a grouped album, a range, a date, or an entire chat. Attachment numbers are one-based; albums flatten by message ID and local index. <code>--all</code> scans one history page at a time and reports progress in plain output. Use <code>--ext jpg,png</code> to keep only matching extensions; matching is case-insensitive. Stable media errors include <code>attachment_changed</code> and <code>media_access_denied</code>.<code class="command-syntax">tg download @channel 42 --attachment 2</code><code class="command-syntax">tg download @channel --all --ext jpg,png</code></td>
                 </tr>
                 <tr data-command="listen">
                   <th scope="row"><code>listen</code></th>

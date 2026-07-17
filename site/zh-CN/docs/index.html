@@ -466,7 +466,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="download">
                   <th scope="row"><code dir="ltr" translate="no">tg download --chat &lt;chat&gt;</code></th>
                   <td><span class="scope-badge" data-scope="filesystem">文件下载</span></td>
-                  <td>下载单条消息全部媒体、指定附件、按 grouped_id 下载相册、消息范围、指定日期或整个聊天中的媒体。附件编号从 1 开始；相册按消息 ID 和消息内编号展平。稳定媒体错误包括 <code translate="no">attachment_changed</code> 和 <code translate="no">media_access_denied</code>。<code class="command-syntax" dir="ltr" translate="no">tg download @channel 42 --attachment 2</code></td>
+                  <td>下载单条消息全部媒体、指定附件、按 grouped_id 下载相册、消息范围、指定日期或整个聊天中的媒体。附件编号从 1 开始；相册按消息 ID 和消息内编号展平。<code translate="no">--all</code> 会按历史页扫描并在普通输出中显示进度。使用 <code translate="no">--ext jpg,png</code> 可只保留指定扩展名，匹配时忽略大小写。稳定媒体错误包括 <code translate="no">attachment_changed</code> 和 <code translate="no">media_access_denied</code>。<code class="command-syntax" dir="ltr" translate="no">tg download @channel 42 --attachment 2</code><code class="command-syntax" dir="ltr" translate="no">tg download @channel --all --ext jpg,png</code></td>
                 </tr>
                 <tr data-command="listen">
                   <th scope="row"><code dir="ltr" translate="no">tg listen [chats...]</code></th>

@@ -70,14 +70,14 @@ tg listen @team --auto-download
 
 Use `download` for existing messages: a single message, a specific attachment, a grouped album, an inclusive message range, one local date, or a whole chat from newest to oldest. Without `--attachment`, a single message downloads every downloadable item. `--attachment N` is one-based and message-local; for `--grouped-id`, numbering is flattened by message ID and then message-local attachment index. Each transfer refetches the fresh Telegram message and matches the stored descriptor before downloading, so stable errors include `attachment_not_found`, `attachment_not_downloadable`, `attachment_changed`, and `media_access_denied`.
 
-Downloaded attachments are remembered in the local account database. By default, later `tg download` runs skip attachments that were already downloaded and print an `already downloaded` notice in plain output. Use `--force` to download them again and refresh the saved status.
+Downloaded attachments are remembered in the local account database. By default, later `tg download` runs skip attachments that were already downloaded and print an `already downloaded` notice in plain output. Use `--force` to download them again and refresh the saved status. Use `--ext jpg,png` or repeated `--ext` options to download only matching file extensions; matching is case-insensitive and accepts values with or without a leading dot.
 
 ```sh
 tg download --chat @team --msg-id 814 --output ./media
 tg download @channel 42 --attachment 2
 tg download --chat @team --date 2026-07-15 --concurrency 2
 tg download --chat @channel --grouped-id 2637798265 --output ./album-media
-tg download --chat @channel --all --output ./channel-media
+tg download --chat @channel --all --ext jpg,png --output ./channel-media
 ```
 
 ### Keep a Markdown archive
