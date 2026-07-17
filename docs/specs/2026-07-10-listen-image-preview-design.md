@@ -20,7 +20,7 @@ The Telegram adapter will extract the complete thumbnail JPEG bytes while conver
 
 The preview will not be inserted into `raw_json`. This avoids relying on `JSON.stringify(Uint8Array)`, keeps Telegram transport details out of presenter parsing, and makes the preview contract explicit.
 
-The field is transient for live listening. Database persistence will continue to store the existing message fields and raw Telegram object only; thumbnail base64 will not be written to SQLite.
+The field is transient for live listening. Live `listen` messages are not inserted into SQLite, and thumbnail base64 will not be written to local storage.
 
 ## Rendering
 

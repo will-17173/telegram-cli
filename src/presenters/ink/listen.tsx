@@ -78,7 +78,6 @@ export type ListenRuntimeOptions = {
   stopSignal: AbortSignal
   shutdownRequests?: { subscribe: (listener: () => void) => () => void }
   onRequestStop: () => void
-  persistMessage?: (message: StoredMessageInput) => void
   createReplyResolver?: (dbPath: string, limit: number) => ListenReplyResolver
 }
 
@@ -356,7 +355,6 @@ export async function runInteractiveAutoDownloadLifecycle(options: {
   signal: AbortSignal
   createClient: () => TelegramClientAdapter
   createCoordinator?: () => InteractiveCoordinator
-  persistMessage?: (message: StoredMessageInput) => void
   acceptMessage?: (message: StoredMessageInput) => boolean
   onBeforeEnqueue?: (message: StoredMessageInput) => void
   onMessage: (message: StoredMessageInput) => void
@@ -399,11 +397,6 @@ export async function runInteractiveAutoDownloadLifecycle(options: {
           onConnected: () => options.onStatus?.('connected'),
           onMessage: (message) => {
             if (options.signal.aborted) return
-            try {
-              options.persistMessage?.(message)
-            } catch (error) {
-              throw new InteractivePersistMessageError(error)
-            }
             if (options.acceptMessage?.(message) === false) return
             options.onBeforeEnqueue?.(message)
             coordinator?.enqueue(message)
@@ -417,9 +410,8 @@ export async function runInteractiveAutoDownloadLifecycle(options: {
           options.onStatus?.('stopped')
         }
       } catch (error) {
-        const reportedError = error instanceof InteractivePersistMessageError ? error.cause : error
-        if (options.persist && !options.signal.aborted && !(error instanceof InteractivePersistMessageError)) retry = true
-        options.onError?.(reportedError)
+        if (options.persist && !options.signal.aborted) retry = true
+        options.onError?.(error)
       } finally {
         options.flush?.()
         if (retry) {
@@ -442,13 +434,6 @@ export async function runInteractiveAutoDownloadLifecycle(options: {
   } finally {
     options.signal.removeEventListener('abort', abort)
     options.onCoordinator?.(null)
-  }
-}
-
-class InteractivePersistMessageError extends Error {
-  constructor(readonly cause: unknown) {
-    super(cause instanceof Error ? cause.message : String(cause), { cause })
-    this.name = 'InteractivePersistMessageError'
   }
 }
 
@@ -694,7 +679,6 @@ export function InteractiveListen({
   createClient,
   stopSignal,
   onRequestStop,
-  persistMessage,
   createReplyResolver,
   shutdownRequests,
 }: ListenRuntimeOptions): React.JSX.Element {
@@ -1274,7 +1258,6 @@ export function InteractiveListen({
       signal: lifecycleStop.signal,
       createClient,
       createCoordinator: () => autoDownloader!,
-      persistMessage,
       onCoordinator: (coordinator) => {
         if (isActive()) autoDownloaderRef.current = coordinator as AutoDownloadCoordinator | null
       },
