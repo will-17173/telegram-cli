@@ -1,11 +1,13 @@
 import { join } from 'node:path'
 import type { Command } from 'commander'
+import { resolveAuthenticatedAccountContext } from '../account/account-context.js'
 import { getDataDir } from '../config/env.js'
 import { GuardRuntime } from '../guard/runtime.js'
 import { WriteAccessPolicy } from '../services/write-access-policy.js'
 import { GuardDB } from '../storage/guard-db.js'
+import { createTelegramClient } from '../telegram/client-factory.js'
+import { GuardTelegramClientCache, MtcuteGuardExecutor, MtcuteGuardListener } from '../telegram/mtcute-guard.js'
 import { startWebServer } from '../web/server.js'
-import type { GuardActionExecutor } from '../guard/action-queue.js'
 import type { WebServerHandle } from '../web/server.js'
 
 export type GuardStartOptions = {
@@ -24,9 +26,24 @@ export function registerGuardCommand(app: Command): void {
       const dataDir = getDataDir()
       const store = new GuardDB(join(dataDir, 'guard.db'))
       const writePolicy = new WriteAccessPolicy()
+      const clients = new GuardTelegramClientCache((account) => {
+        const context = resolveAuthenticatedAccountContext({ explicitName: account, dataDir })
+        return createTelegramClient(context.sessionPath)
+      })
       const runtime = new GuardRuntime({
         store,
-        executor: createNoopExecutor(),
+        executor: new MtcuteGuardExecutor({
+          getClient: (account) => clients.getClient(account),
+          resolveAccountByChat: (chat) => store.listManagedGroups().find((group) => group.chat_id === chat)?.account ?? null,
+        }),
+        listener: new MtcuteGuardListener({
+          getClient: (account) => clients.getClient(account),
+          currentAccountUserId: async (account) => {
+            const client = await clients.getClient(account)
+            const user = await client.getCurrentUser?.()
+            return user?.id ?? null
+          },
+        }),
         writeAccess: () => writePolicy.check().ok,
       })
       let server: WebServerHandle | undefined
@@ -34,12 +51,12 @@ export function registerGuardCommand(app: Command): void {
         server = await startWebServer({ port, dataDir })
         await runtime.start()
       } catch (error) {
-        await closeAfterStartupFailure({ server, store }, error)
+        await closeAfterStartupFailure({ server, store, clients }, error)
         throw error
       }
       process.stdout.write(`Telegram Guard: ${server.url}\n`)
       await waitForShutdown(async () => {
-        await stopRuntimeCloseStoreAndServer(runtime, store, server)
+        await stopRuntimeCloseStoreAndServer(runtime, store, clients, server)
       })
     })
 }
@@ -52,18 +69,8 @@ function parsePort(raw: string | undefined): number | undefined {
   return port
 }
 
-function createNoopExecutor(): GuardActionExecutor {
-  return {
-    deleteMessage: async () => undefined,
-    muteMember: async () => undefined,
-    banMember: async () => undefined,
-    reply: async () => undefined,
-    sendMessage: async () => undefined,
-  }
-}
-
 async function closeAfterStartupFailure(
-  resources: { server?: WebServerHandle; store: Pick<GuardDB, 'close'> },
+  resources: GuardResources,
   startupError: unknown,
 ): Promise<void> {
   const cleanupErrors = await cleanupGuardResources(resources)
@@ -75,6 +82,7 @@ async function closeAfterStartupFailure(
 async function stopRuntimeCloseStoreAndServer(
   runtime: Pick<GuardRuntime, 'stop'>,
   store: Pick<GuardDB, 'close'>,
+  clients: Pick<GuardTelegramClientCache, 'close'>,
   server: WebServerHandle,
 ): Promise<void> {
   const errors: unknown[] = []
@@ -84,13 +92,24 @@ async function stopRuntimeCloseStoreAndServer(
     errors.push(error)
   }
 
-  errors.push(...await cleanupGuardResources({ server, store }))
+  errors.push(...await cleanupGuardResources({ server, store, clients }))
   if (errors.length === 1) throw errors[0]
   if (errors.length > 1) throw new AggregateError(errors, 'Failed to stop guard runtime and clean up resources')
 }
 
-async function cleanupGuardResources(resources: { server?: WebServerHandle; store: Pick<GuardDB, 'close'> }): Promise<unknown[]> {
+type GuardResources = {
+  server?: WebServerHandle
+  store: Pick<GuardDB, 'close'>
+  clients: Pick<GuardTelegramClientCache, 'close'>
+}
+
+async function cleanupGuardResources(resources: GuardResources): Promise<unknown[]> {
   const errors: unknown[] = []
+  try {
+    await resources.clients.close()
+  } catch (error) {
+    errors.push(error)
+  }
   try {
     resources.store.close()
   } catch (error) {

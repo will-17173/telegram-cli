@@ -128,9 +128,10 @@ describe('guard command', () => {
     expect(runtimeMocks.constructor).toHaveBeenCalledOnce()
     const options = runtimeMocks.constructor.mock.calls[0]?.[0]
     expect(options.store).toMatchObject({ listEnabledGroups: guardDbMocks.listEnabledGroups })
+    expect(options.executor).toBeDefined()
+    expect(options.listener).toBeDefined()
     expect(options.writeAccess()).toBe(true)
     expect(await options.store.listEnabledGroups()).toEqual([])
-    await expect(options.executor.deleteMessage({ chat: 1, messageId: 2 })).resolves.toBeUndefined()
     expect(runtimeMocks.start).toHaveBeenCalledOnce()
     expect(runtimeMocks.stop).toHaveBeenCalledOnce()
     expect(guardDbMocks.close).toHaveBeenCalledOnce()
