@@ -1,4 +1,4 @@
-import type { tl } from '@mtcute/node'
+import type { FileLocation, tl } from '@mtcute/node'
 
 export const MEDIA_KINDS = [
   'photo',
@@ -61,6 +61,7 @@ export type Attachment = {
   url: string | null
   preview_jpeg_base64: string | null
   metadata: JsonValue
+  download_location?: FileLocation
 }
 
 export type NormalizedMessage = {

@@ -35,10 +35,20 @@ export function normalizeMtcuteMessageWithLocations(message: Message): Normalize
       reply_to_msg_id: message.replyToMessage?.id ?? null,
       media_group_id: message.groupedIdUnique ?? null,
       raw_json: rawDiagnosticSnapshot(message.raw),
-      attachments: normalizedMedia.attachments,
+      attachments: withDownloadLocations(normalizedMedia.attachments, normalizedMedia.locations),
     },
     locations: normalizedMedia.locations,
   }
+}
+
+function withDownloadLocations(
+  attachments: NormalizedMessage['attachments'],
+  locations: ReadonlyMap<number, FileLocation>,
+): NormalizedMessage['attachments'] {
+  return attachments.map((attachment) => {
+    const location = locations.get(attachment.attachment_index)
+    return location == null ? attachment : { ...attachment, download_location: location }
+  })
 }
 
 function downloadPeerFields(peer: unknown): Pick<NormalizedMessage, 'download_peer'> | Record<string, never> {

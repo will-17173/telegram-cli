@@ -188,6 +188,12 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
 
   async downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void> {
     await this.ensureReady()
+    if (options.attachment.downloadLocation != null) {
+      await this.client.downloadToFile(options.destination, options.attachment.downloadLocation, {
+        progressCallback: options.onProgress,
+      })
+      return
+    }
     const chat = options.attachment.downloadPeer ?? normalizeChatId(options.chat)
     const [message] = await this.client.getMessages(chat, options.msgId)
     if (message == null) {

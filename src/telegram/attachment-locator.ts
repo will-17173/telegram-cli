@@ -1,4 +1,4 @@
-import type { tl } from '@mtcute/node'
+import type { FileLocation, tl } from '@mtcute/node'
 
 import type { Attachment } from './media-types.js'
 
@@ -16,6 +16,7 @@ export type AttachmentLocator = Pick<
   | 'duration_seconds'
 > & {
   downloadPeer?: tl.TypeInputPeer
+  downloadLocation?: FileLocation
 }
 
 export type AttachmentLookupCode =
@@ -57,6 +58,7 @@ export function toAttachmentLocator(
     duration_seconds: attachment.duration_seconds,
   }
   if (attachment.downloadPeer != null) locator.downloadPeer = attachment.downloadPeer
+  if (attachment.download_location != null) locator.downloadLocation = attachment.download_location
   return locator
 }
 

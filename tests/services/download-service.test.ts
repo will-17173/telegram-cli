@@ -394,6 +394,57 @@ describe('DownloadService', () => {
     expect(result.ok ? result.data.files.map((file) => file.msg_id) : []).toEqual([5, 4, 3, 2])
   })
 
+  it('downloads each --all history page before scanning the next page and reports progress', async () => {
+    const output = outputDirectory()
+    const events: string[] = []
+    const source = sourceFor([])
+    source.iterHistoryPages.mockImplementation((_input: unknown) => (async function* () {
+      events.push('yield page 1')
+      yield [message(5), message(4)]
+      events.push(`resume after page 1 downloads ${source.downloadMedia.mock.calls.map(([input]) => input.msgId).join(',')}`)
+      yield [message(3), message(2)]
+    })())
+    source.downloadMedia.mockImplementation(async ({ msgId, destination }: { msgId: number; destination: string }) => {
+      events.push(`download ${msgId}`)
+      writeFileSync(destination, `media ${msgId}`)
+    })
+    const notices: string[] = []
+    const store = statusStore(new Set(['-100:4:1']))
+
+    const result = await new DownloadService(source, {
+      downloadStatusStore: store,
+      onNotice: (notice) => notices.push(notice),
+    }).download({
+      chat: '@channel',
+      all: true,
+      output,
+      concurrency: 1,
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        requested: 3,
+        downloaded: 3,
+        skipped: 1,
+        already_downloaded: 1,
+      },
+    })
+    expect(events).toContain('resume after page 1 downloads 5')
+    expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId)).toEqual([5, 3, 2])
+    expect(notices).toEqual([
+      'download all: scanning @channel newest to oldest in pages of up to 100 messages',
+      'already downloaded: message 4 attachment 1',
+      'download page: scanned 2 messages, found 1 media, downloaded 0, failed 0',
+      'downloading: message 5 attachment 1 -> photo-5.jpg',
+      'download progress: scanned 2 messages, found 1 media, downloaded 1, failed 0',
+      'download page: scanned 4 messages, found 3 media, downloaded 1, failed 0',
+      'downloading: message 3 attachment 1 -> photo-3.jpg',
+      'downloading: message 2 attachment 1 -> photo-2.jpg',
+      'download progress: scanned 4 messages, found 3 media, downloaded 3, failed 0',
+    ])
+  })
+
   it('waits and retries when Telegram reports FLOOD_WAIT', async () => {
     const output = outputDirectory()
     const source = sourceFor([[message(42)]])

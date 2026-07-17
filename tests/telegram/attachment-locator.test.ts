@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { Long } from '@mtcute/node'
+import { FileLocation, Long } from '@mtcute/node'
 import {
   AttachmentLookupError,
   matchFreshAttachment,
@@ -82,6 +82,15 @@ describe('toAttachmentLocator', () => {
       ...attachment(),
       downloadPeer,
     })).toEqual(expect.objectContaining({ downloadPeer }))
+  })
+
+  it('carries an optional transient download location', () => {
+    const downloadLocation = new FileLocation(new Uint8Array([1, 2, 3]), 3)
+
+    expect(toAttachmentLocator({
+      ...attachment(),
+      download_location: downloadLocation,
+    })).toEqual(expect.objectContaining({ downloadLocation }))
   })
 })
 

@@ -76,6 +76,31 @@ describe('MtcuteTelegramClient media downloads', () => {
     })
   })
 
+  it('downloads transient listen media without refetching the message', async () => {
+    const media = new FileLocation(new Uint8Array([7, 8, 9]), 9)
+    const getMessages = vi.fn().mockRejectedValue(new tl.RpcError(400, 'CHANNEL_INVALID'))
+    const downloadToFile = vi.fn().mockResolvedValue(undefined)
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getMessages,
+      downloadToFile,
+    } as unknown as TelegramClient
+    const telegram = new MtcuteTelegramClient(client)
+
+    await telegram.downloadMessageMedia({
+      chat: -1000000000123,
+      msgId: 514982,
+      attachment: { ...locator('unique-listened'), downloadLocation: media },
+      destination: '/tmp/listen-photo.jpg',
+    })
+
+    expect(getMessages).not.toHaveBeenCalled()
+    expect(downloadToFile).toHaveBeenCalledWith('/tmp/listen-photo.jpg', media, {
+      progressCallback: undefined,
+    })
+  })
+
   it('normalizes listened messages with a runtime download peer', async () => {
     const media = new FileLocation(new Uint8Array([1, 2, 3]), 3)
     const inputPeer = { _: 'inputPeerChannel', channelId: 123, accessHash: Long.fromNumber(456) } as const
@@ -103,7 +128,10 @@ describe('MtcuteTelegramClient media downloads', () => {
     }))
     await vi.waitFor(() => expect(received).toHaveBeenCalledOnce())
 
-    expect(received.mock.calls[0]?.[0]).toMatchObject({ download_peer: inputPeer })
+    expect(received.mock.calls[0]?.[0]).toMatchObject({
+      download_peer: inputPeer,
+      attachments: [expect.objectContaining({ download_location: expect.any(FileLocation) })],
+    })
 
     controller.abort()
     await listening

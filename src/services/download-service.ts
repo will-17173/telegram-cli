@@ -130,6 +130,8 @@ export class DownloadService {
       }
     }
 
+    if (input.all === true && input.groupedMessages == null) return await this.downloadAllPaged(input)
+
     const targets = await this.collectTargets(input)
     if (this.lastSelectionError != null) {
       return {
@@ -186,6 +188,63 @@ export class DownloadService {
       }
     }
     return { ok: true, data: result, human: output.human }
+  }
+
+  private async downloadAllPaged(input: DownloadInput): Promise<HandlerResult<DownloadResult>> {
+    const result = this.emptyResult(input)
+    const reserved = new Set<string>()
+    let scanned = 0
+
+    this.lastSkips = result.skips
+    this.lastAlreadyDownloaded = 0
+    this.lastSelectionError = null
+    this.onNotice(`download all: scanning ${String(input.chat)} newest to oldest in pages of up to 100 messages`)
+
+    await mkdir(input.output, { recursive: true })
+    for await (const page of this.source.iterHistoryPages({ chat: input.chat })) {
+      scanned += page.length
+      const targets: DownloadTarget[] = []
+      for (const message of page) {
+        targets.push(...this.selectMessageTargets(message, input, reserved))
+      }
+      result.requested += targets.length
+      result.skipped = this.lastSkips.length
+      result.already_downloaded = this.lastAlreadyDownloaded
+      this.onNotice(progressNotice('download page', scanned, result))
+      await this.runDownloads(targets, Math.max(1, Math.floor(input.concurrency ?? 3)), result, { notifyDownloads: true })
+      this.onNotice(progressNotice('download progress', scanned, result))
+    }
+
+    result.files.sort((left, right) => right.msg_id - left.msg_id || left.selection_index - right.selection_index)
+    const output = { ...result, human: downloadSummary(result) }
+    if (result.failed > 0) {
+      return {
+        ok: false,
+        error: {
+          code: 'download_partial_failure',
+          message: 'Download completed with one or more attachment failures.',
+          details: output,
+        },
+      }
+    }
+    return { ok: true, data: result, human: output.human }
+  }
+
+  private emptyResult(input: DownloadInput): DownloadResult {
+    return {
+      chat: input.chat,
+      output: input.output,
+      requested: 0,
+      downloaded: 0,
+      skipped: 0,
+      already_downloaded: 0,
+      failed: 0,
+      flood_waits: 0,
+      files: [],
+      skips: [],
+      failures: [],
+      warnings: [],
+    }
   }
 
   private lastSkips: DownloadSkip[] = []
@@ -314,19 +373,28 @@ export class DownloadService {
     return true
   }
 
-  private async runDownloads(targets: DownloadTarget[], concurrency: number, result: DownloadResult): Promise<void> {
+  private async runDownloads(
+    targets: DownloadTarget[],
+    concurrency: number,
+    result: DownloadResult,
+    options: { notifyDownloads?: boolean } = {},
+  ): Promise<void> {
     let index = 0
     const worker = async () => {
       while (index < targets.length) {
         const target = targets[index]!
         index += 1
-        await this.downloadOne(target, result)
+        await this.downloadOne(target, result, options)
       }
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, worker))
   }
 
-  private async downloadOne(target: DownloadTarget, result: DownloadResult): Promise<void> {
+  private async downloadOne(
+    target: DownloadTarget,
+    result: DownloadResult,
+    options: { notifyDownloads?: boolean } = {},
+  ): Promise<void> {
     await mkdir(dirname(target.destination), { recursive: true })
     const temporary = join(dirname(target.destination), `.telegram-cli-download-${this.uuid()}.part`)
     const handle = await open(temporary, 'wx')
@@ -336,6 +404,9 @@ export class DownloadService {
       let floodRetries = 0
       while (true) {
         try {
+          if (options.notifyDownloads === true) {
+            this.onNotice(`downloading: message ${target.message.msg_id} attachment ${target.attachment.attachment_index} -> ${fileNameForAttachment(target.message, target.attachment)}`)
+          }
           await this.source.downloadMedia({
             chat: target.chat,
             msgId: target.message.msg_id,
@@ -580,4 +651,8 @@ function downloadSummary(result: DownloadResult): HumanOutput {
       emptyText: 'No media downloaded.',
     },
   }
+}
+
+function progressNotice(prefix: string, scanned: number, result: DownloadResult): string {
+  return `${prefix}: scanned ${scanned} messages, found ${result.requested} media, downloaded ${result.downloaded}, failed ${result.failed}`
 }

@@ -257,12 +257,25 @@ describe('download command', () => {
 
   it('downloads all media when --all is selected', async () => {
     const output = join(dataDir, 'all-media')
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    let chunks: unknown[] = []
 
-    await createApp().exitOverride().parseAsync(['node', 'tg', 'download', '@channel', '--all', '--output', output])
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'download', '@channel', '--all', '--output', output])
+      chunks = stderr.mock.calls.map(([chunk]) => chunk)
+    } finally {
+      stderr.mockRestore()
+    }
 
     expect(archive.iterHistoryPages).toHaveBeenCalledWith(expect.objectContaining({
       chat: '@channel',
     }))
+    expect(chunks).toEqual([
+      'download all: scanning @channel newest to oldest in pages of up to 100 messages\n',
+      'download page: scanned 1 messages, found 1 media, downloaded 0, failed 0\n',
+      'downloading: message 42 attachment 1 -> photo-42.jpg\n',
+      'download progress: scanned 1 messages, found 1 media, downloaded 1, failed 0\n',
+    ])
     expect(archive.iterHistoryPages.mock.calls[0]?.[0]).not.toHaveProperty('minId')
     expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
       ok: true,
