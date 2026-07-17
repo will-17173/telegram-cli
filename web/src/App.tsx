@@ -874,12 +874,13 @@ function GuardWorkbench() {
       ])
       setStatus(statusData.runtime)
       setGroups(groupsData.items)
-      const currentGroupId = nextGuardGroupId(groupsData.items, selectedGroupIdRef.current)
+      const latestSelectedGroupId = selectedGroupIdRef.current
+      const currentGroupId = nextGuardGroupId(groupsData.items, latestSelectedGroupId)
       const requestId = ruleRequestId.current + 1
       if (currentGroupId == null) {
         ruleRequestId.current = requestId
         setRules([])
-      } else if (currentGroupId === selectedGroupId) {
+      } else if (currentGroupId === latestSelectedGroupId) {
         void loadGuardRules(currentGroupId, requestId)
       } else {
         ruleRequestId.current = requestId
