@@ -70,8 +70,8 @@ describe('GuardActionQueue', () => {
       { rule_id: 1, action_type: 'delete_message', status: 'executed', details: { message_id: 10 } },
       { rule_id: 2, action_type: 'mute', status: 'executed', details: { user_id: 99, seconds: 600, reason: 'spam' } },
     ])
-    expect(first).toHaveBeenCalledWith({ chat: -1001, messageId: 10 })
-    expect(second).toHaveBeenCalledWith({ chat: -1001, userId: 99, seconds: 600 })
+    expect(first).toHaveBeenCalledWith({ account: 'work', groupId: 1, chat: -1001, messageId: 10 })
+    expect(second).toHaveBeenCalledWith({ account: 'work', groupId: 1, chat: -1001, userId: 99, seconds: 600 })
   })
 
   it('records warn as executed with a warning increment without calling Telegram', async () => {
@@ -104,8 +104,8 @@ describe('GuardActionQueue', () => {
       { rule_id: 1, action_type: 'reply', status: 'executed', details: { message_id: 10, text: 'Read the rules' } },
       { rule_id: 2, action_type: 'delete_message', status: 'executed', details: { message_id: 10 } },
     ])
-    expect(fakeExecutor.reply).toHaveBeenCalledWith({ chat: -1001, messageId: 10, text: 'Read the rules' })
-    expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ chat: -1001, messageId: 10 })
+    expect(fakeExecutor.reply).toHaveBeenCalledWith({ account: 'work', groupId: 1, chat: -1001, messageId: 10, text: 'Read the rules' })
+    expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ account: 'work', groupId: 1, chat: -1001, messageId: 10 })
   })
 
   it('preserves skipped and dry-run actions without executor calls', async () => {
@@ -145,8 +145,8 @@ describe('GuardActionQueue', () => {
       { rule_id: 1, action_type: 'delete_message', status: 'failed', details: { error: 'delete failed' } },
       { rule_id: 2, action_type: 'send_message', status: 'executed', details: { text: 'Still checking' } },
     ])
-    expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ chat: -1001, messageId: 10 })
-    expect(fakeExecutor.sendMessage).toHaveBeenCalledWith({ chat: -1001, text: 'Still checking' })
+    expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ account: 'work', groupId: 1, chat: -1001, messageId: 10 })
+    expect(fakeExecutor.sendMessage).toHaveBeenCalledWith({ account: 'work', groupId: 1, chat: -1001, text: 'Still checking' })
   })
 
   it('serializes executor writes across concurrent runs', async () => {

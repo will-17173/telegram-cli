@@ -200,7 +200,7 @@ describe('GuardRuntime', () => {
         created_at: now,
       },
     ])
-    expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ chat: -1001, messageId: 10 })
+    expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ account: 'work', groupId: 1, chat: -1001, messageId: 10 })
     expect(store.warningCounts.get('1:99')).toBe(1)
     expect(store.actions).toEqual([
       {
@@ -249,7 +249,7 @@ describe('GuardRuntime', () => {
     await runtime.handleEvent(event({ message_id: 11 }))
 
     expect(fakeExecutor.deleteMessage).toHaveBeenCalledTimes(1)
-    expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ chat: -1001, messageId: 11 })
+    expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ account: 'work', groupId: 1, chat: -1001, messageId: 11 })
     expect(store.actions.map((action) => action.status)).toEqual(['dry_run', 'executed'])
   })
 
@@ -367,6 +367,30 @@ describe('GuardRuntime', () => {
         created_at: now,
       },
     ])
+  })
+
+  it('marks runtime and group as error when a listener reports failure', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ id: 1 })]
+    let reportError!: (error: unknown) => Promise<void>
+    const failingListener: GuardRuntimeListener = {
+      start: vi.fn(async (input) => {
+        reportError = input.onError!
+        return { stop: vi.fn(async () => undefined) }
+      }),
+    }
+    const runtime = new GuardRuntime({
+      store,
+      executor: executor(),
+      writeAccess: () => true,
+      listener: failingListener,
+    })
+
+    await runtime.start()
+    await reportError(new Error('listener failed'))
+
+    expect(store.runtimeStates.at(-1)).toMatchObject({ status: 'error', error: 'listener failed' })
+    expect(store.updatedGroups.at(-1)).toEqual({ id: 1, patch: { runtime_status: 'error' } })
   })
 
   it('stops listener handles before clearing runtime state', async () => {

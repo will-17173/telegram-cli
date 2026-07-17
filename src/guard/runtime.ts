@@ -59,6 +59,7 @@ export type GuardRuntimeListenerStartInput = {
   groupId: number
   chatId: number
   onEvent: (event: GuardEvent) => Promise<void>
+  onError?: (error: unknown) => Promise<void>
 }
 
 export type GuardRuntimeListenerHandle = {
@@ -115,6 +116,7 @@ export class GuardRuntime {
             groupId: group.id,
             chatId: group.chat_id,
             onEvent: (event) => this.handleEvent(event),
+            onError: (error) => this.handleListenerError(group.id, error),
           })
           this.listenerHandles.push(handle)
         }
@@ -183,6 +185,16 @@ export class GuardRuntime {
     )
     this.eventProcessing = current.then(() => undefined, () => undefined)
     return current
+  }
+
+  private async handleListenerError(groupId: number, error: unknown): Promise<void> {
+    await this.setRuntimeStateBestEffort({
+      status: 'error',
+      started_at: null,
+      queue_length: 0,
+      error: errorMessage(error),
+    })
+    await this.markGroupsBestEffort([groupId], 'error')
   }
 
   private async processEvent(event: GuardEvent): Promise<void> {

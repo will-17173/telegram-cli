@@ -10,12 +10,18 @@ export type GuardActionExecutionResult = {
   details: Record<string, unknown>
 }
 
+export type GuardActionExecutionContext = {
+  account: string
+  groupId: number
+  chat: number
+}
+
 export type GuardActionExecutor = {
-  deleteMessage(input: { chat: number; messageId: number }): Promise<void>
-  muteMember(input: { chat: number; userId: number; seconds: number }): Promise<void>
-  banMember(input: { chat: number; userId: number }): Promise<void>
-  reply(input: { chat: number; messageId: number; text: string }): Promise<void>
-  sendMessage(input: { chat: number; text: string }): Promise<void>
+  deleteMessage(input: GuardActionExecutionContext & { messageId: number }): Promise<void>
+  muteMember(input: GuardActionExecutionContext & { userId: number; seconds: number }): Promise<void>
+  banMember(input: GuardActionExecutionContext & { userId: number }): Promise<void>
+  reply(input: GuardActionExecutionContext & { messageId: number; text: string }): Promise<void>
+  sendMessage(input: GuardActionExecutionContext & { text: string }): Promise<void>
 }
 
 export type GuardActionQueueOptions = {
@@ -75,15 +81,16 @@ export class GuardActionQueue {
 
   private async execute(event: GuardEvent, planned: PlannedGuardAction): Promise<GuardActionExecutionResult> {
     const action = planned.action
+    const context = { account: event.account, groupId: event.group_id, chat: event.chat_id }
     switch (action.type) {
       case 'delete_message': {
         const messageId = requireMessageId(event)
-        await this.executor.deleteMessage({ chat: event.chat_id, messageId })
+        await this.executor.deleteMessage({ ...context, messageId })
         return executed(planned, { message_id: messageId })
       }
       case 'mute': {
         const userId = requireUserId(event)
-        await this.executor.muteMember({ chat: event.chat_id, userId, seconds: action.seconds })
+        await this.executor.muteMember({ ...context, userId, seconds: action.seconds })
         return executed(planned, {
           user_id: userId,
           seconds: action.seconds,
@@ -92,7 +99,7 @@ export class GuardActionQueue {
       }
       case 'ban': {
         const userId = requireUserId(event)
-        await this.executor.banMember({ chat: event.chat_id, userId })
+        await this.executor.banMember({ ...context, userId })
         return executed(planned, {
           user_id: userId,
           ...(action.reason == null ? {} : { reason: action.reason }),
@@ -100,11 +107,11 @@ export class GuardActionQueue {
       }
       case 'reply': {
         const messageId = requireMessageId(event)
-        await this.executor.reply({ chat: event.chat_id, messageId, text: action.text })
+        await this.executor.reply({ ...context, messageId, text: action.text })
         return executed(planned, { message_id: messageId, text: action.text })
       }
       case 'send_message':
-        await this.executor.sendMessage({ chat: event.chat_id, text: action.text })
+        await this.executor.sendMessage({ ...context, text: action.text })
         return executed(planned, { text: action.text })
       case 'warn':
         return executed(planned, { warning_increment: true, reason: action.reason })

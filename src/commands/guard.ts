@@ -34,7 +34,6 @@ export function registerGuardCommand(app: Command): void {
         store,
         executor: new MtcuteGuardExecutor({
           getClient: (account) => clients.getClient(account),
-          resolveAccountByChat: (chat) => store.listManagedGroups().find((group) => group.chat_id === chat)?.account ?? null,
         }),
         listener: new MtcuteGuardListener({
           getClient: (account) => clients.getClient(account),

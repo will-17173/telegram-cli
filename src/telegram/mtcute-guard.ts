@@ -25,11 +25,8 @@ export type GuardTelegramClientProvider = {
   getClient(account: string): Promise<GuardTelegramClient>
 }
 
-export type GuardChatAccountResolver = (chat: number) => string | null | Promise<string | null>
-
 export type MtcuteGuardExecutorOptions = {
   getClient: GuardTelegramClientProvider['getClient']
-  resolveAccountByChat: GuardChatAccountResolver
 }
 
 export type MtcuteGuardListenerOptions = {
@@ -69,47 +66,39 @@ export class GuardTelegramClientCache implements GuardTelegramClientProvider {
 
 export class MtcuteGuardExecutor implements GuardActionExecutor {
   private readonly getClient: GuardTelegramClientProvider['getClient']
-  private readonly resolveAccountByChat: GuardChatAccountResolver
 
   constructor(options: MtcuteGuardExecutorOptions) {
     this.getClient = options.getClient
-    this.resolveAccountByChat = options.resolveAccountByChat
   }
 
-  async deleteMessage(input: { chat: number; messageId: number }): Promise<void> {
-    const client = await this.clientForChat(input.chat)
+  async deleteMessage(input: { account: string; groupId: number; chat: number; messageId: number }): Promise<void> {
+    const client = await this.getClient(input.account)
     if (client.groups == null) throw new Error('Telegram group management adapter is unavailable')
     await client.groups.deleteGroupMessages({ chat: input.chat, messageIds: [input.messageId] })
   }
 
-  async muteMember(input: { chat: number; userId: number; seconds: number }): Promise<void> {
-    const client = await this.clientForChat(input.chat)
+  async muteMember(input: { account: string; groupId: number; chat: number; userId: number; seconds: number }): Promise<void> {
+    const client = await this.getClient(input.account)
     if (client.groups == null) throw new Error('Telegram group management adapter is unavailable')
     await client.groups.muteMember({ chat: input.chat, user: input.userId, seconds: input.seconds })
   }
 
-  async banMember(input: { chat: number; userId: number }): Promise<void> {
-    const client = await this.clientForChat(input.chat)
+  async banMember(input: { account: string; groupId: number; chat: number; userId: number }): Promise<void> {
+    const client = await this.getClient(input.account)
     if (client.groups == null) throw new Error('Telegram group management adapter is unavailable')
     await client.groups.banMember({ chat: input.chat, user: input.userId, seconds: null })
   }
 
-  async reply(input: { chat: number; messageId: number; text: string }): Promise<void> {
-    const client = await this.clientForChat(input.chat)
+  async reply(input: { account: string; groupId: number; chat: number; messageId: number; text: string }): Promise<void> {
+    const client = await this.getClient(input.account)
     if (client.sendMessage == null) throw new Error('Telegram send adapter is unavailable')
     await client.sendMessage({ chat: input.chat, message: input.text, reply: input.messageId, linkPreview: false })
   }
 
-  async sendMessage(input: { chat: number; text: string }): Promise<void> {
-    const client = await this.clientForChat(input.chat)
+  async sendMessage(input: { account: string; groupId: number; chat: number; text: string }): Promise<void> {
+    const client = await this.getClient(input.account)
     if (client.sendMessage == null) throw new Error('Telegram send adapter is unavailable')
     await client.sendMessage({ chat: input.chat, message: input.text, linkPreview: false })
-  }
-
-  private async clientForChat(chat: number): Promise<Awaited<ReturnType<GuardTelegramClientProvider['getClient']>>> {
-    const account = await this.resolveAccountByChat(chat)
-    if (account == null) throw new Error(`No guard account found for chat ${chat}`)
-    return await this.getClient(account)
   }
 }
 
@@ -127,17 +116,39 @@ export class MtcuteGuardListener implements GuardRuntimeListener {
     const client = await this.getClient(input.account)
     if (client.listen == null) throw new Error('Telegram listen adapter is unavailable')
     const currentAccountUserId = await this.currentAccountUserId(input.account)
+    let markConnected!: () => void
+    const connected = new Promise<void>((resolve) => {
+      markConnected = resolve
+    })
     const listening = client.listen({
       chats: [input.chatId],
       signal: controller.signal,
+      onConnected: markConnected,
       onMessage: (message) => {
-        void input.onEvent(normalizeGuardMessageUpdate({
-          account: input.account,
-          groupId: input.groupId,
-          currentAccountUserId,
-          message,
-        }))
+        void Promise.resolve(input.onEvent(normalizeGuardMessageUpdate({
+            account: input.account,
+            groupId: input.groupId,
+            currentAccountUserId,
+            message,
+          })))
+          .catch((error) => {
+            controller.abort()
+            void input.onError?.(error)
+          })
       },
+    })
+    await Promise.race([
+      connected,
+      listening.then((result) => {
+        throw new Error(`Telegram guard listener ${result} before connecting`)
+      }),
+    ])
+    void listening.then((result) => {
+      if (controller.signal.aborted) return
+      void input.onError?.(new Error(`Telegram guard listener ${result}`))
+    }, (error) => {
+      if (controller.signal.aborted) return
+      void input.onError?.(error)
     })
 
     return {
@@ -165,8 +176,8 @@ export function normalizeGuardMessageUpdate(update: TelegramGuardMessageUpdate):
         id: update.message.sender_id,
         display_name: update.message.sender_name,
         username: stringField(update.message, 'sender_username'),
-        is_admin: booleanField(update.message, 'sender_is_admin'),
-        is_bot: booleanField(update.message, 'sender_is_bot'),
+        is_admin: booleanField(update.message, 'sender_is_admin') ?? true,
+        is_bot: booleanField(update.message, 'sender_is_bot') ?? true,
       },
     text: update.message.content,
     created_at: update.message.timestamp,
@@ -180,6 +191,7 @@ function stringField(value: Record<string, unknown>, key: string): string | null
   return typeof field === 'string' ? field : null
 }
 
-function booleanField(value: Record<string, unknown>, key: string): boolean {
-  return value[key] === true
+function booleanField(value: Record<string, unknown>, key: string): boolean | null {
+  const field = value[key]
+  return typeof field === 'boolean' ? field : null
 }

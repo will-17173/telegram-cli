@@ -36,6 +36,17 @@ describe('mtcute guard adapter', () => {
     })
   })
 
+  it('treats missing admin and bot metadata as protected actors', () => {
+    const event = normalizeGuardMessageUpdate({
+      account: 'work',
+      groupId: 1,
+      currentAccountUserId: 500,
+      message: message({ sender_is_admin: undefined, sender_is_bot: undefined }),
+    })
+
+    expect(event.user).toMatchObject({ is_admin: true, is_bot: true })
+  })
+
   it('delegates executor actions to Telegram client methods for a resolved account', async () => {
     const groups = {
       deleteGroupMessages: vi.fn(async () => ({ operation: 'deleteGroupMessages', chat_id: -1001 })),
@@ -46,18 +57,17 @@ describe('mtcute guard adapter', () => {
       groups,
       sendMessage: vi.fn(async () => ({ msg_id: 1 })),
     }
-    const executor = new MtcuteGuardExecutor({
-      resolveAccountByChat: () => 'work',
-      getClient: vi.fn(async () => client),
-    })
+    const getClient = vi.fn(async () => client)
+    const executor = new MtcuteGuardExecutor({ getClient })
 
-    await executor.deleteMessage({ chat: -1001, messageId: 7 })
-    await executor.muteMember({ chat: -1001, userId: 99, seconds: 60 })
-    await executor.banMember({ chat: -1001, userId: 99 })
-    await executor.reply({ chat: -1001, messageId: 7, text: 'Stop' })
-    await executor.sendMessage({ chat: -1001, text: 'Welcome' })
+    await executor.deleteMessage({ account: 'work', groupId: 1, chat: -1001, messageId: 7 })
+    await executor.muteMember({ account: 'work', groupId: 1, chat: -1001, userId: 99, seconds: 60 })
+    await executor.banMember({ account: 'work', groupId: 1, chat: -1001, userId: 99 })
+    await executor.reply({ account: 'work', groupId: 1, chat: -1001, messageId: 7, text: 'Stop' })
+    await executor.sendMessage({ account: 'work', groupId: 1, chat: -1001, text: 'Welcome' })
 
     expect(groups.deleteGroupMessages).toHaveBeenCalledWith({ chat: -1001, messageIds: [7] })
+    expect(getClient).toHaveBeenCalledWith('work')
     expect(groups.muteMember).toHaveBeenCalledWith({ chat: -1001, user: 99, seconds: 60 })
     expect(groups.banMember).toHaveBeenCalledWith({ chat: -1001, user: 99, seconds: null })
     expect(client.sendMessage).toHaveBeenCalledWith({ chat: -1001, message: 'Stop', reply: 7, linkPreview: false })
@@ -68,10 +78,12 @@ describe('mtcute guard adapter', () => {
     const signals: AbortSignal[] = []
     const listen = vi.fn(async (options: {
       chats?: Array<string | number>
+      onConnected?: () => void
       onMessage: (message: NormalizedMessage) => void
       signal: AbortSignal
     }) => {
       signals.push(options.signal)
+      options.onConnected?.()
       options.onMessage(message({ chat_id: -1001, msg_id: 8, content: 'hi' }))
       return 'stopped' as const
     })
@@ -95,6 +107,72 @@ describe('mtcute guard adapter', () => {
       message_id: 8,
       current_account_user_id: 500,
     })
+  })
+
+  it('rejects listener startup failures before returning a handle', async () => {
+    const error = new Error('auth failed')
+    const listener = new MtcuteGuardListener({
+      getClient: vi.fn(async () => ({
+        listen: vi.fn(async () => {
+          throw error
+        }),
+      })),
+    })
+
+    await expect(listener.start({ account: 'work', groupId: 1, chatId: -1001, onEvent: vi.fn() }))
+      .rejects.toThrow(error)
+  })
+
+  it('reports listener failures after startup', async () => {
+    let rejectListen!: (error: Error) => void
+    const listen = vi.fn((options: {
+      onConnected?: () => void
+      signal: AbortSignal
+    }) => {
+      options.onConnected?.()
+      return new Promise<'stopped'>((_resolve, reject) => {
+        rejectListen = reject
+      })
+    })
+    const listener = new MtcuteGuardListener({ getClient: vi.fn(async () => ({ listen })) })
+    const onError = vi.fn(async () => undefined)
+
+    await listener.start({
+      account: 'work',
+      groupId: 1,
+      chatId: -1001,
+      onEvent: vi.fn(async () => undefined),
+      onError,
+    })
+
+    rejectListen(new Error('disconnected'))
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'disconnected' })))
+  })
+
+  it('reports event processing failures after startup', async () => {
+    const listen = vi.fn((options: {
+      onConnected?: () => void
+      onMessage: (message: NormalizedMessage) => void
+      signal: AbortSignal
+    }) => {
+      options.onConnected?.()
+      options.onMessage(message())
+      return new Promise<'stopped'>(() => undefined)
+    })
+    const listener = new MtcuteGuardListener({ getClient: vi.fn(async () => ({ listen })) })
+    const onError = vi.fn(async () => undefined)
+
+    await listener.start({
+      account: 'work',
+      groupId: 1,
+      chatId: -1001,
+      onEvent: vi.fn(async () => {
+        throw new Error('event failed')
+      }),
+      onError,
+    })
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'event failed' })))
   })
 })
 
