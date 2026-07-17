@@ -7,7 +7,7 @@ import { getDbPath } from '../config/env.js'
 import { MEDIA_KINDS, type Attachment, type JsonValue, type NormalizedMessage } from '../telegram/media-types.js'
 import { canonicalChatId } from './chat-resolver.js'
 
-export const MESSAGE_DB_SCHEMA_VERSION = 1
+export const MESSAGE_DB_SCHEMA_VERSION = 2
 
 export class DataResetRequiredError extends Error {
   readonly code = 'data_reset_required'
@@ -44,9 +44,17 @@ export function isDataResetRequiredError(
 
 export type StoredMessageInput = NormalizedMessage
 
-export type StoredMessage = Omit<NormalizedMessage, 'raw_json'> & {
+export type StoredAttachment = Attachment & {
+  downloaded: boolean
+  downloaded_at: string | null
+  download_path: string | null
+}
+
+export type StoredMessage = Omit<NormalizedMessage, 'raw_json' | 'attachments'> & {
   id: number
+  downloaded: boolean
   raw_json: string | null
+  attachments: StoredAttachment[]
 }
 
 export type MessageWriteSummary = {
@@ -89,11 +97,12 @@ type FilterOptions = SearchOptions & {
   since?: string
 }
 
-type MessageRow = Omit<StoredMessage, 'attachments'>
+type MessageRow = Omit<StoredMessage, 'attachments' | 'downloaded'>
 
-type AttachmentRow = Omit<Attachment, 'downloadable' | 'metadata'> & {
+type AttachmentRow = Omit<StoredAttachment, 'downloadable' | 'downloaded' | 'metadata'> & {
   message_id: number
   downloadable: 0 | 1
+  downloaded: 0 | 1
   metadata_json: string
 }
 
@@ -209,18 +218,27 @@ export class MessageDB {
       SELECT id FROM messages
       WHERE platform = @platform AND chat_id = @chat_id AND msg_id = @msg_id
     `)
+    const selectAttachments = this.db.prepare(`
+      SELECT message_id, attachment_index, parent_attachment_index, role, kind, subtype, file_id, unique_file_id,
+        file_name, mime_type, file_size, width, height, duration_seconds, thumbnail_file_id, thumbnail_unique_file_id,
+        thumbnail_width, thumbnail_height, emoji, title, performer, latitude, longitude, address, phone_number, url,
+        downloadable, downloaded, downloaded_at, download_path, preview_jpeg_base64, metadata_json
+      FROM attachments
+      WHERE message_id = ?
+      ORDER BY attachment_index ASC
+    `)
     const deleteAttachments = this.db.prepare('DELETE FROM attachments WHERE message_id = ?')
     const insertAttachment = this.db.prepare(`
       INSERT INTO attachments
       (message_id, attachment_index, parent_attachment_index, role, kind, subtype, file_id, unique_file_id,
         file_name, mime_type, file_size, width, height, duration_seconds, thumbnail_file_id, thumbnail_unique_file_id,
         thumbnail_width, thumbnail_height, emoji, title, performer, latitude, longitude, address, phone_number, url,
-        downloadable, preview_jpeg_base64, metadata_json)
+        downloadable, downloaded, downloaded_at, download_path, preview_jpeg_base64, metadata_json)
       VALUES
       (@message_id, @attachment_index, @parent_attachment_index, @role, @kind, @subtype, @file_id, @unique_file_id,
         @file_name, @mime_type, @file_size, @width, @height, @duration_seconds, @thumbnail_file_id, @thumbnail_unique_file_id,
         @thumbnail_width, @thumbnail_height, @emoji, @title, @performer, @latitude, @longitude, @address, @phone_number, @url,
-        @downloadable, @preview_jpeg_base64, @metadata_json)
+        @downloadable, @downloaded, @downloaded_at, @download_path, @preview_jpeg_base64, @metadata_json)
     `)
     const tx = this.db.transaction((messages: ReturnType<typeof normalizeMessageInput>[]) => {
       const summary: MessageWriteSummary = { inserted: 0, updated: 0, total: messages.length }
@@ -235,14 +253,46 @@ export class MessageDB {
         }
         const found = selectMessageId.get(writeRow) as { id: number } | undefined
         if (found == null) throw new Error('Failed to load upserted message id')
+        const previousAttachments = (selectAttachments.all(found.id) as AttachmentRow[])
+          .map((row) => hydrateAttachment(row))
         deleteAttachments.run(found.id)
         for (const attachment of message.attachments) {
-          insertAttachment.run(attachmentWriteRow(found.id, attachment))
+          insertAttachment.run(attachmentWriteRow(
+            found.id,
+            mergeDownloadState(attachment, findPreviousAttachmentState(attachment, previousAttachments)),
+          ))
         }
       }
       return summary
     })
     return tx(rows)
+  }
+
+  markAttachmentDownloaded(input: {
+    chatId: number
+    msgId: number
+    attachmentIndex: number
+    path: string
+    downloadedAt: string
+  }): boolean {
+    const result = this.db.prepare(`
+      UPDATE attachments
+      SET downloaded = 1,
+        downloaded_at = @downloadedAt,
+        download_path = @path
+      WHERE attachment_index = @attachmentIndex
+        AND message_id = (
+          SELECT id FROM messages
+          WHERE platform = 'telegram' AND chat_id = @chatId AND msg_id = @msgId
+        )
+    `).run({
+      chatId: canonicalChatId(input.chatId),
+      msgId: input.msgId,
+      attachmentIndex: input.attachmentIndex,
+      path: input.path,
+      downloadedAt: input.downloadedAt,
+    })
+    return result.changes === 1
   }
 
   search(keyword: string, options: SearchOptions = {}): StoredMessage[] {
@@ -572,14 +622,14 @@ export class MessageDB {
 
   private hydrateMessages(rows: MessageRow[]): StoredMessage[] {
     if (rows.length === 0) return []
-    const attachmentsByMessageId = new Map<number, Attachment[]>()
+    const attachmentsByMessageId = new Map<number, StoredAttachment[]>()
     for (const chunk of chunks(rows.map((row) => row.id), 500)) {
       const placeholders = chunk.map(() => '?').join(', ')
       const attachmentRows = this.db.prepare(`
         SELECT message_id, attachment_index, parent_attachment_index, role, kind, subtype, file_id, unique_file_id,
           file_name, mime_type, file_size, width, height, duration_seconds, thumbnail_file_id, thumbnail_unique_file_id,
           thumbnail_width, thumbnail_height, emoji, title, performer, latitude, longitude, address, phone_number, url,
-          downloadable, preview_jpeg_base64, metadata_json
+          downloadable, downloaded, downloaded_at, download_path, preview_jpeg_base64, metadata_json
         FROM attachments
         WHERE message_id IN (${placeholders})
         ORDER BY message_id ASC, attachment_index ASC
@@ -591,10 +641,14 @@ export class MessageDB {
         attachmentsByMessageId.set(row.message_id, attachments)
       }
     }
-    return rows.map((row) => ({
-      ...row,
-      attachments: attachmentsByMessageId.get(row.id) ?? [],
-    }))
+    return rows.map((row) => {
+      const attachments = attachmentsByMessageId.get(row.id) ?? []
+      return {
+        ...row,
+        downloaded: deriveMessageDownloaded(attachments),
+        attachments,
+      }
+    })
   }
 
   private addFilters(conditions: string[], params: unknown[], options: FilterOptions, tableAlias?: string): void {
@@ -662,24 +716,28 @@ function messageWriteRow(message: StoredMessageInput): Omit<MessageRow, 'id'> {
   }
 }
 
-function attachmentWriteRow(messageId: number, attachment: Attachment): AttachmentRow {
+function attachmentWriteRow(messageId: number, attachment: StoredAttachment): AttachmentRow {
   return {
     ...attachment,
     message_id: messageId,
     downloadable: attachment.downloadable ? 1 : 0,
+    downloaded: attachment.downloaded ? 1 : 0,
     preview_jpeg_base64: attachment.preview_jpeg_base64,
     metadata_json: JSON.stringify(attachment.metadata),
   }
 }
 
-function hydrateAttachment(row: AttachmentRow): Attachment {
-  const attachment: Attachment = {
+function hydrateAttachment(row: AttachmentRow): StoredAttachment {
+  const attachment: StoredAttachment = {
     attachment_index: row.attachment_index,
     parent_attachment_index: row.parent_attachment_index,
     role: row.role,
     kind: row.kind,
     subtype: row.subtype,
     downloadable: row.downloadable === 1,
+    downloaded: row.downloaded === 1,
+    downloaded_at: row.downloaded_at,
+    download_path: row.download_path,
     file_id: row.file_id,
     unique_file_id: row.unique_file_id,
     file_name: row.file_name,
@@ -704,6 +762,47 @@ function hydrateAttachment(row: AttachmentRow): Attachment {
     metadata: parseMetadata(row.metadata_json),
   }
   return attachment
+}
+
+function mergeDownloadState(next: Attachment, previous: StoredAttachment | undefined): StoredAttachment {
+  if (previous == null || !sameAttachmentMedia(previous, next)) {
+    return {
+      ...next,
+      downloaded: false,
+      downloaded_at: null,
+      download_path: null,
+    }
+  }
+  return {
+    ...next,
+    downloaded: previous.downloaded,
+    downloaded_at: previous.downloaded_at,
+    download_path: previous.download_path,
+  }
+}
+
+function findPreviousAttachmentState(next: Attachment, previous: StoredAttachment[]): StoredAttachment | undefined {
+  if (next.unique_file_id != null) {
+    return previous.find((attachment) => attachment.unique_file_id === next.unique_file_id)
+  }
+  return previous.find((attachment) => attachment.attachment_index === next.attachment_index)
+}
+
+function sameAttachmentMedia(previous: StoredAttachment, next: Attachment): boolean {
+  if (previous.unique_file_id != null || next.unique_file_id != null) {
+    return previous.unique_file_id != null && previous.unique_file_id === next.unique_file_id
+  }
+  return previous.attachment_index === next.attachment_index &&
+    previous.kind === next.kind &&
+    previous.role === next.role &&
+    previous.file_name === next.file_name &&
+    previous.mime_type === next.mime_type &&
+    previous.file_size === next.file_size
+}
+
+function deriveMessageDownloaded(attachments: StoredAttachment[]): boolean {
+  const downloadable = attachments.filter((attachment) => attachment.downloadable)
+  return downloadable.length > 0 && downloadable.every((attachment) => attachment.downloaded)
 }
 
 function parseMetadata(value: string): JsonValue {
@@ -956,6 +1055,9 @@ const REQUIRED_ATTACHMENT_COLUMNS: SchemaColumn[] = [
   { name: 'phone_number', notnull: 0, pk: 0 },
   { name: 'url', notnull: 0, pk: 0 },
   { name: 'downloadable', notnull: 1, pk: 0 },
+  { name: 'downloaded', notnull: 1, pk: 0 },
+  { name: 'downloaded_at', notnull: 0, pk: 0 },
+  { name: 'download_path', notnull: 0, pk: 0 },
   { name: 'preview_jpeg_base64', notnull: 0, pk: 0 },
   { name: 'metadata_json', notnull: 1, pk: 0 },
 ]
@@ -1019,12 +1121,16 @@ const CANONICAL_ATTACHMENTS_TABLE_SQL = `CREATE TABLE attachments (
       phone_number TEXT,
       url TEXT,
       downloadable INTEGER NOT NULL,
+      downloaded INTEGER NOT NULL DEFAULT 0,
+      downloaded_at TEXT,
+      download_path TEXT,
       preview_jpeg_base64 TEXT,
       metadata_json TEXT NOT NULL,
       UNIQUE(message_id, attachment_index),
       CHECK(attachment_index > 0),
       CHECK(parent_attachment_index IS NULL OR parent_attachment_index > 0),
-      CHECK(downloadable IN (0, 1))
+      CHECK(downloadable IN (0, 1)),
+      CHECK(downloaded IN (0, 1))
     )`
 
 const CANONICAL_SCHEMA_SQL = new Map<string, string>([
@@ -1148,7 +1254,7 @@ function createFreshSchema(db: Database.Database): void {
     CREATE INDEX idx_attachments_unique_file_id
       ON attachments(unique_file_id)
       WHERE unique_file_id IS NOT NULL;
-    PRAGMA user_version = 1;
+    PRAGMA user_version = 2;
     COMMIT;
   `)
 }

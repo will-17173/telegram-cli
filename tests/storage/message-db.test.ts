@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { attachment, fixtureMessages, message } from '../fixtures/messages.js'
 import { MessageDB } from '../../src/storage/message-db.js'
 import { canonicalChatId } from '../../src/storage/chat-resolver.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 
 function db(): MessageDB {
   return new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-')), 'messages.db'))
@@ -21,6 +22,19 @@ function incompleteAttachment(key: keyof ReturnType<typeof attachment>): ReturnT
   const input = attachment()
   delete (input as Partial<typeof input>)[key]
   return input
+}
+
+function storedAttachment(input: Attachment): Attachment & {
+  downloaded: boolean
+  downloaded_at: string | null
+  download_path: string | null
+} {
+  return {
+    ...input,
+    downloaded: false,
+    downloaded_at: null,
+    download_path: null,
+  }
 }
 
 describe('MessageDB', () => {
@@ -58,7 +72,7 @@ describe('MessageDB', () => {
     expect(store.upsertMessage(first)).toBe('inserted')
     const beforeUpdate = store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])[0]
     expect(beforeUpdate.id).toBeGreaterThan(0)
-    expect(beforeUpdate.attachments).toEqual(first.attachments)
+    expect(beforeUpdate.attachments).toEqual(first.attachments.map(storedAttachment))
 
     expect(store.upsertMessage(replacement)).toBe('updated')
     expect(store.count()).toBe(1)
@@ -66,8 +80,132 @@ describe('MessageDB', () => {
     expect(stored?.id).toBe(beforeUpdate.id)
     expect(stored?.content).toBe('replacement')
     expect(stored?.raw_json).toBe(JSON.stringify({ edited: true }))
-    expect(stored?.attachments[0]).toEqual(replacement.attachments[0])
-    expect(stored?.attachments[1]).toEqual(replacement.attachments[1])
+    expect(stored?.attachments[0]).toEqual(storedAttachment(replacement.attachments[0]))
+    expect(stored?.attachments[1]).toEqual(storedAttachment(replacement.attachments[1]))
+    store.close()
+  })
+
+  it('hydrates attachment download state and derives message downloaded state', () => {
+    const store = db()
+    store.upsertMessage(message({
+      attachments: [
+        attachment({ attachment_index: 1, unique_file_id: 'stable-1', downloadable: true }),
+        attachment({ attachment_index: 2, unique_file_id: 'stable-2', downloadable: true }),
+      ],
+    }))
+
+    expect(store.markAttachmentDownloaded({
+      chatId: 100,
+      msgId: 1,
+      attachmentIndex: 1,
+      path: '/tmp/one.jpg',
+      downloadedAt: '2026-07-17T10:00:00.000Z',
+    })).toBe(true)
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])[0]).toMatchObject({
+      downloaded: false,
+      attachments: [
+        { attachment_index: 1, downloaded: true, downloaded_at: '2026-07-17T10:00:00.000Z', download_path: '/tmp/one.jpg' },
+        { attachment_index: 2, downloaded: false, downloaded_at: null, download_path: null },
+      ],
+    })
+
+    expect(store.markAttachmentDownloaded({
+      chatId: 100,
+      msgId: 1,
+      attachmentIndex: 2,
+      path: '/tmp/two.jpg',
+      downloadedAt: '2026-07-17T10:01:00.000Z',
+    })).toBe(true)
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])[0]?.downloaded).toBe(true)
+    store.close()
+  })
+
+  it('preserves download state when a refreshed attachment is the same media', () => {
+    const store = db()
+    store.upsertMessage(message({
+      attachments: [attachment({ unique_file_id: 'stable-media', file_name: 'old.jpg', file_size: 10 })],
+    }))
+    store.markAttachmentDownloaded({
+      chatId: 100,
+      msgId: 1,
+      attachmentIndex: 1,
+      path: '/tmp/old.jpg',
+      downloadedAt: '2026-07-17T10:00:00.000Z',
+    })
+
+    store.upsertMessage(message({
+      attachments: [attachment({ unique_file_id: 'stable-media', file_name: 'new-name.jpg', file_size: 10 })],
+    }))
+
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])[0]?.attachments[0]).toMatchObject({
+      file_name: 'new-name.jpg',
+      downloaded: true,
+      download_path: '/tmp/old.jpg',
+    })
+    store.close()
+  })
+
+  it('preserves download state by unique file id when attachment order changes', () => {
+    const store = db()
+    store.upsertMessage(message({
+      attachments: [attachment({ unique_file_id: 'stable-media', file_name: 'old.jpg', file_size: 10 })],
+    }))
+    store.markAttachmentDownloaded({
+      chatId: 100,
+      msgId: 1,
+      attachmentIndex: 1,
+      path: '/tmp/old.jpg',
+      downloadedAt: '2026-07-17T10:00:00.000Z',
+    })
+
+    store.upsertMessage(message({
+      attachments: [
+        attachment({ attachment_index: 1, unique_file_id: 'new-media', file_name: 'new.jpg', file_size: 10 }),
+        attachment({ attachment_index: 2, unique_file_id: 'stable-media', file_name: 'renamed.jpg', file_size: 10 }),
+      ],
+    }))
+
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])[0]?.attachments).toMatchObject([
+      { attachment_index: 1, downloaded: false, downloaded_at: null, download_path: null },
+      { attachment_index: 2, downloaded: true, downloaded_at: '2026-07-17T10:00:00.000Z', download_path: '/tmp/old.jpg' },
+    ])
+    store.close()
+  })
+
+  it('clears download state when refreshed attachment identity changes', () => {
+    const store = db()
+    store.upsertMessage(message({
+      attachments: [attachment({ unique_file_id: 'old-media', file_name: 'old.jpg', file_size: 10 })],
+    }))
+    store.markAttachmentDownloaded({
+      chatId: 100,
+      msgId: 1,
+      attachmentIndex: 1,
+      path: '/tmp/old.jpg',
+      downloadedAt: '2026-07-17T10:00:00.000Z',
+    })
+
+    store.upsertMessage(message({
+      attachments: [attachment({ unique_file_id: 'new-media', file_name: 'new.jpg', file_size: 11 })],
+    }))
+
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 1 }])[0]?.attachments[0]).toMatchObject({
+      downloaded: false,
+      downloaded_at: null,
+      download_path: null,
+    })
+    store.close()
+  })
+
+  it('returns false when marking a missing attachment downloaded', () => {
+    const store = db()
+    expect(store.markAttachmentDownloaded({
+      chatId: 100,
+      msgId: 999,
+      attachmentIndex: 1,
+      path: '/tmp/missing.jpg',
+      downloadedAt: '2026-07-17T10:00:00.000Z',
+    })).toBe(false)
     store.close()
   })
 
@@ -182,7 +320,7 @@ describe('MessageDB', () => {
 
     store.upsertMessage(message({ msg_id: 12, attachments }))
 
-    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 12 }])[0]?.attachments).toEqual(attachments)
+    expect(store.getMessagesByKeys([{ chatId: 100, msgId: 12 }])[0]?.attachments).toEqual(attachments.map(storedAttachment))
     store.close()
   })
 

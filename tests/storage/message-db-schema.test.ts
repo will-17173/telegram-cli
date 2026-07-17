@@ -91,12 +91,12 @@ describe('MessageDB schema guard', () => {
   it('rejects a wrong nonzero user_version', () => {
     const path = tempDbPath()
     const sqlite = new Database(path)
-    sqlite.pragma('user_version = 2')
+    sqlite.pragma('user_version = 3')
     sqlite.close()
 
     expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
       code: 'data_reset_required',
-      actualVersion: 2,
+      actualVersion: 3,
       path,
     }))
   })
@@ -134,13 +134,13 @@ describe('MessageDB schema guard', () => {
         raw_json TEXT,
         UNIQUE(platform, chat_id, msg_id)
       );
-      PRAGMA user_version = 1;
+      PRAGMA user_version = 2;
     `)
     sqlite.close()
 
     expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
       code: 'data_reset_required',
-      actualVersion: 1,
+      actualVersion: 2,
       path,
     }))
   })
@@ -153,7 +153,7 @@ describe('MessageDB schema guard', () => {
 
     expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
       code: 'data_reset_required',
-      actualVersion: 1,
+      actualVersion: 2,
       path,
     }))
   })
@@ -166,7 +166,7 @@ describe('MessageDB schema guard', () => {
 
     expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
       code: 'data_reset_required',
-      actualVersion: 1,
+      actualVersion: 2,
       path,
     }))
   })
@@ -179,7 +179,7 @@ describe('MessageDB schema guard', () => {
 
     expect(() => new MessageDB(path)).toThrowError(expect.objectContaining({
       code: 'data_reset_required',
-      actualVersion: 1,
+      actualVersion: 2,
       path,
     }))
   })
@@ -330,12 +330,16 @@ const CURRENT_ATTACHMENTS_SQL = `CREATE TABLE attachments (
       phone_number TEXT,
       url TEXT,
       downloadable INTEGER NOT NULL,
+      downloaded INTEGER NOT NULL DEFAULT 0,
+      downloaded_at TEXT,
+      download_path TEXT,
       preview_jpeg_base64 TEXT,
       metadata_json TEXT NOT NULL,
       UNIQUE(message_id, attachment_index),
       CHECK(attachment_index > 0),
       CHECK(parent_attachment_index IS NULL OR parent_attachment_index > 0),
-      CHECK(downloadable IN (0, 1))
+      CHECK(downloadable IN (0, 1)),
+      CHECK(downloaded IN (0, 1))
     )`
 
 function createStampedSchema(path: string, options: { messagesSql?: string; attachmentsSql?: string; recentIndexSql?: string } = {}): void {
@@ -353,7 +357,7 @@ function createStampedSchema(path: string, options: { messagesSql?: string; atta
     CREATE INDEX idx_attachments_unique_file_id
       ON attachments(unique_file_id)
       WHERE unique_file_id IS NOT NULL;
-    PRAGMA user_version = 1;
+    PRAGMA user_version = 2;
   `)
   sqlite.close()
 }
@@ -361,7 +365,7 @@ function createStampedSchema(path: string, options: { messagesSql?: string; atta
 function expectSchema(path: string): void {
   const sqlite = new Database(path, { readonly: true })
   try {
-    expect(sqlite.pragma('user_version', { simple: true })).toBe(1)
+    expect(sqlite.pragma('user_version', { simple: true })).toBe(2)
     expect(userTables(sqlite)).toEqual(['attachments', 'messages'])
     expect(tableColumns(sqlite, 'messages')).toEqual([
       { name: 'id', notnull: 0, pk: 1 },
@@ -406,6 +410,9 @@ function expectSchema(path: string): void {
       { name: 'phone_number', notnull: 0, pk: 0 },
       { name: 'url', notnull: 0, pk: 0 },
       { name: 'downloadable', notnull: 1, pk: 0 },
+      { name: 'downloaded', notnull: 1, pk: 0 },
+      { name: 'downloaded_at', notnull: 0, pk: 0 },
+      { name: 'download_path', notnull: 0, pk: 0 },
       { name: 'preview_jpeg_base64', notnull: 0, pk: 0 },
       { name: 'metadata_json', notnull: 1, pk: 0 },
     ])

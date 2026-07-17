@@ -15,7 +15,8 @@ import {
 } from '../../src/presenters/human.js'
 import { groupLogicalMessages } from '../../src/presenters/logical-message.js'
 import { buildReplyContext } from '../../src/services/reply-context.js'
-import type { StoredMessage } from '../../src/storage/message-db.js'
+import type { StoredAttachment, StoredMessage } from '../../src/storage/message-db.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 import { attachment } from '../fixtures/messages.js'
 
 function localTimestamp(timestamp: string): string {
@@ -41,9 +42,19 @@ function storedMessage(overrides: Partial<StoredMessage> = {}): StoredMessage {
     timestamp: '2026-07-10T01:02:03Z',
     reply_to_msg_id: null,
     media_group_id: null,
+    downloaded: false,
     raw_json: null,
     attachments: [],
     ...overrides,
+  }
+}
+
+function storedAttachment(input: Attachment): StoredAttachment {
+  return {
+    ...input,
+    downloaded: false,
+    downloaded_at: null,
+    download_path: null,
   }
 }
 
@@ -94,11 +105,11 @@ describe('human output builders', () => {
     const rows = [storedMessage({
       id: 1, msg_id: 11, content: 'album caption', timestamp: '2026-07-10T01:02:03Z',
       media_group_id: '77',
-      attachments: [attachment({ kind: 'photo' })],
+      attachments: [storedAttachment(attachment({ kind: 'photo' }))],
     }), storedMessage({
       id: 2, msg_id: 12, content: null, timestamp: '2026-07-10T01:02:04Z',
       media_group_id: '77',
-      attachments: [attachment({ kind: 'photo' })],
+      attachments: [storedAttachment(attachment({ kind: 'photo' }))],
     })]
     const logical = groupLogicalMessages(rows)
     logical[0]!.replyContext = buildReplyContext(7, { ...rows[0]!, msg_id: 7, sender_name: 'Bob', content: 'original' })
@@ -113,7 +124,7 @@ describe('human output builders', () => {
 
   it('renders media-only logical messages without a standalone dash', () => {
     const row = storedMessage({
-      attachments: [attachment({ kind: 'photo' })],
+      attachments: [storedAttachment(attachment({ kind: 'photo' }))],
     })
     expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[4]).toBe('📎 photo')
   })

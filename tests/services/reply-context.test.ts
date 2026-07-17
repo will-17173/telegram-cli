@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildReplyContext, formatReplyContext } from '../../src/services/reply-context.js'
-import type { StoredMessage } from '../../src/storage/message-db.js'
+import type { StoredAttachment, StoredMessage } from '../../src/storage/message-db.js'
+import type { Attachment } from '../../src/telegram/media-types.js'
 import { attachment } from '../fixtures/messages.js'
 
 function target(overrides: Partial<StoredMessage> = {}): StoredMessage {
@@ -16,9 +17,19 @@ function target(overrides: Partial<StoredMessage> = {}): StoredMessage {
     timestamp: '2026-07-10T01:02:03.000Z',
     reply_to_msg_id: null,
     media_group_id: null,
+    downloaded: false,
     raw_json: null,
     attachments: [],
     ...overrides,
+  }
+}
+
+function storedAttachment(input: Attachment): StoredAttachment {
+  return {
+    ...input,
+    downloaded: false,
+    downloaded_at: null,
+    download_path: null,
   }
 }
 
@@ -63,7 +74,7 @@ describe('reply context', () => {
   it('hydrates canonical attachments and uses their summary when content is empty', () => {
     const context = buildReplyContext(7, target({
       content: '',
-      attachments: [attachment({ kind: 'document', file_name: 'original.pdf' })],
+      attachments: [storedAttachment(attachment({ kind: 'document', file_name: 'original.pdf' }))],
     }))
 
     expect(context).toMatchObject({
