@@ -74,6 +74,23 @@ describe('evaluateGuardRules', () => {
     })).toHaveLength(1)
   })
 
+  it('matches new members only when member join time is present', () => {
+    const rules = [rule({ id: 6, conditions: [{ type: 'member_is_new' }] })]
+    const context = { warning_count: 0, recent_messages: [] }
+
+    expect(evaluateGuardRules({
+      event: event({ member_joined_at: '2026-07-17T11:59:00.000Z' }),
+      rules,
+      context,
+    }).map((match) => match.rule.id)).toEqual([6])
+
+    expect(evaluateGuardRules({
+      event: event({ member_joined_at: null }),
+      rules,
+      context,
+    })).toEqual([])
+  })
+
   it('matches repeated messages and message rate', () => {
     const matches = evaluateGuardRules({
       event: event({ text: 'same', created_at: '2026-07-17T12:00:05.000Z' }),
