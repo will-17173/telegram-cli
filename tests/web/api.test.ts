@@ -471,6 +471,35 @@ describe('handleApiRequest', () => {
     })
   })
 
+  it('infers web media download filenames from attachment kind and MIME type', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
+    db.upsertBatch([message({
+      chat_id: 1220606936,
+      msg_id: 5,
+      attachments: [attachment({ file_name: null, kind: 'photo', mime_type: 'image/jpeg' })],
+    })])
+    db.close()
+
+    const response = await api(root, '/api/download-media', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        account: 'work',
+        attachments: [{ chat_id: 1220606936, msg_id: 5, attachment_index: 1 }],
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(fakeClient.downloadMessageMedia).toHaveBeenCalledWith(expect.objectContaining({
+      destination: expect.stringContaining('1220606936-5-1.jpg'),
+    }))
+    expect(fakeClient.downloadMessageMedia.mock.calls.at(-1)?.[0]).not.toMatchObject({
+      destination: expect.stringContaining('.bin'),
+    })
+  })
+
   it('rejects malformed download media requests as JSON', async () => {
     const root = makeRoot()
 
