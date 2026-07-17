@@ -152,9 +152,16 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
     const attachments = body.attachments.map(parseDownloadAttachment)
     const reserved = new Set<string>()
     const clientContext = resolveAuthenticatedAccountContext({ explicitName: account, dataDir: context.dataDir })
-    const db = new MessageDB(clientContext.dbPath, { readonly: true })
+    const db = new MessageDB(clientContext.dbPath)
     const client = createTelegramClient(clientContext.sessionPath)
     const results = []
+    const warnings: Array<{
+      code: 'download_status_update_failed'
+      message: string
+      chat_id: number
+      msg_id: number
+      attachment_index: number
+    }> = []
     try {
       for (const attachment of attachments) {
         const [message] = db.getMessagesByKeys([{ chatId: attachment.chatId, msgId: attachment.msgId }])
@@ -179,6 +186,22 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
           attachment: toAttachmentLocator(stored),
           destination,
         })
+        const marked = db.markAttachmentDownloaded({
+          chatId: attachment.chatId,
+          msgId: attachment.msgId,
+          attachmentIndex: attachment.attachmentIndex,
+          path: destination,
+          downloadedAt: new Date().toISOString(),
+        })
+        if (!marked) {
+          warnings.push({
+            code: 'download_status_update_failed',
+            message: `Downloaded media but could not update local status for message ${attachment.msgId} attachment ${attachment.attachmentIndex}.`,
+            chat_id: attachment.chatId,
+            msg_id: attachment.msgId,
+            attachment_index: attachment.attachmentIndex,
+          })
+        }
         results.push({
           chat_id: attachment.chatId,
           msg_id: attachment.msgId,
@@ -192,7 +215,7 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
       db.close()
       await client.close()
     }
-    return success({ downloaded: results })
+    return success({ downloaded: results, warnings })
   } catch (error) {
     const message = errorMessage(error)
     if (isDataResetRequiredError(error)) return failure(409, 'data_reset_required', message)

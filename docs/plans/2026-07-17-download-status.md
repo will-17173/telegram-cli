@@ -578,7 +578,6 @@ git commit -m "feat: record archive media download status"
 ### Task 4: Expose Status Through Query And Web API
 
 **Files:**
-- Modify: `src/services/query-service.ts`
 - Modify: `src/web/types.ts`
 - Modify: `src/web/query.ts`
 - Modify: `src/web/api.ts`
@@ -586,7 +585,7 @@ git commit -m "feat: record archive media download status"
 - Modify: `tests/web/query.test.ts`
 - Modify: `tests/web/api.test.ts`
 
-- [ ] **Step 1: Write failing query and WebQuery tests**
+- [x] **Step 1: Write failing query and WebQuery tests**
 
 In `tests/services/query-service.test.ts`, add a test proving structured query data includes the derived message state and attachment state:
 
@@ -659,17 +658,17 @@ it('returns message and attachment download status', () => {
 
 In `tests/web/api.test.ts`, update the download-media test to reopen `MessageDB` after the POST and assert the attachment is marked downloaded. Assert the JSON response has `warnings: []`.
 
-- [ ] **Step 2: Run query and web backend tests and verify failure**
+- [x] **Step 2: Run query and web backend tests and verify failure**
 
 Run: `pnpm exec vitest run tests/services/query-service.test.ts tests/web/query.test.ts tests/web/api.test.ts`
 
 Expected: FAIL because stored query data does not expose `downloaded`, web types do not include `downloaded`, and `/api/download-media` opens the database readonly.
 
-- [ ] **Step 3: Preserve query-service structured data**
+- [x] **Step 3: Preserve query-service structured data**
 
 Presenter-specific transformations must not strip storage fields. In `src/services/query-service.ts`, keep `StoredMessage` as the returned data for search/recent/today/filter. If TypeScript complains about `StoredMessage` fields, update local type annotations so `data` remains the hydrated storage rows with `downloaded` and attachment status fields intact.
 
-- [ ] **Step 4: Add web response fields**
+- [x] **Step 4: Add web response fields**
 
 In `src/web/types.ts`, add:
 
@@ -689,7 +688,7 @@ to `WebMessageAttachment`.
 
 In `src/web/query.ts`, map stored message and attachment state into these fields for main messages and reply contexts.
 
-- [ ] **Step 5: Mark web downloads**
+- [x] **Step 5: Mark web downloads**
 
 In `src/web/api.ts`, open `MessageDB` writable in `downloadMediaPost`:
 
@@ -725,16 +724,16 @@ Return:
 return success({ downloaded: results, warnings })
 ```
 
-- [ ] **Step 6: Run query and web backend tests**
+- [x] **Step 6: Run query and web backend tests**
 
 Run: `pnpm exec vitest run tests/services/query-service.test.ts tests/web/query.test.ts tests/web/api.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit API exposure**
+- [x] **Step 7: Commit API exposure**
 
 ```bash
-git add src/services/query-service.ts src/web/types.ts src/web/query.ts src/web/api.ts tests/services/query-service.test.ts tests/web/query.test.ts tests/web/api.test.ts docs/plans/2026-07-17-download-status.md
+git add src/web/types.ts src/web/query.ts src/web/api.ts tests/services/query-service.test.ts tests/web/query.test.ts tests/web/api.test.ts docs/plans/2026-07-17-download-status.md
 git commit -m "feat: expose download status in web api"
 ```
 

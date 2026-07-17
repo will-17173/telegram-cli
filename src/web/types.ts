@@ -35,6 +35,7 @@ export type WebMessage = {
   content: string | null
   timestamp: string
   media_summary: string | null
+  downloaded: boolean
   reply_context?: WebReplyContext
   attachments: WebMessageAttachment[]
 }
@@ -54,6 +55,9 @@ export type WebReplyContext =
 export type WebMessageAttachment = Attachment & {
   chat_id: number
   msg_id: number
+  downloaded: boolean
+  downloaded_at: string | null
+  download_path: string | null
 }
 
 export type WebPage<T> = {

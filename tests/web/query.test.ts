@@ -328,6 +328,37 @@ describe('WebQueryService', () => {
     })
   })
 
+  it('returns message and attachment download status', () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
+    db.upsertBatch([message({
+      msg_id: 10,
+      content: 'downloadable photo',
+      attachments: [attachment({ unique_file_id: 'photo-10', downloadable: true })],
+    })])
+    db.markAttachmentDownloaded({
+      chatId: 10,
+      msgId: 10,
+      attachmentIndex: 1,
+      path: '/tmp/photo-10.jpg',
+      downloadedAt: '2026-07-17T10:00:00.000Z',
+    })
+    db.close()
+    const service = new WebQueryService({ dataDir: root })
+
+    const page = service.messages({ account: 'work', chatId: 10 })
+
+    expect(page.items[0]).toMatchObject({
+      downloaded: true,
+      attachments: [{
+        downloaded: true,
+        downloaded_at: '2026-07-17T10:00:00.000Z',
+        download_path: '/tmp/photo-10.jpg',
+      }],
+    })
+  })
+
   it('includes local reply context for replied-to messages', () => {
     const root = makeRoot()
     seedAccount(root)

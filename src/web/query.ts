@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { AccountStore } from '../account/account-store.js'
 import { resolveAccountContext } from '../account/account-context.js'
-import { MessageDB, type StoredMessageInput } from '../storage/message-db.js'
+import { MessageDB, type StoredMessage } from '../storage/message-db.js'
 import { buildReplyContext, type ReplyContext } from '../services/reply-context.js'
 import { groupLogicalMessages, summarizeLogicalMedia } from '../presenters/logical-message.js'
 import type { WebAccountSummary, WebChatSummary, WebMessage, WebMessageAttachment, WebPage, WebReplyContext } from './types.js'
@@ -83,6 +83,7 @@ export class WebQueryService {
               content: message.content,
               timestamp: first.timestamp,
               media_summary: summarizeLogicalMedia(message),
+              downloaded: logicalMessageDownloaded(message.messages),
               ...(message.replyToMessageId == null
                 ? {}
                 : { reply_context: toWebReplyContext(
@@ -101,7 +102,13 @@ export class WebQueryService {
   }
 }
 
-function toWebReplyContext(context: ReplyContext, target?: StoredMessageInput): WebReplyContext {
+function logicalMessageDownloaded(messages: StoredMessage[]): boolean {
+  const attachments = messages.flatMap((message) => message.attachments)
+    .filter((attachment) => attachment.downloadable)
+  return attachments.length > 0 && attachments.every((attachment) => attachment.downloaded)
+}
+
+function toWebReplyContext(context: ReplyContext, target?: StoredMessage): WebReplyContext {
   if (!context.resolved) return { message_id: context.messageId, resolved: false }
   return {
     message_id: context.messageId,
@@ -114,7 +121,7 @@ function toWebReplyContext(context: ReplyContext, target?: StoredMessageInput): 
   }
 }
 
-function toWebAttachments(messages: StoredMessageInput[]): WebMessageAttachment[] {
+function toWebAttachments(messages: StoredMessage[]): WebMessageAttachment[] {
   return messages.flatMap((row) => (
     row.attachments
       .slice()

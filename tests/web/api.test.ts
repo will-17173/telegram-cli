@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
+import { MESSAGE_DB_SCHEMA_VERSION, MessageDB, type StoredMessageInput } from '../../src/storage/message-db.js'
 import type { Attachment } from '../../src/telegram/media-types.js'
 
 const fakeClient = vi.hoisted(() => ({
@@ -231,7 +231,7 @@ describe('handleApiRequest', () => {
         message: 'Run `tg data reset --yes` before using this version.',
         details: {
           path: dbPath,
-          expected: 1,
+          expected: MESSAGE_DB_SCHEMA_VERSION,
           actual: 0,
         },
       },
@@ -436,6 +436,10 @@ describe('handleApiRequest', () => {
     })
 
     expect(response.status).toBe(200)
+    expect(await json(response)).toMatchObject({
+      ok: true,
+      data: { warnings: [] },
+    })
     expect(fakeClient.downloadMessageMedia).toHaveBeenCalledWith(expect.objectContaining({
       chat: -1001220606936,
       msgId: 1,
@@ -444,6 +448,14 @@ describe('handleApiRequest', () => {
     }))
     expect(fakeClient.downloadMessageMedia.mock.calls[0]?.[0]).not.toHaveProperty('location')
     expect(fakeClient.close).toHaveBeenCalledOnce()
+    const updated = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
+    const [stored] = updated.getMessagesByKeys([{ chatId: 1220606936, msgId: 1 }])
+    updated.close()
+    expect(stored?.attachments[0]).toMatchObject({
+      downloaded: true,
+      downloaded_at: expect.any(String),
+      download_path: expect.stringContaining('photo.jpg'),
+    })
   })
 
   it('rejects malformed download media requests as JSON', async () => {
