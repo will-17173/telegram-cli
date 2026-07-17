@@ -26,6 +26,7 @@ describe('cli help', () => {
       'filter',
       'folder',
       'group',
+      'guard',
       'history',
       'inbox',
       'info',
@@ -122,7 +123,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(35)
+    expect(commands).toHaveLength(36)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 

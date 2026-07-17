@@ -7,6 +7,7 @@ import { registerDialogCommands } from '../commands/dialog.js'
 import { registerContactCommands } from '../commands/contact.js'
 import { registerGroupCommands } from '../commands/group.js'
 import { registerFolderCommands } from '../commands/folder.js'
+import { registerGuardCommand } from '../commands/guard.js'
 import { registerNotificationCommands } from '../commands/notification.js'
 import { registerQueryCommands } from '../commands/query.js'
 import { registerTelegramCommands } from '../commands/telegram.js'
@@ -32,6 +33,7 @@ export function createApp(): Command {
   registerNotificationCommands(app)
   registerAccountCommands(app)
   registerConfigCommands(app)
+  registerGuardCommand(app)
   registerWebCommand(app)
 
   return app
