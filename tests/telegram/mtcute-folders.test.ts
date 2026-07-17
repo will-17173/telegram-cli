@@ -375,6 +375,31 @@ describe('MtcuteTelegramFolderAdapter', () => {
     }))
   })
 
+  it('treats mtcute community peers as dynamically included group-like chats', async () => {
+    const dynamic = createFolder({ id: 3, groups: true })
+    const communityPeer = peerShape(
+      -1_000_000_000_100,
+      'Announcements Hub',
+      'chat',
+      'community',
+      channelPeer,
+    )
+    const client = mockClient({
+      getFolders: vi.fn().mockResolvedValue(folderResponse([dynamic])),
+      getPeer: vi.fn().mockResolvedValue(communityPeer),
+      resolvePeer: vi.fn().mockResolvedValue(channelPeer),
+      editFolder: vi.fn().mockResolvedValue(dynamic),
+      iterDialogs: vi.fn(() => asyncItems([{ peer: communityPeer }])),
+    })
+
+    await expect(new MtcuteTelegramFolderAdapter(client, vi.fn()).removeChat({ folder: 3, chat: '@hub' }))
+      .resolves.toEqual({ folder_id: 3, chat_id: -1_000_000_000_100, changed: true })
+    expect(client.editFolder).toHaveBeenCalledWith({
+      folder: dynamic,
+      modification: { excludePeers: [channelPeer] },
+    })
+  })
+
   it.each([
     [{ nonContacts: true, bots: false }, false],
     [{ contacts: true, bots: false }, true],
@@ -612,7 +637,7 @@ function peerShape(
   id: number,
   displayName: string,
   type: 'user' | 'chat',
-  chatType?: 'group' | 'supergroup' | 'channel',
+  chatType?: 'group' | 'supergroup' | 'channel' | 'community',
   inputPeer: tl.TypeInputPeer = peer,
   flags: { isContact?: boolean; isBot?: boolean } = {},
 ) {

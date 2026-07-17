@@ -38,7 +38,7 @@
     "prepublishOnly": "pnpm test && pnpm typecheck && pnpm build"
   },
   "dependencies": {
-    "@mtcute/node": "^0.30.3",
+    "@mtcute/node": "^0.31.0",
     "better-sqlite3": "^12.10.0",
     "commander": "^14.0.2",
     "ink": "^6.5.1",

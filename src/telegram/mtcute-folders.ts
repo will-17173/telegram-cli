@@ -302,6 +302,7 @@ function classifyPeer(peer: Peer): FolderPeerCategory {
     case 'supergroup':
     case 'gigagroup':
     case 'monoforum':
+    case 'community':
       return 'supergroup'
   }
 }
