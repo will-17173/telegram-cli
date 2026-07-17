@@ -7,6 +7,7 @@ import { resolveAttachmentDestination } from '../services/attachment-download.js
 import { isDataResetRequiredError, MESSAGE_DB_SCHEMA_VERSION, MessageDB } from '../storage/message-db.js'
 import { selectStoredAttachment, toAttachmentLocator, AttachmentLookupError } from '../telegram/attachment-locator.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
+import { handleGuardApiRequest } from './guard-api.js'
 import { validateLocalRequest } from './security.js'
 import { SyncTaskRunner } from './sync-task.js'
 import { telegramPeerIdFromLocalChatId } from './telegram-peer.js'
@@ -33,6 +34,10 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
 
   try {
     const dataDir = context.dataDir ?? getDataDir()
+    if (url.pathname.startsWith('/api/guard/')) {
+      return await handleGuardApiRequest(request, { ...context, dataDir })
+    }
+
     const query = new WebQueryService({ dataDir })
 
     switch (url.pathname) {
