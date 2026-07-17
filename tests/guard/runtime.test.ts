@@ -90,6 +90,7 @@ class FakeRuntimeStore implements GuardRuntimeStore {
   runtimeStates: GuardRuntimeStateInput[] = []
   updatedGroups: Array<{ id: number; patch: Partial<Pick<GuardManagedGroup, 'title' | 'enabled' | 'policy' | 'runtime_status'>> }> = []
   updateGroupError: Error | null = null
+  updateGroupErrorForId: number | null = null
 
   listEnabledGroups(): GuardManagedGroup[] {
     return this.groups.filter((item) => item.enabled)
@@ -128,7 +129,9 @@ class FakeRuntimeStore implements GuardRuntimeStore {
     id: number,
     patch: Partial<Pick<GuardManagedGroup, 'title' | 'enabled' | 'policy' | 'runtime_status'>>,
   ): GuardManagedGroup | null {
-    if (this.updateGroupError != null) throw this.updateGroupError
+    if (this.updateGroupError != null && (this.updateGroupErrorForId == null || this.updateGroupErrorForId === id)) {
+      throw this.updateGroupError
+    }
     this.updatedGroups.push({ id, patch })
     const existing = this.groups.find((item) => item.id === id)
     if (existing == null) return null
@@ -255,7 +258,7 @@ describe('GuardRuntime', () => {
     ])
   })
 
-  it('start marks starting before group updates and running after they succeed', async () => {
+  it('start marks starting before group updates, running after success, and stop clears groups', async () => {
     const store = new FakeRuntimeStore()
     store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002, runtime_status: 'paused' })]
     const runtime = new GuardRuntime({ store, executor: executor(), writeAccess: () => true })
@@ -266,6 +269,8 @@ describe('GuardRuntime', () => {
     expect(store.updatedGroups).toEqual([
       { id: 1, patch: { runtime_status: 'running' } },
       { id: 2, patch: { runtime_status: 'running' } },
+      { id: 1, patch: { runtime_status: 'stopped' } },
+      { id: 2, patch: { runtime_status: 'stopped' } },
     ])
     expect(store.runtimeStates).toEqual([
       { status: 'starting', started_at: expect.any(String), queue_length: 0, error: null },
@@ -285,6 +290,27 @@ describe('GuardRuntime', () => {
     expect(store.runtimeStates).toEqual([
       { status: 'starting', started_at: expect.any(String), queue_length: 0, error: null },
       { status: 'error', started_at: null, queue_length: 0, error: 'group update failed' },
+    ])
+  })
+
+  it('start marks touched groups as error when startup partially fails', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002 })]
+    store.updateGroupError = new Error('second group failed')
+    store.updateGroupErrorForId = 2
+    const runtime = new GuardRuntime({ store, executor: executor(), writeAccess: () => true })
+
+    await expect(runtime.start()).rejects.toThrow('second group failed')
+
+    expect(store.updatedGroups).toEqual([
+      { id: 1, patch: { runtime_status: 'running' } },
+      { id: 1, patch: { runtime_status: 'error' } },
+    ])
+    expect(store.groups[0]?.runtime_status).toBe('error')
+    expect(store.groups[1]?.runtime_status).toBe('stopped')
+    expect(store.runtimeStates).toEqual([
+      { status: 'starting', started_at: expect.any(String), queue_length: 0, error: null },
+      { status: 'error', started_at: null, queue_length: 0, error: 'second group failed' },
     ])
   })
 })

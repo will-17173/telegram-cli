@@ -81,11 +81,13 @@ export class GuardRuntime {
       error: null,
     })
 
+    const touchedGroupIds: number[] = []
     try {
       const groups = await this.store.listEnabledGroups()
-      await Promise.all(groups.map((group) => {
-        return this.store.updateManagedGroup(group.id, { runtime_status: 'running' })
-      }))
+      for (const group of groups) {
+        await this.store.updateManagedGroup(group.id, { runtime_status: 'running' })
+        touchedGroupIds.push(group.id)
+      }
       await this.store.setRuntimeState({
         status: 'running',
         started_at: startedAt,
@@ -99,11 +101,18 @@ export class GuardRuntime {
         queue_length: 0,
         error: errorMessage(error),
       })
+      for (const groupId of touchedGroupIds) {
+        await this.store.updateManagedGroup(groupId, { runtime_status: 'error' })
+      }
       throw error
     }
   }
 
   async stop(): Promise<void> {
+    const groups = await this.store.listEnabledGroups()
+    for (const group of groups) {
+      await this.store.updateManagedGroup(group.id, { runtime_status: 'stopped' })
+    }
     await this.store.setRuntimeState({
       status: 'stopped',
       started_at: null,
