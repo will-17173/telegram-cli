@@ -24,12 +24,29 @@ export type GuardActionQueueOptions = {
 
 export class GuardActionQueue {
   private readonly executor: GuardActionExecutor
+  private pending: Promise<void> = Promise.resolve()
 
   constructor(options: GuardActionQueueOptions) {
     this.executor = options.executor
   }
 
   async run(event: GuardEvent, actions: readonly PlannedGuardAction[]): Promise<GuardActionExecutionResult[]> {
+    const previous = this.pending
+    let release!: () => void
+    const current = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    this.pending = previous.then(() => current, () => current)
+
+    await previous.catch(() => undefined)
+    try {
+      return await this.runBatch(event, actions)
+    } finally {
+      release()
+    }
+  }
+
+  private async runBatch(event: GuardEvent, actions: readonly PlannedGuardAction[]): Promise<GuardActionExecutionResult[]> {
     const results: GuardActionExecutionResult[] = []
     for (const action of actions) {
       if (action.status === 'skipped' || action.status === 'dry_run') {

@@ -148,4 +148,55 @@ describe('GuardActionQueue', () => {
     expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ chat: -1001, messageId: 10 })
     expect(fakeExecutor.sendMessage).toHaveBeenCalledWith({ chat: -1001, text: 'Still checking' })
   })
+
+  it('serializes executor writes across concurrent runs', async () => {
+    const calls: string[] = []
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const deleteMessage = vi.fn(async ({ messageId }: { chat: number; messageId: number }) => {
+      calls.push(`delete:${messageId}:start`)
+      if (messageId === 10) await firstBlocked
+      calls.push(`delete:${messageId}:end`)
+    })
+    const queue = new GuardActionQueue({
+      executor: executor({ deleteMessage }),
+    })
+
+    const firstRun = queue.run(event({ message_id: 10 }), [
+      planned({ type: 'delete_message' }, { rule_id: 1 }),
+    ])
+    await Promise.resolve()
+
+    const secondRun = queue.run(event({ message_id: 20 }), [
+      planned({ type: 'delete_message' }, { rule_id: 2 }),
+    ])
+    await Promise.resolve()
+
+    expect(calls).toEqual(['delete:10:start'])
+
+    releaseFirst()
+    await expect(Promise.all([firstRun, secondRun])).resolves.toEqual([
+      [{ rule_id: 1, action_type: 'delete_message', status: 'executed', details: { message_id: 10 } }],
+      [{ rule_id: 2, action_type: 'delete_message', status: 'executed', details: { message_id: 20 } }],
+    ])
+    expect(calls).toEqual(['delete:10:start', 'delete:10:end', 'delete:20:start', 'delete:20:end'])
+  })
+
+  it('records missing event data as failed action results', async () => {
+    const fakeExecutor = executor()
+    const queue = new GuardActionQueue({ executor: fakeExecutor })
+
+    await expect(queue.run(event({ message_id: null, user: null }), [
+      planned({ type: 'delete_message' }, { rule_id: 1 }),
+      planned({ type: 'mute', seconds: 60 }, { rule_id: 2 }),
+    ])).resolves.toEqual([
+      { rule_id: 1, action_type: 'delete_message', status: 'failed', details: { error: 'message_id is required for this guard action' } },
+      { rule_id: 2, action_type: 'mute', status: 'failed', details: { error: 'user is required for this guard action' } },
+    ])
+
+    expect(fakeExecutor.deleteMessage).not.toHaveBeenCalled()
+    expect(fakeExecutor.muteMember).not.toHaveBeenCalled()
+  })
 })
