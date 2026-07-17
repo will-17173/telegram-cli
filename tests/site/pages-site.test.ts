@@ -185,11 +185,19 @@ describe('GitHub Pages site', () => {
 
     for (const path of DOC_PAGES) {
       const page = readRequiredFile(path)
+      const commandCount = commandNames.length
 
       expect(attributeValues(page, 'data-command').sort(), `${path} top-level command markers`).toEqual(commandNames)
       expect(attributeValues(page, 'data-group-command').sort(), `${path} group command markers`).toEqual(groupCommands)
-      expect(page).toContain(`data-command-count="${commandNames.length}"`)
+      expect(page).toContain(`data-command-count="${commandCount}"`)
       expect(page).toContain(`data-group-command-count="${groupCommands.length}"`)
+      if (path.includes('/zh-CN/')) {
+        expect(page).toContain(`${commandCount} 个顶层命令`)
+        expect(page).toContain(`<strong>${commandCount}</strong><span>顶层命令</span>`)
+      } else {
+        expect(page).toContain(`All ${commandCount} top-level commands.`)
+        expect(page).toContain(`<dd>${commandCount} commands</dd>`)
+      }
     }
   })
 
