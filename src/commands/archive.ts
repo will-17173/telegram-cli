@@ -5,6 +5,7 @@ import { renderResult } from '../cli/output.js'
 import { ArchiveService } from '../services/archive-service.js'
 import type { ArchiveCommandResult } from '../services/archive-types.js'
 import { accountArchivePath, type AccountContext } from '../account/account-presets.js'
+import { MessageDB } from '../storage/message-db.js'
 import type { AccountCommandOptions } from './account-options.js'
 import { parseTimeRange, type ParsedTimeRange } from './time-range.js'
 import { isTelegramAuthSessionError } from '../telegram/errors.js'
@@ -47,8 +48,16 @@ export function registerArchiveCommand(app: Command): void {
       }
 
       await runTelegramCommand(effectiveOptions, async (client, context) => {
+        const archiveDb = effectiveOptions.downloadMedia === true ? new MessageDB(context.dbPath) : null
         try {
-          const result = await new ArchiveService(client.archive).archive({
+          const service = archiveDb == null
+            ? new ArchiveService(client.archive)
+            : new ArchiveService(client.archive, {
+                downloadStatusStore: {
+                  markAttachmentDownloaded: (input) => archiveDb.markAttachmentDownloaded(input),
+                },
+              })
+          const result = await service.archive({
             account: {
               userId: context.account.user_id,
               name: context.account.name,
@@ -66,6 +75,8 @@ export function registerArchiveCommand(app: Command): void {
         } catch (error) {
           if (isTelegramAuthSessionError(error)) throw error
           return archiveFailure(error)
+        } finally {
+          archiveDb?.close()
         }
       }, command)
     })

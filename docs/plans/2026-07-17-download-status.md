@@ -467,10 +467,12 @@ git commit -m "feat: skip previously downloaded media"
 **Files:**
 - Modify: `src/services/archive-service.ts`
 - Modify: `src/services/archive-markdown.ts`
+- Modify: `src/commands/archive.ts`
 - Modify: `tests/services/archive-service.test.ts`
 - Modify: `tests/services/archive-markdown.test.ts`
+- Modify: `tests/commands/archive.test.ts`
 
-- [ ] **Step 1: Write failing archive tests**
+- [x] **Step 1: Write failing archive tests**
 
 In `tests/services/archive-service.test.ts`, add a status store fake with `markAttachmentDownloaded`. Add tests for downloaded and reused media:
 
@@ -515,13 +517,13 @@ expect(renderArchiveMessage(message({
 }))).toContain('downloaded: yes')
 ```
 
-- [ ] **Step 2: Run archive tests and verify failure**
+- [x] **Step 2: Run archive tests and verify failure**
 
 Run: `pnpm exec vitest run tests/services/archive-service.test.ts tests/services/archive-markdown.test.ts`
 
 Expected: FAIL because archive does not accept a status store and Markdown does not include persistent status.
 
-- [ ] **Step 3: Implement archive status marking**
+- [x] **Step 3: Implement archive status marking**
 
 In `src/services/archive-service.ts`, add dependencies:
 
@@ -548,7 +550,7 @@ this.dependencies.downloadStatusStore?.markAttachmentDownloaded({
 
 If marking returns false, add an archive warning with code `download_status_update_failed` and a message naming the message and attachment.
 
-- [ ] **Step 4: Render persistent Markdown status**
+- [x] **Step 4: Render persistent Markdown status**
 
 In `src/services/archive-markdown.ts`, extend `renderAttachmentLine` so the line ends with persistent status:
 
@@ -558,16 +560,16 @@ return `Attachment #${safeInteger(attachment.attachment_index, 'attachment_index
 
 Update `ARCHIVE_MEDIA_LINE` regex to accept the new `; downloaded: yes|no` suffix.
 
-- [ ] **Step 5: Run focused archive tests**
+- [x] **Step 5: Run focused archive tests**
 
 Run: `pnpm exec vitest run tests/services/archive-service.test.ts tests/services/archive-markdown.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit archive integration**
+- [x] **Step 6: Commit archive integration**
 
 ```bash
-git add src/services/archive-service.ts src/services/archive-markdown.ts tests/services/archive-service.test.ts tests/services/archive-markdown.test.ts docs/plans/2026-07-17-download-status.md
+git add src/services/archive-service.ts src/services/archive-markdown.ts src/commands/archive.ts tests/services/archive-service.test.ts tests/services/archive-markdown.test.ts tests/commands/archive.test.ts docs/plans/2026-07-17-download-status.md
 git commit -m "feat: record archive media download status"
 ```
 

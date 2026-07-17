@@ -102,6 +102,11 @@ describe('archive command', () => {
     expect(result).toMatchObject({ exitCode: 0 })
     expect(result.stdout).toContain('| CHAT | FILE | NEW MESSAGES | DOWNLOADED MEDIA | WARNINGS |')
     expect(result.stdout).toContain('| Team | -100-team.md | 3 | 2 | — |')
+    expect(ArchiveService).toHaveBeenCalledWith(client.archive, {
+      downloadStatusStore: {
+        markAttachmentDownloaded: expect.any(Function),
+      },
+    })
     expect(archive).toHaveBeenCalledWith(expect.objectContaining({
       chats: [], all: true, full: true, media: true,
     }))

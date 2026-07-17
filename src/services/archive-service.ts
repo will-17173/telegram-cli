@@ -112,6 +112,10 @@ type ArchiveServiceDependencies = {
   writeArchive?: typeof writeArchiveFile
   restoreManifest?: (path: string, manifest: ArchiveManifest | null) => void
   transaction?: Partial<ArchiveTransactionOperations>
+  downloadStatusStore?: {
+    markAttachmentDownloaded(input: { chatId: number; msgId: number; attachmentIndex: number; path: string; downloadedAt: string }): boolean
+  }
+  now?: () => Date
 }
 
 class ArchiveOperationError extends Error {
@@ -125,6 +129,8 @@ export class ArchiveService {
   private readonly writeArchive: typeof writeArchiveFile
   private readonly restoreManifest: (path: string, manifest: ArchiveManifest | null) => void
   private readonly transaction: ArchiveTransactionOperations
+  private readonly downloadStatusStore?: NonNullable<ArchiveServiceDependencies['downloadStatusStore']>
+  private readonly now: () => Date
 
   constructor(
     private readonly source: TelegramArchiveAdapter,
@@ -133,6 +139,8 @@ export class ArchiveService {
     this.writeManifest = dependencies.writeManifest ?? writeArchiveManifest
     this.writeArchive = dependencies.writeArchive ?? writeArchiveFile
     this.restoreManifest = dependencies.restoreManifest ?? restoreManifestSnapshot
+    this.downloadStatusStore = dependencies.downloadStatusStore
+    this.now = dependencies.now ?? (() => new Date())
     const sync = dependencies.transaction?.syncDirectory ?? syncDirectory
     this.transaction = {
       backupDestination: dependencies.transaction?.backupDestination
@@ -502,7 +510,14 @@ export class ArchiveService {
     } catch {
       return mediaDownloadFailure(chat.id, messageId, attachment.attachment_index, relativePath)
     }
-    if (prepared.reused) return { path: relativePath, archived: true, reused: true }
+    if (prepared.reused) {
+      return {
+        path: relativePath,
+        archived: true,
+        reused: true,
+        warning: this.markMediaDownloaded(chat.id, message, attachment, prepared.destination),
+      }
+    }
 
     const { destination, directory, root } = prepared
     const temporary = join(root, `.media-stage.${token}.${chat.id}.${messageId}.tmp`)
@@ -516,7 +531,12 @@ export class ArchiveService {
       if (beforeDownload.reused) {
         removeOwnedStagingFile(temporary, stagingIdentity)
         stagingOwned = false
-        return { path: relativePath, archived: true, reused: true }
+        return {
+          path: relativePath,
+          archived: true,
+          reused: true,
+          warning: this.markMediaDownloaded(chat.id, message, attachment, beforeDownload.destination),
+        }
       }
       await this.source.downloadMedia({
         chat: chat.id,
@@ -545,7 +565,12 @@ export class ArchiveService {
       if (current.reused) {
         removeOwnedStagingFile(temporary, stagingIdentity)
         stagingOwned = false
-        return { path: relativePath, archived: true, reused: true }
+        return {
+          path: relativePath,
+          archived: true,
+          reused: true,
+          warning: this.markMediaDownloaded(chat.id, message, attachment, current.destination),
+        }
       }
       assertOwnedRegularNonEmptyFile(temporary, stagingIdentity)
       // Node has no openat/renameat. Revalidation pins every parent identity immediately
@@ -553,11 +578,36 @@ export class ArchiveService {
       renameSync(temporary, destination)
       stagingOwned = false
       this.transaction.syncDirectory(directory)
-      return { path: relativePath, archived: true }
+      return {
+        path: relativePath,
+        archived: true,
+        warning: this.markMediaDownloaded(chat.id, message, attachment, destination),
+      }
     } catch (error) {
       if (stagingOwned) removeOwnedStagingFile(temporary, stagingIdentity)
       if (isTelegramAuthSessionError(error)) throw error
       return mediaDownloadFailure(chat.id, messageId, attachment.attachment_index, relativePath)
+    }
+  }
+
+  private markMediaDownloaded(
+    chatId: number,
+    message: ArchiveMessage,
+    attachment: Attachment,
+    path: string,
+  ): ArchiveCommandResult['warnings'][number] | undefined {
+    const marked = this.downloadStatusStore?.markAttachmentDownloaded({
+      chatId,
+      msgId: message.msg_id,
+      attachmentIndex: attachment.attachment_index,
+      path,
+      downloadedAt: this.now().toISOString(),
+    })
+    if (marked !== false) return undefined
+    return {
+      chat_id: chatId,
+      code: 'download_status_update_failed',
+      message: `Downloaded media but could not update local status for message #${message.msg_id} attachment #${attachment.attachment_index}.`,
     }
   }
 

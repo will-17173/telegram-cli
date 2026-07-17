@@ -72,6 +72,13 @@ function downloaded(path: string): ArchiveAttachmentRenderState[] {
   return [{ attachment: attachment(), status: 'downloaded', path }]
 }
 
+function storedAttachment(overrides: Partial<Attachment> & { downloaded?: boolean } = {}): Attachment {
+  return {
+    ...attachment(overrides),
+    downloaded: overrides.downloaded ?? false,
+  } as Attachment
+}
+
 describe('archive markdown', () => {
   it('renders a human-readable escaped archive header', () => {
     expect(renderArchiveHeader(
@@ -117,6 +124,15 @@ describe('archive markdown', () => {
     expect(block).toContain('**Alice** — 2026-07-13T10:00:00.000Z')
     expect(block).toContain('Reply to #40')
     expect(block).toContain('[report.pdf](media/-100123/42-1-report.pdf)')
+    expect(block).toContain('downloaded: no')
+  })
+
+  it('renders persistent attachment download status when present', () => {
+    const block = renderArchiveMessage(message({
+      attachments: [storedAttachment({ downloaded: true })],
+    }))
+
+    expect(block).toContain('Attachment #1: report.pdf; type: document; role: primary; size: 2048 bytes; status: not-requested; downloadable: yes; downloaded: yes')
   })
 
   it('renders media-group metadata and a stable missing-text placeholder', () => {
@@ -185,7 +201,7 @@ describe('archive markdown', () => {
     }))
 
     expect(block).toContain(
-      'Attachment #1: demo \\[final\\].mp4; type: video; role: primary; size: unknown; status: not-downloadable; downloadable: no',
+      'Attachment #1: demo \\[final\\].mp4; type: video; role: primary; size: unknown; status: not-downloadable; downloadable: no; downloaded: no',
     )
   })
 

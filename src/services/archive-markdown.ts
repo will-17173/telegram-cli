@@ -12,7 +12,7 @@ const MESSAGE_ID_PREFIX = ' id='
 const MESSAGE_MARKER_SUFFIX = ' -->'
 const MAX_MESSAGE_MARKER_LENGTH = `<!-- tg:message chat=-${Number.MAX_SAFE_INTEGER} id=${Number.MAX_SAFE_INTEGER} -->`.length
 const MAX_ARCHIVE_MEDIA_LINE_LENGTH = 4096
-const ARCHIVE_MEDIA_LINE = /^Attachment #[1-9]\d*: \[(?:\\.|[^\\\]])*\]\((media\/(?:\\.|[^\\)])+)\); type: .*; role: .*; size: (?:unknown|-?(?:0|[1-9]\d*) bytes); status: (?:downloaded|reused|failed); downloadable: yes$/u
+const ARCHIVE_MEDIA_LINE = /^Attachment #[1-9]\d*: \[(?:\\.|[^\\\]])*\]\((media\/(?:\\.|[^\\)])+)\); type: .*; role: .*; size: (?:unknown|-?(?:0|[1-9]\d*) bytes); status: (?:downloaded|reused|failed); downloadable: yes(?:; downloaded: (?:yes|no))?$/u
 const ARCHIVE_MEDIA_PATH = /^media\/(-?(?:0|[1-9]\d*))\/([1-9]\d*)-([1-9]\d*)-(.+)$/u
 
 export type ArchiveAttachmentRenderState = {
@@ -125,7 +125,14 @@ function renderAttachmentState(state: ArchiveAttachmentRenderState): string {
     ? 'unknown'
     : `${safeInteger(attachment.file_size, 'file_size')} bytes`
   const status = state.status.replaceAll('_', '-')
-  return `Attachment #${safeInteger(attachment.attachment_index, 'attachment_index')}: ${label}; type: ${escapeMarkdownSingleLine(attachment.kind)}; role: ${escapeMarkdownSingleLine(attachment.role)}; size: ${size}; status: ${status}; downloadable: ${attachment.downloadable ? 'yes' : 'no'}`
+  return `Attachment #${safeInteger(attachment.attachment_index, 'attachment_index')}: ${label}; type: ${escapeMarkdownSingleLine(attachment.kind)}; role: ${escapeMarkdownSingleLine(attachment.role)}; size: ${size}; status: ${status}; downloadable: ${attachment.downloadable ? 'yes' : 'no'}; downloaded: ${attachmentDownloaded(attachment) ? 'yes' : 'no'}`
+}
+
+function attachmentDownloaded(attachment: Attachment): boolean {
+  const stored = attachment as unknown as { downloaded?: unknown }
+  return typeof stored.downloaded === 'boolean'
+    ? stored.downloaded
+    : false
 }
 
 export function renderArchiveHeader(

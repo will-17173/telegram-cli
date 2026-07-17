@@ -467,7 +467,7 @@ describe('ArchiveService', () => {
     const first = await service.archive(input(output, { full: true, media: true }))
     const second = await service.archive(input(output, { full: true, media: true, rebuild: true }))
 
-    const mediaPath = join(output, 'media', '-100', '40-1-report.pdf')
+    const mediaPath = join(realpathSync(output), 'media', '-100', '40-1-report.pdf')
     expect(readFileSync(mediaPath, 'utf8')).toBe('pdf')
     expect(readFileSync(join(output, '-100-team.md'), 'utf8'))
       .toContain('(media/-100/40-1-report.pdf)')
@@ -475,6 +475,85 @@ describe('ArchiveService', () => {
     expect(archiveDetails(first).completed[0]?.media_archived).toBe(1)
     expect(archiveDetails(second).completed[0]?.media_archived).toBe(1)
     expect(readdirSync(dirname(mediaPath)).filter((file) => file.endsWith('.tmp'))).toEqual([])
+  })
+
+  it('marks archive media as downloaded after downloads and reusable files', async () => {
+    const output = outputDirectory()
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachments: [attachment({ file_name: '../report.pdf', file_size: 3 })],
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+    source.downloadMedia.mockImplementation(async ({ destination }: { destination: string }) => {
+      writeFileSync(destination, 'pdf')
+    })
+    const marked: unknown[] = []
+    const service = new ArchiveService(source, {
+      downloadStatusStore: {
+        markAttachmentDownloaded: (state) => {
+          marked.push(state)
+          return true
+        },
+      },
+      now: () => new Date('2026-07-17T10:00:00.000Z'),
+    })
+
+    await service.archive(input(output, { full: true, media: true }))
+    await service.archive(input(output, { full: true, media: true, rebuild: true }))
+
+    const mediaPath = join(realpathSync(output), 'media', '-100', '40-1-report.pdf')
+    expect(source.downloadMedia).toHaveBeenCalledTimes(1)
+    expect(marked).toEqual([
+      {
+        chatId: -100,
+        msgId: 40,
+        attachmentIndex: 1,
+        path: mediaPath,
+        downloadedAt: '2026-07-17T10:00:00.000Z',
+      },
+      {
+        chatId: -100,
+        msgId: 40,
+        attachmentIndex: 1,
+        path: mediaPath,
+        downloadedAt: '2026-07-17T10:00:00.000Z',
+      },
+    ])
+  })
+
+  it('keeps archived media and reports a warning when download status cannot be updated', async () => {
+    const output = outputDirectory()
+    const attached = {
+      ...message(40, -100, '2026-07-10T12:00:00.000Z'),
+      attachments: [attachment({ file_name: 'report.pdf', file_size: 3 })],
+    }
+    const source = sourceFor(undefined, { [-100]: [[attached]] })
+    source.downloadMedia.mockImplementation(async ({ destination }: { destination: string }) => {
+      writeFileSync(destination, 'pdf')
+    })
+    const service = new ArchiveService(source, {
+      downloadStatusStore: {
+        markAttachmentDownloaded: () => false,
+      },
+    })
+
+    const result = await service.archive(input(output, { full: true, media: true }))
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'archive_partial_failure',
+        details: {
+          completed: [expect.objectContaining({ chat_id: -100, media_archived: 1 })],
+          warnings: [{
+            chat_id: -100,
+            code: 'download_status_update_failed',
+            message: 'Downloaded media but could not update local status for message #40 attachment #1.',
+          }],
+        },
+      },
+    })
+    expect(readFileSync(join(output, 'media', '-100', '40-1-report.pdf'), 'utf8')).toBe('pdf')
   })
 
   it('uses a bounded canonical portable media basename and label', async () => {
