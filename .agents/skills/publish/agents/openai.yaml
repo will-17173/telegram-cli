@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish"
+  short_description: "Prepare, tag, push, and publish releases"
+  default_prompt: "Use $publish to release the next telegram-cli version."
