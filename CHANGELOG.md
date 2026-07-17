@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-17
+
+### Added
+
+- Add `tg data reset --yes` for explicitly clearing local message data before using releases with incompatible storage changes.
+
+### Changed
+
+- Persist synchronized and listened messages through the normalized attachment model, replacing legacy media fields in local message storage and structured output.
+- Update package documentation and local media skill references for the normalized attachment contract.
+- Upgrade mtcute to 0.31.0 and treat new community peers as group-like chats for Telegram folder membership changes.
+
+### Fixed
+
+- Restrict listen-mode automatic downloads to primary attachments and keep attachment focus available when media is hidden.
+- Canonicalize attachment data across web queries, auto-downloads, and local message hydration.
+- Handle interruption during account switching without leaving stale terminal or account-selection state.
+
 ## [0.6.1] - 2026-07-16
 
 ### Fixed
