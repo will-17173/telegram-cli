@@ -58,6 +58,43 @@ function attachmentExtension(attachment: MessageAttachment): string {
   return 'bin'
 }
 
+type DownloadVisualState = 'none' | 'downloaded' | 'partial' | 'not-downloaded'
+
+function attachmentDownloadState(attachment: MessageAttachment): DownloadVisualState {
+  if (!attachment.downloadable) return 'none'
+  return attachment.downloaded ? 'downloaded' : 'not-downloaded'
+}
+
+function messageDownloadState(message: MessageRow): DownloadVisualState {
+  const downloadable = message.attachments.filter((attachment) => attachment.downloadable)
+  if (downloadable.length === 0) return 'none'
+  const downloaded = downloadable.filter((attachment) => attachment.downloaded).length
+  if (downloaded === downloadable.length) return 'downloaded'
+  if (downloaded > 0) return 'partial'
+  return 'not-downloaded'
+}
+
+function downloadStateLabel(state: DownloadVisualState): string {
+  if (state === 'downloaded') return 'Downloaded'
+  if (state === 'partial') return 'Partially downloaded'
+  if (state === 'not-downloaded') return 'Not downloaded'
+  return ''
+}
+
+function DownloadStatusIcon({ state }: { state: DownloadVisualState }) {
+  const label = downloadStateLabel(state)
+  if (state === 'none') return null
+  return (
+    <span
+      className={`download-status-icon download-status-${state}`}
+      title={label}
+      data-tooltip={label}
+      aria-label={label}
+      role="img"
+    />
+  )
+}
+
 type MessageFilterOverrides = {
   senderId?: string
   senderName?: string
@@ -324,7 +361,10 @@ export function App() {
     })
     setError('')
     try {
-      const result = await postJson<{ downloaded: Array<{ path: string }> }>('/api/download-media', {
+      const result = await postJson<{
+        downloaded: Array<{ path: string }>
+        warnings: Array<{ code: string; message: string }>
+      }>('/api/download-media', {
         account,
         attachments: attachments.map((attachment) => ({
           chat_id: attachment.chat_id,
@@ -338,6 +378,10 @@ export function App() {
         for (const key of keys) next[key] = destination == null ? 'Downloaded' : `Downloaded to ${destination}`
         return next
       })
+      if (result.warnings.length > 0) {
+        setError(result.warnings.map((warning) => warning.message).join(' '))
+      }
+      await loadMessages(messagePage)
     } catch (caught) {
       const message = errorText(caught)
       setError(message)
@@ -510,7 +554,10 @@ export function App() {
               return (
                 <li key={message.id} className="message-row">
                   <div className="message-meta">
-                    <time dateTime={message.timestamp}>{formatDate(message.timestamp)}</time>
+                    <span className="message-status-line">
+                      <DownloadStatusIcon state={messageDownloadState(message)} />
+                      <time dateTime={message.timestamp}>{formatDate(message.timestamp)}</time>
+                    </span>
                     {messageIdLabels(message).map((label) => <span key={label}>{label}</span>)}
                   </div>
                   <div className="message-body">
@@ -603,7 +650,10 @@ export function App() {
                               ? <img alt="" src={`data:image/jpeg;base64,${attachment.preview_jpeg_base64}`} />
                               : <span className="attachment-thumb" aria-hidden="true">{attachment.kind.slice(0, 3).toUpperCase()}</span>}
                             <div className="attachment-copy">
-                              <span className="attachment-label">{attachmentLabel(attachment)}</span>
+                              <span className="attachment-label">
+                                <DownloadStatusIcon state={attachmentDownloadState(attachment)} />
+                                {attachmentLabel(attachment)}
+                              </span>
                               <small>{attachmentDisplayName(attachment)}</small>
                               <small className="attachment-message-id">Message {attachment.msg_id}</small>
                               {downloadStatus[key] && <small>{downloadStatus[key]}</small>}

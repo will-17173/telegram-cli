@@ -494,6 +494,37 @@ input::placeholder {
   overflow-wrap: anywhere;
 }
 
+.message-status-line {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.download-status-icon {
+  border: 1px solid rgba(22, 32, 42, 0.22);
+  border-radius: 999px;
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 0.72rem;
+  position: relative;
+  width: 0.72rem;
+}
+
+.download-status-downloaded {
+  background: #0f9f6e;
+  border-color: #0f9f6e;
+}
+
+.download-status-partial {
+  background: linear-gradient(90deg, #0f9f6e 0 50%, #f5a524 50% 100%);
+  border-color: #b7791f;
+}
+
+.download-status-not-downloaded {
+  background: #ffffff;
+  border-color: #9aaabd;
+}
+
 .sender-head {
   align-items: center;
   display: flex;
@@ -913,9 +944,11 @@ input::placeholder {
 }
 
 .attachment-label {
-  display: block;
+  align-items: center;
+  display: flex;
   font-size: 12px;
   font-weight: 800;
+  gap: 6px;
   overflow-wrap: anywhere;
 }
 

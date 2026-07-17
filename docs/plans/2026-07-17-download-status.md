@@ -747,7 +747,7 @@ git commit -m "feat: expose download status in web api"
 - Modify: `web/src/styles.css`
 - Modify: `tests/web/frontend-assets.test.ts`
 
-- [ ] **Step 1: Write failing frontend tests**
+- [x] **Step 1: Write failing frontend tests**
 
 In `tests/web/frontend-assets.test.ts`, add source-level checks for the expected rendering helpers and labels:
 
@@ -763,13 +763,13 @@ it('renders message and attachment download status labels', () => {
 })
 ```
 
-- [ ] **Step 2: Run frontend asset tests and verify failure**
+- [x] **Step 2: Run frontend asset tests and verify failure**
 
 Run: `pnpm exec vitest run tests/web/frontend-assets.test.ts`
 
 Expected: FAIL because status helpers and class names do not exist.
 
-- [ ] **Step 3: Update frontend API types**
+- [x] **Step 3: Update frontend API types**
 
 In `web/src/api.ts`, add `downloaded: boolean` to `MessageRow`, and add download fields to `MessageAttachment`:
 
@@ -779,7 +779,7 @@ downloaded_at: string | null
 download_path: string | null
 ```
 
-- [ ] **Step 4: Add UI helpers and render icons**
+- [x] **Step 4: Add UI helpers and render icons**
 
 In `web/src/App.tsx`, add:
 
@@ -833,7 +833,7 @@ const result = await postJson<{
 
 After success, keep the existing `await loadMessages(messagePage)` refresh and display warning text when `result.warnings.length > 0`.
 
-- [ ] **Step 5: Add CSS**
+- [x] **Step 5: Add CSS**
 
 In `web/src/styles.css`, add:
 
@@ -863,13 +863,13 @@ In `web/src/styles.css`, add:
 }
 ```
 
-- [ ] **Step 6: Run frontend tests**
+- [x] **Step 6: Run frontend tests**
 
 Run: `pnpm exec vitest run tests/web/frontend-assets.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit frontend status**
+- [x] **Step 7: Commit frontend status**
 
 ```bash
 git add web/src/api.ts web/src/App.tsx web/src/styles.css tests/web/frontend-assets.test.ts docs/plans/2026-07-17-download-status.md

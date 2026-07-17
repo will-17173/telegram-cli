@@ -82,6 +82,22 @@ describe('web frontend source', () => {
     expect(css).toContain('[data-tooltip]:focus-visible::after')
   })
 
+  it('renders message and attachment download status labels', () => {
+    const app = readFileSync('web/src/App.tsx', 'utf8')
+    const css = readFileSync('web/src/styles.css', 'utf8')
+
+    expect(app).toContain('messageDownloadState')
+    expect(app).toContain('attachmentDownloadState')
+    expect(app).toContain('Downloaded')
+    expect(app).toContain('Partially downloaded')
+    expect(app).toContain('Not downloaded')
+    expect(app).toContain('download-status-icon')
+    expect(css).toContain('.download-status-icon')
+    expect(css).toContain('.download-status-downloaded')
+    expect(css).toContain('.download-status-partial')
+    expect(css).toContain('.download-status-not-downloaded')
+  })
+
   it('formats local supergroup identifiers as Telegram peer IDs', () => {
     expect(displayChatId(3688621340)).toBe('-1003688621340')
     expect(displayChatId(-1003688621340)).toBe('-1003688621340')

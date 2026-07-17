@@ -33,6 +33,7 @@ export type MessageRow = {
   content: string | null
   timestamp: string
   media_summary: string | null
+  downloaded: boolean
   reply_context?: ReplyContext
   attachments: MessageAttachment[]
 }
@@ -66,6 +67,9 @@ export type MessageAttachment = {
   kind: string
   subtype: string | null
   downloadable: boolean
+  downloaded: boolean
+  downloaded_at: string | null
+  download_path: string | null
   file_id: string | null
   unique_file_id: string | null
   file_name: string | null
