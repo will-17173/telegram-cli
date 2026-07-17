@@ -57,13 +57,13 @@ export type GuardRuntimeStore = {
 export type GuardRuntimeOptions = {
   store: GuardRuntimeStore
   executor: GuardActionExecutor
-  writeAccess: boolean
+  writeAccess: () => boolean
 }
 
 export class GuardRuntime {
   private readonly store: GuardRuntimeStore
   private readonly queue: GuardActionQueue
-  private readonly writeAccess: boolean
+  private readonly writeAccess: () => boolean
   private readonly cooldowns = new Map<string, string>()
 
   constructor(options: GuardRuntimeOptions) {
@@ -75,16 +75,32 @@ export class GuardRuntime {
   async start(): Promise<void> {
     const startedAt = new Date().toISOString()
     await this.store.setRuntimeState({
-      status: 'running',
+      status: 'starting',
       started_at: startedAt,
       queue_length: 0,
       error: null,
     })
 
-    const groups = await this.store.listEnabledGroups()
-    await Promise.all(groups.map((group) => {
-      return this.store.updateManagedGroup(group.id, { runtime_status: 'running' })
-    }))
+    try {
+      const groups = await this.store.listEnabledGroups()
+      await Promise.all(groups.map((group) => {
+        return this.store.updateManagedGroup(group.id, { runtime_status: 'running' })
+      }))
+      await this.store.setRuntimeState({
+        status: 'running',
+        started_at: startedAt,
+        queue_length: 0,
+        error: null,
+      })
+    } catch (error) {
+      await this.store.setRuntimeState({
+        status: 'error',
+        started_at: null,
+        queue_length: 0,
+        error: errorMessage(error),
+      })
+      throw error
+    }
   }
 
   async stop(): Promise<void> {
@@ -128,7 +144,7 @@ export class GuardRuntime {
       event,
       matches,
       policy: group.policy,
-      writeAccess: this.writeAccess,
+      writeAccess: this.writeAccess(),
       cooldowns: this.cooldowns,
     })
     const results = await this.queue.run(event, plannedActions)
@@ -183,4 +199,8 @@ export class GuardRuntime {
     const expiresAt = new Date(eventTime + group.policy.reply_cooldown_seconds * 1000).toISOString()
     this.cooldowns.set(`${result.action_type}:${group.id}:${event.user.id}`, expiresAt)
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

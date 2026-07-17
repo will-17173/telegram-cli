@@ -89,6 +89,7 @@ class FakeRuntimeStore implements GuardRuntimeStore {
   actions: GuardActionRecordInput[] = []
   runtimeStates: GuardRuntimeStateInput[] = []
   updatedGroups: Array<{ id: number; patch: Partial<Pick<GuardManagedGroup, 'title' | 'enabled' | 'policy' | 'runtime_status'>> }> = []
+  updateGroupError: Error | null = null
 
   listEnabledGroups(): GuardManagedGroup[] {
     return this.groups.filter((item) => item.enabled)
@@ -127,6 +128,7 @@ class FakeRuntimeStore implements GuardRuntimeStore {
     id: number,
     patch: Partial<Pick<GuardManagedGroup, 'title' | 'enabled' | 'policy' | 'runtime_status'>>,
   ): GuardManagedGroup | null {
+    if (this.updateGroupError != null) throw this.updateGroupError
     this.updatedGroups.push({ id, patch })
     const existing = this.groups.find((item) => item.id === id)
     if (existing == null) return null
@@ -149,7 +151,7 @@ describe('GuardRuntime', () => {
     store.groups = [group()]
     store.rules.set(1, [rule()])
     const fakeExecutor = executor()
-    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: true })
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => true })
 
     await runtime.handleEvent(event())
 
@@ -192,7 +194,7 @@ describe('GuardRuntime', () => {
     store.groups = [group()]
     store.rules.set(1, [rule({ conditions: [{ type: 'message_contains_text', text: 'blocked phrase' }] })])
     const fakeExecutor = executor()
-    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: true })
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => true })
 
     await runtime.handleEvent(event({ text: 'ordinary message' }))
 
@@ -201,10 +203,62 @@ describe('GuardRuntime', () => {
     expect(fakeExecutor.deleteMessage).not.toHaveBeenCalled()
   })
 
-  it('start and stop update runtime state', async () => {
+  it('evaluates write access during each event handling run', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group()]
+    store.rules.set(1, [rule({ actions: [{ type: 'delete_message' }] })])
+    const fakeExecutor = executor()
+    let writesEnabled = false
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => writesEnabled })
+
+    await runtime.handleEvent(event({ message_id: 10 }))
+    writesEnabled = true
+    await runtime.handleEvent(event({ message_id: 11 }))
+
+    expect(fakeExecutor.deleteMessage).toHaveBeenCalledTimes(1)
+    expect(fakeExecutor.deleteMessage).toHaveBeenCalledWith({ chat: -1001, messageId: 11 })
+    expect(store.actions.map((action) => action.status)).toEqual(['dry_run', 'executed'])
+  })
+
+  it('records skipped actions for current-account messages without writes or warnings', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group()]
+    store.rules.set(1, [rule()])
+    const fakeExecutor = executor()
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => true })
+
+    await runtime.handleEvent(event({
+      user: { id: 500, display_name: 'Self', username: 'self', is_admin: false, is_bot: false },
+      current_account_user_id: 500,
+    }))
+
+    expect(store.events).toHaveLength(1)
+    expect(fakeExecutor.deleteMessage).not.toHaveBeenCalled()
+    expect(store.warningCounts.get('1:500')).toBeUndefined()
+    expect(store.actions).toEqual([
+      {
+        event_id: 1,
+        rule_id: 1,
+        action_type: 'delete_message',
+        status: 'skipped',
+        details: { reason: 'actor is the current account' },
+        created_at: now,
+      },
+      {
+        event_id: 1,
+        rule_id: 1,
+        action_type: 'warn',
+        status: 'skipped',
+        details: { reason: 'actor is the current account' },
+        created_at: now,
+      },
+    ])
+  })
+
+  it('start marks starting before group updates and running after they succeed', async () => {
     const store = new FakeRuntimeStore()
     store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002, runtime_status: 'paused' })]
-    const runtime = new GuardRuntime({ store, executor: executor(), writeAccess: true })
+    const runtime = new GuardRuntime({ store, executor: executor(), writeAccess: () => true })
 
     await runtime.start()
     await runtime.stop()
@@ -214,8 +268,23 @@ describe('GuardRuntime', () => {
       { id: 2, patch: { runtime_status: 'running' } },
     ])
     expect(store.runtimeStates).toEqual([
+      { status: 'starting', started_at: expect.any(String), queue_length: 0, error: null },
       { status: 'running', started_at: expect.any(String), queue_length: 0, error: null },
       { status: 'stopped', started_at: null, queue_length: 0, error: null },
+    ])
+  })
+
+  it('start records error state and rethrows when startup fails', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group()]
+    store.updateGroupError = new Error('group update failed')
+    const runtime = new GuardRuntime({ store, executor: executor(), writeAccess: () => true })
+
+    await expect(runtime.start()).rejects.toThrow('group update failed')
+
+    expect(store.runtimeStates).toEqual([
+      { status: 'starting', started_at: expect.any(String), queue_length: 0, error: null },
+      { status: 'error', started_at: null, queue_length: 0, error: 'group update failed' },
     ])
   })
 })
