@@ -113,6 +113,8 @@ class FakeRuntimeStore implements GuardRuntimeStore {
   updateGroupError: Error | null = null
   updateGroupErrorForId: number | null = null
   errorStatusUpdateError: Error | null = null
+  runtimeStateErrorForStatus: GuardRuntimeStateInput['status'] | null = null
+  runtimeStateError: Error | null = null
 
   listEnabledGroups(): GuardManagedGroup[] {
     return this.groups.filter((item) => item.enabled)
@@ -165,6 +167,9 @@ class FakeRuntimeStore implements GuardRuntimeStore {
   }
 
   setRuntimeState(input: GuardRuntimeStateInput): void {
+    if (this.runtimeStateError != null && this.runtimeStateErrorForStatus === input.status) {
+      throw this.runtimeStateError
+    }
     this.runtimeStates.push(input)
   }
 
@@ -387,6 +392,36 @@ describe('GuardRuntime', () => {
     ])
   })
 
+  it('stop attempts all listener handles and clears runtime state when a listener stop fails', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002 })]
+    const fakeListener = listener()
+    const runtime = new GuardRuntime({
+      store,
+      executor: executor(),
+      writeAccess: () => true,
+      listener: fakeListener,
+    })
+
+    await runtime.start()
+    fakeListener.stops[0]?.mockRejectedValueOnce(new Error('first stop failed'))
+
+    await expect(runtime.stop()).rejects.toThrow('first stop failed')
+
+    expect(fakeListener.stops[0]).toHaveBeenCalledTimes(1)
+    expect(fakeListener.stops[1]).toHaveBeenCalledTimes(1)
+    expect(store.updatedGroups.slice(-2)).toEqual([
+      { id: 1, patch: { runtime_status: 'stopped' } },
+      { id: 2, patch: { runtime_status: 'stopped' } },
+    ])
+    expect(store.runtimeStates.at(-1)).toEqual({
+      status: 'stopped',
+      started_at: null,
+      queue_length: 0,
+      error: null,
+    })
+  })
+
   it('start marks starting before group updates, running after success, and stop clears groups', async () => {
     const store = new FakeRuntimeStore()
     store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002, runtime_status: 'paused' })]
@@ -451,6 +486,33 @@ describe('GuardRuntime', () => {
     expect(store.runtimeStates).toEqual([
       { status: 'starting', started_at: expect.any(String), queue_length: 0, error: null },
       { status: 'error', started_at: null, queue_length: 0, error: 'startup failed' },
+    ])
+  })
+
+  it('start still cleans listeners and touched groups when error-state persistence fails', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002 })]
+    store.updateGroupError = new Error('startup failed')
+    store.updateGroupErrorForId = 2
+    store.runtimeStateErrorForStatus = 'error'
+    store.runtimeStateError = new Error('error state failed')
+    const fakeListener = listener()
+    const runtime = new GuardRuntime({
+      store,
+      executor: executor(),
+      writeAccess: () => true,
+      listener: fakeListener,
+    })
+
+    await expect(runtime.start()).rejects.toThrow('startup failed')
+
+    expect(fakeListener.stops[0]).toHaveBeenCalledTimes(1)
+    expect(store.updatedGroups).toEqual([
+      { id: 1, patch: { runtime_status: 'running' } },
+      { id: 1, patch: { runtime_status: 'error' } },
+    ])
+    expect(store.runtimeStates).toEqual([
+      { status: 'starting', started_at: expect.any(String), queue_length: 0, error: null },
     ])
   })
 

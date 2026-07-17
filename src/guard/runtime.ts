@@ -126,7 +126,7 @@ export class GuardRuntime {
         error: null,
       })
     } catch (error) {
-      await this.store.setRuntimeState({
+      await this.setRuntimeStateBestEffort({
         status: 'error',
         started_at: null,
         queue_length: 0,
@@ -134,28 +134,46 @@ export class GuardRuntime {
       })
       await this.stopListenerHandlesBestEffort()
       await this.markGroupsBestEffort(touchedGroupIds, 'error')
+      for (const groupId of touchedGroupIds) {
+        this.startedGroupIds.delete(groupId)
+      }
       throw error
     }
   }
 
   async stop(): Promise<void> {
-    const listenerHandles = this.listenerHandles
-    this.listenerHandles = []
-    for (const handle of listenerHandles) {
-      await handle.stop()
+    let firstError: unknown = null
+    const failedHandles: GuardRuntimeListenerHandle[] = []
+    for (const handle of this.listenerHandles) {
+      try {
+        await handle.stop()
+      } catch (error) {
+        firstError ??= error
+        failedHandles.push(handle)
+      }
     }
+    this.listenerHandles = failedHandles
 
     const startedGroupIds = [...this.startedGroupIds]
     for (const groupId of startedGroupIds) {
-      await this.store.updateManagedGroup(groupId, { runtime_status: 'stopped' })
+      try {
+        await this.store.updateManagedGroup(groupId, { runtime_status: 'stopped' })
+        this.startedGroupIds.delete(groupId)
+      } catch (error) {
+        firstError ??= error
+      }
     }
-    this.startedGroupIds.clear()
-    await this.store.setRuntimeState({
-      status: 'stopped',
-      started_at: null,
-      queue_length: 0,
-      error: null,
-    })
+    try {
+      await this.store.setRuntimeState({
+        status: 'stopped',
+        started_at: null,
+        queue_length: 0,
+        error: null,
+      })
+    } catch (error) {
+      firstError ??= error
+    }
+    if (firstError != null) throw firstError
   }
 
   async handleEvent(event: GuardEvent): Promise<void> {
@@ -226,6 +244,14 @@ export class GuardRuntime {
       } catch {
         // Startup cleanup is best-effort; preserve the original startup failure.
       }
+    }
+  }
+
+  private async setRuntimeStateBestEffort(input: GuardRuntimeStateInput): Promise<void> {
+    try {
+      await this.store.setRuntimeState(input)
+    } catch {
+      // Startup cleanup is best-effort; preserve the original startup failure.
     }
   }
 
