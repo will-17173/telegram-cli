@@ -370,6 +370,7 @@ export class GuardDB {
   }
 
   recordAction(input: GuardActionInput): GuardActionRecord {
+    this.validateActionRuleGroup(input.event_id, input.rule_id)
     const result = this.db.prepare(`
       INSERT INTO guard_actions
         (event_id, rule_id, action_type, status, details_json, created_at)
@@ -383,7 +384,7 @@ export class GuardDB {
   }
 
   listActivity(options: GuardActivityOptions = {}): GuardActivityPage {
-    const limit = options.limit ?? 50
+    const limit = normalizeActivityLimit(options.limit)
     const params = options.group_id == null ? [limit] : [options.group_id, limit]
     const where = options.group_id == null ? '' : 'WHERE e.group_id = ?'
     const rows = this.db.prepare(`
@@ -434,6 +435,19 @@ export class GuardDB {
   private actionById(id: number): GuardActionRecord | null {
     const row = this.db.prepare('SELECT * FROM guard_actions WHERE id = ?').get(id) as ActionRow | undefined
     return row == null ? null : hydrateAction(row)
+  }
+
+  private validateActionRuleGroup(eventId: number, ruleId: number | null): void {
+    if (ruleId == null) return
+    const row = this.db.prepare(`
+      SELECT e.group_id AS event_group_id, r.group_id AS rule_group_id
+      FROM guard_events e
+      LEFT JOIN guard_rules r ON r.id = ?
+      WHERE e.id = ?
+    `).get(ruleId, eventId) as { event_group_id: number; rule_group_id: number | null } | undefined
+    if (row != null && row.rule_group_id != null && row.event_group_id !== row.rule_group_id) {
+      throw new Error('rule_id must belong to the same group as event_id')
+    }
   }
 }
 
@@ -606,6 +620,12 @@ function booleanToInt(value: boolean): 0 | 1 {
 
 function intToBoolean(value: 0 | 1): boolean {
   return value === 1
+}
+
+function normalizeActivityLimit(limit: number | undefined): number {
+  if (limit == null) return 50
+  if (!Number.isFinite(limit)) return 50
+  return Math.min(500, Math.max(1, Math.trunc(limit)))
 }
 
 function hasOwn<T extends object>(value: T, key: keyof T): boolean {
