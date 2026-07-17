@@ -151,11 +151,15 @@ export type GuardActivityItem = {
   chat_id: number
   message_id: number | null
   user_id: number | null
+  matched_rule_ids: number[]
   action_id: number
   rule_id: number | null
+  rule_name: string | null
   action_type: string
   action_status: string
-  created_at: string
+  action_details: JsonValue
+  event_created_at: string
+  action_created_at: string
 }
 
 export async function getJson<T>(path: string): Promise<T> {

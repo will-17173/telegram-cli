@@ -1298,7 +1298,7 @@ input::placeholder {
 
 .guard-status-running,
 .policy-chip-on,
-.guard-activity-completed {
+.guard-activity-executed {
   border-color: rgba(37, 194, 160, 0.58);
   color: #087a62;
 }
@@ -1311,9 +1311,15 @@ input::placeholder {
 
 .guard-status-starting,
 .guard-status-paused,
-.guard-activity-pending {
+.guard-activity-delayed,
+.guard-activity-dry-run {
   border-color: rgba(213, 144, 34, 0.55);
   color: #8d5c0e;
+}
+
+.guard-activity-skipped {
+  border-color: var(--line-strong);
+  color: var(--muted);
 }
 
 .guard-policy-strip {
@@ -1354,7 +1360,7 @@ input::placeholder {
   width: 10px;
 }
 
-.guard-activity-completed.guard-activity-mark {
+.guard-activity-executed.guard-activity-mark {
   background: var(--trace);
 }
 
@@ -1362,8 +1368,13 @@ input::placeholder {
   background: var(--danger);
 }
 
-.guard-activity-pending.guard-activity-mark {
+.guard-activity-delayed.guard-activity-mark,
+.guard-activity-dry-run.guard-activity-mark {
   background: var(--amber);
+}
+
+.guard-activity-skipped.guard-activity-mark {
+  background: var(--line-strong);
 }
 
 @media (prefers-reduced-motion: no-preference) {

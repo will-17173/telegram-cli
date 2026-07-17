@@ -824,6 +824,7 @@ function GuardWorkbench() {
   const [loading, setLoading] = useState(false)
   const [loadingRules, setLoadingRules] = useState(false)
   const [error, setError] = useState('')
+  const ruleRequestId = useRef(0)
 
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null
   const enabledGroups = groups.filter((group) => group.enabled).length
@@ -835,15 +836,24 @@ function GuardWorkbench() {
 
   useEffect(() => {
     if (selectedGroupId == null) {
+      ruleRequestId.current += 1
       setRules([])
       return
     }
+    const requestId = ruleRequestId.current + 1
+    ruleRequestId.current = requestId
     setLoadingRules(true)
     setError('')
     getJson<Page<GuardRule>>(`/api/guard/rules?group_id=${selectedGroupId}`)
-      .then((page) => setRules(page.items))
-      .catch((caught) => setError(errorText(caught)))
-      .finally(() => setLoadingRules(false))
+      .then((page) => {
+        if (requestId === ruleRequestId.current) setRules(page.items)
+      })
+      .catch((caught) => {
+        if (requestId === ruleRequestId.current) setError(errorText(caught))
+      })
+      .finally(() => {
+        if (requestId === ruleRequestId.current) setLoadingRules(false)
+      })
   }, [selectedGroupId])
 
   async function loadGuard() {
@@ -857,7 +867,7 @@ function GuardWorkbench() {
       ])
       setStatus(statusData.runtime)
       setGroups(groupsData.items)
-      setSelectedGroupId((current) => current ?? groupsData.items[0]?.id ?? null)
+      setSelectedGroupId((current) => nextGuardGroupId(groupsData.items, current))
       setActivity(activityData.items)
     } catch (caught) {
       setError(errorText(caught))
@@ -979,13 +989,13 @@ function GuardWorkbench() {
         <div className="guard-activity-list">
           {activity.map((item) => (
             <div className="guard-activity-row" key={`${item.event_id}:${item.action_id}`}>
-              <span className={`guard-activity-mark guard-activity-${item.action_status}`} aria-hidden="true" />
+              <span className={`guard-activity-mark ${guardActivityStatusClass(item.action_status)}`} aria-hidden="true" />
               <div>
                 <strong>{item.action_type}</strong>
-                <small>{item.event_type} · Chat {displayChatId(item.chat_id)}{item.user_id == null ? '' : ` · User ${item.user_id}`}</small>
+                <small>{activityDetailLabel(item)}</small>
               </div>
-              <span>{item.action_status}</span>
-              <time dateTime={item.created_at}>{formatDate(item.created_at)}</time>
+              <span className={guardActivityStatusClass(item.action_status)}>{item.action_status}</span>
+              <time dateTime={item.action_created_at}>{formatDate(item.action_created_at)}</time>
             </div>
           ))}
           {activity.length === 0 && <p className="empty-note">No guard activity recorded yet.</p>}
@@ -993,6 +1003,30 @@ function GuardWorkbench() {
       </section>
     </section>
   )
+}
+
+export function nextGuardGroupId(groups: readonly GuardGroup[], current: number | null): number | null {
+  if (current != null && groups.some((group) => group.id === current)) return current
+  return groups[0]?.id ?? null
+}
+
+export function guardActivityStatusClass(status: string): string {
+  if (status === 'executed') return 'guard-activity-executed'
+  if (status === 'failed') return 'guard-activity-failed'
+  if (status === 'delayed') return 'guard-activity-delayed'
+  if (status === 'dry_run') return 'guard-activity-dry-run'
+  if (status === 'skipped') return 'guard-activity-skipped'
+  return 'guard-activity-unknown'
+}
+
+function activityDetailLabel(item: GuardActivityItem): string {
+  const parts = [
+    item.event_type,
+    `Chat ${displayChatId(item.chat_id)}`,
+    item.user_id == null ? '' : `User ${item.user_id}`,
+    item.rule_name == null ? '' : `Rule ${item.rule_name}`,
+  ].filter(Boolean)
+  return parts.join(' · ')
 }
 
 type PaginationItem = number | 'ellipsis-left' | 'ellipsis-right'

@@ -1,6 +1,15 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { displayChatId, paginationWindow, senderAvatar, senderBlacklistKey, visibleMessagesForBlacklist } from '../../web/src/App.js'
+import {
+  displayChatId,
+  guardActivityStatusClass,
+  nextGuardGroupId,
+  paginationWindow,
+  senderAvatar,
+  senderBlacklistKey,
+  visibleMessagesForBlacklist,
+} from '../../web/src/App.js'
+import type { GuardGroup } from '../../web/src/api.js'
 
 describe('web frontend source', () => {
   it('defines the management UI shell', () => {
@@ -42,7 +51,7 @@ describe('web frontend source', () => {
     expect(app).not.toContain('Reply to {replySenderLabel')
     expect(app).not.toContain('Message {message.reply_context.message_id}')
     expect(app).not.toContain('Send message')
-    expect(app).not.toContain('Delete')
+    expect(app).not.toContain('Delete message')
   })
 
   it('constrains the chat sidebar to its own scroll area', () => {
@@ -98,11 +107,51 @@ describe('web frontend source', () => {
     expect(css).toContain('.download-status-not-downloaded')
   })
 
+  it('keeps guard workbench aligned with guard API payloads', () => {
+    const app = readFileSync('web/src/App.tsx', 'utf8')
+    const api = readFileSync('web/src/api.ts', 'utf8')
+    const css = readFileSync('web/src/styles.css', 'utf8')
+
+    expect(app).toContain("getJson<{ runtime: GuardRuntimeState; groups: Page<GuardGroup> }>('/api/guard/status')")
+    expect(app).toContain('ruleRequestId')
+    expect(app).toContain('requestId === ruleRequestId.current')
+    expect(app).toContain('nextGuardGroupId(groupsData.items, current)')
+    expect(app).toContain('item.action_created_at')
+    expect(api).toContain('action_created_at: string')
+    expect(api).toContain('event_created_at: string')
+    expect(api).not.toMatch(/export type GuardActivityItem = \{[\s\S]*\n  created_at: string[\s\S]*\n\}/)
+    expect(css).toContain('.guard-activity-executed')
+    expect(css).toContain('.guard-activity-skipped')
+    expect(css).toContain('.guard-activity-dry-run')
+    expect(css).toContain('.guard-activity-delayed')
+  })
+
   it('formats local supergroup identifiers as Telegram peer IDs', () => {
     expect(displayChatId(3688621340)).toBe('-1003688621340')
     expect(displayChatId(-1003688621340)).toBe('-1003688621340')
     expect(displayChatId(10)).toBe('10')
     expect(displayChatId(-123)).toBe('-123')
+  })
+
+  it('selects a valid guard group after refreshes', () => {
+    const groups = [
+      guardGroup(1, 'Alpha'),
+      guardGroup(2, 'Beta'),
+    ]
+
+    expect(nextGuardGroupId(groups, 2)).toBe(2)
+    expect(nextGuardGroupId(groups, 9)).toBe(1)
+    expect(nextGuardGroupId(groups, null)).toBe(1)
+    expect(nextGuardGroupId([], 2)).toBeNull()
+  })
+
+  it('maps backend guard action statuses to CSS classes', () => {
+    expect(guardActivityStatusClass('executed')).toBe('guard-activity-executed')
+    expect(guardActivityStatusClass('skipped')).toBe('guard-activity-skipped')
+    expect(guardActivityStatusClass('dry_run')).toBe('guard-activity-dry-run')
+    expect(guardActivityStatusClass('failed')).toBe('guard-activity-failed')
+    expect(guardActivityStatusClass('delayed')).toBe('guard-activity-delayed')
+    expect(guardActivityStatusClass('other')).toBe('guard-activity-unknown')
   })
 
   it('builds a numbered pagination range with ellipses', () => {
@@ -135,3 +184,23 @@ describe('web frontend source', () => {
     expect(visibleMessagesForBlacklist(messages, blocked).map((message) => message.id)).toEqual([2])
   })
 })
+
+function guardGroup(id: number, title: string): GuardGroup {
+  return {
+    id,
+    account: 'work',
+    chat_id: id,
+    title,
+    enabled: true,
+    runtime_status: 'running',
+    policy: {
+      allow_delete: true,
+      allow_mute: false,
+      allow_ban: false,
+      ignore_admins: true,
+      ignore_bots: true,
+      reply_cooldown_seconds: 30,
+      action_cooldown_seconds: 5,
+    },
+  }
+}
