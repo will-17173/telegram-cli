@@ -978,7 +978,6 @@ function GuardWorkbench() {
 
   async function deleteRule(rule: GuardRule): Promise<void> {
     if (selectedGroupId == null) return
-    if (!window.confirm(`Delete rule "${rule.name}"?`)) return
     setDeletingRuleId(rule.id)
     setError('')
     try {

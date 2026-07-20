@@ -135,7 +135,7 @@ describe('web frontend source', () => {
     expect(app).not.toContain('<small>{group.account} · {displayChatId(group.chat_id)}</small>')
     expect(app).toContain('Add rule')
     expect(app).toContain('deleteJson<{ deleted: boolean }>(`/api/guard/rules/${rule.id}`)')
-    expect(app).toContain('Delete rule "${rule.name}"?')
+    expect(app).not.toContain('window.confirm')
     expect(app).toContain('guard-rule-delete')
     expect(app).toContain('guard-rule-modal')
     expect(app).toContain('aria-labelledby="guard-rule-modal-title"')
