@@ -1467,20 +1467,21 @@ input::placeholder {
   padding: 4px 9px;
 }
 
-.guard-rule-enabled {
+.guard-rule-enabled-toggle {
   align-items: center;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
   color: var(--muted);
   display: inline-flex;
+  font: inherit;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   font-weight: 800;
   gap: 6px;
+  min-height: 30px;
+  padding: 5px 10px;
   text-transform: uppercase;
-}
-
-.guard-rule-enabled input {
-  accent-color: var(--telegram);
-  min-height: auto;
-  width: auto;
 }
 
 .guard-rule-form-grid {
@@ -1511,10 +1512,10 @@ input::placeholder {
   min-width: 0;
 }
 
-.guard-rule-form .guard-rule-enabled {
-  align-items: center;
-  display: inline-flex;
-  gap: 6px;
+.guard-rule-enabled-toggle-on {
+  border-color: rgba(37, 194, 160, 0.58);
+  color: #087a62;
+  box-shadow: inset 3px 0 0 var(--trace);
 }
 
 .guard-rule-form label > span {
@@ -1535,13 +1536,6 @@ input::placeholder {
   min-height: 36px;
   min-width: 0;
   padding: 7px 9px;
-}
-
-.guard-rule-form .guard-rule-enabled input {
-  height: 16px;
-  min-height: 16px;
-  padding: 0;
-  width: 16px;
 }
 
 .guard-rule-submit {

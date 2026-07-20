@@ -1169,14 +1169,14 @@ function GuardWorkbench() {
                   <button type="button" onClick={() => setRuleDraft(guardRulePreset('links'))}>Links</button>
                   <button type="button" onClick={() => setRuleDraft(guardRulePreset('flood'))}>Flood</button>
                   <button type="button" onClick={() => setRuleDraft(guardRulePreset('invites'))}>Invites</button>
-                  <label className="guard-rule-enabled">
-                    <input
-                      checked={ruleDraft.enabled}
-                      onChange={(event) => updateRuleDraft({ enabled: event.currentTarget.checked })}
-                      type="checkbox"
-                    />
-                    Enabled
-                  </label>
+                  <button
+                    className={ruleDraft.enabled ? 'guard-rule-enabled-toggle guard-rule-enabled-toggle-on' : 'guard-rule-enabled-toggle'}
+                    type="button"
+                    aria-pressed={ruleDraft.enabled}
+                    onClick={() => updateRuleDraft({ enabled: !ruleDraft.enabled })}
+                  >
+                    {ruleDraft.enabled ? 'Enabled' : 'Disabled'}
+                  </button>
                 </div>
               </div>
               <div className="guard-rule-form-grid">
