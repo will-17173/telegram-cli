@@ -1390,8 +1390,45 @@ input::placeholder {
   border-radius: 8px;
   display: grid;
   gap: 12px;
-  margin-bottom: 12px;
   padding: 12px;
+}
+
+.guard-rule-modal {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(22, 32, 42, 0.25);
+  display: grid;
+  gap: 14px;
+  max-height: min(760px, 90vh);
+  max-width: min(980px, 100%);
+  overflow: auto;
+  padding: 18px;
+  width: 980px;
+}
+
+.guard-rule-modal-heading {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding-bottom: 14px;
+}
+
+.guard-rule-modal-heading h2 {
+  font-size: 22px;
+  line-height: 1.15;
+  margin: 5px 0 0;
+}
+
+.guard-rule-modal-heading p {
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+
+.guard-rule-form-modal {
+  margin: 0;
 }
 
 .guard-rule-form-heading {
@@ -1474,6 +1511,12 @@ input::placeholder {
   min-width: 0;
 }
 
+.guard-rule-form .guard-rule-enabled {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
 .guard-rule-form label > span {
   color: var(--muted);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -1494,12 +1537,21 @@ input::placeholder {
   padding: 7px 9px;
 }
 
-.guard-rule-submit {
-  grid-column: 1 / -1;
+.guard-rule-form .guard-rule-enabled input {
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  width: 16px;
 }
 
 .guard-rule-submit {
   min-height: 40px;
+}
+
+.guard-rule-modal-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(120px, auto) minmax(180px, 1fr);
 }
 
 .guard-rule-row,

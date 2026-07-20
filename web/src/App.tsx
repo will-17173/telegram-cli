@@ -1067,8 +1067,15 @@ function GuardWorkbench() {
             <div className="guard-heading-actions">
               <span className="guard-count">{loadingRules ? 'Loading' : `${enabledRules}/${rules.length} enabled`}</span>
               {selectedGroup != null && (
-                <button className="secondary-action compact-action" type="button" onClick={() => setRuleFormOpen((open) => !open)}>
-                  {ruleFormOpen ? 'Close' : 'New rule'}
+                <button
+                  className="secondary-action compact-action"
+                  type="button"
+                  onClick={() => {
+                    setRuleDraft(DEFAULT_GUARD_RULE_DRAFT)
+                    setRuleFormOpen(true)
+                  }}
+                >
+                  New rule
                 </button>
               )}
             </div>
@@ -1095,8 +1102,61 @@ function GuardWorkbench() {
             </div>
           )}
 
-          {selectedGroup != null && (ruleFormOpen || rules.length === 0) && (
-            <form className="guard-rule-form" onSubmit={(event) => {
+          <div className="guard-rule-list" aria-busy={loadingRules}>
+            {rules.map((rule) => (
+              <article className={rule.enabled ? 'guard-rule-row' : 'guard-rule-row guard-rule-disabled'} key={rule.id}>
+                <div>
+                  <strong>{rule.name}</strong>
+                  <small>{guardRuleSummary(rule)}</small>
+                </div>
+                <span>{rule.enabled ? 'enabled' : 'disabled'}</span>
+              </article>
+            ))}
+            {!loadingRules && selectedGroup != null && rules.length === 0 && <p className="empty-note">No rules configured for this group.</p>}
+          </div>
+        </section>
+      </section>
+
+      <section className="guard-panel" aria-label="Recent guard activity">
+        <div className="guard-panel-heading">
+          <div>
+            <span className="panel-kicker">Activity</span>
+            <h2>Recent actions</h2>
+          </div>
+          <span className="guard-count">{activity.length} records</span>
+        </div>
+        <div className="guard-activity-list">
+          {activity.map((item) => (
+            <div className="guard-activity-row" key={`${item.event_id}:${item.action_id}`}>
+              <span className={`guard-activity-mark ${guardActivityStatusClass(item.action_status)}`} aria-hidden="true" />
+              <div>
+                <strong>{item.action_type}</strong>
+                <small>{activityDetailLabel(item)}</small>
+              </div>
+              <span className={guardActivityStatusClass(item.action_status)}>{item.action_status}</span>
+              <time dateTime={item.action_created_at}>{formatDate(item.action_created_at)}</time>
+            </div>
+          ))}
+          {activity.length === 0 && <p className="empty-note">No guard activity recorded yet.</p>}
+        </div>
+      </section>
+      {selectedGroup != null && ruleFormOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="guard-rule-modal" role="dialog" aria-modal="true" aria-labelledby="guard-rule-modal-title">
+            <div className="guard-rule-modal-heading">
+              <div>
+                <span className="panel-kicker">New rule</span>
+                <h2 id="guard-rule-modal-title">{selectedGroup.title ?? `Chat ${displayChatId(selectedGroup.chat_id)}`}</h2>
+                <p>{defaultRuleName(ruleDraft)}</p>
+              </div>
+              <button className="modal-close" type="button" onClick={() => setRuleFormOpen(false)} aria-label="Close rule editor">
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M6 6 18 18" />
+                  <path d="M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+            <form className="guard-rule-form guard-rule-form-modal" onSubmit={(event) => {
               event.preventDefault()
               void createRule()
             }}>
@@ -1235,50 +1295,18 @@ function GuardWorkbench() {
                   </label>
                 </div>
               </div>
-              <button className="primary-action guard-rule-submit" disabled={creatingRule} type="submit">
-                {creatingRule ? 'Saving...' : 'Save rule'}
-              </button>
-            </form>
-          )}
-
-          <div className="guard-rule-list" aria-busy={loadingRules}>
-            {rules.map((rule) => (
-              <article className={rule.enabled ? 'guard-rule-row' : 'guard-rule-row guard-rule-disabled'} key={rule.id}>
-                <div>
-                  <strong>{rule.name}</strong>
-                  <small>{guardRuleSummary(rule)}</small>
-                </div>
-                <span>{rule.enabled ? 'enabled' : 'disabled'}</span>
-              </article>
-            ))}
-            {!loadingRules && selectedGroup != null && rules.length === 0 && <p className="empty-note">No rules configured for this group.</p>}
-          </div>
-        </section>
-      </section>
-
-      <section className="guard-panel" aria-label="Recent guard activity">
-        <div className="guard-panel-heading">
-          <div>
-            <span className="panel-kicker">Activity</span>
-            <h2>Recent actions</h2>
-          </div>
-          <span className="guard-count">{activity.length} records</span>
-        </div>
-        <div className="guard-activity-list">
-          {activity.map((item) => (
-            <div className="guard-activity-row" key={`${item.event_id}:${item.action_id}`}>
-              <span className={`guard-activity-mark ${guardActivityStatusClass(item.action_status)}`} aria-hidden="true" />
-              <div>
-                <strong>{item.action_type}</strong>
-                <small>{activityDetailLabel(item)}</small>
+              <div className="guard-rule-modal-actions">
+                <button className="secondary-action" type="button" onClick={() => setRuleFormOpen(false)}>
+                  Cancel
+                </button>
+                <button className="primary-action guard-rule-submit" disabled={creatingRule} type="submit">
+                  {creatingRule ? 'Saving...' : 'Save rule'}
+                </button>
               </div>
-              <span className={guardActivityStatusClass(item.action_status)}>{item.action_status}</span>
-              <time dateTime={item.action_created_at}>{formatDate(item.action_created_at)}</time>
-            </div>
-          ))}
-          {activity.length === 0 && <p className="empty-note">No guard activity recorded yet.</p>}
+            </form>
+          </section>
         </div>
-      </section>
+      )}
     </section>
   )
 }
