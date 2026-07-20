@@ -7,6 +7,7 @@ import { resolveAttachmentDestination } from '../services/attachment-download.js
 import { isDataResetRequiredError, MESSAGE_DB_SCHEMA_VERSION, MessageDB } from '../storage/message-db.js'
 import { selectStoredAttachment, toAttachmentLocator, AttachmentLookupError } from '../telegram/attachment-locator.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
+import type { TelegramClientAdapter } from '../telegram/types.js'
 import { handleGuardApiRequest } from './guard-api.js'
 import { validateLocalRequest } from './security.js'
 import { SyncTaskRunner } from './sync-task.js'
@@ -18,6 +19,7 @@ export type ApiContext = {
   dataDir?: string
   port: number
   syncTask: SyncTaskRunner
+  createTelegramClient?: (sessionPath: string) => TelegramClientAdapter | Promise<TelegramClientAdapter>
 }
 
 type ApiError = {

@@ -867,15 +867,14 @@ function GuardWorkbench() {
     setLoading(true)
     setError('')
     try {
-      const [statusData, groupsData, activityData] = await Promise.all([
+      const [statusData, activityData] = await Promise.all([
         getJson<{ runtime: GuardRuntimeState; groups: Page<GuardGroup> }>('/api/guard/status'),
-        getJson<Page<GuardGroup>>('/api/guard/groups'),
         getJson<Page<GuardActivityItem>>('/api/guard/activity'),
       ])
       setStatus(statusData.runtime)
-      setGroups(groupsData.items)
+      setGroups(statusData.groups.items)
       const latestSelectedGroupId = selectedGroupIdRef.current
-      const currentGroupId = nextGuardGroupId(groupsData.items, latestSelectedGroupId)
+      const currentGroupId = nextGuardGroupId(statusData.groups.items, latestSelectedGroupId)
       const requestId = ruleRequestId.current + 1
       if (currentGroupId == null) {
         ruleRequestId.current = requestId

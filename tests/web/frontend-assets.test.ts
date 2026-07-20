@@ -119,7 +119,7 @@ describe('web frontend source', () => {
     expect(app).toContain('setRules([])')
     expect(app).toContain('loadGuardRules(currentGroupId, requestId)')
     expect(app).toContain('const latestSelectedGroupId = selectedGroupIdRef.current')
-    expect(app).toContain('nextGuardGroupId(groupsData.items, latestSelectedGroupId)')
+    expect(app).toContain('nextGuardGroupId(statusData.groups.items, latestSelectedGroupId)')
     expect(app).toContain('currentGroupId === latestSelectedGroupId')
     expect(app).toContain('setSelectedGroupId(currentGroupId)')
     expect(app).toContain('item.action_created_at')

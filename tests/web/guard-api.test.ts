@@ -1,8 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GuardDB } from '../../src/storage/guard-db.js'
+import { FakeTelegramClient } from '../../src/telegram/fake-client.js'
+import type { TelegramClientAdapter } from '../../src/telegram/types.js'
 import { handleApiRequest } from '../../src/web/api.js'
 import { SyncTaskRunner } from '../../src/web/sync-task.js'
 
@@ -15,17 +17,26 @@ function makeRoot(): string {
   return root
 }
 
-async function api(root: string, path: string, init: RequestInit & { host?: string } = {}): Promise<Response> {
+async function api(
+  root: string,
+  path: string,
+  init: RequestInit & {
+    host?: string
+    createTelegramClient?: (sessionPath: string) => TelegramClientAdapter | Promise<TelegramClientAdapter>
+  } = {},
+): Promise<Response> {
   const headers = new Headers(init.headers)
   headers.set('host', init.host ?? `127.0.0.1:${port}`)
+  const { host: _host, createTelegramClient, ...requestInit } = init
   const request = new Request(`http://127.0.0.1:${port}${path}`, {
-    ...init,
+    ...requestInit,
     headers,
   })
   return handleApiRequest(request, {
     dataDir: root,
     port,
     syncTask: new SyncTaskRunner({ dataDir: root }),
+    ...(createTelegramClient == null ? {} : { createTelegramClient }),
   })
 }
 
@@ -73,11 +84,99 @@ async function createRule(root: string, groupId: number): Promise<number> {
   return body.data.id
 }
 
+function writeCurrentAccount(root: string): void {
+  writeFileSync(join(root, 'accounts.json'), `${JSON.stringify({
+    version: 2,
+    current_account: 'work',
+    accounts: [{
+      name: 'work',
+      user_id: 1,
+      username: 'work_user',
+      phone: '10001',
+      display_name: 'Work User',
+      auth_state: 'authenticated',
+    }],
+  }, null, 2)}\n`)
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
 describe('guard web API', () => {
+  it('discovers current account admin groups for guard status', async () => {
+    const root = makeRoot()
+    writeCurrentAccount(root)
+    const client = new FakeTelegramClient({
+      managedChats: [
+        { id: -1001, name: 'Team', type: 'supergroup', username: null, is_admin: true, is_creator: false },
+        { id: -1002, name: 'Channel', type: 'channel', username: 'channel', is_admin: false, is_creator: true },
+        { id: -1003, name: 'Member Only', type: 'group', username: null, is_admin: false, is_creator: false },
+      ],
+    })
+
+    const response = await api(root, '/api/guard/status', {
+      createTelegramClient: () => client,
+    })
+
+    expect(response.status).toBe(200)
+    expect(await json(response)).toMatchObject({
+      ok: true,
+      data: {
+        groups: {
+          items: [
+            { account: 'work', chat_id: -1002, title: 'Channel', enabled: false },
+            { account: 'work', chat_id: -1001, title: 'Team', enabled: false },
+          ],
+        },
+      },
+    })
+    expect(client.calls).toContainEqual({
+      operation: 'listGroups',
+      request: { adminOnly: true, limit: 500 },
+    })
+    expect(client.closeCalls).toBe(1)
+  })
+
+  it('preserves existing guard group enablement and policy during discovery', async () => {
+    const root = makeRoot()
+    writeCurrentAccount(root)
+    const groupId = await createGroup(root)
+    await api(root, `/api/guard/groups/${groupId}`, jsonPatch({
+      enabled: true,
+      policy: {
+        allow_mute: true,
+        reply_cooldown_seconds: 90,
+      },
+    }))
+
+    const response = await api(root, '/api/guard/groups', {
+      createTelegramClient: () => new FakeTelegramClient({
+        managedChats: [
+          { id: -1001, name: 'Renamed Team', type: 'supergroup', username: null, is_admin: true, is_creator: false },
+        ],
+      }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await json(response)).toMatchObject({
+      ok: true,
+      data: {
+        items: [{
+          id: groupId,
+          account: 'work',
+          chat_id: -1001,
+          title: 'Renamed Team',
+          enabled: true,
+          policy: {
+            allow_mute: true,
+            reply_cooldown_seconds: 90,
+          },
+        }],
+      },
+    })
+  })
+
   it('returns guard status and managed groups', async () => {
     const root = makeRoot()
     const status = await api(root, '/api/guard/status')

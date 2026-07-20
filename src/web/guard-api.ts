@@ -1,9 +1,12 @@
 import { join } from 'node:path'
+import { resolveAuthenticatedAccountContext } from '../account/account-context.js'
 import { evaluateGuardRules } from '../guard/rule-engine.js'
 import { parseGuardActions, parseGuardConditions } from '../guard/schema.js'
 import type { GuardGroupPolicy } from '../guard/types.js'
 import type { GuardRuntimeStatus } from '../storage/guard-db.js'
 import { GuardDB } from '../storage/guard-db.js'
+import { createTelegramClient } from '../telegram/client-factory.js'
+import type { TelegramClientAdapter } from '../telegram/types.js'
 import type { ApiContext } from './api.js'
 import type { ApiFailure, ApiSuccess } from './types.js'
 
@@ -16,6 +19,7 @@ type ApiError = {
 type GuardValidationCode = 'invalid_rule_condition' | 'invalid_rule_action'
 
 const RUNTIME_STATUSES = new Set<GuardRuntimeStatus>(['stopped', 'starting', 'running', 'paused', 'error'])
+const GUARD_DISCOVERY_GROUP_LIMIT = 500
 
 export async function handleGuardApiRequest(request: Request, context: ApiContext & { dataDir: string }): Promise<Response> {
   const url = new URL(request.url)
@@ -24,6 +28,7 @@ export async function handleGuardApiRequest(request: Request, context: ApiContex
   try {
     if (url.pathname === '/api/guard/status') {
       if (request.method !== 'GET') return notFound()
+      await discoverManagedGroups(db, context)
       return success({
         runtime: db.getRuntimeState(),
         groups: { items: db.listManagedGroups() },
@@ -31,7 +36,10 @@ export async function handleGuardApiRequest(request: Request, context: ApiContex
     }
 
     if (url.pathname === '/api/guard/groups') {
-      if (request.method === 'GET') return success({ items: db.listManagedGroups() })
+      if (request.method === 'GET') {
+        await discoverManagedGroups(db, context)
+        return success({ items: db.listManagedGroups() })
+      }
       if (request.method === 'POST') return await createGroup(request, db)
       return notFound()
     }
@@ -73,6 +81,45 @@ export async function handleGuardApiRequest(request: Request, context: ApiContex
   } finally {
     db.close()
   }
+}
+
+async function discoverManagedGroups(db: GuardDB, context: ApiContext & { dataDir: string }): Promise<void> {
+  let accountContext: ReturnType<typeof resolveAuthenticatedAccountContext>
+  try {
+    accountContext = resolveAuthenticatedAccountContext({ dataDir: context.dataDir })
+  } catch {
+    return
+  }
+
+  const client = await (context.createTelegramClient ?? createTelegramClient)(accountContext.sessionPath)
+  try {
+    const existingByChat = new Map(
+      db.listManagedGroups()
+        .filter((group) => group.account === accountContext.name)
+        .map((group) => [group.chat_id, group]),
+    )
+    const groups = await client.dialogs.listGroups({
+      adminOnly: true,
+      limit: GUARD_DISCOVERY_GROUP_LIMIT,
+    })
+
+    for (const group of groups) {
+      const existing = existingByChat.get(group.id)
+      db.upsertManagedGroup({
+        account: accountContext.name,
+        chat_id: group.id,
+        title: group.name,
+        enabled: existing?.enabled ?? false,
+        policy: existing?.policy ?? db.defaultPolicy(),
+      })
+    }
+  } finally {
+    await closeClient(client)
+  }
+}
+
+async function closeClient(client: TelegramClientAdapter): Promise<void> {
+  await client.close()
 }
 
 async function createGroup(request: Request, db: GuardDB): Promise<Response> {
