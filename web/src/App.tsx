@@ -8,6 +8,7 @@ import {
   type GuardGroup,
   type GuardRule,
   type GuardRuntimeState,
+  type JsonValue,
   type MessageAttachment,
   type MessageRow,
   type Page,
@@ -17,6 +18,53 @@ import {
 const DEFAULT_MESSAGE_PAGE_SIZE = 50
 const MESSAGE_PAGE_SIZE_OPTIONS = [25, 50, 100] as const
 const SYNC_LIMIT = 500
+const GUARD_RULE_DEFAULT_PRIORITY = 100
+
+type GuardRuleConditionKind =
+  | 'message_contains_text'
+  | 'message_matches_regex'
+  | 'message_contains_url'
+  | 'message_contains_invite_link'
+  | 'message_repeated'
+  | 'message_rate_exceeded'
+  | 'member_is_new'
+  | 'member_age_less_than'
+  | 'message_command'
+
+type GuardRuleActionKind =
+  | 'delete_message'
+  | 'warn'
+  | 'mute'
+  | 'ban'
+  | 'reply'
+  | 'send_message'
+  | 'record_only'
+
+export type GuardRuleDraft = {
+  name: string
+  enabled: boolean
+  priority: number
+  conditionType: GuardRuleConditionKind
+  conditionText: string
+  conditionSeconds: number
+  conditionCount: number
+  actionType: GuardRuleActionKind
+  actionText: string
+  actionSeconds: number
+}
+
+const DEFAULT_GUARD_RULE_DRAFT: GuardRuleDraft = {
+  name: '',
+  enabled: true,
+  priority: GUARD_RULE_DEFAULT_PRIORITY,
+  conditionType: 'message_contains_url',
+  conditionText: '',
+  conditionSeconds: 60,
+  conditionCount: 5,
+  actionType: 'delete_message',
+  actionText: '',
+  actionSeconds: 600,
+}
 
 export function attachmentKey(attachment: MessageAttachment): string {
   return `${attachment.chat_id}:${attachment.msg_id}:${attachment.attachment_index}`
@@ -823,6 +871,8 @@ function GuardWorkbench() {
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingRules, setLoadingRules] = useState(false)
+  const [creatingRule, setCreatingRule] = useState(false)
+  const [ruleDraft, setRuleDraft] = useState<GuardRuleDraft>(DEFAULT_GUARD_RULE_DRAFT)
   const [error, setError] = useState('')
   const ruleRequestId = useRef(0)
   const selectedGroupIdRef = useRef(selectedGroupId)
@@ -841,11 +891,13 @@ function GuardWorkbench() {
     if (selectedGroupId == null) {
       ruleRequestId.current += 1
       setRules([])
+      setRuleDraft(DEFAULT_GUARD_RULE_DRAFT)
       return
     }
     const requestId = ruleRequestId.current + 1
     ruleRequestId.current = requestId
     setRules([])
+    setRuleDraft(DEFAULT_GUARD_RULE_DRAFT)
     void loadGuardRules(selectedGroupId, requestId)
   }, [selectedGroupId])
 
@@ -892,6 +944,25 @@ function GuardWorkbench() {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function createRule(): Promise<void> {
+    if (selectedGroupId == null) return
+    setCreatingRule(true)
+    setError('')
+    try {
+      await postJson<GuardRule>('/api/guard/rules', guardRuleRequestFromDraft(selectedGroupId, ruleDraft))
+      setRuleDraft(DEFAULT_GUARD_RULE_DRAFT)
+      await loadGuardRules(selectedGroupId)
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setCreatingRule(false)
+    }
+  }
+
+  function updateRuleDraft(update: Partial<GuardRuleDraft>): void {
+    setRuleDraft((current) => ({ ...current, ...update }))
   }
 
   return (
@@ -981,6 +1052,135 @@ function GuardWorkbench() {
             </div>
           )}
 
+          {selectedGroup != null && (
+            <form className="guard-rule-form" onSubmit={(event) => {
+              event.preventDefault()
+              void createRule()
+            }}>
+              <div className="guard-rule-form-heading">
+                <strong>Add rule</strong>
+                <label className="guard-rule-enabled">
+                  <input
+                    checked={ruleDraft.enabled}
+                    onChange={(event) => updateRuleDraft({ enabled: event.currentTarget.checked })}
+                    type="checkbox"
+                  />
+                  Enabled
+                </label>
+              </div>
+              <div className="guard-rule-form-grid">
+                <label>
+                  <span>Name</span>
+                  <input
+                    onChange={(event) => updateRuleDraft({ name: event.currentTarget.value })}
+                    placeholder="No promo links"
+                    type="text"
+                    value={ruleDraft.name}
+                  />
+                </label>
+                <label>
+                  <span>Priority</span>
+                  <input
+                    min="1"
+                    onChange={(event) => updateRuleDraft({ priority: numberInputValue(event.currentTarget.value, GUARD_RULE_DEFAULT_PRIORITY) })}
+                    type="number"
+                    value={ruleDraft.priority}
+                  />
+                </label>
+                <label>
+                  <span>Trigger</span>
+                  <select
+                    onChange={(event) => updateRuleDraft({ conditionType: event.currentTarget.value as GuardRuleConditionKind })}
+                    value={ruleDraft.conditionType}
+                  >
+                    <option value="message_contains_url">URL</option>
+                    <option value="message_contains_invite_link">Invite link</option>
+                    <option value="message_contains_text">Text contains</option>
+                    <option value="message_matches_regex">Regex</option>
+                    <option value="message_repeated">Repeated message</option>
+                    <option value="message_rate_exceeded">Message rate</option>
+                    <option value="member_is_new">New member</option>
+                    <option value="member_age_less_than">Member age</option>
+                    <option value="message_command">Command</option>
+                  </select>
+                </label>
+                {ruleDraftNeedsText(ruleDraft.conditionType) && (
+                  <label>
+                    <span>{ruleDraft.conditionType === 'message_matches_regex' ? 'Pattern' : ruleDraft.conditionType === 'message_command' ? 'Command' : 'Text'}</span>
+                    <input
+                      onChange={(event) => updateRuleDraft({ conditionText: event.currentTarget.value })}
+                      placeholder={conditionPlaceholder(ruleDraft.conditionType)}
+                      type="text"
+                      value={ruleDraft.conditionText}
+                    />
+                  </label>
+                )}
+                {ruleDraftNeedsSeconds(ruleDraft.conditionType) && (
+                  <label>
+                    <span>Seconds</span>
+                    <input
+                      min="1"
+                      onChange={(event) => updateRuleDraft({ conditionSeconds: numberInputValue(event.currentTarget.value, 60) })}
+                      type="number"
+                      value={ruleDraft.conditionSeconds}
+                    />
+                  </label>
+                )}
+                {ruleDraft.conditionType === 'message_rate_exceeded' && (
+                  <label>
+                    <span>Max messages</span>
+                    <input
+                      min="1"
+                      onChange={(event) => updateRuleDraft({ conditionCount: numberInputValue(event.currentTarget.value, 5) })}
+                      type="number"
+                      value={ruleDraft.conditionCount}
+                    />
+                  </label>
+                )}
+                <label>
+                  <span>Action</span>
+                  <select
+                    onChange={(event) => updateRuleDraft({ actionType: event.currentTarget.value as GuardRuleActionKind })}
+                    value={ruleDraft.actionType}
+                  >
+                    <option value="delete_message">Delete</option>
+                    <option value="warn">Warn</option>
+                    <option value="mute">Mute</option>
+                    <option value="ban">Ban</option>
+                    <option value="reply">Reply</option>
+                    <option value="send_message">Post notice</option>
+                    <option value="record_only">Record only</option>
+                  </select>
+                </label>
+                {ruleDraft.actionType === 'mute' && (
+                  <label>
+                    <span>Mute seconds</span>
+                    <input
+                      min="1"
+                      onChange={(event) => updateRuleDraft({ actionSeconds: numberInputValue(event.currentTarget.value, 600) })}
+                      type="number"
+                      value={ruleDraft.actionSeconds}
+                    />
+                  </label>
+                )}
+                {ruleDraftNeedsActionText(ruleDraft.actionType) && (
+                  <label className="guard-rule-form-wide">
+                    <span>{ruleDraft.actionType === 'reply' || ruleDraft.actionType === 'send_message' ? 'Message' : 'Reason'}</span>
+                    <input
+                      onChange={(event) => updateRuleDraft({ actionText: event.currentTarget.value })}
+                      placeholder={actionPlaceholder(ruleDraft.actionType)}
+                      type="text"
+                      value={ruleDraft.actionText}
+                    />
+                  </label>
+                )}
+              </div>
+              <button className="primary-action guard-rule-submit" disabled={creatingRule} type="submit">
+                {creatingRule ? 'Adding...' : 'Add rule'}
+              </button>
+            </form>
+          )}
+
           <div className="guard-rule-list" aria-busy={loadingRules}>
             {rules.map((rule) => (
               <article className={rule.enabled ? 'guard-rule-row' : 'guard-rule-row guard-rule-disabled'} key={rule.id}>
@@ -1035,6 +1235,121 @@ export function guardActivityStatusClass(status: string): string {
   if (status === 'dry_run') return 'guard-activity-dry-run'
   if (status === 'skipped') return 'guard-activity-skipped'
   return 'guard-activity-unknown'
+}
+
+export function guardRuleRequestFromDraft(groupId: number, draft: GuardRuleDraft): {
+  group_id: number
+  name: string
+  enabled: boolean
+  priority: number
+  conditions: JsonValue[]
+  actions: JsonValue[]
+} {
+  return {
+    group_id: groupId,
+    name: draft.name.trim() || defaultRuleName(draft),
+    enabled: draft.enabled,
+    priority: Math.max(1, Math.trunc(draft.priority)),
+    conditions: [guardRuleConditionFromDraft(draft)],
+    actions: [guardRuleActionFromDraft(draft)],
+  }
+}
+
+export function guardRuleConditionFromDraft(draft: GuardRuleDraft): JsonValue {
+  switch (draft.conditionType) {
+    case 'message_contains_text':
+      return { type: 'message_contains_text', text: draft.conditionText.trim(), case_sensitive: false }
+    case 'message_matches_regex':
+      return { type: 'message_matches_regex', pattern: draft.conditionText.trim() }
+    case 'message_contains_url':
+    case 'message_contains_invite_link':
+    case 'member_is_new':
+      return { type: draft.conditionType }
+    case 'message_repeated':
+      return { type: 'message_repeated', window_seconds: Math.max(1, Math.trunc(draft.conditionSeconds)) }
+    case 'message_rate_exceeded':
+      return {
+        type: 'message_rate_exceeded',
+        window_seconds: Math.max(1, Math.trunc(draft.conditionSeconds)),
+        max_messages: Math.max(1, Math.trunc(draft.conditionCount)),
+      }
+    case 'member_age_less_than':
+      return { type: 'member_age_less_than', seconds: Math.max(1, Math.trunc(draft.conditionSeconds)) }
+    case 'message_command':
+      return { type: 'message_command', command: draft.conditionText.trim() }
+  }
+}
+
+export function guardRuleActionFromDraft(draft: GuardRuleDraft): JsonValue {
+  switch (draft.actionType) {
+    case 'delete_message':
+      return { type: 'delete_message' }
+    case 'warn':
+      return { type: 'warn', reason: draft.actionText.trim() }
+    case 'mute':
+      return {
+        type: 'mute',
+        seconds: Math.max(1, Math.trunc(draft.actionSeconds)),
+        ...(draft.actionText.trim() === '' ? {} : { reason: draft.actionText.trim() }),
+      }
+    case 'ban':
+      return { type: 'ban', ...(draft.actionText.trim() === '' ? {} : { reason: draft.actionText.trim() }) }
+    case 'reply':
+      return { type: 'reply', text: draft.actionText.trim() }
+    case 'send_message':
+      return { type: 'send_message', text: draft.actionText.trim() }
+    case 'record_only':
+      return { type: 'record_only', reason: draft.actionText.trim() }
+  }
+}
+
+function defaultRuleName(draft: GuardRuleDraft): string {
+  if (draft.conditionType === 'message_contains_url') return 'Block URLs'
+  if (draft.conditionType === 'message_contains_invite_link') return 'Block invite links'
+  if (draft.conditionType === 'message_matches_regex') return 'Match regex'
+  if (draft.conditionType === 'message_contains_text') return 'Match text'
+  if (draft.conditionType === 'message_rate_exceeded') return 'Rate limit'
+  if (draft.conditionType === 'message_repeated') return 'Repeated message'
+  if (draft.conditionType === 'member_is_new') return 'New member'
+  if (draft.conditionType === 'member_age_less_than') return 'Member age'
+  return 'Command'
+}
+
+function ruleDraftNeedsText(conditionType: GuardRuleConditionKind): boolean {
+  return conditionType === 'message_contains_text'
+    || conditionType === 'message_matches_regex'
+    || conditionType === 'message_command'
+}
+
+function ruleDraftNeedsSeconds(conditionType: GuardRuleConditionKind): boolean {
+  return conditionType === 'message_repeated'
+    || conditionType === 'message_rate_exceeded'
+    || conditionType === 'member_age_less_than'
+}
+
+function ruleDraftNeedsActionText(actionType: GuardRuleActionKind): boolean {
+  return actionType === 'warn'
+    || actionType === 'mute'
+    || actionType === 'ban'
+    || actionType === 'reply'
+    || actionType === 'send_message'
+    || actionType === 'record_only'
+}
+
+function conditionPlaceholder(conditionType: GuardRuleConditionKind): string {
+  if (conditionType === 'message_matches_regex') return 'promo|spam'
+  if (conditionType === 'message_command') return '/start'
+  return 'keyword'
+}
+
+function actionPlaceholder(actionType: GuardRuleActionKind): string {
+  if (actionType === 'reply' || actionType === 'send_message') return 'Please follow the group rules.'
+  return 'Rule matched'
+}
+
+function numberInputValue(value: string, fallback: number): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 function activityDetailLabel(item: GuardActivityItem): string {

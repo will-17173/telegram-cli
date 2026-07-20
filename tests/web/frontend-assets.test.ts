@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   displayChatId,
   guardActivityStatusClass,
+  guardRuleActionFromDraft,
+  guardRuleConditionFromDraft,
+  guardRuleRequestFromDraft,
   nextGuardGroupId,
   paginationWindow,
   senderAvatar,
@@ -123,6 +126,10 @@ describe('web frontend source', () => {
     expect(app).toContain('currentGroupId === latestSelectedGroupId')
     expect(app).toContain('setSelectedGroupId(currentGroupId)')
     expect(app).toContain('item.action_created_at')
+    expect(app).toContain('Add rule')
+    expect(app).toContain("postJson<GuardRule>('/api/guard/rules'")
+    expect(app).toContain('guardRuleRequestFromDraft(selectedGroupId, ruleDraft)')
+    expect(css).toContain('.guard-rule-form')
     expect(api).toContain('action_created_at: string')
     expect(api).toContain('event_created_at: string')
     expect(api).not.toMatch(/export type GuardActivityItem = \{[\s\S]*\n  created_at: string[\s\S]*\n\}/)
@@ -158,6 +165,56 @@ describe('web frontend source', () => {
     expect(guardActivityStatusClass('failed')).toBe('guard-activity-failed')
     expect(guardActivityStatusClass('delayed')).toBe('guard-activity-delayed')
     expect(guardActivityStatusClass('other')).toBe('guard-activity-unknown')
+  })
+
+  it('builds guard rule create payloads from the workbench draft', () => {
+    const draft = {
+      name: '  Promo links  ',
+      enabled: true,
+      priority: 120,
+      conditionType: 'message_contains_url' as const,
+      conditionText: '',
+      conditionSeconds: 60,
+      conditionCount: 5,
+      actionType: 'delete_message' as const,
+      actionText: '',
+      actionSeconds: 600,
+    }
+
+    expect(guardRuleRequestFromDraft(7, draft)).toEqual({
+      group_id: 7,
+      name: 'Promo links',
+      enabled: true,
+      priority: 120,
+      conditions: [{ type: 'message_contains_url' }],
+      actions: [{ type: 'delete_message' }],
+    })
+  })
+
+  it('builds guard rule conditions and actions that match backend schema', () => {
+    const rateDraft = {
+      name: '',
+      enabled: true,
+      priority: 100,
+      conditionType: 'message_rate_exceeded' as const,
+      conditionText: '',
+      conditionSeconds: 30,
+      conditionCount: 4,
+      actionType: 'mute' as const,
+      actionText: 'flood',
+      actionSeconds: 300,
+    }
+
+    expect(guardRuleConditionFromDraft(rateDraft)).toEqual({
+      type: 'message_rate_exceeded',
+      window_seconds: 30,
+      max_messages: 4,
+    })
+    expect(guardRuleActionFromDraft(rateDraft)).toEqual({
+      type: 'mute',
+      seconds: 300,
+      reason: 'flood',
+    })
   })
 
   it('builds a numbered pagination range with ellipses', () => {
