@@ -131,6 +131,8 @@ describe('web frontend source', () => {
     expect(app).toContain("postJson<Page<GuardGroup>>('/api/guard/groups/discover'")
     expect(app).toContain('Sync groups')
     expect(app).toContain('item.action_created_at')
+    expect(app).toContain('<small>{displayChatId(group.chat_id)}</small>')
+    expect(app).not.toContain('<small>{group.account} · {displayChatId(group.chat_id)}</small>')
     expect(app).toContain('Add rule')
     expect(app).toContain('guard-rule-modal')
     expect(app).toContain('aria-labelledby="guard-rule-modal-title"')

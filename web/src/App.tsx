@@ -1070,7 +1070,7 @@ function GuardWorkbench() {
               >
                 <span className="guard-row-main">
                   <strong>{group.title ?? `Chat ${displayChatId(group.chat_id)}`}</strong>
-                  <small>{group.account} · {displayChatId(group.chat_id)}</small>
+                  <small>{displayChatId(group.chat_id)}</small>
                 </span>
                 <span className={`guard-status ${guardGroupStatusClass(group)}`}>{guardGroupStatusLabel(group)}</span>
               </button>
