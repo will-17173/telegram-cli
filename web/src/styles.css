@@ -1454,7 +1454,7 @@ input::placeholder {
   justify-content: flex-end;
 }
 
-.rule-template-row button {
+.rule-template-row button:not(.guard-rule-enabled-toggle) {
   background: #fff;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
@@ -1471,16 +1471,16 @@ input::placeholder {
   align-items: center;
   background: #fff;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: 8px;
   color: var(--muted);
   display: inline-flex;
   font: inherit;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
-  gap: 6px;
-  min-height: 30px;
-  padding: 5px 10px;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 9px 5px 6px;
   text-transform: uppercase;
 }
 
@@ -1515,7 +1515,33 @@ input::placeholder {
 .guard-rule-enabled-toggle-on {
   border-color: rgba(37, 194, 160, 0.58);
   color: #087a62;
-  box-shadow: inset 3px 0 0 var(--trace);
+}
+
+.guard-rule-toggle-track {
+  align-items: center;
+  background: #dbe6ed;
+  border-radius: 999px;
+  display: inline-flex;
+  height: 18px;
+  padding: 2px;
+  width: 34px;
+}
+
+.guard-rule-toggle-knob {
+  background: #fff;
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgba(22, 32, 42, 0.22);
+  height: 14px;
+  transform: translateX(0);
+  width: 14px;
+}
+
+.guard-rule-enabled-toggle-on .guard-rule-toggle-track {
+  background: var(--trace);
+}
+
+.guard-rule-enabled-toggle-on .guard-rule-toggle-knob {
+  transform: translateX(16px);
 }
 
 .guard-rule-form label > span {

@@ -1175,7 +1175,10 @@ function GuardWorkbench() {
                     aria-pressed={ruleDraft.enabled}
                     onClick={() => updateRuleDraft({ enabled: !ruleDraft.enabled })}
                   >
-                    {ruleDraft.enabled ? 'Enabled' : 'Disabled'}
+                    <span className="guard-rule-toggle-track" aria-hidden="true">
+                      <span className="guard-rule-toggle-knob" />
+                    </span>
+                    <span>{ruleDraft.enabled ? 'Enabled' : 'Disabled'}</span>
                   </button>
                 </div>
               </div>
