@@ -407,6 +407,7 @@ describe('account commands', () => {
     expect(jsonPayload.data.accounts).toHaveLength(2)
     expect(jsonPayload.data.accounts[0]).toMatchObject({
       name: 'alice',
+      user_id: 1001,
       current: true,
       auth_state: 'authenticated',
     })
@@ -414,7 +415,7 @@ describe('account commands', () => {
     expect(yamlPayload.ok).toBe(true)
     expect(yamlPayload.data.current_account).toBe('alice')
     expect(yamlPayload.data.accounts).toHaveLength(2)
-    expect(yamlPayload.data.accounts.find((account: { name: string }) => account.name === 'bob')).toBeDefined()
+    expect(yamlPayload.data.accounts.find((account: { name: string }) => account.name === 'bob')).toMatchObject({ user_id: 2002 })
     expect(jsonPayload.data.accounts.find((account: { name: string }) => account.name === 'bob')?.auth_state).toBe('authenticated')
   })
 

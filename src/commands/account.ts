@@ -63,6 +63,7 @@ export function registerAccountCommands(app: Command): void {
 
         const accounts = registry.accounts.map((account) => ({
           name: account.name,
+          user_id: account.user_id,
           display_name: normalizeDisplayName(account.display_name),
           username: account.username,
           phone: account.phone,
@@ -79,9 +80,10 @@ export function registerAccountCommands(app: Command): void {
           human: {
             kind: 'table',
             title: 'Accounts',
-            columns: ['NAME', 'DISPLAY NAME', 'USERNAME', 'PHONE', 'CURRENT'],
+            columns: ['NAME', 'USER ID', 'DISPLAY NAME', 'USERNAME', 'PHONE', 'CURRENT'],
             rows: accounts.map((account) => [
               account.name,
+              String(account.user_id),
               account.display_name,
               account.username,
               account.phone,
