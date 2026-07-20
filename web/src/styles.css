@@ -1296,6 +1296,7 @@ input::placeholder {
 
 .guard-status,
 .policy-chip,
+.guard-rule-state,
 .guard-rule-row > span,
 .guard-activity-row > span {
   border: 1px solid var(--line-strong);
@@ -1628,6 +1629,31 @@ input::placeholder {
 .guard-rule-row small {
   display: block;
   margin-top: 4px;
+}
+
+.guard-rule-state {
+  background: #fff7f6;
+  border-color: rgba(184, 74, 66, 0.34);
+  color: var(--danger);
+  min-height: 30px;
+}
+
+.guard-rule-state-on {
+  background: #eefbf7;
+  border-color: rgba(37, 194, 160, 0.5);
+  color: #087a62;
+}
+
+.guard-rule-state:hover:not(:disabled),
+.guard-rule-state:focus-visible {
+  background: #ffecea;
+  border-color: rgba(184, 74, 66, 0.58);
+}
+
+.guard-rule-state-on:hover:not(:disabled),
+.guard-rule-state-on:focus-visible {
+  background: #e1f8f1;
+  border-color: rgba(37, 194, 160, 0.72);
 }
 
 .guard-rule-delete {

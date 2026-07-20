@@ -882,6 +882,7 @@ function GuardWorkbench() {
   const [discoveringGroups, setDiscoveringGroups] = useState(false)
   const [creatingRule, setCreatingRule] = useState(false)
   const [deletingRuleId, setDeletingRuleId] = useState<number | null>(null)
+  const [updatingRuleId, setUpdatingRuleId] = useState<number | null>(null)
   const [updatingGroup, setUpdatingGroup] = useState(false)
   const [ruleFormOpen, setRuleFormOpen] = useState(false)
   const [ruleDraft, setRuleDraft] = useState<GuardRuleDraft>(DEFAULT_GUARD_RULE_DRAFT)
@@ -987,6 +988,19 @@ function GuardWorkbench() {
       setError(errorText(caught))
     } finally {
       setDeletingRuleId(null)
+    }
+  }
+
+  async function toggleRule(rule: GuardRule): Promise<void> {
+    setUpdatingRuleId(rule.id)
+    setError('')
+    try {
+      const updated = await patchJson<GuardRule>(`/api/guard/rules/${rule.id}`, { enabled: !rule.enabled })
+      setRules((current) => current.map((candidate) => (candidate.id === updated.id ? updated : candidate)))
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setUpdatingRuleId(null)
     }
   }
 
@@ -1147,10 +1161,18 @@ function GuardWorkbench() {
                   <strong>{rule.name}</strong>
                   <small>{guardRuleSummary(rule)}</small>
                 </div>
-                <span>{rule.enabled ? 'enabled' : 'disabled'}</span>
+                <button
+                  className={rule.enabled ? 'guard-rule-state guard-rule-state-on' : 'guard-rule-state'}
+                  disabled={updatingRuleId === rule.id || deletingRuleId === rule.id}
+                  type="button"
+                  aria-pressed={rule.enabled}
+                  onClick={() => void toggleRule(rule)}
+                >
+                  {updatingRuleId === rule.id ? 'Updating' : rule.enabled ? 'Enabled' : 'Disabled'}
+                </button>
                 <button
                   className="guard-rule-delete"
-                  disabled={deletingRuleId === rule.id}
+                  disabled={deletingRuleId === rule.id || updatingRuleId === rule.id}
                   type="button"
                   onClick={() => void deleteRule(rule)}
                 >
