@@ -104,14 +104,12 @@ afterEach(() => {
 })
 
 describe('guard web API', () => {
-  it('discovers current account admin groups for guard status', async () => {
+  it('returns guard status from local database without discovering Telegram groups', async () => {
     const root = makeRoot()
     writeCurrentAccount(root)
     const client = new FakeTelegramClient({
       managedChats: [
         { id: -1001, name: 'Team', type: 'supergroup', username: null, is_admin: true, is_creator: false },
-        { id: -1002, name: 'Channel', type: 'channel', username: 'channel', is_admin: false, is_creator: true },
-        { id: -1003, name: 'Member Only', type: 'group', username: null, is_admin: false, is_creator: false },
       ],
     })
 
@@ -122,13 +120,39 @@ describe('guard web API', () => {
     expect(response.status).toBe(200)
     expect(await json(response)).toMatchObject({
       ok: true,
+      data: { groups: { items: [] } },
+    })
+    expect(client.calls).not.toContainEqual({
+      operation: 'listGroups',
+      request: { adminOnly: true, limit: 500 },
+    })
+    expect(client.closeCalls).toBe(0)
+  })
+
+  it('discovers current account admin groups when requested', async () => {
+    const root = makeRoot()
+    writeCurrentAccount(root)
+    const client = new FakeTelegramClient({
+      managedChats: [
+        { id: -1001, name: 'Team', type: 'supergroup', username: null, is_admin: true, is_creator: false },
+        { id: -1002, name: 'Channel', type: 'channel', username: 'channel', is_admin: false, is_creator: true },
+        { id: -1003, name: 'Member Only', type: 'group', username: null, is_admin: false, is_creator: false },
+      ],
+    })
+
+    const response = await api(root, '/api/guard/groups/discover', {
+      method: 'POST',
+      createTelegramClient: () => client,
+    })
+
+    expect(response.status).toBe(200)
+    expect(await json(response)).toMatchObject({
+      ok: true,
       data: {
-        groups: {
-          items: [
-            { account: 'work', chat_id: -1002, title: 'Channel', enabled: false },
-            { account: 'work', chat_id: -1001, title: 'Team', enabled: false },
-          ],
-        },
+        items: [
+          { account: 'work', chat_id: -1002, title: 'Channel', enabled: false },
+          { account: 'work', chat_id: -1001, title: 'Team', enabled: false },
+        ],
       },
     })
     expect(client.calls).toContainEqual({
@@ -138,7 +162,7 @@ describe('guard web API', () => {
     expect(client.closeCalls).toBe(1)
   })
 
-  it('preserves existing guard group enablement and policy during discovery', async () => {
+  it('preserves existing guard group enablement and policy during requested discovery', async () => {
     const root = makeRoot()
     writeCurrentAccount(root)
     const groupId = await createGroup(root)
@@ -150,7 +174,8 @@ describe('guard web API', () => {
       },
     }))
 
-    const response = await api(root, '/api/guard/groups', {
+    const response = await api(root, '/api/guard/groups/discover', {
+      method: 'POST',
       createTelegramClient: () => new FakeTelegramClient({
         managedChats: [
           { id: -1001, name: 'Renamed Team', type: 'supergroup', username: null, is_admin: true, is_creator: false },

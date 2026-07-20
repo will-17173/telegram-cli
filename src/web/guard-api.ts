@@ -28,7 +28,6 @@ export async function handleGuardApiRequest(request: Request, context: ApiContex
   try {
     if (url.pathname === '/api/guard/status') {
       if (request.method !== 'GET') return notFound()
-      await discoverManagedGroups(db, context)
       return success({
         runtime: db.getRuntimeState(),
         groups: { items: db.listManagedGroups() },
@@ -37,11 +36,16 @@ export async function handleGuardApiRequest(request: Request, context: ApiContex
 
     if (url.pathname === '/api/guard/groups') {
       if (request.method === 'GET') {
-        await discoverManagedGroups(db, context)
         return success({ items: db.listManagedGroups() })
       }
       if (request.method === 'POST') return await createGroup(request, db)
       return notFound()
+    }
+
+    if (url.pathname === '/api/guard/groups/discover') {
+      if (request.method !== 'POST') return notFound()
+      await discoverManagedGroups(db, context)
+      return success({ items: db.listManagedGroups() })
     }
 
     const groupId = pathId(url.pathname, '/api/guard/groups/')

@@ -878,6 +878,7 @@ function GuardWorkbench() {
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadingRules, setLoadingRules] = useState(false)
+  const [discoveringGroups, setDiscoveringGroups] = useState(false)
   const [creatingRule, setCreatingRule] = useState(false)
   const [updatingGroup, setUpdatingGroup] = useState(false)
   const [ruleFormOpen, setRuleFormOpen] = useState(false)
@@ -977,6 +978,21 @@ function GuardWorkbench() {
     setRuleDraft((current) => ({ ...current, ...update }))
   }
 
+  async function discoverGuardGroups(): Promise<void> {
+    setDiscoveringGroups(true)
+    setError('')
+    try {
+      const groupsData = await postJson<Page<GuardGroup>>('/api/guard/groups/discover', {})
+      setGroups(groupsData.items)
+      const latestSelectedGroupId = selectedGroupIdRef.current
+      setSelectedGroupId(nextGuardGroupId(groupsData.items, latestSelectedGroupId))
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setDiscoveringGroups(false)
+    }
+  }
+
   async function updateSelectedGroup(update: Partial<Pick<GuardGroup, 'enabled' | 'policy'>>): Promise<void> {
     if (selectedGroup == null) return
     setUpdatingGroup(true)
@@ -1036,7 +1052,12 @@ function GuardWorkbench() {
               <span className="panel-kicker">Managed groups</span>
               <h2>{groups.length} groups</h2>
             </div>
-            <span className="guard-count">{loading ? 'Loading' : `${enabledGroups} enabled`}</span>
+            <div className="guard-heading-actions">
+              <span className="guard-count">{loading ? 'Loading' : `${enabledGroups} enabled`}</span>
+              <button className="secondary-action compact-action" type="button" onClick={() => void discoverGuardGroups()} disabled={discoveringGroups}>
+                {discoveringGroups ? 'Syncing' : 'Sync groups'}
+              </button>
+            </div>
           </div>
           <div className="guard-list" aria-busy={loading}>
             {groups.map((group) => (
