@@ -1353,10 +1353,11 @@ input::placeholder {
 }
 
 .guard-arm-toggle {
-  background: #fff;
-  border: 1px solid var(--line-strong);
+  background: #fff7f6;
+  border: 2px solid rgba(184, 74, 66, 0.46);
   border-radius: 8px;
-  color: var(--muted);
+  box-shadow: inset 4px 0 0 var(--danger);
+  color: var(--danger);
   display: grid;
   font: inherit;
   gap: 6px;
@@ -1368,32 +1369,39 @@ input::placeholder {
 }
 
 .guard-arm-toggle span {
-  color: var(--ink);
+  color: var(--danger);
   font-size: 15px;
   font-weight: 800;
   line-height: 1.15;
 }
 
 .guard-arm-toggle strong {
-  background: #f6f9fb;
-  border: 1px solid var(--line);
+  background: #ffffff;
+  border: 1px solid rgba(184, 74, 66, 0.28);
   border-radius: 999px;
-  color: var(--muted);
+  color: var(--danger);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 11px;
+  font-weight: 900;
   line-height: 1;
   padding: 4px 7px;
   text-transform: uppercase;
 }
 
 .guard-arm-toggle-on {
-  border-color: rgba(37, 194, 160, 0.58);
-  box-shadow: inset 3px 0 0 var(--trace);
+  background: #eefbf7;
+  border-color: rgba(37, 194, 160, 0.72);
+  box-shadow: inset 4px 0 0 var(--trace), 0 0 0 3px rgba(37, 194, 160, 0.11);
+  color: #087a62;
+}
+
+.guard-arm-toggle-on span {
+  color: #087a62;
 }
 
 .guard-arm-toggle-on strong {
-  background: #edf9f6;
-  border-color: rgba(37, 194, 160, 0.35);
+  background: #ffffff;
+  border-color: rgba(37, 194, 160, 0.5);
   color: #087a62;
 }
 
