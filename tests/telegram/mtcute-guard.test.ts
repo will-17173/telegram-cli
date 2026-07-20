@@ -36,7 +36,7 @@ describe('mtcute guard adapter', () => {
     })
   })
 
-  it('treats missing admin and bot metadata as protected actors', () => {
+  it('treats missing admin and bot metadata as a regular user', () => {
     const event = normalizeGuardMessageUpdate({
       account: 'work',
       groupId: 1,
@@ -44,7 +44,7 @@ describe('mtcute guard adapter', () => {
       message: message({ sender_is_admin: undefined, sender_is_bot: undefined }),
     })
 
-    expect(event.user).toMatchObject({ is_admin: true, is_bot: true })
+    expect(event.user).toMatchObject({ is_admin: false, is_bot: false })
   })
 
   it('delegates executor actions to Telegram client methods for a resolved account', async () => {
