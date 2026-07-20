@@ -1143,12 +1143,14 @@ function GuardWorkbench() {
                 <span>{selectedGroup.enabled ? 'Rules on' : 'Rules off'}</span>
                 <strong>{guardGroupStatusLabel(selectedGroup)}</strong>
               </button>
-              <div className="guard-policy-strip">
-                <span className={selectedGroup.policy.allow_delete ? 'policy-chip policy-chip-on' : 'policy-chip'}>Delete</span>
-                <span className={selectedGroup.policy.allow_mute ? 'policy-chip policy-chip-on' : 'policy-chip'}>Mute</span>
-                <span className={selectedGroup.policy.allow_ban ? 'policy-chip policy-chip-on' : 'policy-chip'}>Ban</span>
-                <span className={selectedGroup.policy.ignore_admins ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.ignore_admins ? 'Admins ignored' : 'Admins checked'}</span>
+              <div className="guard-policy-strip" aria-label="Group policy limits">
+                <span className="policy-strip-label">Policy limits</span>
+                <span className={selectedGroup.policy.allow_delete ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_delete ? 'Delete allowed' : 'Delete blocked'}</span>
+                <span className={selectedGroup.policy.allow_mute ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_mute ? 'Mute allowed' : 'Mute blocked'}</span>
+                <span className={selectedGroup.policy.allow_ban ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_ban ? 'Ban allowed' : 'Ban blocked'}</span>
+                <span className={selectedGroup.policy.ignore_admins ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.ignore_admins ? 'Admins skipped' : 'Admins included'}</span>
                 <span className="policy-chip">{selectedGroup.policy.action_cooldown_seconds}s cooldown</span>
+                <small>These limits only apply after an enabled rule matches.</small>
               </div>
               <p className="guard-policy-note">{guardGroupStatusDetail(selectedGroup)}</p>
             </div>
