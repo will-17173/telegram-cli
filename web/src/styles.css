@@ -1315,6 +1315,11 @@ input::placeholder {
   color: #087a62;
 }
 
+.guard-status-off {
+  border-color: var(--line-strong);
+  color: var(--muted);
+}
+
 .guard-status-error,
 .guard-activity-failed {
   border-color: rgba(184, 74, 66, 0.55);
@@ -1323,6 +1328,7 @@ input::placeholder {
 
 .guard-status-starting,
 .guard-status-paused,
+.guard-status-pending,
 .guard-activity-delayed,
 .guard-activity-dry-run {
   border-color: rgba(213, 144, 34, 0.55);
@@ -1382,6 +1388,13 @@ input::placeholder {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.guard-policy-note {
+  color: var(--muted);
+  font-size: 13px;
+  grid-column: 1 / -1;
+  margin: -2px 2px 0;
 }
 
 .guard-rule-form {

@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   displayChatId,
   guardActivityStatusClass,
+  guardGroupStatusClass,
+  guardGroupStatusLabel,
   guardOnlyMode,
   guardRuleActionFromDraft,
   guardRuleConditionFromDraft,
@@ -137,6 +139,9 @@ describe('web frontend source', () => {
     expect(app).toContain('guard-rule-enabled-toggle')
     expect(app).toContain('guard-rule-toggle-track')
     expect(app).toContain('guard-rule-toggle-knob')
+    expect(app).toContain('guardGroupStatusLabel(group)')
+    expect(app).toContain('guardGroupStatusDetail(selectedGroup)')
+    expect(app).toContain('Rules are on. Restart tg guard start to begin listening.')
     expect(app).toContain('Cancel')
     expect(app).toContain("postJson<GuardRule>('/api/guard/rules'")
     expect(app).toContain('guardRuleRequestFromDraft(selectedGroupId, ruleDraft)')
@@ -147,6 +152,8 @@ describe('web frontend source', () => {
     expect(css).toContain('.guard-rule-modal')
     expect(css).toContain('.guard-rule-enabled-toggle-on')
     expect(css).toContain('.guard-rule-enabled-toggle-on .guard-rule-toggle-knob')
+    expect(css).toContain('.guard-status-pending')
+    expect(css).toContain('.guard-policy-note')
     expect(api).toContain('action_created_at: string')
     expect(api).toContain('event_created_at: string')
     expect(api).not.toMatch(/export type GuardActivityItem = \{[\s\S]*\n  created_at: string[\s\S]*\n\}/)
@@ -182,6 +189,15 @@ describe('web frontend source', () => {
     expect(guardActivityStatusClass('failed')).toBe('guard-activity-failed')
     expect(guardActivityStatusClass('delayed')).toBe('guard-activity-delayed')
     expect(guardActivityStatusClass('other')).toBe('guard-activity-unknown')
+  })
+
+  it('maps guard group runtime state to user-facing rule status', () => {
+    expect(guardGroupStatusLabel({ enabled: false, runtime_status: 'stopped' })).toBe('Rules off')
+    expect(guardGroupStatusClass({ enabled: false, runtime_status: 'stopped' })).toBe('guard-status-off')
+    expect(guardGroupStatusLabel({ enabled: true, runtime_status: 'running' })).toBe('Listening')
+    expect(guardGroupStatusClass({ enabled: true, runtime_status: 'running' })).toBe('guard-status-running')
+    expect(guardGroupStatusLabel({ enabled: true, runtime_status: 'stopped' })).toBe('Restart needed')
+    expect(guardGroupStatusClass({ enabled: true, runtime_status: 'stopped' })).toBe('guard-status-pending')
   })
 
   it('detects guard-only mode from the URL query', () => {

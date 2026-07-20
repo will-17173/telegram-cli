@@ -1072,7 +1072,7 @@ function GuardWorkbench() {
                   <strong>{group.title ?? `Chat ${displayChatId(group.chat_id)}`}</strong>
                   <small>{group.account} · {displayChatId(group.chat_id)}</small>
                 </span>
-                <span className={`guard-status guard-status-${group.runtime_status}`}>{group.runtime_status}</span>
+                <span className={`guard-status ${guardGroupStatusClass(group)}`}>{guardGroupStatusLabel(group)}</span>
               </button>
             ))}
             {!loading && groups.length === 0 && <p className="empty-note">No managed groups found.</p>}
@@ -1110,8 +1110,8 @@ function GuardWorkbench() {
                 type="button"
                 onClick={() => void updateSelectedGroup({ enabled: !selectedGroup.enabled })}
               >
-                <span>{selectedGroup.enabled ? 'Automation on' : 'Automation off'}</span>
-                <strong>{selectedGroup.runtime_status}</strong>
+                <span>{selectedGroup.enabled ? 'Rules on' : 'Rules off'}</span>
+                <strong>{guardGroupStatusLabel(selectedGroup)}</strong>
               </button>
               <div className="guard-policy-strip">
                 <span className={selectedGroup.policy.allow_delete ? 'policy-chip policy-chip-on' : 'policy-chip'}>Delete</span>
@@ -1120,6 +1120,7 @@ function GuardWorkbench() {
                 <span className={selectedGroup.policy.ignore_admins ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.ignore_admins ? 'Admins ignored' : 'Admins checked'}</span>
                 <span className="policy-chip">{selectedGroup.policy.action_cooldown_seconds}s cooldown</span>
               </div>
+              <p className="guard-policy-note">{guardGroupStatusDetail(selectedGroup)}</p>
             </div>
           )}
 
@@ -1338,6 +1339,33 @@ function GuardWorkbench() {
 export function nextGuardGroupId(groups: readonly GuardGroup[], current: number | null): number | null {
   if (current != null && groups.some((group) => group.id === current)) return current
   return groups[0]?.id ?? null
+}
+
+export function guardGroupStatusLabel(group: Pick<GuardGroup, 'enabled' | 'runtime_status'>): string {
+  if (!group.enabled) return 'Rules off'
+  if (group.runtime_status === 'running') return 'Listening'
+  if (group.runtime_status === 'starting') return 'Starting'
+  if (group.runtime_status === 'paused') return 'Paused'
+  if (group.runtime_status === 'error') return 'Error'
+  return 'Restart needed'
+}
+
+export function guardGroupStatusClass(group: Pick<GuardGroup, 'enabled' | 'runtime_status'>): string {
+  if (!group.enabled) return 'guard-status-off'
+  if (group.runtime_status === 'running') return 'guard-status-running'
+  if (group.runtime_status === 'error') return 'guard-status-error'
+  if (group.runtime_status === 'starting') return 'guard-status-starting'
+  if (group.runtime_status === 'paused') return 'guard-status-paused'
+  return 'guard-status-pending'
+}
+
+function guardGroupStatusDetail(group: Pick<GuardGroup, 'enabled' | 'runtime_status'>): string {
+  if (!group.enabled) return 'Rules are off for this group.'
+  if (group.runtime_status === 'running') return 'Rules are on and Guard is listening.'
+  if (group.runtime_status === 'starting') return 'Rules are on and Guard is starting.'
+  if (group.runtime_status === 'paused') return 'Rules are on but Guard is paused.'
+  if (group.runtime_status === 'error') return 'Rules are on but the listener reported an error.'
+  return 'Rules are on. Restart tg guard start to begin listening.'
 }
 
 export function guardActivityStatusClass(status: string): string {
