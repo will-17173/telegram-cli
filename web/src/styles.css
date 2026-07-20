@@ -1347,41 +1347,54 @@ input::placeholder {
   border-radius: 8px;
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(190px, auto) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
   margin-bottom: 12px;
   padding: 10px;
 }
 
 .guard-arm-toggle {
-  align-items: center;
   background: #fff;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   color: var(--muted);
-  display: flex;
+  display: grid;
   font: inherit;
-  gap: 8px;
-  justify-content: space-between;
-  min-height: 42px;
-  padding: 8px 10px;
+  gap: 6px;
+  justify-items: start;
+  min-height: 58px;
+  padding: 10px 12px;
   text-align: left;
+  width: 100%;
 }
 
 .guard-arm-toggle span {
   color: var(--ink);
+  font-size: 15px;
   font-weight: 800;
+  line-height: 1.15;
 }
 
 .guard-arm-toggle strong {
+  background: #f6f9fb;
+  border: 1px solid var(--line);
+  border-radius: 999px;
   color: var(--muted);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
   text-transform: uppercase;
 }
 
 .guard-arm-toggle-on {
   border-color: rgba(37, 194, 160, 0.58);
   box-shadow: inset 3px 0 0 var(--trace);
+}
+
+.guard-arm-toggle-on strong {
+  background: #edf9f6;
+  border-color: rgba(37, 194, 160, 0.35);
+  color: #087a62;
 }
 
 .guard-policy-strip {

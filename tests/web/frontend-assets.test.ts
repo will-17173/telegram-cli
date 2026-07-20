@@ -154,6 +154,8 @@ describe('web frontend source', () => {
     expect(css).toContain('.guard-rule-enabled-toggle-on .guard-rule-toggle-knob')
     expect(css).toContain('.guard-status-pending')
     expect(css).toContain('.guard-policy-note')
+    expect(css).toContain('grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);')
+    expect(css).toContain('.guard-arm-toggle-on strong')
     expect(api).toContain('action_created_at: string')
     expect(api).toContain('event_created_at: string')
     expect(api).not.toMatch(/export type GuardActivityItem = \{[\s\S]*\n  created_at: string[\s\S]*\n\}/)
