@@ -18,7 +18,7 @@ export type WebServerHandle = {
   close: () => Promise<void>
 }
 
-export async function startWebServer(options: { port?: number; dataDir?: string; staticDir?: string } = {}): Promise<WebServerHandle> {
+export async function startWebServer(options: { port?: number; dataDir?: string; staticDir?: string; guardOnly?: boolean } = {}): Promise<WebServerHandle> {
   const dataDir = options.dataDir ?? getDataDir()
   const staticDir = options.staticDir ?? defaultStaticDir()
   const syncTask = new SyncTaskRunner({ dataDir })
@@ -29,9 +29,10 @@ export async function startWebServer(options: { port?: number; dataDir?: string;
       try {
         const request = toWebRequest(req, selectedPort)
         const url = new URL(request.url)
-        const response = url.pathname.startsWith('/api/')
+        const response = guardOnlyRedirect(url, options.guardOnly === true)
+          ?? (url.pathname.startsWith('/api/')
           ? await handleApiRequest(request, { dataDir, port: selectedPort, syncTask })
-          : await serveStatic(staticDir, url.pathname) ?? new Response('Not found', { status: 404 })
+          : await serveStatic(staticDir, url.pathname) ?? new Response('Not found', { status: 404 }))
 
         await writeResponse(res, response, req.method === 'HEAD')
       } catch {
@@ -46,7 +47,7 @@ export async function startWebServer(options: { port?: number; dataDir?: string;
       return {
         host: HOST,
         port: selectedPort,
-        url: `http://${HOST}:${selectedPort}/`,
+        url: `http://${HOST}:${selectedPort}/${options.guardOnly === true ? '?guard=1' : ''}`,
         close: () => close(server),
       }
     } catch (error) {
@@ -58,6 +59,13 @@ export async function startWebServer(options: { port?: number; dataDir?: string;
       throw error
     }
   }
+}
+
+function guardOnlyRedirect(url: URL, guardOnly: boolean): Response | null {
+  if (!guardOnly || url.pathname !== '/' || url.searchParams.get('guard') === '1') return null
+  const next = new URL(url)
+  next.searchParams.set('guard', '1')
+  return Response.redirect(next, 302)
 }
 
 function toWebRequest(req: IncomingMessage, port: number): Request {

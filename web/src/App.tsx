@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   getJson,
+  patchJson,
   postJson,
   type AccountData,
   type ChatSummary,
@@ -174,8 +175,13 @@ const SENDER_AVATAR_BACKGROUNDS = [
   'linear-gradient(135deg, #90a4ae 0%, #546e7a 100%)',
 ]
 
+export function guardOnlyMode(search = typeof window === 'undefined' ? '' : window.location.search): boolean {
+  return new URLSearchParams(search).get('guard') === '1'
+}
+
 export function App() {
-  const [view, setView] = useState<'messages' | 'guard'>('messages')
+  const guardOnly = guardOnlyMode()
+  const [view, setView] = useState<'messages' | 'guard'>(guardOnly ? 'guard' : 'messages')
   const [accounts, setAccounts] = useState<AccountData>({ current_account: null, accounts: [] })
   const [account, setAccount] = useState('')
   const [chatQuery, setChatQuery] = useState('')
@@ -207,13 +213,14 @@ export function App() {
   selectedChatRef.current = selectedChat
 
   useEffect(() => {
+    if (guardOnly) return
     getJson<AccountData>('/api/accounts')
       .then((data) => {
         setAccounts(data)
         setAccount(data.current_account ?? data.accounts[0]?.name ?? '')
       })
       .catch((caught) => setError(errorText(caught)))
-  }, [])
+  }, [guardOnly])
 
   useEffect(() => {
     const requestId = chatRequestId.current + 1
@@ -485,10 +492,10 @@ export function App() {
           <span className="brand-mark">tg</span>
           <div>
             <strong>Telegram CLI</strong>
-            <span>Local message console</span>
+            <span>{guardOnly ? 'Guard console' : 'Local message console'}</span>
           </div>
         </div>
-        <label className="account-picker">
+        {!guardOnly && <label className="account-picker">
           <span>Account</span>
           <select value={account} onChange={(event) => { setAccount(event.target.value); setSelectedChat(null); setMessages([]); setMessageTotal(0); setMessagePage(1); setMessagePageInput('1') }}>
             {accounts.accounts.map((item) => (
@@ -497,21 +504,21 @@ export function App() {
               </option>
             ))}
           </select>
-        </label>
-        <nav className="view-tabs" aria-label="Workspace view">
+        </label>}
+        {!guardOnly && <nav className="view-tabs" aria-label="Workspace view">
           <button className={view === 'messages' ? 'active-tab' : ''} onClick={() => setView('messages')} type="button">
             Messages
           </button>
           <button className={view === 'guard' ? 'active-tab' : ''} onClick={() => setView('guard')} type="button">
             Guard
           </button>
-        </nav>
-        <span className={`sync-pill sync-pill-${syncTask.status}`} role="status" aria-live="polite" title={syncTask.status === 'error' ? syncErrorText(syncTask) : undefined}>Sync {syncTask.status}</span>
+        </nav>}
+        {!guardOnly && <span className={`sync-pill sync-pill-${syncTask.status}`} role="status" aria-live="polite" title={syncTask.status === 'error' ? syncErrorText(syncTask) : undefined}>Sync {syncTask.status}</span>}
       </header>
 
       {error && <div className="error-strip" role="alert">{error}</div>}
 
-      {view === 'messages' ? (
+      {!guardOnly && view === 'messages' ? (
       <section className="workspace" aria-label="Telegram message browser">
         <aside className="sidebar">
           <div className="sidebar-tools">
@@ -818,7 +825,7 @@ export function App() {
         </section>
       </section>
       ) : <GuardWorkbench />}
-      {blacklistOpen && (
+      {!guardOnly && blacklistOpen && (
         <div className="modal-backdrop" role="presentation">
           <section className="blacklist-modal" role="dialog" aria-modal="true" aria-labelledby="sender-blacklist-title">
             <div className="blacklist-modal-heading">
@@ -872,6 +879,8 @@ function GuardWorkbench() {
   const [loading, setLoading] = useState(false)
   const [loadingRules, setLoadingRules] = useState(false)
   const [creatingRule, setCreatingRule] = useState(false)
+  const [updatingGroup, setUpdatingGroup] = useState(false)
+  const [ruleFormOpen, setRuleFormOpen] = useState(false)
   const [ruleDraft, setRuleDraft] = useState<GuardRuleDraft>(DEFAULT_GUARD_RULE_DRAFT)
   const [error, setError] = useState('')
   const ruleRequestId = useRef(0)
@@ -892,12 +901,14 @@ function GuardWorkbench() {
       ruleRequestId.current += 1
       setRules([])
       setRuleDraft(DEFAULT_GUARD_RULE_DRAFT)
+      setRuleFormOpen(false)
       return
     }
     const requestId = ruleRequestId.current + 1
     ruleRequestId.current = requestId
     setRules([])
     setRuleDraft(DEFAULT_GUARD_RULE_DRAFT)
+    setRuleFormOpen(false)
     void loadGuardRules(selectedGroupId, requestId)
   }, [selectedGroupId])
 
@@ -953,6 +964,7 @@ function GuardWorkbench() {
     try {
       await postJson<GuardRule>('/api/guard/rules', guardRuleRequestFromDraft(selectedGroupId, ruleDraft))
       setRuleDraft(DEFAULT_GUARD_RULE_DRAFT)
+      setRuleFormOpen(false)
       await loadGuardRules(selectedGroupId)
     } catch (caught) {
       setError(errorText(caught))
@@ -963,6 +975,20 @@ function GuardWorkbench() {
 
   function updateRuleDraft(update: Partial<GuardRuleDraft>): void {
     setRuleDraft((current) => ({ ...current, ...update }))
+  }
+
+  async function updateSelectedGroup(update: Partial<Pick<GuardGroup, 'enabled' | 'policy'>>): Promise<void> {
+    if (selectedGroup == null) return
+    setUpdatingGroup(true)
+    setError('')
+    try {
+      const updated = await patchJson<GuardGroup>(`/api/guard/groups/${selectedGroup.id}`, update)
+      setGroups((current) => current.map((group) => group.id === updated.id ? updated : group))
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setUpdatingGroup(false)
+    }
   }
 
   return (
@@ -1038,145 +1064,179 @@ function GuardWorkbench() {
               <span className="panel-kicker">Rules</span>
               <h2>{selectedGroup == null ? 'Select a group' : selectedGroup.title ?? `Chat ${displayChatId(selectedGroup.chat_id)}`}</h2>
             </div>
-            <span className="guard-count">{loadingRules ? 'Loading' : `${enabledRules}/${rules.length} enabled`}</span>
+            <div className="guard-heading-actions">
+              <span className="guard-count">{loadingRules ? 'Loading' : `${enabledRules}/${rules.length} enabled`}</span>
+              {selectedGroup != null && (
+                <button className="secondary-action compact-action" type="button" onClick={() => setRuleFormOpen((open) => !open)}>
+                  {ruleFormOpen ? 'Close' : 'New rule'}
+                </button>
+              )}
+            </div>
           </div>
 
           {selectedGroup != null && (
-            <div className="guard-policy-strip" aria-label="Group policy">
-              <span className={selectedGroup.enabled ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.enabled ? 'Enabled' : 'Disabled'}</span>
-              <span className={selectedGroup.policy.allow_delete ? 'policy-chip policy-chip-on' : 'policy-chip'}>Delete</span>
-              <span className={selectedGroup.policy.allow_mute ? 'policy-chip policy-chip-on' : 'policy-chip'}>Mute</span>
-              <span className={selectedGroup.policy.allow_ban ? 'policy-chip policy-chip-on' : 'policy-chip'}>Ban</span>
-              <span className="policy-chip">Ignore admins {selectedGroup.policy.ignore_admins ? 'on' : 'off'}</span>
-              <span className="policy-chip">Cooldown {selectedGroup.policy.action_cooldown_seconds}s</span>
+            <div className="guard-policy-bar" aria-label="Group policy">
+              <button
+                className={selectedGroup.enabled ? 'guard-arm-toggle guard-arm-toggle-on' : 'guard-arm-toggle'}
+                disabled={updatingGroup}
+                type="button"
+                onClick={() => void updateSelectedGroup({ enabled: !selectedGroup.enabled })}
+              >
+                <span>{selectedGroup.enabled ? 'Automation on' : 'Automation off'}</span>
+                <strong>{selectedGroup.runtime_status}</strong>
+              </button>
+              <div className="guard-policy-strip">
+                <span className={selectedGroup.policy.allow_delete ? 'policy-chip policy-chip-on' : 'policy-chip'}>Delete</span>
+                <span className={selectedGroup.policy.allow_mute ? 'policy-chip policy-chip-on' : 'policy-chip'}>Mute</span>
+                <span className={selectedGroup.policy.allow_ban ? 'policy-chip policy-chip-on' : 'policy-chip'}>Ban</span>
+                <span className={selectedGroup.policy.ignore_admins ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.ignore_admins ? 'Admins ignored' : 'Admins checked'}</span>
+                <span className="policy-chip">{selectedGroup.policy.action_cooldown_seconds}s cooldown</span>
+              </div>
             </div>
           )}
 
-          {selectedGroup != null && (
+          {selectedGroup != null && (ruleFormOpen || rules.length === 0) && (
             <form className="guard-rule-form" onSubmit={(event) => {
               event.preventDefault()
               void createRule()
             }}>
               <div className="guard-rule-form-heading">
-                <strong>Add rule</strong>
-                <label className="guard-rule-enabled">
-                  <input
-                    checked={ruleDraft.enabled}
-                    onChange={(event) => updateRuleDraft({ enabled: event.currentTarget.checked })}
-                    type="checkbox"
-                  />
-                  Enabled
-                </label>
+                <div>
+                  <strong>Add rule</strong>
+                  <small>{defaultRuleName(ruleDraft)}</small>
+                </div>
+                <div className="rule-template-row" aria-label="Rule templates">
+                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('links'))}>Links</button>
+                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('flood'))}>Flood</button>
+                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('invites'))}>Invites</button>
+                  <label className="guard-rule-enabled">
+                    <input
+                      checked={ruleDraft.enabled}
+                      onChange={(event) => updateRuleDraft({ enabled: event.currentTarget.checked })}
+                      type="checkbox"
+                    />
+                    Enabled
+                  </label>
+                </div>
               </div>
               <div className="guard-rule-form-grid">
-                <label>
-                  <span>Name</span>
-                  <input
-                    onChange={(event) => updateRuleDraft({ name: event.currentTarget.value })}
-                    placeholder="No promo links"
-                    type="text"
-                    value={ruleDraft.name}
-                  />
-                </label>
-                <label>
-                  <span>Priority</span>
-                  <input
-                    min="1"
-                    onChange={(event) => updateRuleDraft({ priority: numberInputValue(event.currentTarget.value, GUARD_RULE_DEFAULT_PRIORITY) })}
-                    type="number"
-                    value={ruleDraft.priority}
-                  />
-                </label>
-                <label>
-                  <span>Trigger</span>
-                  <select
-                    onChange={(event) => updateRuleDraft({ conditionType: event.currentTarget.value as GuardRuleConditionKind })}
-                    value={ruleDraft.conditionType}
-                  >
-                    <option value="message_contains_url">URL</option>
-                    <option value="message_contains_invite_link">Invite link</option>
-                    <option value="message_contains_text">Text contains</option>
-                    <option value="message_matches_regex">Regex</option>
-                    <option value="message_repeated">Repeated message</option>
-                    <option value="message_rate_exceeded">Message rate</option>
-                    <option value="member_is_new">New member</option>
-                    <option value="member_age_less_than">Member age</option>
-                    <option value="message_command">Command</option>
-                  </select>
-                </label>
-                {ruleDraftNeedsText(ruleDraft.conditionType) && (
+                <div className="rule-form-section">
+                  <span className="rule-form-section-title">When</span>
                   <label>
-                    <span>{ruleDraft.conditionType === 'message_matches_regex' ? 'Pattern' : ruleDraft.conditionType === 'message_command' ? 'Command' : 'Text'}</span>
+                    <span>Trigger</span>
+                    <select
+                      onChange={(event) => updateRuleDraft({ conditionType: event.currentTarget.value as GuardRuleConditionKind })}
+                      value={ruleDraft.conditionType}
+                    >
+                      <option value="message_contains_url">URL</option>
+                      <option value="message_contains_invite_link">Invite link</option>
+                      <option value="message_contains_text">Text contains</option>
+                      <option value="message_matches_regex">Regex</option>
+                      <option value="message_repeated">Repeated message</option>
+                      <option value="message_rate_exceeded">Message rate</option>
+                      <option value="member_is_new">New member</option>
+                      <option value="member_age_less_than">Member age</option>
+                      <option value="message_command">Command</option>
+                    </select>
+                  </label>
+                  {ruleDraftNeedsText(ruleDraft.conditionType) && (
+                    <label>
+                      <span>{ruleDraft.conditionType === 'message_matches_regex' ? 'Pattern' : ruleDraft.conditionType === 'message_command' ? 'Command' : 'Text'}</span>
+                      <input
+                        onChange={(event) => updateRuleDraft({ conditionText: event.currentTarget.value })}
+                        placeholder={conditionPlaceholder(ruleDraft.conditionType)}
+                        type="text"
+                        value={ruleDraft.conditionText}
+                      />
+                    </label>
+                  )}
+                  {ruleDraftNeedsSeconds(ruleDraft.conditionType) && (
+                    <label>
+                      <span>Seconds</span>
+                      <input
+                        min="1"
+                        onChange={(event) => updateRuleDraft({ conditionSeconds: numberInputValue(event.currentTarget.value, 60) })}
+                        type="number"
+                        value={ruleDraft.conditionSeconds}
+                      />
+                    </label>
+                  )}
+                  {ruleDraft.conditionType === 'message_rate_exceeded' && (
+                    <label>
+                      <span>Max messages</span>
+                      <input
+                        min="1"
+                        onChange={(event) => updateRuleDraft({ conditionCount: numberInputValue(event.currentTarget.value, 5) })}
+                        type="number"
+                        value={ruleDraft.conditionCount}
+                      />
+                    </label>
+                  )}
+                </div>
+                <div className="rule-form-section">
+                  <span className="rule-form-section-title">Then</span>
+                  <label>
+                    <span>Action</span>
+                    <select
+                      onChange={(event) => updateRuleDraft({ actionType: event.currentTarget.value as GuardRuleActionKind })}
+                      value={ruleDraft.actionType}
+                    >
+                      <option value="delete_message">Delete</option>
+                      <option value="warn">Warn</option>
+                      <option value="mute">Mute</option>
+                      <option value="ban">Ban</option>
+                      <option value="reply">Reply</option>
+                      <option value="send_message">Post notice</option>
+                      <option value="record_only">Record only</option>
+                    </select>
+                  </label>
+                  {ruleDraft.actionType === 'mute' && (
+                    <label>
+                      <span>Mute seconds</span>
+                      <input
+                        min="1"
+                        onChange={(event) => updateRuleDraft({ actionSeconds: numberInputValue(event.currentTarget.value, 600) })}
+                        type="number"
+                        value={ruleDraft.actionSeconds}
+                      />
+                    </label>
+                  )}
+                  {ruleDraftNeedsActionText(ruleDraft.actionType) && (
+                    <label>
+                      <span>{ruleDraft.actionType === 'reply' || ruleDraft.actionType === 'send_message' ? 'Message' : 'Reason'}</span>
+                      <input
+                        onChange={(event) => updateRuleDraft({ actionText: event.currentTarget.value })}
+                        placeholder={actionPlaceholder(ruleDraft.actionType)}
+                        type="text"
+                        value={ruleDraft.actionText}
+                      />
+                    </label>
+                  )}
+                </div>
+                <div className="rule-form-section rule-form-section-meta">
+                  <span className="rule-form-section-title">Rule</span>
+                  <label>
+                    <span>Name</span>
                     <input
-                      onChange={(event) => updateRuleDraft({ conditionText: event.currentTarget.value })}
-                      placeholder={conditionPlaceholder(ruleDraft.conditionType)}
+                      onChange={(event) => updateRuleDraft({ name: event.currentTarget.value })}
+                      placeholder="No promo links"
                       type="text"
-                      value={ruleDraft.conditionText}
+                      value={ruleDraft.name}
                     />
                   </label>
-                )}
-                {ruleDraftNeedsSeconds(ruleDraft.conditionType) && (
                   <label>
-                    <span>Seconds</span>
+                    <span>Priority</span>
                     <input
                       min="1"
-                      onChange={(event) => updateRuleDraft({ conditionSeconds: numberInputValue(event.currentTarget.value, 60) })}
+                      onChange={(event) => updateRuleDraft({ priority: numberInputValue(event.currentTarget.value, GUARD_RULE_DEFAULT_PRIORITY) })}
                       type="number"
-                      value={ruleDraft.conditionSeconds}
+                      value={ruleDraft.priority}
                     />
                   </label>
-                )}
-                {ruleDraft.conditionType === 'message_rate_exceeded' && (
-                  <label>
-                    <span>Max messages</span>
-                    <input
-                      min="1"
-                      onChange={(event) => updateRuleDraft({ conditionCount: numberInputValue(event.currentTarget.value, 5) })}
-                      type="number"
-                      value={ruleDraft.conditionCount}
-                    />
-                  </label>
-                )}
-                <label>
-                  <span>Action</span>
-                  <select
-                    onChange={(event) => updateRuleDraft({ actionType: event.currentTarget.value as GuardRuleActionKind })}
-                    value={ruleDraft.actionType}
-                  >
-                    <option value="delete_message">Delete</option>
-                    <option value="warn">Warn</option>
-                    <option value="mute">Mute</option>
-                    <option value="ban">Ban</option>
-                    <option value="reply">Reply</option>
-                    <option value="send_message">Post notice</option>
-                    <option value="record_only">Record only</option>
-                  </select>
-                </label>
-                {ruleDraft.actionType === 'mute' && (
-                  <label>
-                    <span>Mute seconds</span>
-                    <input
-                      min="1"
-                      onChange={(event) => updateRuleDraft({ actionSeconds: numberInputValue(event.currentTarget.value, 600) })}
-                      type="number"
-                      value={ruleDraft.actionSeconds}
-                    />
-                  </label>
-                )}
-                {ruleDraftNeedsActionText(ruleDraft.actionType) && (
-                  <label className="guard-rule-form-wide">
-                    <span>{ruleDraft.actionType === 'reply' || ruleDraft.actionType === 'send_message' ? 'Message' : 'Reason'}</span>
-                    <input
-                      onChange={(event) => updateRuleDraft({ actionText: event.currentTarget.value })}
-                      placeholder={actionPlaceholder(ruleDraft.actionType)}
-                      type="text"
-                      value={ruleDraft.actionText}
-                    />
-                  </label>
-                )}
+                </div>
               </div>
               <button className="primary-action guard-rule-submit" disabled={creatingRule} type="submit">
-                {creatingRule ? 'Adding...' : 'Add rule'}
+                {creatingRule ? 'Saving...' : 'Save rule'}
               </button>
             </form>
           )}
@@ -1186,7 +1246,7 @@ function GuardWorkbench() {
               <article className={rule.enabled ? 'guard-rule-row' : 'guard-rule-row guard-rule-disabled'} key={rule.id}>
                 <div>
                   <strong>{rule.name}</strong>
-                  <small>Priority {rule.priority} · {rule.conditions.length} conditions · {rule.actions.length} actions</small>
+                  <small>{guardRuleSummary(rule)}</small>
                 </div>
                 <span>{rule.enabled ? 'enabled' : 'disabled'}</span>
               </article>
@@ -1301,6 +1361,72 @@ export function guardRuleActionFromDraft(draft: GuardRuleDraft): JsonValue {
     case 'record_only':
       return { type: 'record_only', reason: draft.actionText.trim() }
   }
+}
+
+function guardRulePreset(preset: 'links' | 'flood' | 'invites'): GuardRuleDraft {
+  if (preset === 'flood') {
+    return {
+      ...DEFAULT_GUARD_RULE_DRAFT,
+      name: 'Rate limit',
+      conditionType: 'message_rate_exceeded',
+      conditionSeconds: 30,
+      conditionCount: 5,
+      actionType: 'mute',
+      actionText: 'flood',
+      actionSeconds: 300,
+    }
+  }
+  if (preset === 'invites') {
+    return {
+      ...DEFAULT_GUARD_RULE_DRAFT,
+      name: 'Block invite links',
+      conditionType: 'message_contains_invite_link',
+      actionType: 'delete_message',
+    }
+  }
+  return {
+    ...DEFAULT_GUARD_RULE_DRAFT,
+    name: 'Block URLs',
+    conditionType: 'message_contains_url',
+    actionType: 'delete_message',
+  }
+}
+
+function guardRuleSummary(rule: GuardRule): string {
+  const condition = rule.conditions.map(guardConditionLabel).filter(Boolean).join(' + ') || 'No trigger'
+  const action = rule.actions.map(guardActionLabel).filter(Boolean).join(' + ') || 'No action'
+  return `${condition} -> ${action} · Priority ${rule.priority}`
+}
+
+function guardConditionLabel(condition: JsonValue): string {
+  if (!isJsonRecord(condition) || typeof condition.type !== 'string') return ''
+  if (condition.type === 'message_contains_url') return 'URL'
+  if (condition.type === 'message_contains_invite_link') return 'Invite link'
+  if (condition.type === 'message_contains_text') return `Text "${String(condition.text ?? '')}"`
+  if (condition.type === 'message_matches_regex') return `Regex ${String(condition.pattern ?? '')}`
+  if (condition.type === 'message_repeated') return `Repeat in ${String(condition.window_seconds ?? '?')}s`
+  if (condition.type === 'message_rate_exceeded') return `${String(condition.max_messages ?? '?')} msgs / ${String(condition.window_seconds ?? '?')}s`
+  if (condition.type === 'member_is_new') return 'New member'
+  if (condition.type === 'member_age_less_than') return `Joined < ${String(condition.seconds ?? '?')}s`
+  if (condition.type === 'message_command') return `Command ${String(condition.command ?? '')}`
+  if (condition.type === 'member_warning_count_at_least') return `${String(condition.count ?? '?')} warnings`
+  return condition.type
+}
+
+function guardActionLabel(action: JsonValue): string {
+  if (!isJsonRecord(action) || typeof action.type !== 'string') return ''
+  if (action.type === 'delete_message') return 'Delete'
+  if (action.type === 'warn') return 'Warn'
+  if (action.type === 'mute') return `Mute ${String(action.seconds ?? '?')}s`
+  if (action.type === 'ban') return 'Ban'
+  if (action.type === 'reply') return 'Reply'
+  if (action.type === 'send_message') return 'Post notice'
+  if (action.type === 'record_only') return 'Record'
+  return action.type
+}
+
+function isJsonRecord(value: JsonValue): value is { [key: string]: JsonValue } {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
 }
 
 function defaultRuleName(draft: GuardRuleDraft): string {

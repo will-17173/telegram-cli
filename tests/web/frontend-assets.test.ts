@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   displayChatId,
   guardActivityStatusClass,
+  guardOnlyMode,
   guardRuleActionFromDraft,
   guardRuleConditionFromDraft,
   guardRuleRequestFromDraft,
@@ -129,6 +130,9 @@ describe('web frontend source', () => {
     expect(app).toContain('Add rule')
     expect(app).toContain("postJson<GuardRule>('/api/guard/rules'")
     expect(app).toContain('guardRuleRequestFromDraft(selectedGroupId, ruleDraft)')
+    expect(app).toContain('const guardOnly = guardOnlyMode()')
+    expect(app).toContain('{!guardOnly && <nav className="view-tabs"')
+    expect(app).toContain('{!guardOnly && view === \'messages\' ?')
     expect(css).toContain('.guard-rule-form')
     expect(api).toContain('action_created_at: string')
     expect(api).toContain('event_created_at: string')
@@ -165,6 +169,12 @@ describe('web frontend source', () => {
     expect(guardActivityStatusClass('failed')).toBe('guard-activity-failed')
     expect(guardActivityStatusClass('delayed')).toBe('guard-activity-delayed')
     expect(guardActivityStatusClass('other')).toBe('guard-activity-unknown')
+  })
+
+  it('detects guard-only mode from the URL query', () => {
+    expect(guardOnlyMode('?guard=1')).toBe(true)
+    expect(guardOnlyMode('?view=guard')).toBe(false)
+    expect(guardOnlyMode('')).toBe(false)
   })
 
   it('builds guard rule create payloads from the workbench draft', () => {

@@ -1236,6 +1236,18 @@ input::placeholder {
   padding-bottom: 12px;
 }
 
+.guard-heading-actions {
+  align-items: flex-end;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.compact-action {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
 .guard-panel h2 {
   font-size: 18px;
   line-height: 1.2;
@@ -1322,21 +1334,64 @@ input::placeholder {
   color: var(--muted);
 }
 
+.guard-policy-bar {
+  align-items: center;
+  background: #f5fafc;
+  border: 1px solid #dce7ee;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(190px, auto) minmax(0, 1fr);
+  margin-bottom: 12px;
+  padding: 10px;
+}
+
+.guard-arm-toggle {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  display: flex;
+  font: inherit;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.guard-arm-toggle span {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.guard-arm-toggle strong {
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.guard-arm-toggle-on {
+  border-color: rgba(37, 194, 160, 0.58);
+  box-shadow: inset 3px 0 0 var(--trace);
+}
+
 .guard-policy-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
-  margin-bottom: 12px;
 }
 
 .guard-rule-form {
-  background: #f8fbfd;
+  background: linear-gradient(180deg, #f9fcfd 0%, #f4f9fc 100%);
   border: 1px solid #dce7ee;
   border-radius: 8px;
   display: grid;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 12px;
-  padding: 10px;
+  padding: 12px;
 }
 
 .guard-rule-form-heading {
@@ -1344,6 +1399,35 @@ input::placeholder {
   display: flex;
   gap: 12px;
   justify-content: space-between;
+}
+
+.guard-rule-form-heading small {
+  color: var(--muted);
+  display: block;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.rule-template-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.rule-template-row button {
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font: inherit;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  min-height: 28px;
+  padding: 4px 9px;
 }
 
 .guard-rule-enabled {
@@ -1356,10 +1440,32 @@ input::placeholder {
   text-transform: uppercase;
 }
 
+.guard-rule-enabled input {
+  accent-color: var(--telegram);
+  min-height: auto;
+  width: auto;
+}
+
 .guard-rule-form-grid {
   display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(220px, 1.1fr) minmax(180px, 0.8fr);
+}
+
+.rule-form-section {
+  align-content: start;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+}
+
+.rule-form-section-title {
+  color: #0f6d8f;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .guard-rule-form label {
@@ -1388,9 +1494,12 @@ input::placeholder {
   padding: 7px 9px;
 }
 
-.guard-rule-form-wide,
 .guard-rule-submit {
   grid-column: 1 / -1;
+}
+
+.guard-rule-submit {
+  min-height: 40px;
 }
 
 .guard-rule-row,
@@ -1407,6 +1516,12 @@ input::placeholder {
 
 .guard-rule-row {
   grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
+}
+
+.guard-rule-row small {
+  display: block;
+  margin-top: 4px;
 }
 
 .guard-rule-disabled {
@@ -1478,6 +1593,14 @@ input::placeholder {
     grid-template-columns: 1fr;
   }
 
+  .guard-rule-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rule-form-section-meta {
+    grid-column: 1 / -1;
+  }
+
   .message-pager {
     grid-template-columns: 1fr;
   }
@@ -1531,8 +1654,22 @@ input::placeholder {
   .filters,
   .message-row,
   .guard-metrics,
+  .guard-policy-bar,
+  .guard-rule-form-grid,
   .guard-activity-row {
     grid-template-columns: 1fr;
+  }
+
+  .guard-panel-heading,
+  .guard-rule-form-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .guard-heading-actions,
+  .rule-template-row {
+    justify-content: flex-start;
+    justify-items: start;
   }
 
   .guard-activity-row > span,

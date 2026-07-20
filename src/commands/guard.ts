@@ -47,7 +47,7 @@ export function registerGuardCommand(app: Command): void {
       })
       let server: WebServerHandle | undefined
       try {
-        server = await startWebServer({ port, dataDir })
+        server = await startWebServer({ port, dataDir, guardOnly: true })
         await runtime.start()
       } catch (error) {
         await closeAfterStartupFailure({ server, store, clients }, error)

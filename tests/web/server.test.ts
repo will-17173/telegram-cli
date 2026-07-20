@@ -44,6 +44,19 @@ describe('startWebServer', () => {
     }
   })
 
+  it('redirects the guard-only root to the guard view flag', async () => {
+    const root = makeRoot()
+    const server = await startWebServer({ port: 0, dataDir: root, staticDir: join(root, 'dist-web'), guardOnly: true })
+    try {
+      expect(server.url).toMatch(/\?guard=1$/)
+      const response = await fetch(`http://${server.host}:${server.port}/`, { redirect: 'manual' })
+      expect(response.status).toBe(302)
+      expect(response.headers.get('location')).toBe(`http://${server.host}:${server.port}/?guard=1`)
+    } finally {
+      await server.close()
+    }
+  })
+
   it('serves assets without allowing path traversal outside the static directory', async () => {
     const root = makeRoot()
     await expect(serveStatic(join(root, 'dist-web'), '/../secret.txt')).resolves.toBeNull()

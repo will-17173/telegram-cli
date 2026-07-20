@@ -4,7 +4,7 @@ import { createApp } from '../../src/cli/app.js'
 const startWebServer = vi.hoisted(() => vi.fn(async () => ({
   host: '127.0.0.1',
   port: 8734,
-  url: 'http://127.0.0.1:8734/',
+  url: 'http://127.0.0.1:8734/?guard=1',
   close: vi.fn(async () => undefined),
 })))
 
@@ -72,7 +72,7 @@ afterEach(() => {
   startWebServer.mockImplementation(async () => ({
     host: '127.0.0.1',
     port: 8734,
-    url: 'http://127.0.0.1:8734/',
+    url: 'http://127.0.0.1:8734/?guard=1',
     close: vi.fn(async () => undefined),
   }))
   runtimeMocks.constructor.mockClear()
@@ -113,17 +113,17 @@ describe('guard command', () => {
     startWebServer.mockResolvedValueOnce({
       host: '127.0.0.1',
       port: 9001,
-      url: 'http://127.0.0.1:9001/',
+      url: 'http://127.0.0.1:9001/?guard=1',
       close,
     })
     const app = createApp()
 
     const running = app.parseAsync(['node', 'tg', 'guard', 'start', '--port', '9001'])
-    await vi.waitFor(() => expect(write).toHaveBeenCalledWith('Telegram Guard: http://127.0.0.1:9001/\n'))
+    await vi.waitFor(() => expect(write).toHaveBeenCalledWith('Telegram Guard: http://127.0.0.1:9001/?guard=1\n'))
     process.emit('SIGTERM')
     await running
 
-    expect(startWebServer).toHaveBeenCalledWith({ port: 9001, dataDir: '/tmp/tg-guard-command-test' })
+    expect(startWebServer).toHaveBeenCalledWith({ port: 9001, dataDir: '/tmp/tg-guard-command-test', guardOnly: true })
     expect(guardDbMocks.constructor).toHaveBeenCalledWith('/tmp/tg-guard-command-test/guard.db')
     expect(runtimeMocks.constructor).toHaveBeenCalledOnce()
     const options = runtimeMocks.constructor.mock.calls[0]?.[0]
@@ -147,7 +147,7 @@ describe('guard command', () => {
     startWebServer.mockResolvedValueOnce({
       host: '127.0.0.1',
       port: 9002,
-      url: 'http://127.0.0.1:9002/',
+      url: 'http://127.0.0.1:9002/?guard=1',
       close,
     })
     const app = createApp()
@@ -169,13 +169,13 @@ describe('guard command', () => {
     startWebServer.mockResolvedValueOnce({
       host: '127.0.0.1',
       port: 9003,
-      url: 'http://127.0.0.1:9003/',
+      url: 'http://127.0.0.1:9003/?guard=1',
       close,
     })
     const app = createApp()
 
     const running = app.parseAsync(['node', 'tg', 'guard', 'start', '--port', '9003'])
-    await vi.waitFor(() => expect(write).toHaveBeenCalledWith('Telegram Guard: http://127.0.0.1:9003/\n'))
+    await vi.waitFor(() => expect(write).toHaveBeenCalledWith('Telegram Guard: http://127.0.0.1:9003/?guard=1\n'))
     process.emit('SIGTERM')
     await expect(running).rejects.toThrow(error)
 
