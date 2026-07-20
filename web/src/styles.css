@@ -1621,13 +1621,30 @@ input::placeholder {
 }
 
 .guard-rule-row {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   padding: 12px;
 }
 
 .guard-rule-row small {
   display: block;
   margin-top: 4px;
+}
+
+.guard-rule-delete {
+  background: #fff7f6;
+  border: 1px solid rgba(184, 74, 66, 0.34);
+  border-radius: 999px;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 800;
+  min-height: 30px;
+  padding: 5px 10px;
+}
+
+.guard-rule-delete:hover:not(:disabled),
+.guard-rule-delete:focus-visible {
+  background: #ffecea;
+  border-color: rgba(184, 74, 66, 0.58);
 }
 
 .guard-rule-disabled {

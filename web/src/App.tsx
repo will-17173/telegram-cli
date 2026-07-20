@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  deleteJson,
   getJson,
   patchJson,
   postJson,
@@ -880,6 +881,7 @@ function GuardWorkbench() {
   const [loadingRules, setLoadingRules] = useState(false)
   const [discoveringGroups, setDiscoveringGroups] = useState(false)
   const [creatingRule, setCreatingRule] = useState(false)
+  const [deletingRuleId, setDeletingRuleId] = useState<number | null>(null)
   const [updatingGroup, setUpdatingGroup] = useState(false)
   const [ruleFormOpen, setRuleFormOpen] = useState(false)
   const [ruleDraft, setRuleDraft] = useState<GuardRuleDraft>(DEFAULT_GUARD_RULE_DRAFT)
@@ -971,6 +973,21 @@ function GuardWorkbench() {
       setError(errorText(caught))
     } finally {
       setCreatingRule(false)
+    }
+  }
+
+  async function deleteRule(rule: GuardRule): Promise<void> {
+    if (selectedGroupId == null) return
+    if (!window.confirm(`Delete rule "${rule.name}"?`)) return
+    setDeletingRuleId(rule.id)
+    setError('')
+    try {
+      await deleteJson<{ deleted: boolean }>(`/api/guard/rules/${rule.id}`)
+      await loadGuardRules(selectedGroupId)
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setDeletingRuleId(null)
     }
   }
 
@@ -1132,6 +1149,14 @@ function GuardWorkbench() {
                   <small>{guardRuleSummary(rule)}</small>
                 </div>
                 <span>{rule.enabled ? 'enabled' : 'disabled'}</span>
+                <button
+                  className="guard-rule-delete"
+                  disabled={deletingRuleId === rule.id}
+                  type="button"
+                  onClick={() => void deleteRule(rule)}
+                >
+                  {deletingRuleId === rule.id ? 'Deleting' : 'Delete'}
+                </button>
               </article>
             ))}
             {!loadingRules && selectedGroup != null && rules.length === 0 && <p className="empty-note">No rules configured for this group.</p>}
