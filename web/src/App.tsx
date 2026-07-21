@@ -908,7 +908,7 @@ export function App() {
           )}
         </section>
       </section>
-      ) : <GuardWorkbench />}
+      ) : <GuardWorkbench t={t} locale={locale} />}
       {!guardOnly && blacklistOpen && (
         <div className="modal-backdrop" role="presentation">
           <section className="blacklist-modal" role="dialog" aria-modal="true" aria-labelledby="sender-blacklist-title">
@@ -954,7 +954,7 @@ export function App() {
   )
 }
 
-function GuardWorkbench() {
+function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
   const [status, setStatus] = useState<GuardRuntimeState | null>(null)
   const [groups, setGroups] = useState<GuardGroup[]>([])
   const [rules, setRules] = useState<GuardRule[]>([])
@@ -1049,7 +1049,7 @@ function GuardWorkbench() {
     setCreatingRule(true)
     setError('')
     try {
-      await postJson<GuardRule>('/api/guard/rules', guardRuleRequestFromDraft(selectedGroupId, ruleDraft))
+      await postJson<GuardRule>('/api/guard/rules', guardRuleRequestFromDraft(selectedGroupId, ruleDraft, t))
       setRuleDraft(DEFAULT_GUARD_RULE_DRAFT)
       setRuleFormOpen(false)
       await loadGuardRules(selectedGroupId)
@@ -1121,54 +1121,54 @@ function GuardWorkbench() {
   }
 
   return (
-    <section className="guard-workbench" aria-label="Telegram Guard workbench">
+    <section className="guard-workbench" aria-label={t.shell.guardConsole}>
       <div className="guard-overview">
         <div>
-          <span className="panel-kicker">Guard console</span>
-          <h1>Group automation</h1>
-          <p>{status?.error ?? 'Local rules, group policy, and moderation activity from the guard database.'}</p>
+          <span className="panel-kicker">{t.shell.guardConsole}</span>
+          <h1>{t.guard.groupAutomation}</h1>
+          <p>{status?.error ?? t.guard.runtimeDescription}</p>
         </div>
         <button className="secondary-action" type="button" onClick={() => void loadGuard()} disabled={loading}>
-          Refresh
+          {t.common.refresh}
         </button>
       </div>
 
       {error && <div className="guard-error" role="alert">{error}</div>}
 
-      <section className="guard-metrics" aria-label="Guard runtime summary">
+      <section className="guard-metrics" aria-label={t.guard.runtime}>
         <div className="guard-metric guard-metric-runtime">
-          <span>Runtime</span>
+          <span>{t.guard.runtime}</span>
           <strong>{status?.status ?? 'stopped'}</strong>
-          <small>{status?.started_at == null ? 'Not started' : `Started ${formatDate(status.started_at)}`}</small>
+          <small>{status?.started_at == null ? t.guard.notStarted : formatMessage(t.guard.started, { date: formatDate(status.started_at, locale) })}</small>
         </div>
         <div className="guard-metric">
-          <span>Groups</span>
+          <span>{t.guard.groupsLabel}</span>
           <strong>{enabledGroups}/{groups.length}</strong>
-          <small>Enabled for automation</small>
+          <small>{t.guard.enabledForAutomation}</small>
         </div>
         <div className="guard-metric">
-          <span>Queue</span>
+          <span>{t.guard.queue}</span>
           <strong>{status?.queue_length ?? 0}</strong>
-          <small>Pending actions</small>
+          <small>{t.guard.pendingActions}</small>
         </div>
         <div className="guard-metric">
-          <span>Activity</span>
+          <span>{t.guard.activityLabel}</span>
           <strong>{activity.length}</strong>
-          <small>Recent action records</small>
+          <small>{t.guard.recentRecords}</small>
         </div>
       </section>
 
       <section className="guard-grid">
-        <section className="guard-panel guard-groups-panel" aria-label="Managed groups">
+        <section className="guard-panel guard-groups-panel" aria-label={t.guard.managedGroups}>
           <div className="guard-panel-heading">
             <div>
-              <span className="panel-kicker">Managed groups</span>
-              <h2>{groups.length} groups</h2>
+              <span className="panel-kicker">{t.guard.managedGroups}</span>
+              <h2>{formatMessage(t.guard.groups, { count: groups.length })}</h2>
             </div>
             <div className="guard-heading-actions">
-              <span className="guard-count">{loading ? 'Loading' : `${enabledGroups} enabled`}</span>
+              <span className="guard-count">{loading ? t.common.loading : formatMessage(t.guard.groupsEnabled, { enabled: enabledGroups })}</span>
               <button className="secondary-action compact-action" type="button" onClick={() => void discoverGuardGroups()} disabled={discoveringGroups}>
-                {discoveringGroups ? 'Syncing' : 'Sync groups'}
+                {discoveringGroups ? t.common.syncing : t.guard.syncGroups}
               </button>
             </div>
           </div>
@@ -1182,24 +1182,24 @@ function GuardWorkbench() {
                 aria-pressed={group.id === selectedGroupId}
               >
                 <span className="guard-row-main">
-                  <strong>{group.title ?? `Chat ${displayChatId(group.chat_id)}`}</strong>
+                  <strong>{group.title ?? formatMessage(t.messages.chatId, { id: displayChatId(group.chat_id) })}</strong>
                   <small>{displayChatId(group.chat_id)}</small>
                 </span>
-                <span className={`guard-status ${guardGroupStatusClass(group)}`}>{guardGroupStatusLabel(group)}</span>
+                <span className={`guard-status ${guardGroupStatusClass(group)}`}>{guardGroupStatusLabel(group, t)}</span>
               </button>
             ))}
-            {!loading && groups.length === 0 && <p className="empty-note">No managed groups found.</p>}
+            {!loading && groups.length === 0 && <p className="empty-note">{t.guard.noManagedGroups}</p>}
           </div>
         </section>
 
-        <section className="guard-panel guard-detail-panel" aria-label="Selected group rules and policy">
+        <section className="guard-panel guard-detail-panel" aria-label={t.guard.selectedGroupRulesAndPolicy}>
           <div className="guard-panel-heading">
             <div>
-              <span className="panel-kicker">Rules</span>
-              <h2>{selectedGroup == null ? 'Select a group' : selectedGroup.title ?? `Chat ${displayChatId(selectedGroup.chat_id)}`}</h2>
+              <span className="panel-kicker">{t.guard.rules}</span>
+              <h2>{selectedGroup == null ? t.guard.selectGroup : selectedGroup.title ?? formatMessage(t.messages.chatId, { id: displayChatId(selectedGroup.chat_id) })}</h2>
             </div>
             <div className="guard-heading-actions">
-              <span className="guard-count">{loadingRules ? 'Loading' : `${enabledRules}/${rules.length} enabled`}</span>
+              <span className="guard-count">{loadingRules ? t.common.loading : formatMessage(t.guard.rulesEnabled, { enabled: enabledRules, total: rules.length })}</span>
               {selectedGroup != null && (
                 <button
                   className="secondary-action compact-action"
@@ -1209,33 +1209,33 @@ function GuardWorkbench() {
                     setRuleFormOpen(true)
                   }}
                 >
-                  New rule
+                  {t.guard.newRule}
                 </button>
               )}
             </div>
           </div>
 
           {selectedGroup != null && (
-            <div className="guard-policy-bar" aria-label="Group policy">
+            <div className="guard-policy-bar" aria-label={t.guard.groupPolicy}>
               <button
                 className={selectedGroup.enabled ? 'guard-arm-toggle guard-arm-toggle-on' : 'guard-arm-toggle'}
                 disabled={updatingGroup}
                 type="button"
                 onClick={() => void updateSelectedGroup({ enabled: !selectedGroup.enabled })}
               >
-                <span>{selectedGroup.enabled ? 'Rules on' : 'Rules off'}</span>
-                <strong>{guardGroupStatusLabel(selectedGroup)}</strong>
+                <span>{selectedGroup.enabled ? t.guard.rulesOn : t.guard.rulesOff}</span>
+                <strong>{guardGroupStatusLabel(selectedGroup, t)}</strong>
               </button>
-              <div className="guard-policy-strip" aria-label="Group policy limits">
-                <span className="policy-strip-label">Policy limits</span>
-                <span className={selectedGroup.policy.allow_delete ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_delete ? 'Delete allowed' : 'Delete blocked'}</span>
-                <span className={selectedGroup.policy.allow_mute ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_mute ? 'Mute allowed' : 'Mute blocked'}</span>
-                <span className={selectedGroup.policy.allow_ban ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_ban ? 'Ban allowed' : 'Ban blocked'}</span>
-                <span className={selectedGroup.policy.ignore_admins ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.ignore_admins ? 'Admins skipped' : 'Admins included'}</span>
-                <span className="policy-chip">{selectedGroup.policy.action_cooldown_seconds}s cooldown</span>
-                <small>These limits only apply after an enabled rule matches.</small>
+              <div className="guard-policy-strip" aria-label={t.guard.groupPolicyLimits}>
+                <span className="policy-strip-label">{t.guard.policyLimits}</span>
+                <span className={selectedGroup.policy.allow_delete ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_delete ? t.guard.deleteAllowed : t.guard.deleteBlocked}</span>
+                <span className={selectedGroup.policy.allow_mute ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_mute ? t.guard.muteAllowed : t.guard.muteBlocked}</span>
+                <span className={selectedGroup.policy.allow_ban ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_ban ? t.guard.banAllowed : t.guard.banBlocked}</span>
+                <span className={selectedGroup.policy.ignore_admins ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.ignore_admins ? t.guard.adminsSkipped : t.guard.adminsIncluded}</span>
+                <span className="policy-chip">{formatMessage(t.guard.cooldown, { seconds: selectedGroup.policy.action_cooldown_seconds })}</span>
+                <small>{t.guard.policyNote}</small>
               </div>
-              <p className="guard-policy-note">{guardGroupStatusDetail(selectedGroup)}</p>
+              <p className="guard-policy-note">{guardGroupStatusDetail(selectedGroup, t)}</p>
             </div>
           )}
 
@@ -1244,7 +1244,7 @@ function GuardWorkbench() {
               <article className={rule.enabled ? 'guard-rule-row' : 'guard-rule-row guard-rule-disabled'} key={rule.id}>
                 <div>
                   <strong>{rule.name}</strong>
-                  <small>{guardRuleSummary(rule)}</small>
+                  <small>{guardRuleSummary(rule, t)}</small>
                 </div>
                 <button
                   className={rule.enabled ? 'guard-rule-state guard-rule-state-on' : 'guard-rule-state'}
@@ -1253,7 +1253,7 @@ function GuardWorkbench() {
                   aria-pressed={rule.enabled}
                   onClick={() => void toggleRule(rule)}
                 >
-                  {updatingRuleId === rule.id ? 'Updating' : rule.enabled ? 'Enabled' : 'Disabled'}
+                  {updatingRuleId === rule.id ? t.common.updating : rule.enabled ? t.common.enabled : t.common.disabled}
                 </button>
                 <button
                   className="guard-rule-delete"
@@ -1261,22 +1261,22 @@ function GuardWorkbench() {
                   type="button"
                   onClick={() => void deleteRule(rule)}
                 >
-                  {deletingRuleId === rule.id ? 'Deleting' : 'Delete'}
+                  {deletingRuleId === rule.id ? t.common.deleting : t.common.delete}
                 </button>
               </article>
             ))}
-            {!loadingRules && selectedGroup != null && rules.length === 0 && <p className="empty-note">No rules configured for this group.</p>}
+            {!loadingRules && selectedGroup != null && rules.length === 0 && <p className="empty-note">{t.guard.noRules}</p>}
           </div>
         </section>
       </section>
 
-      <section className="guard-panel" aria-label="Recent guard activity">
+      <section className="guard-panel" aria-label={t.guard.activity}>
         <div className="guard-panel-heading">
           <div>
-            <span className="panel-kicker">Activity</span>
-            <h2>Recent actions</h2>
+            <span className="panel-kicker">{t.guard.activity}</span>
+            <h2>{t.guard.recentActions}</h2>
           </div>
-          <span className="guard-count">{activity.length} records</span>
+          <span className="guard-count">{formatMessage(t.guard.recentRecordsCount, { count: activity.length })}</span>
         </div>
         <div className="guard-activity-list">
           {activity.map((item) => (
@@ -1284,13 +1284,13 @@ function GuardWorkbench() {
               <span className={`guard-activity-mark ${guardActivityStatusClass(item.action_status)}`} aria-hidden="true" />
               <div>
                 <strong>{item.action_type}</strong>
-                <small>{activityDetailLabel(item)}</small>
+                <small>{activityDetailLabel(item, t)}</small>
               </div>
               <span className={guardActivityStatusClass(item.action_status)}>{item.action_status}</span>
-              <time dateTime={item.action_created_at}>{formatDate(item.action_created_at)}</time>
+              <time dateTime={item.action_created_at}>{formatDate(item.action_created_at, locale)}</time>
             </div>
           ))}
-          {activity.length === 0 && <p className="empty-note">No guard activity recorded yet.</p>}
+          {activity.length === 0 && <p className="empty-note">{t.guard.noActivity}</p>}
         </div>
       </section>
       {selectedGroup != null && ruleFormOpen && (
@@ -1298,11 +1298,11 @@ function GuardWorkbench() {
           <section className="guard-rule-modal" role="dialog" aria-modal="true" aria-labelledby="guard-rule-modal-title">
             <div className="guard-rule-modal-heading">
               <div>
-                <span className="panel-kicker">New rule</span>
-                <h2 id="guard-rule-modal-title">{selectedGroup.title ?? `Chat ${displayChatId(selectedGroup.chat_id)}`}</h2>
-                <p>{defaultRuleName(ruleDraft)}</p>
+                <span className="panel-kicker">{t.guard.newRule}</span>
+                <h2 id="guard-rule-modal-title">{selectedGroup.title ?? formatMessage(t.messages.chatId, { id: displayChatId(selectedGroup.chat_id) })}</h2>
+                <p>{defaultRuleName(ruleDraft, t)}</p>
               </div>
-              <button className="modal-close" type="button" onClick={() => setRuleFormOpen(false)} aria-label="Close rule editor">
+              <button className="modal-close" type="button" onClick={() => setRuleFormOpen(false)} aria-label={t.guard.closeRuleEditor}>
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                   <path d="M6 6 18 18" />
                   <path d="M18 6 6 18" />
@@ -1315,13 +1315,13 @@ function GuardWorkbench() {
             }}>
               <div className="guard-rule-form-heading">
                 <div>
-                  <strong>Add rule</strong>
-                  <small>{defaultRuleName(ruleDraft)}</small>
+                  <strong>{t.guard.addRule}</strong>
+                  <small>{defaultRuleName(ruleDraft, t)}</small>
                 </div>
-                <div className="rule-template-row" aria-label="Rule templates">
-                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('links'))}>Links</button>
-                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('flood'))}>Flood</button>
-                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('invites'))}>Invites</button>
+                <div className="rule-template-row" aria-label={t.guard.ruleTemplates}>
+                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('links', t))}>{t.guard.links}</button>
+                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('flood', t))}>{t.guard.flood}</button>
+                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('invites', t))}>{t.guard.invites}</button>
                   <button
                     className={ruleDraft.enabled ? 'guard-rule-enabled-toggle guard-rule-enabled-toggle-on' : 'guard-rule-enabled-toggle'}
                     type="button"
@@ -1331,33 +1331,33 @@ function GuardWorkbench() {
                     <span className="guard-rule-toggle-track" aria-hidden="true">
                       <span className="guard-rule-toggle-knob" />
                     </span>
-                    <span>{ruleDraft.enabled ? 'Enabled' : 'Disabled'}</span>
+                    <span>{ruleDraft.enabled ? t.common.enabled : t.common.disabled}</span>
                   </button>
                 </div>
               </div>
               <div className="guard-rule-form-grid">
                 <div className="rule-form-section">
-                  <span className="rule-form-section-title">When</span>
+                  <span className="rule-form-section-title">{t.guard.when}</span>
                   <label>
-                    <span>Trigger</span>
+                    <span>{t.guard.trigger}</span>
                     <select
                       onChange={(event) => updateRuleDraft({ conditionType: event.currentTarget.value as GuardRuleConditionKind })}
                       value={ruleDraft.conditionType}
                     >
-                      <option value="message_contains_url">URL</option>
-                      <option value="message_contains_invite_link">Invite link</option>
-                      <option value="message_contains_text">Text contains</option>
-                      <option value="message_matches_regex">Regex</option>
-                      <option value="message_repeated">Repeated message</option>
-                      <option value="message_rate_exceeded">Message rate</option>
-                      <option value="member_is_new">New member</option>
-                      <option value="member_age_less_than">Member age</option>
-                      <option value="message_command">Command</option>
+                      <option value="message_contains_url">{t.guard.url}</option>
+                      <option value="message_contains_invite_link">{t.guard.inviteLink}</option>
+                      <option value="message_contains_text">{t.guard.textContains}</option>
+                      <option value="message_matches_regex">{t.guard.pattern}</option>
+                      <option value="message_repeated">{t.guard.repeatedMessage}</option>
+                      <option value="message_rate_exceeded">{t.guard.messageRate}</option>
+                      <option value="member_is_new">{t.guard.newMember}</option>
+                      <option value="member_age_less_than">{t.guard.memberAge}</option>
+                      <option value="message_command">{t.guard.command}</option>
                     </select>
                   </label>
                   {ruleDraftNeedsText(ruleDraft.conditionType) && (
                     <label>
-                      <span>{ruleDraft.conditionType === 'message_matches_regex' ? 'Pattern' : ruleDraft.conditionType === 'message_command' ? 'Command' : 'Text'}</span>
+                      <span>{conditionTextLabel(ruleDraft.conditionType, t)}</span>
                       <input
                         onChange={(event) => updateRuleDraft({ conditionText: event.currentTarget.value })}
                         placeholder={conditionPlaceholder(ruleDraft.conditionType)}
@@ -1368,7 +1368,7 @@ function GuardWorkbench() {
                   )}
                   {ruleDraftNeedsSeconds(ruleDraft.conditionType) && (
                     <label>
-                      <span>Seconds</span>
+                      <span>{t.guard.seconds}</span>
                       <input
                         min="1"
                         onChange={(event) => updateRuleDraft({ conditionSeconds: numberInputValue(event.currentTarget.value, 60) })}
@@ -1379,7 +1379,7 @@ function GuardWorkbench() {
                   )}
                   {ruleDraft.conditionType === 'message_rate_exceeded' && (
                     <label>
-                      <span>Max messages</span>
+                      <span>{t.guard.maxMessages}</span>
                       <input
                         min="1"
                         onChange={(event) => updateRuleDraft({ conditionCount: numberInputValue(event.currentTarget.value, 5) })}
@@ -1390,25 +1390,25 @@ function GuardWorkbench() {
                   )}
                 </div>
                 <div className="rule-form-section">
-                  <span className="rule-form-section-title">Then</span>
+                  <span className="rule-form-section-title">{t.guard.then}</span>
                   <label>
-                    <span>Action</span>
+                    <span>{t.guard.action}</span>
                     <select
                       onChange={(event) => updateRuleDraft({ actionType: event.currentTarget.value as GuardRuleActionKind })}
                       value={ruleDraft.actionType}
                     >
-                      <option value="delete_message">Delete</option>
-                      <option value="warn">Warn</option>
-                      <option value="mute">Mute</option>
-                      <option value="ban">Ban</option>
-                      <option value="reply">Reply</option>
-                      <option value="send_message">Post notice</option>
-                      <option value="record_only">Record only</option>
+                      <option value="delete_message">{t.common.delete}</option>
+                      <option value="warn">{t.guard.warn}</option>
+                      <option value="mute">{t.guard.mute}</option>
+                      <option value="ban">{t.guard.ban}</option>
+                      <option value="reply">{t.guard.reply}</option>
+                      <option value="send_message">{t.guard.postNotice}</option>
+                      <option value="record_only">{t.guard.recordOnly}</option>
                     </select>
                   </label>
                   {ruleDraft.actionType === 'mute' && (
                     <label>
-                      <span>Mute seconds</span>
+                      <span>{t.guard.muteSeconds}</span>
                       <input
                         min="1"
                         onChange={(event) => updateRuleDraft({ actionSeconds: numberInputValue(event.currentTarget.value, 600) })}
@@ -1419,7 +1419,7 @@ function GuardWorkbench() {
                   )}
                   {ruleDraftNeedsActionText(ruleDraft.actionType) && (
                     <label>
-                      <span>{ruleDraft.actionType === 'reply' || ruleDraft.actionType === 'send_message' ? 'Message' : 'Reason'}</span>
+                      <span>{ruleDraft.actionType === 'reply' || ruleDraft.actionType === 'send_message' ? t.guard.message : t.guard.reason}</span>
                       <input
                         onChange={(event) => updateRuleDraft({ actionText: event.currentTarget.value })}
                         placeholder={actionPlaceholder(ruleDraft.actionType)}
@@ -1430,9 +1430,9 @@ function GuardWorkbench() {
                   )}
                 </div>
                 <div className="rule-form-section rule-form-section-meta">
-                  <span className="rule-form-section-title">Rule</span>
+                  <span className="rule-form-section-title">{t.guard.rule}</span>
                   <label>
-                    <span>Name</span>
+                    <span>{t.guard.name}</span>
                     <input
                       onChange={(event) => updateRuleDraft({ name: event.currentTarget.value })}
                       placeholder="No promo links"
@@ -1441,7 +1441,7 @@ function GuardWorkbench() {
                     />
                   </label>
                   <label>
-                    <span>Priority</span>
+                    <span>{t.guard.priority}</span>
                     <input
                       min="1"
                       onChange={(event) => updateRuleDraft({ priority: numberInputValue(event.currentTarget.value, GUARD_RULE_DEFAULT_PRIORITY) })}
@@ -1453,10 +1453,10 @@ function GuardWorkbench() {
               </div>
               <div className="guard-rule-modal-actions">
                 <button className="secondary-action" type="button" onClick={() => setRuleFormOpen(false)}>
-                  Cancel
+                  {t.common.cancel}
                 </button>
                 <button className="primary-action guard-rule-submit" disabled={creatingRule} type="submit">
-                  {creatingRule ? 'Saving...' : 'Save rule'}
+                  {creatingRule ? t.common.saving : t.guard.saveRule}
                 </button>
               </div>
             </form>
@@ -1472,13 +1472,13 @@ export function nextGuardGroupId(groups: readonly GuardGroup[], current: number 
   return groups[0]?.id ?? null
 }
 
-export function guardGroupStatusLabel(group: Pick<GuardGroup, 'enabled' | 'runtime_status'>): string {
-  if (!group.enabled) return 'Rules off'
-  if (group.runtime_status === 'running') return 'Listening'
-  if (group.runtime_status === 'starting') return 'Starting'
-  if (group.runtime_status === 'paused') return 'Paused'
-  if (group.runtime_status === 'error') return 'Error'
-  return 'Restart needed'
+export function guardGroupStatusLabel(group: Pick<GuardGroup, 'enabled' | 'runtime_status'>, t: WebMessages = localeMessages.en): string {
+  if (!group.enabled) return t.guard.rulesOff
+  if (group.runtime_status === 'running') return t.guard.listening
+  if (group.runtime_status === 'starting') return t.guard.statusStarting
+  if (group.runtime_status === 'paused') return t.guard.statusPaused
+  if (group.runtime_status === 'error') return t.guard.statusError
+  return t.guard.statusRestartNeeded
 }
 
 export function guardGroupStatusClass(group: Pick<GuardGroup, 'enabled' | 'runtime_status'>): string {
@@ -1490,13 +1490,13 @@ export function guardGroupStatusClass(group: Pick<GuardGroup, 'enabled' | 'runti
   return 'guard-status-pending'
 }
 
-function guardGroupStatusDetail(group: Pick<GuardGroup, 'enabled' | 'runtime_status'>): string {
-  if (!group.enabled) return 'Rules are off for this group.'
-  if (group.runtime_status === 'running') return 'Rules are on and Guard is listening.'
-  if (group.runtime_status === 'starting') return 'Rules are on and Guard is starting.'
-  if (group.runtime_status === 'paused') return 'Rules are on but Guard is paused.'
-  if (group.runtime_status === 'error') return 'Rules are on but the listener reported an error.'
-  return 'Rules are on. Restart tg guard start to begin listening.'
+function guardGroupStatusDetail(group: Pick<GuardGroup, 'enabled' | 'runtime_status'>, t: WebMessages): string {
+  if (!group.enabled) return t.guard.rulesOffDetail
+  if (group.runtime_status === 'running') return t.guard.rulesListeningDetail
+  if (group.runtime_status === 'starting') return t.guard.rulesStartingDetail
+  if (group.runtime_status === 'paused') return t.guard.rulesPausedDetail
+  if (group.runtime_status === 'error') return t.guard.rulesErrorDetail
+  return t.guard.rulesRestartDetail
 }
 
 export function guardActivityStatusClass(status: string): string {
@@ -1508,7 +1508,7 @@ export function guardActivityStatusClass(status: string): string {
   return 'guard-activity-unknown'
 }
 
-export function guardRuleRequestFromDraft(groupId: number, draft: GuardRuleDraft): {
+export function guardRuleRequestFromDraft(groupId: number, draft: GuardRuleDraft, t: WebMessages = localeMessages.en): {
   group_id: number
   name: string
   enabled: boolean
@@ -1518,7 +1518,7 @@ export function guardRuleRequestFromDraft(groupId: number, draft: GuardRuleDraft
 } {
   return {
     group_id: groupId,
-    name: draft.name.trim() || defaultRuleName(draft),
+    name: draft.name.trim() || defaultRuleName(draft, t),
     enabled: draft.enabled,
     priority: Math.max(1, Math.trunc(draft.priority)),
     conditions: [guardRuleConditionFromDraft(draft)],
@@ -1574,11 +1574,11 @@ export function guardRuleActionFromDraft(draft: GuardRuleDraft): JsonValue {
   }
 }
 
-function guardRulePreset(preset: 'links' | 'flood' | 'invites'): GuardRuleDraft {
+function guardRulePreset(preset: 'links' | 'flood' | 'invites', t: WebMessages): GuardRuleDraft {
   if (preset === 'flood') {
     return {
       ...DEFAULT_GUARD_RULE_DRAFT,
-      name: 'Rate limit',
+      name: t.guard.rateLimit,
       conditionType: 'message_rate_exceeded',
       conditionSeconds: 30,
       conditionCount: 5,
@@ -1590,49 +1590,49 @@ function guardRulePreset(preset: 'links' | 'flood' | 'invites'): GuardRuleDraft 
   if (preset === 'invites') {
     return {
       ...DEFAULT_GUARD_RULE_DRAFT,
-      name: 'Block invite links',
+      name: t.guard.blockInviteLinks,
       conditionType: 'message_contains_invite_link',
       actionType: 'delete_message',
     }
   }
   return {
     ...DEFAULT_GUARD_RULE_DRAFT,
-    name: 'Block URLs',
+    name: t.guard.blockUrls,
     conditionType: 'message_contains_url',
     actionType: 'delete_message',
   }
 }
 
-function guardRuleSummary(rule: GuardRule): string {
-  const condition = rule.conditions.map(guardConditionLabel).filter(Boolean).join(' + ') || 'No trigger'
-  const action = rule.actions.map(guardActionLabel).filter(Boolean).join(' + ') || 'No action'
-  return `${condition} -> ${action} · Priority ${rule.priority}`
+function guardRuleSummary(rule: GuardRule, t: WebMessages): string {
+  const condition = rule.conditions.map((item) => guardConditionLabel(item, t)).filter(Boolean).join(' + ') || t.guard.noTrigger
+  const action = rule.actions.map((item) => guardActionLabel(item, t)).filter(Boolean).join(' + ') || t.guard.noAction
+  return formatMessage(t.guard.ruleSummary, { condition, action, priority: rule.priority })
 }
 
-function guardConditionLabel(condition: JsonValue): string {
+function guardConditionLabel(condition: JsonValue, t: WebMessages): string {
   if (!isJsonRecord(condition) || typeof condition.type !== 'string') return ''
-  if (condition.type === 'message_contains_url') return 'URL'
-  if (condition.type === 'message_contains_invite_link') return 'Invite link'
+  if (condition.type === 'message_contains_url') return t.guard.url
+  if (condition.type === 'message_contains_invite_link') return t.guard.inviteLink
   if (condition.type === 'message_contains_text') return `Text "${String(condition.text ?? '')}"`
   if (condition.type === 'message_matches_regex') return `Regex ${String(condition.pattern ?? '')}`
   if (condition.type === 'message_repeated') return `Repeat in ${String(condition.window_seconds ?? '?')}s`
   if (condition.type === 'message_rate_exceeded') return `${String(condition.max_messages ?? '?')} msgs / ${String(condition.window_seconds ?? '?')}s`
-  if (condition.type === 'member_is_new') return 'New member'
-  if (condition.type === 'member_age_less_than') return `Joined < ${String(condition.seconds ?? '?')}s`
-  if (condition.type === 'message_command') return `Command ${String(condition.command ?? '')}`
+  if (condition.type === 'member_is_new') return t.guard.newMember
+  if (condition.type === 'member_age_less_than') return formatMessage(t.guard.joinedSeconds, { seconds: String(condition.seconds ?? '?') })
+  if (condition.type === 'message_command') return `${t.guard.command} ${String(condition.command ?? '')}`
   if (condition.type === 'member_warning_count_at_least') return `${String(condition.count ?? '?')} warnings`
   return condition.type
 }
 
-function guardActionLabel(action: JsonValue): string {
+function guardActionLabel(action: JsonValue, t: WebMessages): string {
   if (!isJsonRecord(action) || typeof action.type !== 'string') return ''
-  if (action.type === 'delete_message') return 'Delete'
-  if (action.type === 'warn') return 'Warn'
-  if (action.type === 'mute') return `Mute ${String(action.seconds ?? '?')}s`
-  if (action.type === 'ban') return 'Ban'
-  if (action.type === 'reply') return 'Reply'
-  if (action.type === 'send_message') return 'Post notice'
-  if (action.type === 'record_only') return 'Record'
+  if (action.type === 'delete_message') return t.common.delete
+  if (action.type === 'warn') return t.guard.warn
+  if (action.type === 'mute') return `${t.guard.mute} ${String(action.seconds ?? '?')}s`
+  if (action.type === 'ban') return t.guard.ban
+  if (action.type === 'reply') return t.guard.reply
+  if (action.type === 'send_message') return t.guard.postNotice
+  if (action.type === 'record_only') return t.guard.record
   return action.type
 }
 
@@ -1640,16 +1640,22 @@ function isJsonRecord(value: JsonValue): value is { [key: string]: JsonValue } {
   return value != null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function defaultRuleName(draft: GuardRuleDraft): string {
-  if (draft.conditionType === 'message_contains_url') return 'Block URLs'
-  if (draft.conditionType === 'message_contains_invite_link') return 'Block invite links'
-  if (draft.conditionType === 'message_matches_regex') return 'Match regex'
-  if (draft.conditionType === 'message_contains_text') return 'Match text'
-  if (draft.conditionType === 'message_rate_exceeded') return 'Rate limit'
-  if (draft.conditionType === 'message_repeated') return 'Repeated message'
-  if (draft.conditionType === 'member_is_new') return 'New member'
-  if (draft.conditionType === 'member_age_less_than') return 'Member age'
-  return 'Command'
+function defaultRuleName(draft: GuardRuleDraft, t: WebMessages): string {
+  if (draft.conditionType === 'message_contains_url') return t.guard.blockUrls
+  if (draft.conditionType === 'message_contains_invite_link') return t.guard.blockInviteLinks
+  if (draft.conditionType === 'message_matches_regex') return t.guard.matchRegex
+  if (draft.conditionType === 'message_contains_text') return t.guard.matchText
+  if (draft.conditionType === 'message_rate_exceeded') return t.guard.rateLimit
+  if (draft.conditionType === 'message_repeated') return t.guard.repeatedMessage
+  if (draft.conditionType === 'member_is_new') return t.guard.newMember
+  if (draft.conditionType === 'member_age_less_than') return t.guard.memberAge
+  return t.guard.command
+}
+
+function conditionTextLabel(conditionType: GuardRuleConditionKind, t: WebMessages): string {
+  if (conditionType === 'message_matches_regex') return t.guard.pattern
+  if (conditionType === 'message_command') return t.guard.command
+  return t.messages.text
 }
 
 function ruleDraftNeedsText(conditionType: GuardRuleConditionKind): boolean {
@@ -1689,12 +1695,12 @@ function numberInputValue(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function activityDetailLabel(item: GuardActivityItem): string {
+function activityDetailLabel(item: GuardActivityItem, t: WebMessages): string {
   const parts = [
     item.event_type,
-    `Chat ${displayChatId(item.chat_id)}`,
+    formatMessage(t.messages.chatId, { id: displayChatId(item.chat_id) }),
     item.user_id == null ? '' : `User ${item.user_id}`,
-    item.rule_name == null ? '' : `Rule ${item.rule_name}`,
+    item.rule_name == null ? '' : `${t.guard.rule} ${item.rule_name}`,
   ].filter(Boolean)
   return parts.join(' · ')
 }
