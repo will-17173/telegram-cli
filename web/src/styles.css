@@ -115,6 +115,19 @@ select:focus-visible {
   min-width: min(280px, 34vw);
 }
 
+.language-picker {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.language-picker select {
+  min-width: 112px;
+}
+
 .account-picker span,
 .sidebar-tools span,
 .filters span,

@@ -16,6 +16,18 @@ import {
   type Page,
   type SyncTaskState,
 } from './api.js'
+import {
+  DEFAULT_LOCALE,
+  formatDateForLocale,
+  formatMessage,
+  getStoredLocale,
+  messages as localeMessages,
+  replaceUrlLocale,
+  resolveInitialLocale,
+  storeLocale,
+  type Locale,
+  type WebMessages,
+} from './i18n.js'
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 50
 const MESSAGE_PAGE_SIZE_OPTIONS = [25, 50, 100] as const
@@ -128,15 +140,15 @@ function messageDownloadState(message: MessageRow): DownloadVisualState {
   return 'not-downloaded'
 }
 
-function downloadStateLabel(state: DownloadVisualState): string {
-  if (state === 'downloaded') return 'Downloaded'
-  if (state === 'partial') return 'Partially downloaded'
-  if (state === 'not-downloaded') return 'Not downloaded'
+function downloadStateLabel(state: DownloadVisualState, t: WebMessages): string {
+  if (state === 'downloaded') return t.messages.downloaded
+  if (state === 'partial') return t.messages.partialDownloaded
+  if (state === 'not-downloaded') return t.messages.notDownloaded
   return ''
 }
 
-function DownloadStatusIcon({ state }: { state: DownloadVisualState }) {
-  const label = downloadStateLabel(state)
+function DownloadStatusIcon({ state, t }: { state: DownloadVisualState; t: WebMessages }) {
+  const label = downloadStateLabel(state, t)
   if (state === 'none') return null
   return (
     <span
@@ -180,8 +192,26 @@ export function guardOnlyMode(search = typeof window === 'undefined' ? '' : wind
   return new URLSearchParams(search).get('guard') === '1'
 }
 
+function browserNavigatorLanguages(): string[] {
+  if (typeof navigator === 'undefined') return []
+  if (Array.isArray(navigator.languages) && navigator.languages.length > 0) return [...navigator.languages]
+  return navigator.language == null ? [] : [navigator.language]
+}
+
+function initialLocale(): Locale {
+  if (typeof window === 'undefined') return DEFAULT_LOCALE
+  return resolveInitialLocale({
+    search: window.location.search,
+    storedLocale: getStoredLocale(window.localStorage),
+    navigatorLanguages: browserNavigatorLanguages(),
+  })
+}
+
 export function App() {
   const guardOnly = guardOnlyMode()
+  const [locale, setLocale] = useState<Locale>(() => initialLocale())
+  // Locale dictionary lookup: messages[locale].
+  const t = localeMessages[locale]
   const [view, setView] = useState<'messages' | 'guard'>(guardOnly ? 'guard' : 'messages')
   const [accounts, setAccounts] = useState<AccountData>({ current_account: null, accounts: [] })
   const [account, setAccount] = useState('')
@@ -212,6 +242,10 @@ export function App() {
 
   accountRef.current = account
   selectedChatRef.current = selectedChat
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') document.documentElement.lang = locale
+  }, [locale])
 
   useEffect(() => {
     if (guardOnly) return
@@ -291,16 +325,27 @@ export function App() {
   }, [account, selectedChat?.chat_id])
 
   const selectedSummary = useMemo(() => {
-    if (selectedChat == null) return 'No chat selected'
-    return `${selectedChat.msg_count} messages from ${formatDate(selectedChat.first_msg)} to ${formatDate(selectedChat.last_msg)}`
-  }, [selectedChat])
+    if (selectedChat == null) return t.messages.noChatSelected
+    return formatMessage(t.messages.messagesFromTo, {
+      count: selectedChat.msg_count,
+      first: formatDate(selectedChat.first_msg, locale),
+      last: formatDate(selectedChat.last_msg, locale),
+    })
+  }, [locale, selectedChat, t])
 
-  const selectedChatName = selectedChat?.chat_name ?? (selectedChat == null ? 'Select a chat' : `Chat ${selectedChat.chat_id}`)
+  const selectedChatName = selectedChat?.chat_name ?? (selectedChat == null ? t.messages.selectChat : formatMessage(t.messages.chatId, { id: selectedChat.chat_id }))
   const totalMessagePages = Math.max(1, Math.ceil(messageTotal / messagePageSize))
   const visibleMessagePages = paginationWindow(messagePage, totalMessagePages)
   const blockedSenderKeys = useMemo(() => new Set(blockedSenders.map((sender) => sender.key)), [blockedSenders])
   const visibleMessages = useMemo(() => visibleMessagesForBlacklist(messages, blockedSenderKeys), [messages, blockedSenderKeys])
   const hiddenMessageCount = messages.length - visibleMessages.length
+
+  function changeLocale(nextLocale: Locale): void {
+    setLocale(nextLocale)
+    if (typeof window === 'undefined') return
+    storeLocale(window.localStorage, nextLocale)
+    replaceUrlLocale(window.location, window.history, nextLocale)
+  }
 
   async function loadMessages(pageNumber: number, filterOverrides: MessageFilterOverrides = {}) {
     if (!account || selectedChat == null) return
@@ -393,7 +438,7 @@ export function App() {
           key,
           sender_id: message.sender_id,
           sender_name: message.sender_name,
-          label: senderDisplayLabel(message.sender_name, message.sender_id),
+          label: senderDisplayLabel(message.sender_name, message.sender_id, t),
           blocked_at: new Date().toISOString(),
         },
       ]
@@ -417,7 +462,7 @@ export function App() {
     const keys = attachments.map(attachmentKey)
     setDownloadStatus((current) => {
       const next = { ...current }
-      for (const key of keys) next[key] = 'Downloading'
+      for (const key of keys) next[key] = t.messages.downloading
       return next
     })
     setError('')
@@ -433,10 +478,10 @@ export function App() {
           attachment_index: attachment.attachment_index,
         })),
       })
-      const destination = result.downloaded.length === 1 ? result.downloaded[0]?.path : `${result.downloaded.length} files`
+      const destination = result.downloaded.length === 1 ? result.downloaded[0]?.path : formatMessage(t.messages.files, { count: result.downloaded.length })
       setDownloadStatus((current) => {
         const next = { ...current }
-        for (const key of keys) next[key] = destination == null ? 'Downloaded' : `Downloaded to ${destination}`
+        for (const key of keys) next[key] = destination == null ? t.messages.downloaded : formatMessage(t.messages.downloadedTo, { destination })
         return next
       })
       if (result.warnings.length > 0) {
@@ -474,7 +519,7 @@ export function App() {
       })
       setSyncTask(state)
       if (state.status === 'error') {
-        setError(syncErrorText(state))
+        setError(syncErrorText(state, t))
         return
       }
       if (accountRef.current === syncAccount && selectedChatRef.current?.chat_id === syncChat.chat_id) {
@@ -493,11 +538,11 @@ export function App() {
           <span className="brand-mark">tg</span>
           <div>
             <strong>Telegram CLI</strong>
-            <span>{guardOnly ? 'Guard console' : 'Local message console'}</span>
+            <span>{guardOnly ? t.shell.guardConsole : t.shell.localMessageConsole}</span>
           </div>
         </div>
         {!guardOnly && <label className="account-picker">
-          <span>Account</span>
+          <span>{t.shell.account}</span>
           <select value={account} onChange={(event) => { setAccount(event.target.value); setSelectedChat(null); setMessages([]); setMessageTotal(0); setMessagePage(1); setMessagePageInput('1') }}>
             {accounts.accounts.map((item) => (
               <option key={item.name} value={item.name}>
@@ -506,26 +551,35 @@ export function App() {
             ))}
           </select>
         </label>}
-        {!guardOnly && <nav className="view-tabs" aria-label="Workspace view">
+        {!guardOnly && <nav className="view-tabs" aria-label={t.shell.workspaceView}>
           <button className={view === 'messages' ? 'active-tab' : ''} onClick={() => setView('messages')} type="button">
-            Messages
+            {t.shell.messages}
           </button>
           <button className={view === 'guard' ? 'active-tab' : ''} onClick={() => setView('guard')} type="button">
-            Guard
+            {t.shell.guard}
           </button>
         </nav>}
-        {!guardOnly && <span className={`sync-pill sync-pill-${syncTask.status}`} role="status" aria-live="polite" title={syncTask.status === 'error' ? syncErrorText(syncTask) : undefined}>Sync {syncTask.status}</span>}
+        <label className="language-picker">
+          <span>{t.shell.language}</span>
+          <select value={locale} onChange={(event) => changeLocale(event.currentTarget.value as Locale)}>
+            <option value="en">English</option>
+            <option value="zh-CN">简体中文</option>
+          </select>
+        </label>
+        {!guardOnly && <span className={`sync-pill sync-pill-${syncTask.status}`} role="status" aria-live="polite" title={syncTask.status === 'error' ? syncErrorText(syncTask, t) : undefined}>
+          {formatMessage(t.shell.syncStatus, { status: syncTask.status })}
+        </span>}
       </header>
 
       {error && <div className="error-strip" role="alert">{error}</div>}
 
       {!guardOnly && view === 'messages' ? (
-      <section className="workspace" aria-label="Telegram message browser">
+      <section className="workspace" aria-label={t.shell.localMessageConsole}>
         <aside className="sidebar">
           <div className="sidebar-tools">
-            <div className="panel-kicker">Chats</div>
+            <div className="panel-kicker">{t.messages.chats}</div>
             <label>
-              <input value={chatQuery} onChange={(event) => setChatQuery(event.target.value)} placeholder="Search chats" />
+              <input value={chatQuery} onChange={(event) => setChatQuery(event.target.value)} placeholder={t.messages.searchChats} />
             </label>
           </div>
           <div className="chat-list" aria-busy={loadingChats}>
@@ -538,40 +592,40 @@ export function App() {
                 aria-pressed={chat.chat_id === selectedChat?.chat_id}
                 type="button"
               >
-                <span className="chat-name">{chat.chat_name ?? `Chat ${chat.chat_id}`}</span>
+                <span className="chat-name">{chat.chat_name ?? formatMessage(t.messages.chatId, { id: displayChatId(chat.chat_id) })}</span>
                 <span className="chat-meta">
-                  <span>{chat.msg_count} messages</span>
-                  <time dateTime={chat.last_msg}>{formatDate(chat.last_msg)}</time>
+                  <span>{formatMessage(t.messages.messages, { count: chat.msg_count })}</span>
+                  <time dateTime={chat.last_msg}>{formatDate(chat.last_msg, locale)}</time>
                 </span>
               </button>
             ))}
-            {!loadingChats && chats.length === 0 && <p className="empty-note">No local chats found.</p>}
+            {!loadingChats && chats.length === 0 && <p className="empty-note">{t.messages.noLocalChats}</p>}
           </div>
         </aside>
 
         <section className="messages-pane">
           <div className="chat-header">
             <div>
-              <span className="panel-kicker">Message stream</span>
+              <span className="panel-kicker">{t.messages.messageStream}</span>
               <div className="chat-title-row">
                 <h1>{selectedChatName}</h1>
-                {selectedChat != null && <span className="selected-chat-id">Chat ID {displayChatId(selectedChat.chat_id)}</span>}
+                {selectedChat != null && <span className="selected-chat-id">{formatMessage(t.messages.chatId, { id: displayChatId(selectedChat.chat_id) })}</span>}
               </div>
               <p>{selectedSummary}</p>
             </div>
             <button className="primary-action" onClick={syncCurrentChat} disabled={selectedChat == null || syncTask.status === 'running'} type="button">
-              Sync current chat
+              {t.messages.syncCurrentChat}
             </button>
           </div>
 
-          <section className="filter-panel" aria-label="Message filters">
+          <section className="filter-panel" aria-label={t.messages.messageFilters}>
             <div className="filter-panel-heading">
-              <span className="panel-kicker">Filters</span>
+              <span className="panel-kicker">{t.messages.filters}</span>
               <div className="filter-panel-heading-actions">
                 <span>
                   {loadingMessages
-                    ? 'Reading local cache'
-                    : `${visibleMessages.length} of ${messageTotal} shown${hiddenMessageCount > 0 ? `, ${hiddenMessageCount} hidden` : ''}`}
+                    ? t.messages.readingLocalCache
+                    : `${formatMessage(t.messages.messagesShown, { visible: visibleMessages.length, total: messageTotal })}${hiddenMessageCount > 0 ? formatMessage(t.messages.hiddenCountSuffix, { count: hiddenMessageCount }) : ''}`}
                 </span>
                 <button
                   className="manage-sender-blacklist secondary-action"
@@ -579,36 +633,36 @@ export function App() {
                   onClick={() => setBlacklistOpen(true)}
                   disabled={selectedChat == null}
                 >
-                  Blacklist {blockedSenders.length}
+                  {formatMessage(t.messages.blacklistCount, { count: blockedSenders.length })}
                 </button>
               </div>
             </div>
             <div className="filters">
               <label>
-                <span>Sender ID</span>
+                <span>{t.messages.senderId}</span>
                 <input value={senderId} onChange={(event) => setSenderId(event.target.value)} inputMode="numeric" placeholder="123456789" />
               </label>
               <label>
-                <span>Sender name</span>
+                <span>{t.messages.senderName}</span>
                 <input value={senderName} onChange={(event) => setSenderName(event.target.value)} placeholder="name" />
               </label>
               <label>
-                <span>Text</span>
+                <span>{t.messages.text}</span>
                 <input value={text} onChange={(event) => setText(event.target.value)} placeholder="message text" />
               </label>
               <label>
-                <span>Since</span>
+                <span>{t.messages.since}</span>
                 <input type="datetime-local" value={since} onChange={(event) => setSince(event.target.value)} />
               </label>
               <label>
-                <span>Until</span>
+                <span>{t.messages.until}</span>
                 <input type="datetime-local" value={until} onChange={(event) => setUntil(event.target.value)} />
               </label>
               <button onClick={() => void loadMessages(1)} disabled={selectedChat == null || loadingMessages} type="button">
-                Search
+                {t.common.search}
               </button>
               <button className="secondary-action" onClick={resetMessageFilters} disabled={selectedChat == null || loadingMessages} type="button">
-                Reset
+                {t.common.reset}
               </button>
             </div>
           </section>
@@ -625,10 +679,10 @@ export function App() {
                 <li key={message.id} className="message-row">
                   <div className="message-meta">
                     <span className="message-status-line">
-                      <DownloadStatusIcon state={messageDownloadState(message)} />
-                      <time dateTime={message.timestamp}>{formatDate(message.timestamp)}</time>
+                      <DownloadStatusIcon state={messageDownloadState(message)} t={t} />
+                      <time dateTime={message.timestamp}>{formatDate(message.timestamp, locale)}</time>
                     </span>
-                    {messageIdLabels(message).map((label) => <span key={label}>{label}</span>)}
+                    {messageIdLabels(message, t).map((label) => <span key={label}>{label}</span>)}
                   </div>
                   <div className="message-body">
                     <div className="sender-head">
@@ -636,17 +690,17 @@ export function App() {
                         {avatar.label}
                       </span>
                       <div className="sender-line">
-                        <strong>{message.sender_name ?? 'Unknown'}</strong>
-                        <span>ID {message.sender_id ?? 'unknown'}</span>
+                        <strong>{message.sender_name ?? t.common.unknown}</strong>
+                        <span>{formatMessage(t.messages.id, { id: message.sender_id ?? t.common.unknown.toLowerCase() })}</span>
                         {message.sender_id != null && (
                           <button
                             className="sender-filter-action"
                             type="button"
                             onClick={() => filterByMessageSender(message)}
                             disabled={loadingMessages}
-                            title="Filter messages by this sender"
-                            data-tooltip="Filter messages by this sender"
-                            aria-label={`Filter messages by ${message.sender_name ?? `ID ${message.sender_id}`} in this chat`}
+                            title={t.messages.filterBySender}
+                            data-tooltip={t.messages.filterBySender}
+                            aria-label={formatMessage(t.messages.filterBySenderAria, { sender: message.sender_name ?? formatMessage(t.messages.id, { id: message.sender_id }) })}
                           >
                             <svg aria-hidden="true" viewBox="0 0 24 24">
                               <path d="M7.5 10.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
@@ -663,9 +717,9 @@ export function App() {
                             type="button"
                             onClick={() => blockMessageSender(message)}
                             disabled={loadingMessages}
-                            title="Hide messages from this sender"
-                            data-tooltip="Hide messages from this sender"
-                            aria-label={`Hide messages from ${senderDisplayLabel(message.sender_name, message.sender_id)} in this chat`}
+                            title={t.messages.hideSender}
+                            data-tooltip={t.messages.hideSender}
+                            aria-label={formatMessage(t.messages.hideSenderAria, { sender: senderDisplayLabel(message.sender_name, message.sender_id, t) })}
                           >
                             <svg aria-hidden="true" viewBox="0 0 24 24">
                               <path d="M7.5 10.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
@@ -680,11 +734,11 @@ export function App() {
                     {message.reply_context && (
                       <div className={message.reply_context.resolved ? 'reply-snippet' : 'reply-snippet reply-snippet-missing'}>
                         <div className="reply-snippet-meta">
-                          {message.reply_context.resolved && <time dateTime={message.reply_context.timestamp}>{formatDate(message.reply_context.timestamp)}</time>}
-                          <span>{replySenderLabel(message.reply_context)}</span>
+                          {message.reply_context.resolved && <time dateTime={message.reply_context.timestamp}>{formatDate(message.reply_context.timestamp, locale)}</time>}
+                          <span>{replySenderLabel(message.reply_context, t)}</span>
                           <span>{replyMessageIdLabel(message.reply_context)}</span>
                         </div>
-                        {replyContentLabel(message.reply_context) && <p>{replyContentLabel(message.reply_context)}</p>}
+                        {replyContentLabel(message.reply_context, t) && <p>{replyContentLabel(message.reply_context, t)}</p>}
                         {message.reply_context.resolved && message.reply_context.attachments.length > 0 && (
                           <div className="reply-attachment-list">
                             {message.reply_context.attachments.map((attachment) => (
@@ -721,11 +775,11 @@ export function App() {
                               : <span className="attachment-thumb" aria-hidden="true">{attachment.kind.slice(0, 3).toUpperCase()}</span>}
                             <div className="attachment-copy">
                               <span className="attachment-label">
-                                <DownloadStatusIcon state={attachmentDownloadState(attachment)} />
+                                <DownloadStatusIcon state={attachmentDownloadState(attachment)} t={t} />
                                 {attachmentLabel(attachment)}
                               </span>
                               <small>{attachmentDisplayName(attachment)}</small>
-                              <small className="attachment-message-id">Message {attachment.msg_id}</small>
+                              <small className="attachment-message-id">{formatMessage(t.messages.message, { id: attachment.msg_id })}</small>
                               {downloadStatus[key] && <small>{downloadStatus[key]}</small>}
                             </div>
                             {attachment.downloadable && (
@@ -733,9 +787,9 @@ export function App() {
                                 className="attachment-action"
                                 type="button"
                                 onClick={() => void downloadAttachments([attachment])}
-                                disabled={downloadStatus[key] === 'Downloading'}
+                                disabled={downloadStatus[key] === t.messages.downloading}
                               >
-                                Download
+                                {t.messages.download}
                               </button>
                             )}
                           </div>
@@ -743,7 +797,7 @@ export function App() {
                         })}
                         {downloadable.length > 1 && (
                           <button className="download-all" type="button" onClick={() => void downloadAttachments(downloadable)}>
-                            Download all
+                            {t.messages.downloadAll}
                           </button>
                         )}
                       </div>
@@ -754,14 +808,14 @@ export function App() {
             })}
           </ol>
 
-          {!loadingMessages && selectedChat != null && messages.length === 0 && <p className="empty-note">No messages match the current filters.</p>}
+          {!loadingMessages && selectedChat != null && messages.length === 0 && <p className="empty-note">{t.messages.noMatchingMessages}</p>}
           {!loadingMessages && selectedChat != null && messages.length > 0 && visibleMessages.length === 0 && (
-            <p className="empty-note">All messages on this page are hidden by blacklist.</p>
+            <p className="empty-note">{t.messages.allHiddenByBlacklist}</p>
           )}
           {selectedChat != null && (
-            <nav className="message-pager" aria-label="Message pages">
+            <nav className="message-pager" aria-label={t.messages.messagePages}>
               <label className="pager-size">
-                <span>Page size</span>
+                <span>{t.messages.pageSize}</span>
                 <select
                   value={messagePageSize}
                   onChange={(event) => {
@@ -775,12 +829,12 @@ export function App() {
               </label>
               <div className="pager-main">
                 <button onClick={() => void loadMessages(1)} disabled={loadingMessages || messagePage <= 1} type="button">
-                  First
+                  {t.messages.first}
                 </button>
                 <button onClick={() => void loadMessages(messagePage - 1)} disabled={loadingMessages || messagePage <= 1} type="button">
-                  Previous
+                  {t.messages.previous}
                 </button>
-                <div className="pager-pages" aria-label="Page numbers">
+                <div className="pager-pages" aria-label={t.messages.pageNumbers}>
                   {visibleMessagePages.map((pageItem) => (
                     typeof pageItem === 'number'
                       ? (
@@ -799,26 +853,26 @@ export function App() {
                   ))}
                 </div>
                 <button onClick={() => void loadMessages(messagePage + 1)} disabled={loadingMessages || messagePage >= totalMessagePages} type="button">
-                  Next
+                  {t.messages.next}
                 </button>
                 <button onClick={() => void loadMessages(totalMessagePages)} disabled={loadingMessages || messagePage >= totalMessagePages} type="button">
-                  Last
+                  {t.messages.last}
                 </button>
               </div>
               <div className="pager-jump-group">
                 <label className="pager-jump">
-                  <span>Jump to</span>
+                  <span>{t.messages.jumpTo}</span>
                   <input
                     value={messagePageInput}
                     onChange={(event) => setMessagePageInput(event.target.value)}
                     onKeyDown={(event) => { if (event.key === 'Enter') goToMessagePage() }}
                     inputMode="numeric"
-                    aria-label="Jump to message page"
+                    aria-label={t.messages.messagePage}
                   />
                 </label>
                 <span className="pager-count">/ {totalMessagePages}</span>
                 <button onClick={goToMessagePage} disabled={loadingMessages} type="button">
-                  Go
+                  {t.common.go}
                 </button>
               </div>
             </nav>
@@ -831,10 +885,10 @@ export function App() {
           <section className="blacklist-modal" role="dialog" aria-modal="true" aria-labelledby="sender-blacklist-title">
             <div className="blacklist-modal-heading">
               <div>
-                <span className="panel-kicker">Message visibility</span>
-                <h2 id="sender-blacklist-title">Sender blacklist</h2>
+                <span className="panel-kicker">{t.messages.messageVisibility}</span>
+                <h2 id="sender-blacklist-title">{t.messages.senderBlacklist}</h2>
               </div>
-              <button className="modal-close" type="button" onClick={() => setBlacklistOpen(false)} aria-label="Close sender blacklist">
+              <button className="modal-close" type="button" onClick={() => setBlacklistOpen(false)} aria-label={t.messages.closeSenderBlacklist}>
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                   <path d="M6 6 18 18" />
                   <path d="M18 6 6 18" />
@@ -842,7 +896,7 @@ export function App() {
               </button>
             </div>
             {blockedSenders.length === 0
-              ? <p className="empty-note">No senders are hidden in this chat.</p>
+              ? <p className="empty-note">{t.messages.noSendersHidden}</p>
               : (
                 <ul className="blacklist-list">
                   {blockedSenders.map((sender) => {
@@ -854,10 +908,10 @@ export function App() {
                         </span>
                         <span className="blacklist-copy">
                           <strong>{sender.label}</strong>
-                          <small>{sender.sender_id == null ? 'Name match' : `ID ${sender.sender_id}`}</small>
+                          <small>{sender.sender_id == null ? t.messages.nameMatch : formatMessage(t.messages.id, { id: sender.sender_id })}</small>
                         </span>
                         <button type="button" onClick={() => removeBlockedSender(sender.key)}>
-                          Remove
+                          {t.common.remove}
                         </button>
                       </li>
                     )
@@ -1639,39 +1693,33 @@ export function paginationWindow(currentPage: number, totalPages: number): Pagin
   ]
 }
 
-function formatDate(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
+function formatDate(value: string, locale: Locale = DEFAULT_LOCALE): string {
+  return formatDateForLocale(value, locale)
 }
 
-function messageIdLabels(message: MessageRow): string[] {
+function messageIdLabels(message: MessageRow, t: WebMessages): string[] {
   if (message.grouped_id != null) {
     return [
-      `Grouped ID ${message.grouped_id}`,
-      message.msg_ids.length > 1 ? `Messages ${message.msg_ids.join(', ')}` : `Message ${message.msg_id}`,
+      formatMessage(t.messages.groupedId, { id: message.grouped_id }),
+      message.msg_ids.length > 1
+        ? formatMessage(t.messages.messagePages, { ids: message.msg_ids.join(', ') })
+        : formatMessage(t.messages.message, { id: message.msg_id }),
     ]
   }
-  return [`Message ${message.msg_id}`]
+  return [formatMessage(t.messages.message, { id: message.msg_id })]
 }
 
-function replySenderLabel(context: MessageRow['reply_context']): string {
+function replySenderLabel(context: MessageRow['reply_context'], t: WebMessages): string {
   if (context == null) return 'message'
   if (!context.resolved) return 'message'
-  return context.sender_name?.trim() || (context.sender_id == null ? 'Unknown' : `ID ${context.sender_id}`)
+  return context.sender_name?.trim() || (context.sender_id == null ? t.common.unknown : formatMessage(t.messages.id, { id: context.sender_id }))
 }
 
-function replyContentLabel(context: MessageRow['reply_context']): string {
+function replyContentLabel(context: MessageRow['reply_context'], t: WebMessages): string {
   if (context == null) return ''
-  if (!context.resolved) return 'Message not found in the local cache.'
+  if (!context.resolved) return t.messages.messageNotFound
   if ((context.content == null || context.content.trim() === '') && context.attachments.length > 0) return ''
-  return context.content?.trim() || '(no text)'
+  return context.content?.trim() || t.messages.noText
 }
 
 function replyMessageIdLabel(context: MessageRow['reply_context']): string {
@@ -1720,8 +1768,8 @@ function senderAvatarLabel(displayName: string): string {
   return Array.from(displayName)[0]?.toUpperCase() ?? '?'
 }
 
-function senderDisplayLabel(senderName: string | null, senderId: number | null): string {
-  return senderName?.trim() || (senderId == null ? 'Unknown sender' : `ID ${senderId}`)
+function senderDisplayLabel(senderName: string | null, senderId: number | null, t: WebMessages): string {
+  return senderName?.trim() || (senderId == null ? t.common.unknown : formatMessage(t.messages.id, { id: senderId }))
 }
 
 function senderBlacklistStorageKey(account: string, chatId: number | null): string | null {
@@ -1766,8 +1814,8 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function syncErrorText(state: SyncTaskState): string {
+function syncErrorText(state: SyncTaskState, t: WebMessages): string {
   return state.status === 'error'
-    ? `Sync failed (${state.error.code}): ${state.error.message}`
+    ? formatMessage(t.messages.syncFailed, { code: state.error.code, message: state.error.message })
     : ''
 }
