@@ -13,6 +13,7 @@ import {
   guardOnlyMode,
   guardRuleActionFromDraft,
   guardRuleConditionFromDraft,
+  guardRulePreset,
   guardRuleRequestFromDraft,
   nextGuardGroupId,
   paginationWindow,
@@ -269,7 +270,7 @@ describe('web frontend source', () => {
     expect(app).toContain('guardRuleSummary(rule, t)')
     expect(app).toContain('activityDetailLabel(item, t)')
     expect(app).toContain('defaultRuleName(ruleDraft, t)')
-    expect(app).toContain('guardRulePreset(\'links\', t)')
+    expect(app).toContain('guardRulePreset(\'links\')')
     expect(i18n).toContain('Group automation')
     expect(i18n).toContain('群组自动化')
     expect(i18n).toContain('These limits only apply after an enabled rule matches.')
@@ -402,6 +403,19 @@ describe('web frontend source', () => {
       conditions: [{ type: 'message_contains_url' }],
       actions: [{ type: 'delete_message' }],
     })
+  })
+
+  it('keeps guard rule preset names blank until the create payload is built', () => {
+    expect(guardRulePreset('links').name).toBe('')
+    expect(guardRulePreset('flood').name).toBe('')
+    expect(guardRulePreset('invites').name).toBe('')
+  })
+
+  it('localizes blank guard rule draft names when building create payloads', () => {
+    const draft = guardRulePreset('links')
+
+    expect(guardRuleRequestFromDraft(7, draft, messages.en).name).toBe('Block URLs')
+    expect(guardRuleRequestFromDraft(7, draft, messages['zh-CN']).name).toBe('拦截 URL')
   })
 
   it('builds guard rule conditions and actions that match backend schema', () => {

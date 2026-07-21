@@ -1319,9 +1319,9 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
                   <small>{defaultRuleName(ruleDraft, t)}</small>
                 </div>
                 <div className="rule-template-row" aria-label={t.guard.ruleTemplates}>
-                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('links', t))}>{t.guard.links}</button>
-                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('flood', t))}>{t.guard.flood}</button>
-                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('invites', t))}>{t.guard.invites}</button>
+                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('links'))}>{t.guard.links}</button>
+                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('flood'))}>{t.guard.flood}</button>
+                  <button type="button" onClick={() => setRuleDraft(guardRulePreset('invites'))}>{t.guard.invites}</button>
                   <button
                     className={ruleDraft.enabled ? 'guard-rule-enabled-toggle guard-rule-enabled-toggle-on' : 'guard-rule-enabled-toggle'}
                     type="button"
@@ -1574,11 +1574,10 @@ export function guardRuleActionFromDraft(draft: GuardRuleDraft): JsonValue {
   }
 }
 
-function guardRulePreset(preset: 'links' | 'flood' | 'invites', t: WebMessages): GuardRuleDraft {
+export function guardRulePreset(preset: 'links' | 'flood' | 'invites'): GuardRuleDraft {
   if (preset === 'flood') {
     return {
       ...DEFAULT_GUARD_RULE_DRAFT,
-      name: t.guard.rateLimit,
       conditionType: 'message_rate_exceeded',
       conditionSeconds: 30,
       conditionCount: 5,
@@ -1590,14 +1589,12 @@ function guardRulePreset(preset: 'links' | 'flood' | 'invites', t: WebMessages):
   if (preset === 'invites') {
     return {
       ...DEFAULT_GUARD_RULE_DRAFT,
-      name: t.guard.blockInviteLinks,
       conditionType: 'message_contains_invite_link',
       actionType: 'delete_message',
     }
   }
   return {
     ...DEFAULT_GUARD_RULE_DRAFT,
-    name: t.guard.blockUrls,
     conditionType: 'message_contains_url',
     actionType: 'delete_message',
   }
