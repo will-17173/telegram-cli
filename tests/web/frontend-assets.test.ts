@@ -16,8 +16,58 @@ import {
   visibleMessagesForBlacklist,
 } from '../../web/src/App.js'
 import type { GuardGroup } from '../../web/src/api.js'
+import {
+  DEFAULT_LOCALE,
+  formatDateForLocale,
+  formatMessage,
+  messages,
+  normalizeLocale,
+  resolveInitialLocale,
+  setUrlLocale,
+  SUPPORTED_LOCALES,
+} from '../../web/src/i18n.js'
 
 describe('web frontend source', () => {
+  it('defines supported web UI locales with matching dictionary shape', () => {
+    expect(DEFAULT_LOCALE).toBe('en')
+    expect(SUPPORTED_LOCALES).toEqual(['en', 'zh-CN'])
+    expect(Object.keys(messages)).toEqual(['en', 'zh-CN'])
+    expect(Object.keys(messages['zh-CN'])).toEqual(Object.keys(messages.en))
+    expect(messages.en.shell.language).toBe('Language')
+    expect(messages['zh-CN'].shell.language).toBe('语言')
+    expect(messages.en.guard.groupAutomation).toBe('Group automation')
+    expect(messages['zh-CN'].guard.groupAutomation).toBe('群组自动化')
+  })
+
+  it('normalizes supported web UI locales', () => {
+    expect(normalizeLocale('en')).toBe('en')
+    expect(normalizeLocale('en-US')).toBe('en')
+    expect(normalizeLocale('zh')).toBe('zh-CN')
+    expect(normalizeLocale('zh-cn')).toBe('zh-CN')
+    expect(normalizeLocale('zh-Hans')).toBe('zh-CN')
+    expect(normalizeLocale('fr')).toBeNull()
+    expect(normalizeLocale(null)).toBeNull()
+  })
+
+  it('resolves the initial web UI locale by URL, storage, navigator, then fallback', () => {
+    expect(resolveInitialLocale({ search: '?lang=zh-CN', storedLocale: 'en', navigatorLanguages: ['en-US'] })).toBe('zh-CN')
+    expect(resolveInitialLocale({ search: '?lang=fr', storedLocale: 'zh-CN', navigatorLanguages: ['en-US'] })).toBe('zh-CN')
+    expect(resolveInitialLocale({ search: '', storedLocale: 'fr', navigatorLanguages: ['zh-Hans', 'en-US'] })).toBe('zh-CN')
+    expect(resolveInitialLocale({ search: '', storedLocale: null, navigatorLanguages: ['fr-FR'] })).toBe('en')
+  })
+
+  it('formats localized messages and dates', () => {
+    expect(formatMessage('{visible} of {total} shown', { visible: 2, total: 5 })).toBe('2 of 5 shown')
+    expect(formatMessage('Hello {name}', { name: 'Alice' })).toBe('Hello Alice')
+    expect(formatDateForLocale('2026-07-21T10:30:00.000Z', 'en')).toContain('2026')
+    expect(formatDateForLocale('not-a-date', 'zh-CN')).toBe('not-a-date')
+  })
+
+  it('updates URL locale while preserving existing query parameters', () => {
+    expect(setUrlLocale('http://127.0.0.1:8734/?guard=1', 'zh-CN')).toBe('http://127.0.0.1:8734/?guard=1&lang=zh-CN')
+    expect(setUrlLocale('http://127.0.0.1:8734/?guard=1&lang=en', 'zh-CN')).toBe('http://127.0.0.1:8734/?guard=1&lang=zh-CN')
+  })
+
   it('defines the management UI shell', () => {
     const app = readFileSync('web/src/App.tsx', 'utf8')
 
