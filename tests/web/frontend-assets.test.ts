@@ -20,6 +20,7 @@ import {
   replySenderLabel,
   senderAvatar,
   senderBlacklistKey,
+  syncStatusLabel,
   visibleMessagesForBlacklist,
 } from '../../web/src/App.js'
 import type { DownloadStatus } from '../../web/src/App.js'
@@ -276,7 +277,8 @@ describe('web frontend source', () => {
     expect(i18n).toContain('These limits only apply after an enabled rule matches.')
     expect(i18n).toContain('这些限制只会在已启用规则命中后生效。')
     expect(app).toContain("postJson<GuardRule>('/api/guard/rules'")
-    expect(app).toContain('guardRuleRequestFromDraft(selectedGroupId, ruleDraft, t)')
+    expect(app).toContain('guardRuleRequestFromDraft(selectedGroupId, ruleDraft)')
+    expect(app).toContain('syncStatusLabel(syncTask.status, t)')
     expect(app).toContain('const guardOnly = guardOnlyMode()')
     expect(app).toContain('{!guardOnly && <nav className="view-tabs"')
     expect(app).toContain('{!guardOnly && view === \'messages\' ?')
@@ -411,11 +413,30 @@ describe('web frontend source', () => {
     expect(guardRulePreset('invites').name).toBe('')
   })
 
-  it('localizes blank guard rule draft names when building create payloads', () => {
+  it('keeps blank guard rule draft payload names as stable English defaults', () => {
     const draft = guardRulePreset('links')
 
-    expect(guardRuleRequestFromDraft(7, draft, messages.en).name).toBe('Block URLs')
-    expect(guardRuleRequestFromDraft(7, draft, messages['zh-CN']).name).toBe('拦截 URL')
+    expect(guardRuleRequestFromDraft(7, draft).name).toBe('Block URLs')
+    expect(guardRuleRequestFromDraft(7, draft).name).toBe(messages.en.guard.blockUrls)
+    expect(guardRuleRequestFromDraft(7, draft).name).not.toBe(messages['zh-CN'].guard.blockUrls)
+  })
+
+  it('preserves explicit localized guard rule draft names in create payloads', () => {
+    const draft = { ...guardRulePreset('links'), name: '  拦截推广链接  ' }
+
+    expect(guardRuleRequestFromDraft(7, draft).name).toBe('拦截推广链接')
+  })
+
+  it('localizes known sync task status labels', () => {
+    expect(syncStatusLabel('idle', messages.en)).toBe('idle')
+    expect(syncStatusLabel('running', messages.en)).toBe('running')
+    expect(syncStatusLabel('done', messages.en)).toBe('done')
+    expect(syncStatusLabel('error', messages.en)).toBe('error')
+    expect(syncStatusLabel('idle', messages['zh-CN'])).toBe('空闲')
+    expect(syncStatusLabel('running', messages['zh-CN'])).toBe('运行中')
+    expect(syncStatusLabel('done', messages['zh-CN'])).toBe('完成')
+    expect(syncStatusLabel('error', messages['zh-CN'])).toBe('错误')
+    expect(syncStatusLabel('queued', messages['zh-CN'])).toBe('queued')
   })
 
   it('builds guard rule conditions and actions that match backend schema', () => {

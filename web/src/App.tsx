@@ -591,7 +591,7 @@ export function App() {
           </select>
         </label>
         {!guardOnly && <span className={`sync-pill sync-pill-${syncTask.status}`} role="status" aria-live="polite" title={syncTask.status === 'error' ? syncErrorText(syncTask, t) : undefined}>
-          {formatMessage(t.shell.syncStatus, { status: syncTask.status })}
+          {formatMessage(t.shell.syncStatus, { status: syncStatusLabel(syncTask.status, t) })}
         </span>}
       </header>
 
@@ -1049,7 +1049,7 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
     setCreatingRule(true)
     setError('')
     try {
-      await postJson<GuardRule>('/api/guard/rules', guardRuleRequestFromDraft(selectedGroupId, ruleDraft, t))
+      await postJson<GuardRule>('/api/guard/rules', guardRuleRequestFromDraft(selectedGroupId, ruleDraft))
       setRuleDraft(DEFAULT_GUARD_RULE_DRAFT)
       setRuleFormOpen(false)
       await loadGuardRules(selectedGroupId)
@@ -1508,7 +1508,7 @@ export function guardActivityStatusClass(status: string): string {
   return 'guard-activity-unknown'
 }
 
-export function guardRuleRequestFromDraft(groupId: number, draft: GuardRuleDraft, t: WebMessages = localeMessages.en): {
+export function guardRuleRequestFromDraft(groupId: number, draft: GuardRuleDraft): {
   group_id: number
   name: string
   enabled: boolean
@@ -1518,12 +1518,20 @@ export function guardRuleRequestFromDraft(groupId: number, draft: GuardRuleDraft
 } {
   return {
     group_id: groupId,
-    name: draft.name.trim() || defaultRuleName(draft, t),
+    name: draft.name.trim() || defaultRuleName(draft, localeMessages.en),
     enabled: draft.enabled,
     priority: Math.max(1, Math.trunc(draft.priority)),
     conditions: [guardRuleConditionFromDraft(draft)],
     actions: [guardRuleActionFromDraft(draft)],
   }
+}
+
+export function syncStatusLabel(status: SyncTaskState['status'] | string, t: WebMessages): string {
+  if (status === 'idle') return t.shell.syncStatusIdle
+  if (status === 'running') return t.shell.syncStatusRunning
+  if (status === 'done') return t.shell.syncStatusDone
+  if (status === 'error') return t.shell.syncStatusError
+  return status
 }
 
 export function guardRuleConditionFromDraft(draft: GuardRuleDraft): JsonValue {

@@ -34,6 +34,10 @@ export type WebMessages = {
     localMessageConsole: string
     messages: string
     syncStatus: string
+    syncStatusDone: string
+    syncStatusError: string
+    syncStatusIdle: string
+    syncStatusRunning: string
     workspaceView: string
   }
   messages: {
@@ -237,6 +241,10 @@ export const messages: Record<Locale, WebMessages> = {
       localMessageConsole: 'Local message console',
       messages: 'Messages',
       syncStatus: 'Sync {status}',
+      syncStatusDone: 'done',
+      syncStatusError: 'error',
+      syncStatusIdle: 'idle',
+      syncStatusRunning: 'running',
       workspaceView: 'Workspace view',
     },
     messages: {
@@ -438,6 +446,10 @@ export const messages: Record<Locale, WebMessages> = {
       localMessageConsole: '本地消息控制台',
       messages: '消息',
       syncStatus: '同步 {status}',
+      syncStatusDone: '完成',
+      syncStatusError: '错误',
+      syncStatusIdle: '空闲',
+      syncStatusRunning: '运行中',
       workspaceView: '工作区视图',
     },
     messages: {
