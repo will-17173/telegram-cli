@@ -1360,7 +1360,7 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
                       <span>{conditionTextLabel(ruleDraft.conditionType, t)}</span>
                       <input
                         onChange={(event) => updateRuleDraft({ conditionText: event.currentTarget.value })}
-                        placeholder={conditionPlaceholder(ruleDraft.conditionType)}
+                        placeholder={conditionPlaceholder(ruleDraft.conditionType, t)}
                         type="text"
                         value={ruleDraft.conditionText}
                       />
@@ -1422,7 +1422,7 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
                       <span>{ruleDraft.actionType === 'reply' || ruleDraft.actionType === 'send_message' ? t.guard.message : t.guard.reason}</span>
                       <input
                         onChange={(event) => updateRuleDraft({ actionText: event.currentTarget.value })}
-                        placeholder={actionPlaceholder(ruleDraft.actionType)}
+                        placeholder={actionPlaceholder(ruleDraft.actionType, t)}
                         type="text"
                         value={ruleDraft.actionText}
                       />
@@ -1435,7 +1435,7 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
                     <span>{t.guard.name}</span>
                     <input
                       onChange={(event) => updateRuleDraft({ name: event.currentTarget.value })}
-                      placeholder="No promo links"
+                      placeholder={t.guard.noPromoLinksPlaceholder}
                       type="text"
                       value={ruleDraft.name}
                     />
@@ -1609,18 +1609,23 @@ function guardRuleSummary(rule: GuardRule, t: WebMessages): string {
   return formatMessage(t.guard.ruleSummary, { condition, action, priority: rule.priority })
 }
 
-function guardConditionLabel(condition: JsonValue, t: WebMessages): string {
+export function guardConditionLabel(condition: JsonValue, t: WebMessages = localeMessages.en): string {
   if (!isJsonRecord(condition) || typeof condition.type !== 'string') return ''
   if (condition.type === 'message_contains_url') return t.guard.url
   if (condition.type === 'message_contains_invite_link') return t.guard.inviteLink
-  if (condition.type === 'message_contains_text') return `Text "${String(condition.text ?? '')}"`
-  if (condition.type === 'message_matches_regex') return `Regex ${String(condition.pattern ?? '')}`
-  if (condition.type === 'message_repeated') return `Repeat in ${String(condition.window_seconds ?? '?')}s`
-  if (condition.type === 'message_rate_exceeded') return `${String(condition.max_messages ?? '?')} msgs / ${String(condition.window_seconds ?? '?')}s`
+  if (condition.type === 'message_contains_text') return formatMessage(t.guard.textValue, { text: String(condition.text ?? '') })
+  if (condition.type === 'message_matches_regex') return formatMessage(t.guard.regexValue, { pattern: String(condition.pattern ?? '') })
+  if (condition.type === 'message_repeated') return formatMessage(t.guard.repeatInSeconds, { seconds: String(condition.window_seconds ?? '?') })
+  if (condition.type === 'message_rate_exceeded') {
+    return formatMessage(t.guard.messageRateValue, {
+      count: String(condition.max_messages ?? '?'),
+      seconds: String(condition.window_seconds ?? '?'),
+    })
+  }
   if (condition.type === 'member_is_new') return t.guard.newMember
   if (condition.type === 'member_age_less_than') return formatMessage(t.guard.joinedSeconds, { seconds: String(condition.seconds ?? '?') })
   if (condition.type === 'message_command') return `${t.guard.command} ${String(condition.command ?? '')}`
-  if (condition.type === 'member_warning_count_at_least') return `${String(condition.count ?? '?')} warnings`
+  if (condition.type === 'member_warning_count_at_least') return formatMessage(t.guard.warningCount, { count: String(condition.count ?? '?') })
   return condition.type
 }
 
@@ -1679,15 +1684,15 @@ function ruleDraftNeedsActionText(actionType: GuardRuleActionKind): boolean {
     || actionType === 'record_only'
 }
 
-function conditionPlaceholder(conditionType: GuardRuleConditionKind): string {
+export function conditionPlaceholder(conditionType: GuardRuleConditionKind, t: WebMessages = localeMessages.en): string {
   if (conditionType === 'message_matches_regex') return 'promo|spam'
   if (conditionType === 'message_command') return '/start'
-  return 'keyword'
+  return t.guard.keywordPlaceholder
 }
 
-function actionPlaceholder(actionType: GuardRuleActionKind): string {
-  if (actionType === 'reply' || actionType === 'send_message') return 'Please follow the group rules.'
-  return 'Rule matched'
+export function actionPlaceholder(actionType: GuardRuleActionKind, t: WebMessages = localeMessages.en): string {
+  if (actionType === 'reply' || actionType === 'send_message') return t.guard.followRulesPlaceholder
+  return t.guard.ruleMatchedPlaceholder
 }
 
 function numberInputValue(value: string, fallback: number): number {
@@ -1695,11 +1700,11 @@ function numberInputValue(value: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-function activityDetailLabel(item: GuardActivityItem, t: WebMessages): string {
+export function activityDetailLabel(item: GuardActivityItem, t: WebMessages = localeMessages.en): string {
   const parts = [
     item.event_type,
     formatMessage(t.messages.chatId, { id: displayChatId(item.chat_id) }),
-    item.user_id == null ? '' : `User ${item.user_id}`,
+    item.user_id == null ? '' : formatMessage(t.guard.user, { id: item.user_id }),
     item.rule_name == null ? '' : `${t.guard.rule} ${item.rule_name}`,
   ].filter(Boolean)
   return parts.join(' · ')

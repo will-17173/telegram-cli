@@ -160,6 +160,8 @@ export type WebMessages = {
     refresh: string
     repeatedMessage: string
     reply: string
+    repeatInSeconds: string
+    regexValue: string
     rule: string
     ruleMatched: string
     ruleSummary: string
@@ -188,11 +190,19 @@ export type WebMessages = {
     statusRestartNeeded: string
     statusStarting: string
     syncGroups: string
+    followRulesPlaceholder: string
+    keywordPlaceholder: string
+    messageRateValue: string
+    noPromoLinksPlaceholder: string
+    ruleMatchedPlaceholder: string
     textContains: string
+    textValue: string
     then: string
     trigger: string
     url: string
+    user: string
     warn: string
+    warningCount: string
     when: string
   }
 }
@@ -353,6 +363,8 @@ export const messages: Record<Locale, WebMessages> = {
       refresh: 'Refresh',
       repeatedMessage: 'Repeated message',
       reply: 'Reply',
+      repeatInSeconds: 'Repeat in {seconds}s',
+      regexValue: 'Regex {pattern}',
       rule: 'Rule',
       ruleMatched: 'Rule matched',
       ruleSummary: '{condition} -> {action} · Priority {priority}',
@@ -381,11 +393,19 @@ export const messages: Record<Locale, WebMessages> = {
       statusRestartNeeded: 'Restart needed',
       statusStarting: 'Starting',
       syncGroups: 'Sync groups',
+      followRulesPlaceholder: 'Please follow the group rules.',
+      keywordPlaceholder: 'keyword',
+      messageRateValue: '{count} msgs / {seconds}s',
+      noPromoLinksPlaceholder: 'No promo links',
+      ruleMatchedPlaceholder: 'Rule matched',
       textContains: 'Text contains',
+      textValue: 'Text "{text}"',
       then: 'Then',
       trigger: 'Trigger',
       url: 'URL',
+      user: 'User {id}',
       warn: 'Warn',
+      warningCount: '{count} warnings',
       when: 'When',
     },
   },
@@ -544,6 +564,8 @@ export const messages: Record<Locale, WebMessages> = {
       refresh: '刷新',
       repeatedMessage: '重复消息',
       reply: '回复',
+      repeatInSeconds: '{seconds} 秒内重复',
+      regexValue: '正则 {pattern}',
       rule: '规则',
       ruleMatched: '规则已命中',
       ruleSummary: '{condition} -> {action} · 优先级 {priority}',
@@ -572,11 +594,19 @@ export const messages: Record<Locale, WebMessages> = {
       statusRestartNeeded: '需要重启',
       statusStarting: '启动中',
       syncGroups: '同步群组',
+      followRulesPlaceholder: '请遵守群规。',
+      keywordPlaceholder: '关键词',
+      messageRateValue: '{seconds} 秒内 {count} 条消息',
+      noPromoLinksPlaceholder: '禁止推广链接',
+      ruleMatchedPlaceholder: '规则已命中',
       textContains: '文本包含',
+      textValue: '文本“{text}”',
       then: '则执行',
       trigger: '触发条件',
       url: 'URL',
+      user: '用户 {id}',
       warn: '警告',
+      warningCount: '{count} 次警告',
       when: '当',
     },
   },

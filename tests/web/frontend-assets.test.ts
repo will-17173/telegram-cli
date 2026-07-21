@@ -1,9 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
+  activityDetailLabel,
+  actionPlaceholder,
+  conditionPlaceholder,
   displayChatId,
   downloadStatusLabel,
   guardActivityStatusClass,
+  guardConditionLabel,
   guardGroupStatusClass,
   guardGroupStatusLabel,
   guardOnlyMode,
@@ -18,7 +22,7 @@ import {
   visibleMessagesForBlacklist,
 } from '../../web/src/App.js'
 import type { DownloadStatus } from '../../web/src/App.js'
-import type { GuardGroup } from '../../web/src/api.js'
+import type { GuardActivityItem, GuardGroup } from '../../web/src/api.js'
 import {
   DEFAULT_LOCALE,
   formatDateForLocale,
@@ -336,6 +340,37 @@ describe('web frontend source', () => {
     expect(guardGroupStatusClass({ enabled: true, runtime_status: 'running' })).toBe('guard-status-running')
     expect(guardGroupStatusLabel({ enabled: true, runtime_status: 'stopped' }, messages.en)).toBe('Restart needed')
     expect(guardGroupStatusClass({ enabled: true, runtime_status: 'stopped' })).toBe('guard-status-pending')
+  })
+
+  it('localizes guard condition, activity, and form helper labels', () => {
+    expect(guardConditionLabel({ type: 'message_contains_text', text: 'spam' }, messages['zh-CN'])).toBe('文本“spam”')
+    expect(guardConditionLabel({ type: 'message_matches_regex', pattern: 'promo|spam' }, messages['zh-CN'])).toBe('正则 promo|spam')
+    expect(guardConditionLabel({ type: 'message_repeated', window_seconds: 30 }, messages['zh-CN'])).toBe('30 秒内重复')
+    expect(guardConditionLabel({ type: 'message_rate_exceeded', max_messages: 4, window_seconds: 30 }, messages['zh-CN'])).toBe('30 秒内 4 条消息')
+    expect(guardConditionLabel({ type: 'member_warning_count_at_least', count: 2 }, messages['zh-CN'])).toBe('2 次警告')
+
+    const activity: GuardActivityItem = {
+      event_id: 1,
+      group_id: 7,
+      event_type: 'message',
+      chat_id: 3688621340,
+      message_id: 42,
+      user_id: 17173,
+      matched_rule_ids: [9],
+      action_id: 10,
+      rule_id: 9,
+      rule_name: 'spam',
+      action_type: 'warn',
+      action_status: 'executed',
+      action_details: {},
+      event_created_at: '2026-07-21T08:00:00.000Z',
+      action_created_at: '2026-07-21T08:00:01.000Z',
+    }
+
+    expect(activityDetailLabel(activity, messages['zh-CN'])).toContain('用户 17173')
+    expect(conditionPlaceholder('message_contains_text', messages['zh-CN'])).toBe('关键词')
+    expect(actionPlaceholder('reply', messages['zh-CN'])).toBe('请遵守群规。')
+    expect(actionPlaceholder('warn', messages['zh-CN'])).toBe('规则已命中')
   })
 
   it('detects guard-only mode from the URL query', () => {
