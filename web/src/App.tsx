@@ -126,6 +126,11 @@ function attachmentExtension(attachment: MessageAttachment): string {
 
 type DownloadVisualState = 'none' | 'downloaded' | 'partial' | 'not-downloaded'
 
+export type DownloadStatus =
+  | { state: 'downloading' }
+  | { state: 'done'; destination?: string; fileCount?: number }
+  | { state: 'error'; message: string }
+
 function attachmentDownloadState(attachment: MessageAttachment): DownloadVisualState {
   if (!attachment.downloadable) return 'none'
   return attachment.downloaded ? 'downloaded' : 'not-downloaded'
@@ -145,6 +150,13 @@ function downloadStateLabel(state: DownloadVisualState, t: WebMessages): string 
   if (state === 'partial') return t.messages.partialDownloaded
   if (state === 'not-downloaded') return t.messages.notDownloaded
   return ''
+}
+
+export function downloadStatusLabel(status: DownloadStatus, t: WebMessages): string {
+  if (status.state === 'downloading') return t.messages.downloading
+  if (status.state === 'error') return status.message
+  const destination = status.destination ?? (status.fileCount == null ? undefined : formatMessage(t.messages.files, { count: status.fileCount }))
+  return destination == null ? t.messages.downloaded : formatMessage(t.messages.downloadedTo, { destination })
 }
 
 function DownloadStatusIcon({ state, t }: { state: DownloadVisualState; t: WebMessages }) {
@@ -198,11 +210,21 @@ function browserNavigatorLanguages(): string[] {
   return navigator.language == null ? [] : [navigator.language]
 }
 
+export function browserLocalStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
 function initialLocale(): Locale {
   if (typeof window === 'undefined') return DEFAULT_LOCALE
+  const storage = browserLocalStorage()
   return resolveInitialLocale({
     search: window.location.search,
-    storedLocale: getStoredLocale(window.localStorage),
+    storedLocale: getStoredLocale(storage),
     navigatorLanguages: browserNavigatorLanguages(),
   })
 }
@@ -231,7 +253,7 @@ export function App() {
   const [blockedSenders, setBlockedSenders] = useState<BlockedSender[]>([])
   const [blacklistOpen, setBlacklistOpen] = useState(false)
   const [syncTask, setSyncTask] = useState<SyncTaskState>({ status: 'idle' })
-  const [downloadStatus, setDownloadStatus] = useState<Record<string, string>>({})
+  const [downloadStatus, setDownloadStatus] = useState<Record<string, DownloadStatus>>({})
   const [loadingChats, setLoadingChats] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [error, setError] = useState('')
@@ -343,7 +365,7 @@ export function App() {
   function changeLocale(nextLocale: Locale): void {
     setLocale(nextLocale)
     if (typeof window === 'undefined') return
-    storeLocale(window.localStorage, nextLocale)
+    storeLocale(browserLocalStorage(), nextLocale)
     replaceUrlLocale(window.location, window.history, nextLocale)
   }
 
@@ -462,7 +484,7 @@ export function App() {
     const keys = attachments.map(attachmentKey)
     setDownloadStatus((current) => {
       const next = { ...current }
-      for (const key of keys) next[key] = t.messages.downloading
+      for (const key of keys) next[key] = { state: 'downloading' }
       return next
     })
     setError('')
@@ -478,10 +500,12 @@ export function App() {
           attachment_index: attachment.attachment_index,
         })),
       })
-      const destination = result.downloaded.length === 1 ? result.downloaded[0]?.path : formatMessage(t.messages.files, { count: result.downloaded.length })
+      const doneStatus: DownloadStatus = result.downloaded.length === 1
+        ? { state: 'done', destination: result.downloaded[0]?.path }
+        : { state: 'done', fileCount: result.downloaded.length }
       setDownloadStatus((current) => {
         const next = { ...current }
-        for (const key of keys) next[key] = destination == null ? t.messages.downloaded : formatMessage(t.messages.downloadedTo, { destination })
+        for (const key of keys) next[key] = doneStatus
         return next
       })
       if (result.warnings.length > 0) {
@@ -493,7 +517,7 @@ export function App() {
       setError(message)
       setDownloadStatus((current) => {
         const next = { ...current }
-        for (const key of keys) next[key] = message
+        for (const key of keys) next[key] = { state: 'error', message }
         return next
       })
     }
@@ -780,14 +804,14 @@ export function App() {
                               </span>
                               <small>{attachmentDisplayName(attachment)}</small>
                               <small className="attachment-message-id">{formatMessage(t.messages.message, { id: attachment.msg_id })}</small>
-                              {downloadStatus[key] && <small>{downloadStatus[key]}</small>}
+                              {downloadStatus[key] && <small>{downloadStatusLabel(downloadStatus[key], t)}</small>}
                             </div>
                             {attachment.downloadable && (
                               <button
                                 className="attachment-action"
                                 type="button"
                                 onClick={() => void downloadAttachments([attachment])}
-                                disabled={downloadStatus[key] === t.messages.downloading}
+                                disabled={downloadStatus[key]?.state === 'downloading'}
                               >
                                 {t.messages.download}
                               </button>
@@ -796,7 +820,12 @@ export function App() {
                           )
                         })}
                         {downloadable.length > 1 && (
-                          <button className="download-all" type="button" onClick={() => void downloadAttachments(downloadable)}>
+                          <button
+                            className="download-all"
+                            type="button"
+                            onClick={() => void downloadAttachments(downloadable)}
+                            disabled={downloadable.some((attachment) => downloadStatus[attachmentKey(attachment)]?.state === 'downloading')}
+                          >
                             {t.messages.downloadAll}
                           </button>
                         )}
@@ -1778,9 +1807,10 @@ function senderBlacklistStorageKey(account: string, chatId: number | null): stri
 }
 
 function readBlockedSenders(key: string | null): BlockedSender[] {
-  if (key == null || typeof window === 'undefined') return []
+  const storage = browserLocalStorage()
+  if (key == null || storage == null) return []
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(key) ?? '[]')
+    const parsed: unknown = JSON.parse(storage.getItem(key) ?? '[]')
     return Array.isArray(parsed) ? parsed.filter(isBlockedSender) : []
   } catch {
     return []
@@ -1788,8 +1818,13 @@ function readBlockedSenders(key: string | null): BlockedSender[] {
 }
 
 function writeBlockedSenders(key: string | null, senders: BlockedSender[]): void {
-  if (key == null || typeof window === 'undefined') return
-  window.localStorage.setItem(key, JSON.stringify(senders))
+  const storage = browserLocalStorage()
+  if (key == null || storage == null) return
+  try {
+    storage.setItem(key, JSON.stringify(senders))
+  } catch {
+    // Sender blacklist persistence is best-effort in restricted browser contexts.
+  }
 }
 
 function isBlockedSender(value: unknown): value is BlockedSender {

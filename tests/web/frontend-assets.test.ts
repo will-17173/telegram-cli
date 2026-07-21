@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   displayChatId,
+  downloadStatusLabel,
   guardActivityStatusClass,
   guardGroupStatusClass,
   guardGroupStatusLabel,
@@ -16,6 +17,7 @@ import {
   senderBlacklistKey,
   visibleMessagesForBlacklist,
 } from '../../web/src/App.js'
+import type { DownloadStatus } from '../../web/src/App.js'
 import type { GuardGroup } from '../../web/src/api.js'
 import {
   DEFAULT_LOCALE,
@@ -186,6 +188,41 @@ describe('web frontend source', () => {
     expect(css).toContain('.download-status-downloaded')
     expect(css).toContain('.download-status-partial')
     expect(css).toContain('.download-status-not-downloaded')
+  })
+
+  it('localizes stable in-flight download status at render time', () => {
+    const downloading: DownloadStatus = { state: 'downloading' }
+    const done: DownloadStatus = { state: 'done', fileCount: 2 }
+    const failed: DownloadStatus = { state: 'error', message: 'disk full' }
+
+    expect(downloadStatusLabel(downloading, messages.en)).toBe('Downloading')
+    expect(downloadStatusLabel(downloading, messages['zh-CN'])).toBe('下载中')
+    expect(downloading.state).toBe('downloading')
+    expect(downloadStatusLabel(done, messages.en)).toBe('Downloaded to 2 files')
+    expect(downloadStatusLabel(done, messages['zh-CN'])).toBe('已下载到 2 个文件')
+    expect(done.state).toBe('done')
+    expect(downloadStatusLabel(failed, messages['zh-CN'])).toBe('disk full')
+  })
+
+  it('keeps download control state independent from localized strings', () => {
+    const app = readFileSync('web/src/App.tsx', 'utf8')
+
+    expect(app).toContain('useState<Record<string, DownloadStatus>>({})')
+    expect(app).toContain("next[key] = { state: 'downloading' }")
+    expect(app).toContain("disabled={downloadStatus[key]?.state === 'downloading'}")
+    expect(app).toContain('downloadStatusLabel(downloadStatus[key], t)')
+    expect(app).not.toContain('disabled={downloadStatus[key] === t.messages.downloading}')
+  })
+
+  it('guards browser localStorage property access before using storage helpers', () => {
+    const app = readFileSync('web/src/App.tsx', 'utf8')
+
+    expect(app).toContain('export function browserLocalStorage(): Storage | null')
+    expect(app).toContain('return window.localStorage')
+    expect(app).toContain('getStoredLocale(storage)')
+    expect(app).toContain('storeLocale(browserLocalStorage(), nextLocale)')
+    expect(app).not.toContain('getStoredLocale(window.localStorage)')
+    expect(app).not.toContain('storeLocale(window.localStorage')
   })
 
   it('keeps guard workbench aligned with guard API payloads', () => {
