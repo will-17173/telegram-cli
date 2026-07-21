@@ -31,7 +31,7 @@ type PeerShape = {
   usernames?: unknown
 }
 
-const TRANSIENT_HISTORY_RETRY_LIMIT = 3
+const TRANSIENT_HISTORY_RETRY_LIMIT = 10
 const TRANSIENT_HISTORY_RETRY_DELAY_MS = 500
 
 export class MtcuteTelegramClient implements TelegramClientAdapter {

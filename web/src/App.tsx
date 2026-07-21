@@ -234,7 +234,6 @@ export function App() {
   const [locale, setLocale] = useState<Locale>(() => initialLocale())
   // Locale dictionary lookup: messages[locale].
   const t = localeMessages[locale]
-  const [view, setView] = useState<'messages' | 'guard'>(guardOnly ? 'guard' : 'messages')
   const [accounts, setAccounts] = useState<AccountData>({ current_account: null, accounts: [] })
   const [account, setAccount] = useState('')
   const [chatQuery, setChatQuery] = useState('')
@@ -575,14 +574,6 @@ export function App() {
             ))}
           </select>
         </label>}
-        {!guardOnly && <nav className="view-tabs" aria-label={t.shell.workspaceView}>
-          <button className={view === 'messages' ? 'active-tab' : ''} onClick={() => setView('messages')} type="button">
-            {t.shell.messages}
-          </button>
-          <button className={view === 'guard' ? 'active-tab' : ''} onClick={() => setView('guard')} type="button">
-            {t.shell.guard}
-          </button>
-        </nav>}
         <label className="language-picker">
           <span>{t.shell.language}</span>
           <select value={locale} onChange={(event) => changeLocale(event.currentTarget.value as Locale)}>
@@ -597,7 +588,7 @@ export function App() {
 
       {error && <div className="error-strip" role="alert">{error}</div>}
 
-      {!guardOnly && view === 'messages' ? (
+      {!guardOnly ? (
       <section className="workspace" aria-label={t.shell.localMessageConsole}>
         <aside className="sidebar">
           <div className="sidebar-tools">

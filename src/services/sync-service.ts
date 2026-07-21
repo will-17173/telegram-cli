@@ -75,22 +75,30 @@ export class SyncService {
     try {
       let synced = 0
       let progressBase = 0
-      let newerWrotePages = false
+      const collectedNewerPages: NormalizedMessage[] = []
       const onProgress = options.onProgress == null
         ? undefined
         : (count: number) => options.onProgress?.(progressBase + count)
-      const newer = await this.tg.fetchHistory({
-        chat: parseChat(options.chat),
-        limit,
-        minId,
-        pageDelay: options.pageDelay,
-        onPage: (page) => {
-          newerWrotePages = true
-          synced += this.upsertPage(page).inserted
-        },
-        onProgress,
-      })
-      if (!newerWrotePages) synced += this.upsertPage(newer).inserted
+      let newer: NormalizedMessage[]
+      try {
+        newer = await this.tg.fetchHistory({
+          chat: parseChat(options.chat),
+          limit,
+          minId,
+          pageDelay: options.pageDelay,
+          onPage: (page) => {
+            collectedNewerPages.push(...page)
+          },
+          onProgress,
+        })
+      } catch (error) {
+        const contiguous = contiguousMessagesAfter(collectedNewerPages, minId)
+        if (contiguous.length === 0) throw error
+        synced += this.upsertPage(contiguous).inserted
+        const data = { synced, chat: options.chat }
+        return { ok: true, data, human: actionDetail('Sync Complete', { chat: data.chat, synced: data.synced }) }
+      }
+      synced += this.upsertPage(sortMessagesById(newer)).inserted
       progressBase = newer.length
 
       const resolvedChatId = chatId ?? this.db.resolveChatId(options.chat)
@@ -255,6 +263,23 @@ function errorMessage(error: unknown): string {
 
 function errorDetails(error: unknown): unknown {
   return error instanceof Error ? { name: error.name } : undefined
+}
+
+function sortMessagesById(messages: NormalizedMessage[]): NormalizedMessage[] {
+  return messages.slice().sort((left, right) => left.msg_id - right.msg_id)
+}
+
+function contiguousMessagesAfter(messages: NormalizedMessage[], minId: number): NormalizedMessage[] {
+  const sorted = sortMessagesById(messages.filter((message) => message.msg_id > minId))
+  const result: NormalizedMessage[] = []
+  let expected = minId + 1
+  for (const message of sorted) {
+    if (message.msg_id < expected) continue
+    if (message.msg_id !== expected) break
+    result.push(message)
+    expected += 1
+  }
+  return result
 }
 
 function isPositiveInteger(value: number): boolean {

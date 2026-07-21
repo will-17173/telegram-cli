@@ -188,6 +188,76 @@ describe('SyncService', () => {
     sync.close()
   })
 
+  it('does not persist partial newer pages when sync fails before the newer range is complete', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-newer-atomic-')), 'messages.db'))
+    db.upsertBatch([message({ msg_id: 1000 })])
+    const latestPage = [
+      message({ msg_id: 2200, content: 'latest page one' }),
+      message({ msg_id: 2199, content: 'latest page two' }),
+    ]
+    const failure = new Error('Telegram API error 400: CHANNEL_INVALID')
+    const fetchHistory = vi.fn(async (options: FetchHistoryOptions) => {
+      options.onPage?.(latestPage)
+      options.onProgress?.(latestPage.length)
+      throw failure
+    })
+    const client = { fetchHistory } as unknown as TelegramClientAdapter
+    const sync = new SyncService(client, db)
+
+    const result = await sync.sync({ chat: 'TestGroup', limit: 100, pageDelay: 1 })
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'telegram_error', message: 'Telegram API error 400: CHANNEL_INVALID' },
+    })
+    expect(fetchHistory).toHaveBeenCalledWith(expect.objectContaining({
+      chat: 'TestGroup',
+      limit: 100,
+      minId: 1000,
+    }))
+    expect(db.getLastMsgId(100)).toBe(1000)
+    expect(db.getMessagesByKeys([
+      { chatId: 100, msgId: 2199 },
+      { chatId: 100, msgId: 2200 },
+    ])).toEqual([])
+    sync.close()
+  })
+
+  it('persists contiguous newer pages collected before a later transient sync failure', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-newer-contiguous-')), 'messages.db'))
+    db.upsertBatch([message({ msg_id: 1000 })])
+    const firstPage = [
+      message({ msg_id: 1003, content: 'newer three' }),
+      message({ msg_id: 1004, content: 'newer four' }),
+    ]
+    const secondPage = [
+      message({ msg_id: 1001, content: 'newer one' }),
+      message({ msg_id: 1002, content: 'newer two' }),
+    ]
+    const failure = new Error('Telegram API error 400: CHANNEL_INVALID')
+    const fetchHistory = vi.fn(async (options: FetchHistoryOptions) => {
+      options.onPage?.(firstPage)
+      options.onProgress?.(firstPage.length)
+      options.onPage?.(secondPage)
+      options.onProgress?.(firstPage.length + secondPage.length)
+      throw failure
+    })
+    const client = { fetchHistory } as unknown as TelegramClientAdapter
+    const sync = new SyncService(client, db)
+
+    const result = await sync.sync({ chat: 'TestGroup', limit: 100, pageDelay: 1 })
+
+    expect(result).toMatchObject({ ok: true, data: { synced: 4, chat: 'TestGroup' } })
+    expect(db.getLastMsgId(100)).toBe(1004)
+    expect(db.getMessagesByKeys([
+      { chatId: 100, msgId: 1001 },
+      { chatId: 100, msgId: 1002 },
+      { chatId: 100, msgId: 1003 },
+      { chatId: 100, msgId: 1004 },
+    ]).map((row) => row?.msg_id)).toEqual([1001, 1002, 1003, 1004])
+    sync.close()
+  })
+
   it('forwards sync progress from the Telegram adapter', async () => {
     const { sync, fake } = service()
     const onProgress = vi.fn()
