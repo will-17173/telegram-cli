@@ -11,6 +11,7 @@ import {
   guardRuleRequestFromDraft,
   nextGuardGroupId,
   paginationWindow,
+  replySenderLabel,
   senderAvatar,
   senderBlacklistKey,
   visibleMessagesForBlacklist,
@@ -37,6 +38,8 @@ describe('web frontend source', () => {
     expect(messages['zh-CN'].shell.language).toBe('语言')
     expect(messages.en.guard.groupAutomation).toBe('Group automation')
     expect(messages['zh-CN'].guard.groupAutomation).toBe('群组自动化')
+    expect(messages.en.messages.messageFallback).toBe('message')
+    expect(messages['zh-CN'].messages.messageFallback).toBe('消息')
   })
 
   it('normalizes supported web UI locales', () => {
@@ -61,6 +64,20 @@ describe('web frontend source', () => {
     expect(formatMessage('Hello {name}', { name: 'Alice' })).toBe('Hello Alice')
     expect(formatDateForLocale('2026-07-21T10:30:00.000Z', 'en')).toContain('2026')
     expect(formatDateForLocale('not-a-date', 'zh-CN')).toBe('not-a-date')
+  })
+
+  it('localizes unresolved reply sender fallbacks', () => {
+    expect(replySenderLabel(null, messages.en)).toBe('message')
+    expect(replySenderLabel({ resolved: false, message_id: 42 }, messages['zh-CN'])).toBe('消息')
+    expect(replySenderLabel({
+      resolved: true,
+      message_id: 42,
+      timestamp: '2026-07-21T08:00:00.000Z',
+      sender_id: 17173,
+      sender_name: 'Alice',
+      content: 'hello',
+      attachments: [],
+    }, messages['zh-CN'])).toBe('Alice')
   })
 
   it('updates URL locale while preserving existing query parameters', () => {

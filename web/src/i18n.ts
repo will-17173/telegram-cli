@@ -60,6 +60,7 @@ export type WebMessages = {
     jumpTo: string
     last: string
     message: string
+    messageFallback: string
     messageFilters: string
     messageNotFound: string
     messagePage: string
@@ -252,6 +253,7 @@ export const messages: Record<Locale, WebMessages> = {
       jumpTo: 'Jump to',
       last: 'Last',
       message: 'Message {id}',
+      messageFallback: 'message',
       messageFilters: 'Message filters',
       messageNotFound: 'Message not found in the local cache.',
       messagePage: 'Jump to message page',
@@ -442,6 +444,7 @@ export const messages: Record<Locale, WebMessages> = {
       jumpTo: '跳转到',
       last: '末页',
       message: '消息 {id}',
+      messageFallback: '消息',
       messageFilters: '消息筛选',
       messageNotFound: '本地缓存中未找到该消息。',
       messagePage: '跳转到消息页',

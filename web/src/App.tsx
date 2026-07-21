@@ -1709,9 +1709,9 @@ function messageIdLabels(message: MessageRow, t: WebMessages): string[] {
   return [formatMessage(t.messages.message, { id: message.msg_id })]
 }
 
-function replySenderLabel(context: MessageRow['reply_context'], t: WebMessages): string {
-  if (context == null) return 'message'
-  if (!context.resolved) return 'message'
+export function replySenderLabel(context: MessageRow['reply_context'] | null, t: WebMessages): string {
+  if (context == null) return t.messages.messageFallback
+  if (!context.resolved) return t.messages.messageFallback
   return context.sender_name?.trim() || (context.sender_id == null ? t.common.unknown : formatMessage(t.messages.id, { id: context.sender_id }))
 }
 
