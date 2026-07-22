@@ -47,6 +47,25 @@ describe('mtcute guard adapter', () => {
     expect(event.user).toMatchObject({ is_admin: false, is_bot: false })
   })
 
+  it('normalizes member join metadata into a member joined guard event', () => {
+    const event = normalizeGuardMessageUpdate({
+      account: 'work',
+      groupId: 1,
+      currentAccountUserId: 500,
+      message: message({
+        sender_id: 44,
+        member_joined_user_id: 99,
+        member_joined_at: '2026-07-17T12:00:00.000Z',
+      }),
+    })
+
+    expect(event).toMatchObject({
+      type: 'member_joined',
+      user: { id: 99 },
+      member_joined_at: '2026-07-17T12:00:00.000Z',
+    })
+  })
+
   it('delegates executor actions to Telegram client methods for a resolved account', async () => {
     const groups = {
       deleteGroupMessages: vi.fn(async () => ({ operation: 'deleteGroupMessages', chat_id: -1001 })),

@@ -110,6 +110,8 @@ export type WebMessages = {
     banBlocked: string
     blockInviteLinks: string
     blockUrls: string
+    casBanDisabled: string
+    casBanEnabled: string
     closeRuleEditor: string
     command: string
     cooldown: string
@@ -317,6 +319,8 @@ export const messages: Record<Locale, WebMessages> = {
       banBlocked: 'Ban blocked',
       blockInviteLinks: 'Block invite links',
       blockUrls: 'Block URLs',
+      casBanDisabled: 'CAS off',
+      casBanEnabled: 'CAS on',
       closeRuleEditor: 'Close rule editor',
       command: 'Command',
       cooldown: '{seconds}s cooldown',
@@ -357,7 +361,7 @@ export const messages: Record<Locale, WebMessages> = {
       pattern: 'Pattern',
       pendingActions: 'Pending actions',
       policyLimits: 'Policy limits',
-      policyNote: 'These limits only apply after an enabled rule matches.',
+      policyNote: 'Rule limits apply after an enabled rule matches. CAS runs on new joins when enabled.',
       postNotice: 'Post notice',
       priority: 'Priority',
       queue: 'Queue',
@@ -522,6 +526,8 @@ export const messages: Record<Locale, WebMessages> = {
       banBlocked: '禁止封禁',
       blockInviteLinks: '拦截邀请链接',
       blockUrls: '拦截 URL',
+      casBanDisabled: 'CAS 关闭',
+      casBanEnabled: 'CAS 开启',
       closeRuleEditor: '关闭规则编辑器',
       command: '命令',
       cooldown: '{seconds} 秒冷却',
@@ -562,7 +568,7 @@ export const messages: Record<Locale, WebMessages> = {
       pattern: '模式',
       pendingActions: '待处理动作',
       policyLimits: '策略限制',
-      policyNote: '这些限制只会在已启用规则命中后生效。',
+      policyNote: '规则限制会在已启用规则命中后生效。CAS 开启后会检查新入群成员。',
       postNotice: '发送通知',
       priority: '优先级',
       queue: '队列',

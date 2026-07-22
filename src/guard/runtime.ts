@@ -1,9 +1,13 @@
 import { GuardActionQueue } from './action-queue.js'
 import { planGuardActions } from './action-planner.js'
+import { CasApiChecker } from './cas.js'
 import { evaluateGuardRules } from './rule-engine.js'
 import type { GuardActionExecutionResult, GuardActionExecutor } from './action-queue.js'
+import type { GuardCasChecker, GuardCasResult } from './cas.js'
 import type { GuardRecentMessage as RecentGuardMessage } from './rule-engine.js'
-import type { GuardAction, GuardEvent, GuardManagedGroup, GuardRule } from './types.js'
+import type { GuardAction, GuardEvent, GuardGroupPolicy, GuardManagedGroup, GuardRule } from './types.js'
+
+export type { GuardCasChecker, GuardCasResult } from './cas.js'
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -74,6 +78,7 @@ export type GuardRuntimeOptions = {
   store: GuardRuntimeStore
   executor: GuardActionExecutor
   writeAccess: () => boolean
+  casChecker?: GuardCasChecker
   listener?: GuardRuntimeListener
 }
 
@@ -81,6 +86,7 @@ export class GuardRuntime {
   private readonly store: GuardRuntimeStore
   private readonly queue: GuardActionQueue
   private readonly writeAccess: () => boolean
+  private readonly casChecker: GuardCasChecker
   private readonly listener: GuardRuntimeListener | null
   private readonly cooldowns = new Map<string, string>()
   private readonly startedGroupIds = new Set<number>()
@@ -91,6 +97,7 @@ export class GuardRuntime {
     this.store = options.store
     this.queue = new GuardActionQueue({ executor: options.executor })
     this.writeAccess = options.writeAccess
+    this.casChecker = options.casChecker ?? new CasApiChecker()
     this.listener = options.listener ?? null
   }
 
@@ -202,6 +209,8 @@ export class GuardRuntime {
     const group = groups.find((candidate) => candidate.id === event.group_id)
     if (group == null) return
 
+    if (await this.processCasPolicy(event, group)) return
+
     const rules = await this.store.listRules(group.id)
     const warningCount = await this.warningCountFor(event)
     const recentMessages = await this.recentMessagesFor(event)
@@ -245,6 +254,58 @@ export class GuardRuntime {
         created_at: event.created_at,
       })
     }
+  }
+
+  private async processCasPolicy(event: GuardEvent, group: GuardManagedGroup): Promise<boolean> {
+    if (!group.policy.cas_ban_enabled) return false
+    if (!isJoinEvent(event)) return false
+    if (event.user == null) return false
+    if (actorIgnoredByPolicy(event, group.policy)) return false
+
+    const casResult = await this.casChecker.check(event.user.id)
+    if (!casResult.banned) return false
+
+    const recordedEvent = await this.store.recordEvent({
+      group_id: group.id,
+      event_type: event.type,
+      chat_id: event.chat_id,
+      message_id: event.message_id,
+      user_id: event.user.id,
+      matched_rule_ids: [],
+      created_at: event.created_at,
+    })
+
+    if (!this.writeAccess()) {
+      await this.store.recordAction({
+        event_id: recordedEvent.id,
+        rule_id: null,
+        action_type: 'ban',
+        status: 'dry_run',
+        details: { reason: 'write access is disabled', cas: casDetails(casResult) },
+        created_at: event.created_at,
+      })
+      return true
+    }
+
+    const results = await this.queue.run(event, [{
+      rule_id: null,
+      type: 'ban',
+      action: { type: 'ban', reason: 'CAS banned user' },
+      status: 'planned',
+      reason: null,
+    }])
+
+    for (const result of results) {
+      await this.store.recordAction({
+        event_id: recordedEvent.id,
+        rule_id: null,
+        action_type: result.action_type,
+        status: result.status,
+        details: { ...result.details, cas: casDetails(casResult) },
+        created_at: event.created_at,
+      })
+    }
+    return true
   }
 
   private async stopListenerHandlesBestEffort(): Promise<void> {
@@ -318,4 +379,24 @@ export class GuardRuntime {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function isJoinEvent(event: GuardEvent): boolean {
+  return event.type === 'member_joined' || event.member_joined_at != null
+}
+
+function actorIgnoredByPolicy(event: GuardEvent, policy: GuardGroupPolicy): boolean {
+  if (event.user == null) return false
+  if (policy.ignore_admins && event.user.is_admin) return true
+  if (policy.ignore_bots && event.user.is_bot) return true
+  return event.current_account_user_id != null && event.user.id === event.current_account_user_id
+}
+
+function casDetails(result: GuardCasResult): Record<string, unknown> {
+  return {
+    banned: result.banned,
+    ...(result.offenses == null ? {} : { offenses: result.offenses }),
+    ...(result.messages == null ? {} : { messages: result.messages }),
+    ...(result.time_added == null ? {} : { time_added: result.time_added }),
+  }
 }

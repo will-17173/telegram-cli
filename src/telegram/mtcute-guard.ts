@@ -163,17 +163,19 @@ export class MtcuteGuardListener implements GuardRuntimeListener {
 }
 
 export function normalizeGuardMessageUpdate(update: TelegramGuardMessageUpdate): GuardEvent {
+  const memberJoinedAt = stringField(update.message, 'member_joined_at')
+  const userId = numberField(update.message, 'member_joined_user_id') ?? update.message.sender_id
   return {
-    type: 'message_created',
+    type: memberJoinedAt == null ? 'message_created' : 'member_joined',
     account: update.account,
     group_id: update.groupId,
     chat_id: update.message.chat_id,
     chat_title: update.message.chat_name,
     message_id: update.message.msg_id,
-    user: update.message.sender_id == null
+    user: userId == null
       ? null
       : {
-        id: update.message.sender_id,
+        id: userId,
         display_name: update.message.sender_name,
         username: stringField(update.message, 'sender_username'),
         is_admin: booleanField(update.message, 'sender_is_admin') ?? false,
@@ -181,7 +183,7 @@ export function normalizeGuardMessageUpdate(update: TelegramGuardMessageUpdate):
       },
     text: update.message.content,
     created_at: update.message.timestamp,
-    member_joined_at: stringField(update.message, 'member_joined_at'),
+    member_joined_at: memberJoinedAt,
     current_account_user_id: update.currentAccountUserId,
   }
 }
@@ -194,4 +196,9 @@ function stringField(value: Record<string, unknown>, key: string): string | null
 function booleanField(value: Record<string, unknown>, key: string): boolean | null {
   const field = value[key]
   return typeof field === 'boolean' ? field : null
+}
+
+function numberField(value: Record<string, unknown>, key: string): number | null {
+  const field = value[key]
+  return typeof field === 'number' && Number.isSafeInteger(field) ? field : null
 }

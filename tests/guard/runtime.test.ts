@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { GuardRuntime } from '../../src/guard/runtime.js'
 import type { GuardActionExecutor } from '../../src/guard/action-queue.js'
 import type {
+  GuardCasChecker,
   GuardActionRecordInput,
   GuardEventRecordInput,
   GuardRuntimeListener,
@@ -34,6 +35,7 @@ function policy(overrides: Partial<GuardGroupPolicy> = {}): GuardGroupPolicy {
     allow_delete: true,
     allow_mute: true,
     allow_ban: true,
+    cas_ban_enabled: false,
     ignore_admins: true,
     ignore_bots: true,
     reply_cooldown_seconds: 60,
@@ -78,6 +80,13 @@ function executor(overrides: Partial<GuardActionExecutor> = {}): GuardActionExec
     banMember: vi.fn(async () => undefined),
     reply: vi.fn(async () => undefined),
     sendMessage: vi.fn(async () => undefined),
+    ...overrides,
+  }
+}
+
+function casChecker(overrides: Partial<GuardCasChecker> = {}): GuardCasChecker {
+  return {
+    check: vi.fn(async () => ({ banned: false })),
     ...overrides,
   }
 }
@@ -234,6 +243,110 @@ describe('GuardRuntime', () => {
     expect(store.events).toEqual([])
     expect(store.actions).toEqual([])
     expect(fakeExecutor.deleteMessage).not.toHaveBeenCalled()
+  })
+
+  it('bans a newly joined CAS banned user when group CAS policy is enabled', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ policy: policy({ cas_ban_enabled: true }) })]
+    const fakeExecutor = executor()
+    const fakeCasChecker = casChecker({
+      check: vi.fn(async () => ({
+        banned: true,
+        offenses: 3,
+        messages: 7,
+        time_added: '2026-07-01T00:00:00.000Z',
+      })),
+    })
+    const runtime = new GuardRuntime({
+      store,
+      executor: fakeExecutor,
+      writeAccess: () => true,
+      casChecker: fakeCasChecker,
+    })
+
+    await runtime.handleEvent(event({
+      type: 'member_joined',
+      message_id: null,
+      text: null,
+      member_joined_at: now,
+    }))
+
+    expect(fakeCasChecker.check).toHaveBeenCalledWith(99)
+    expect(fakeExecutor.banMember).toHaveBeenCalledWith({ account: 'work', groupId: 1, chat: -1001, userId: 99 })
+    expect(store.events).toEqual([
+      {
+        id: 1,
+        group_id: 1,
+        event_type: 'member_joined',
+        chat_id: -1001,
+        message_id: null,
+        user_id: 99,
+        matched_rule_ids: [],
+        created_at: now,
+      },
+    ])
+    expect(store.actions).toEqual([
+      {
+        event_id: 1,
+        rule_id: null,
+        action_type: 'ban',
+        status: 'executed',
+        details: {
+          user_id: 99,
+          reason: 'CAS banned user',
+          cas: {
+            banned: true,
+            offenses: 3,
+            messages: 7,
+            time_added: '2026-07-01T00:00:00.000Z',
+          },
+        },
+        created_at: now,
+      },
+    ])
+  })
+
+  it('does not query CAS when group CAS policy is disabled', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ policy: policy({ cas_ban_enabled: false }) })]
+    const fakeExecutor = executor()
+    const fakeCasChecker = casChecker()
+    const runtime = new GuardRuntime({
+      store,
+      executor: fakeExecutor,
+      writeAccess: () => true,
+      casChecker: fakeCasChecker,
+    })
+
+    await runtime.handleEvent(event({ type: 'member_joined', member_joined_at: now }))
+
+    expect(fakeCasChecker.check).not.toHaveBeenCalled()
+    expect(fakeExecutor.banMember).not.toHaveBeenCalled()
+    expect(store.events).toEqual([])
+  })
+
+  it('records a dry-run CAS ban when write access is disabled', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ policy: policy({ cas_ban_enabled: true }) })]
+    const fakeExecutor = executor()
+    const runtime = new GuardRuntime({
+      store,
+      executor: fakeExecutor,
+      writeAccess: () => false,
+      casChecker: casChecker({ check: vi.fn(async () => ({ banned: true })) }),
+    })
+
+    await runtime.handleEvent(event({ type: 'member_joined', message_id: null, text: null, member_joined_at: now }))
+
+    expect(fakeExecutor.banMember).not.toHaveBeenCalled()
+    expect(store.actions).toMatchObject([
+      {
+        rule_id: null,
+        action_type: 'ban',
+        status: 'dry_run',
+        details: { reason: 'write access is disabled', cas: { banned: true } },
+      },
+    ])
   })
 
   it('evaluates write access during each event handling run', async () => {

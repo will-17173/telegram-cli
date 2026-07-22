@@ -4,7 +4,7 @@ import type { GuardAction, GuardEvent, GuardGroupPolicy } from './types.js'
 export type PlannedGuardActionStatus = 'planned' | 'skipped' | 'dry_run'
 
 export type PlannedGuardAction = {
-  rule_id: number
+  rule_id: number | null
   type: GuardAction['type']
   action: GuardAction
   status: PlannedGuardActionStatus
@@ -120,7 +120,7 @@ function isWriteAction(action: GuardAction): boolean {
 }
 
 function plannedAction(
-  ruleId: number,
+  ruleId: number | null,
   action: GuardAction,
   status: PlannedGuardActionStatus,
   reason: string | null,

@@ -118,6 +118,7 @@ export type GuardPolicy = {
   allow_delete: boolean
   allow_mute: boolean
   allow_ban: boolean
+  cas_ban_enabled: boolean
   ignore_admins: boolean
   ignore_bots: boolean
   reply_cooldown_seconds: number

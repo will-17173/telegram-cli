@@ -27,6 +27,7 @@ function policy(overrides: Partial<GuardGroupPolicy> = {}): GuardGroupPolicy {
     allow_delete: true,
     allow_mute: true,
     allow_ban: true,
+    cas_ban_enabled: false,
     ignore_admins: true,
     ignore_bots: true,
     reply_cooldown_seconds: 60,

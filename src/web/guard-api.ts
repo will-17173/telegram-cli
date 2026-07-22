@@ -254,6 +254,7 @@ function policyFromBody(input: unknown, fallback: GuardGroupPolicy): GuardGroupP
     allow_delete: optionalBoolean(input, 'allow_delete') ?? fallback.allow_delete,
     allow_mute: optionalBoolean(input, 'allow_mute') ?? fallback.allow_mute,
     allow_ban: optionalBoolean(input, 'allow_ban') ?? fallback.allow_ban,
+    cas_ban_enabled: optionalBoolean(input, 'cas_ban_enabled') ?? fallback.cas_ban_enabled,
     ignore_admins: optionalBoolean(input, 'ignore_admins') ?? fallback.ignore_admins,
     ignore_bots: optionalBoolean(input, 'ignore_bots') ?? fallback.ignore_bots,
     reply_cooldown_seconds: optionalNonNegativeInteger(input, 'reply_cooldown_seconds') ?? fallback.reply_cooldown_seconds,

@@ -10,6 +10,7 @@ export type TelegramGuardMessageUpdate = {
     sender_is_admin?: boolean
     sender_is_bot?: boolean
     member_joined_at?: string | null
+    member_joined_user_id?: number | null
   }
 }
 

@@ -170,6 +170,7 @@ describe('guard web API', () => {
       enabled: true,
       policy: {
         allow_mute: true,
+        cas_ban_enabled: true,
         reply_cooldown_seconds: 90,
       },
     }))
@@ -195,6 +196,7 @@ describe('guard web API', () => {
           enabled: true,
           policy: {
             allow_mute: true,
+            cas_ban_enabled: true,
             reply_cooldown_seconds: 90,
           },
         }],

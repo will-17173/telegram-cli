@@ -1222,9 +1222,26 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
                 <span className={selectedGroup.policy.allow_delete ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_delete ? t.guard.deleteAllowed : t.guard.deleteBlocked}</span>
                 <span className={selectedGroup.policy.allow_mute ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_mute ? t.guard.muteAllowed : t.guard.muteBlocked}</span>
                 <span className={selectedGroup.policy.allow_ban ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.allow_ban ? t.guard.banAllowed : t.guard.banBlocked}</span>
+                <button
+                  className={selectedGroup.policy.cas_ban_enabled ? 'policy-chip policy-chip-on' : 'policy-chip'}
+                  disabled={updatingGroup}
+                  type="button"
+                  aria-pressed={selectedGroup.policy.cas_ban_enabled}
+                  onClick={() => void updateSelectedGroup({
+                    policy: {
+                      ...selectedGroup.policy,
+                      cas_ban_enabled: !selectedGroup.policy.cas_ban_enabled,
+                    },
+                  })}
+                >
+                  {selectedGroup.policy.cas_ban_enabled ? t.guard.casBanEnabled : t.guard.casBanDisabled}
+                </button>
                 <span className={selectedGroup.policy.ignore_admins ? 'policy-chip policy-chip-on' : 'policy-chip'}>{selectedGroup.policy.ignore_admins ? t.guard.adminsSkipped : t.guard.adminsIncluded}</span>
                 <span className="policy-chip">{formatMessage(t.guard.cooldown, { seconds: selectedGroup.policy.action_cooldown_seconds })}</span>
-                <small>{t.guard.policyNote}</small>
+                <small>
+                  {t.guard.policyNote}{' '}
+                  <a href="https://cas.chat/" target="_blank" rel="noreferrer">Powered by CAS</a>
+                </small>
               </div>
               <p className="guard-policy-note">{guardGroupStatusDetail(selectedGroup, t)}</p>
             </div>

@@ -72,6 +72,11 @@ export type NormalizedMessage = {
   msg_id: number
   sender_id: number | null
   sender_name: string | null
+  sender_username?: string | null
+  sender_is_admin?: boolean
+  sender_is_bot?: boolean
+  member_joined_at?: string | null
+  member_joined_user_id?: number | null
   content: string | null
   timestamp: string
   reply_to_msg_id: number | null

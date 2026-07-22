@@ -182,6 +182,7 @@ export class GuardDB {
       allow_delete: true,
       allow_mute: false,
       allow_ban: false,
+      cas_ban_enabled: false,
       ignore_admins: true,
       ignore_bots: true,
       reply_cooldown_seconds: 30,
@@ -542,6 +543,7 @@ function createSchema(db: Database.Database): void {
 }
 
 function hydrateManagedGroup(row: ManagedGroupRow): GuardManagedGroup {
+  const parsedPolicy = JSON.parse(row.policy_json) as Partial<GuardGroupPolicy>
   return {
     id: row.id,
     account: row.account,
@@ -549,9 +551,22 @@ function hydrateManagedGroup(row: ManagedGroupRow): GuardManagedGroup {
     title: row.title,
     enabled: intToBoolean(row.enabled),
     runtime_status: row.runtime_status,
-    policy: JSON.parse(row.policy_json) as GuardGroupPolicy,
+    policy: hydratePolicy(parsedPolicy),
     created_at: row.created_at,
     updated_at: row.updated_at,
+  }
+}
+
+function hydratePolicy(policy: Partial<GuardGroupPolicy>): GuardGroupPolicy {
+  return {
+    allow_delete: policy.allow_delete ?? true,
+    allow_mute: policy.allow_mute ?? false,
+    allow_ban: policy.allow_ban ?? false,
+    cas_ban_enabled: policy.cas_ban_enabled ?? false,
+    ignore_admins: policy.ignore_admins ?? true,
+    ignore_bots: policy.ignore_bots ?? true,
+    reply_cooldown_seconds: policy.reply_cooldown_seconds ?? 30,
+    action_cooldown_seconds: policy.action_cooldown_seconds ?? 5,
   }
 }
 

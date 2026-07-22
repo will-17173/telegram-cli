@@ -4,7 +4,7 @@ import type { GuardEvent } from './types.js'
 export type GuardActionExecutionStatus = 'executed' | 'skipped' | 'dry_run' | 'failed' | 'delayed'
 
 export type GuardActionExecutionResult = {
-  rule_id: number
+  rule_id: number | null
   action_type: PlannedGuardAction['type']
   status: GuardActionExecutionStatus
   details: Record<string, unknown>

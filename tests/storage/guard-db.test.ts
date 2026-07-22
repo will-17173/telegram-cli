@@ -35,6 +35,22 @@ describe('GuardDB', () => {
     store.close()
   })
 
+  it('defaults and persists the CAS ban policy flag', () => {
+    const store = db()
+    expect(store.defaultPolicy().cas_ban_enabled).toBe(false)
+
+    const group = store.upsertManagedGroup({
+      account: 'work',
+      chat_id: -1001,
+      title: 'Team',
+      enabled: true,
+      policy: { ...store.defaultPolicy(), cas_ban_enabled: true },
+    })
+
+    expect(store.managedGroupById(group.id)?.policy.cas_ban_enabled).toBe(true)
+    store.close()
+  })
+
   it('stores validated rules and activity', () => {
     const store = db()
     const group = store.upsertManagedGroup({

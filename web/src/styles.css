@@ -1322,6 +1322,16 @@ input::placeholder {
   white-space: nowrap;
 }
 
+button.policy-chip {
+  background: transparent;
+  cursor: pointer;
+}
+
+button.policy-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
 .guard-status-running,
 .policy-chip-on,
 .guard-activity-executed {

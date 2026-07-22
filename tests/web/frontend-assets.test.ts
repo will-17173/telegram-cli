@@ -272,10 +272,13 @@ describe('web frontend source', () => {
     expect(app).toContain('activityDetailLabel(item, t)')
     expect(app).toContain('defaultRuleName(ruleDraft, t)')
     expect(app).toContain('guardRulePreset(\'links\')')
+    expect(app).toContain('cas_ban_enabled: !selectedGroup.policy.cas_ban_enabled')
+    expect(app).toContain('href="https://cas.chat/"')
+    expect(app).toContain('Powered by CAS')
     expect(i18n).toContain('Group automation')
     expect(i18n).toContain('群组自动化')
-    expect(i18n).toContain('These limits only apply after an enabled rule matches.')
-    expect(i18n).toContain('这些限制只会在已启用规则命中后生效。')
+    expect(i18n).toContain('CAS runs on new joins when enabled.')
+    expect(i18n).toContain('CAS 开启后会检查新入群成员。')
     expect(app).toContain("postJson<GuardRule>('/api/guard/rules'")
     expect(app).toContain('guardRuleRequestFromDraft(selectedGroupId, ruleDraft)')
     expect(app).toContain('syncStatusLabel(syncTask.status, t)')
@@ -509,6 +512,7 @@ function guardGroup(id: number, title: string): GuardGroup {
       allow_delete: true,
       allow_mute: false,
       allow_ban: false,
+      cas_ban_enabled: false,
       ignore_admins: true,
       ignore_bots: true,
       reply_cooldown_seconds: 30,

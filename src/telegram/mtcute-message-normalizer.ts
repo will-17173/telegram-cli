@@ -30,6 +30,7 @@ export function normalizeMtcuteMessageWithLocations(message: Message): Normalize
       msg_id: message.id,
       sender_id: typeof message.sender.id === 'number' ? message.sender.id : null,
       sender_name: peerDisplayNameOrNull(message.sender),
+      ...memberJoinFields(message),
       content: message.text === '' ? null : message.text,
       timestamp: message.date.toISOString(),
       reply_to_msg_id: message.replyToMessage?.id ?? null,
@@ -38,6 +39,21 @@ export function normalizeMtcuteMessageWithLocations(message: Message): Normalize
       attachments: withDownloadLocations(normalizedMedia.attachments, normalizedMedia.locations),
     },
     locations: normalizedMedia.locations,
+  }
+}
+
+function memberJoinFields(message: Message): Pick<NormalizedMessage, 'member_joined_at' | 'member_joined_user_id'> | Record<string, never> {
+  const action = message.action
+  if (action == null) return {}
+  switch (action.type) {
+    case 'users_added':
+      if (action.users.length !== 1) return {}
+      return { member_joined_at: message.date.toISOString(), member_joined_user_id: action.users[0] ?? null }
+    case 'user_joined_link':
+    case 'user_joined_approved':
+      return { member_joined_at: message.date.toISOString(), member_joined_user_id: typeof message.sender.id === 'number' ? message.sender.id : null }
+    default:
+      return {}
   }
 }
 
