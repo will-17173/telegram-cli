@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-07-22
+
+### Fixed
+
+- Refresh Telegram history peers and extend transient retries after repeated `CHANNEL_INVALID` pagination failures during `tg sync`.
+
 ## [0.8.0] - 2026-07-22
 
 ### Added
