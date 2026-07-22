@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-22
+
+### Added
+
+- Add `tg guard` for rule-based group moderation, including local rule storage, runtime processing, action planning, action queues, and Telegram listener integration.
+- Add a Guard Web console for managing guard groups and rules, including creation, deletion, enable/disable controls, activity state, and local API endpoints.
+- Add Simplified Chinese and English localization for the message browser and Guard Web console.
+- Add the repository release workflow skill for preparing and publishing Telegram CLI releases.
+
+### Changed
+
+- Split the regular `tg web` message browser from the Guard Web console so the message browser no longer shows Guard tab navigation.
+- Keep persisted guard identifiers locale-neutral while rendering labels in the active Web UI language.
+- Stabilize `tg sync` newer-message persistence so disconnected pages are not stored when a transient history failure interrupts the sync.
+
+### Fixed
+
+- Retry repeated transient `CHANNEL_INVALID` errors while fetching Telegram history instead of stopping after a short retry window.
+- Allow media downloads on platforms without `O_NOFOLLOW`, including Windows, while retaining no-follow protection where the flag is available.
+- Improve guard runtime cleanup, state refresh, rule classification, action deduplication, and listener routing.
+- Clarify Guard Web rule states and keep group, account, and rule UI state synchronized.
+
 ## [0.7.3] - 2026-07-17
 
 ### Added
