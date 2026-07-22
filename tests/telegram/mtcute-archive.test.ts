@@ -1,5 +1,5 @@
 import { mkdtemp, readFile, readdir, readlink, rm, stat, writeFile } from 'node:fs/promises'
-import { constants, symlinkSync, unlinkSync } from 'node:fs'
+import { constants, openSync, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -128,13 +128,13 @@ describe('MtcuteArchive', () => {
   it.each([
     ['undefined', undefined],
     ['zero', 0],
-  ])('fails closed without opening the destination when no-follow is %s', async (_description, noFollow) => {
+  ])('downloads to a regular staging file when no-follow is %s', async (_description, noFollow) => {
     const location = new FileLocation(new Uint8Array([1, 2, 3]), 3)
     const directory = await mkdtemp(join(tmpdir(), 'tg-mtcute-archive-no-nofollow-'))
     const destination = join(directory, 'photo.stage')
     await writeFile(destination, 'sentinel')
-    const open = vi.fn()
-    const source = Readable.from([Buffer.from('hostile bytes')])
+    const open = vi.fn((path: string, flags: number) => openSync(path, flags))
+    const source = Readable.from([Buffer.from('photo bytes')])
     const client = mockClient({
       getMessages: vi.fn().mockResolvedValue([message(3, '2026-07-13T00:00:03.000Z', mediaDocument(location))]),
       downloadAsNodeStream: vi.fn(() => source),
@@ -145,12 +145,10 @@ describe('MtcuteArchive', () => {
     })
 
     try {
-      await expect(adapter.downloadMedia({ chat: '@team', msgId: 3, attachment: documentLocator(), destination }))
-        .rejects.toThrow('archive_no_follow_unavailable')
+      await adapter.downloadMedia({ chat: '@team', msgId: 3, attachment: documentLocator(), destination })
 
-      expect(open).not.toHaveBeenCalled()
-      expect(await readFile(destination, 'utf8')).toBe('sentinel')
-      expect(source.destroyed).toBe(true)
+      expect(open).toHaveBeenCalledWith(destination, constants.O_WRONLY | constants.O_TRUNC)
+      expect(await readFile(destination, 'utf8')).toBe('photo bytes')
     } finally {
       await rm(directory, { recursive: true, force: true })
     }

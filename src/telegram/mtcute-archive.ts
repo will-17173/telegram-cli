@@ -129,13 +129,12 @@ export class MtcuteArchive implements TelegramArchiveAdapter {
 }
 
 function openExistingNoFollow(path: string, stagingOpen: ArchiveStagingOpen): number {
-  if (typeof stagingOpen.noFollow !== 'number' || stagingOpen.noFollow === 0) {
-    throw new Error('archive_no_follow_unavailable')
-  }
-
+  const noFollow = typeof stagingOpen.noFollow === 'number' && stagingOpen.noFollow !== 0
+    ? stagingOpen.noFollow
+    : 0
   return stagingOpen.open(
     path,
-    constants.O_WRONLY | constants.O_TRUNC | stagingOpen.noFollow,
+    constants.O_WRONLY | constants.O_TRUNC | noFollow,
   )
 }
 
