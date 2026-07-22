@@ -31,8 +31,9 @@ type PeerShape = {
   usernames?: unknown
 }
 
-const TRANSIENT_HISTORY_RETRY_LIMIT = 10
+const TRANSIENT_HISTORY_RETRY_LIMIT = 20
 const TRANSIENT_HISTORY_RETRY_DELAY_MS = 500
+const CHANNEL_INVALID_PEER_REFRESH_INTERVAL = 3
 
 export class MtcuteTelegramClient implements TelegramClientAdapter {
   readonly archive: TelegramArchiveAdapter
@@ -136,6 +137,8 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     await this.ensureReady()
     const rows: NormalizedMessage[] = []
     let offset: NonNullable<Parameters<TelegramClient['getHistory']>[1]>['offset'] = options.offset
+    const originalHistoryChat = normalizeChatId(options.chat)
+    let historyChat: Parameters<TelegramClient['getHistory']>[0] = originalHistoryChat
     let floodRetries = 0
     let transientRetries = 0
 
@@ -149,7 +152,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       let page
       while (true) {
         try {
-          page = await this.client.getHistory(normalizeChatId(options.chat), pageOptions)
+          page = await this.client.getHistory(historyChat, pageOptions)
           break
         } catch (error) {
           const floodSeconds = floodWaitSeconds(error)
@@ -162,6 +165,9 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
 
           if (isRetriableHistoryRpcError(error) && transientRetries < TRANSIENT_HISTORY_RETRY_LIMIT) {
             transientRetries += 1
+            if (transientRetries % CHANNEL_INVALID_PEER_REFRESH_INTERVAL === 0) {
+              historyChat = await this.refreshHistoryPeer(originalHistoryChat) ?? historyChat
+            }
             await setTimeout(transientRetries * TRANSIENT_HISTORY_RETRY_DELAY_MS)
             continue
           }
@@ -184,6 +190,16 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       }
     }
     return rows
+  }
+
+  private async refreshHistoryPeer(chat: Parameters<TelegramClient['getHistory']>[0]): Promise<Parameters<TelegramClient['getHistory']>[0] | undefined> {
+    try {
+      const peer = await this.client.getPeer(chat)
+      const inputPeer = (peer as { inputPeer?: Parameters<TelegramClient['getHistory']>[0] }).inputPeer
+      return inputPeer
+    } catch {
+      return undefined
+    }
   }
 
   async downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void> {

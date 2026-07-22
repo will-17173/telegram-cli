@@ -229,6 +229,37 @@ describe('MtcuteTelegramClient history', () => {
     expect(sleep).toHaveBeenNthCalledWith(5, 2_500)
   })
 
+  it('refreshes the peer and retries the same history page after repeated channel invalid errors', async () => {
+    const firstOffset = { id: 107, date: 1_752_355_200 }
+    const refreshedPeer = { _: 'inputPeerChannel', channelId: 123, accessHash: 456 }
+    const getHistory = vi.fn()
+      .mockResolvedValueOnce(page(8, 100, firstOffset))
+      .mockRejectedValueOnce(new tl.RpcError(400, 'CHANNEL_INVALID'))
+      .mockRejectedValueOnce(new tl.RpcError(400, 'CHANNEL_INVALID'))
+      .mockRejectedValueOnce(new tl.RpcError(400, 'CHANNEL_INVALID'))
+      .mockResolvedValueOnce(page(108, 1))
+    const getPeer = vi.fn().mockResolvedValue({ inputPeer: refreshedPeer })
+    const client = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      getMe: vi.fn().mockResolvedValue({ id: 1 }),
+      getHistory,
+      getPeer,
+    } as unknown as TelegramClient
+
+    const rows = await new MtcuteTelegramClient(client).fetchHistory({
+      chat: -100123,
+      limit: 101,
+      minId: 7,
+    })
+
+    expect(rows).toHaveLength(101)
+    expect(getPeer).toHaveBeenCalledWith(-100123)
+    expect(getHistory).toHaveBeenCalledTimes(5)
+    expect(getHistory).toHaveBeenNthCalledWith(2, -100123, { limit: 1, minId: 7, offset: firstOffset })
+    expect(getHistory).toHaveBeenNthCalledWith(4, -100123, { limit: 1, minId: 7, offset: firstOffset })
+    expect(getHistory).toHaveBeenNthCalledWith(5, refreshedPeer, { limit: 1, minId: 7, offset: firstOffset })
+  })
+
   it('propagates the sixth flood error after five automatic retries', async () => {
     vi.useFakeTimers()
     const errors = Array.from({ length: 6 }, () => new tl.RpcError(420, 'FLOOD_WAIT_14'))
