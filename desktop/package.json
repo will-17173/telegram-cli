@@ -1,0 +1,22 @@
+{
+  "name": "@will-17173/telegram-cli-desktop",
+  "private": true,
+  "version": "0.8.1",
+  "type": "module",
+  "description": "Tauri desktop shell for Telegram CLI",
+  "scripts": {
+    "bundle": "tsx scripts/bundle-cli.ts",
+    "fetch-node": "tsx scripts/fetch-node.ts",
+    "prepare-sidecar": "tsx scripts/fetch-node.ts",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/tar": "^7.0.87",
+    "@vercel/ncc": "^0.44.1",
+    "tar": "^7.4.3",
+    "tsx": "^4.20.6"
+  }
+}

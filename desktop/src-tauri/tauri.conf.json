@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Telegram CLI",
+  "version": "0.8.1",
+  "identifier": "com.will17173.telegram-cli",
+  "build": {
+    "frontendDist": "dist-web",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm run bundle && pnpm --dir .. run dev:web",
+    "beforeBuildCommand": "pnpm --dir .. run build:web && pnpm run bundle"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "Telegram CLI",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "url": "index.html",
+        "label": "main"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' tauri: asset:; connect-src 'self' http://127.0.0.1:*; img-src 'self' data: blob: asset: tauri:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "externalBin": ["binaries/node"],
+    "resources": ["dist-bundle/**/*"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "category": "DeveloperTool"
+  }
+}

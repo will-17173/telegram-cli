@@ -156,14 +156,21 @@ desktop/
 ```ts
 // 桌面模式：Tauri 注入 window.__TG_API_BASE__
 // CLI web 模式：undefined，回落相对路径（同源）
-const API_BASE: string =
-  (typeof window !== 'undefined' && (window as any).__TG_API_BASE__) || ''
+// 注意：Tauri 在 webview 加载后才注入该值，故每次请求时惰性读取，
+// 不能用模块顶层常量（会在注入前求值成空串）。
+function apiBase(): string {
+  return (
+    (typeof window !== 'undefined' &&
+      (window as unknown as { __TG_API_BASE__?: string }).__TG_API_BASE__) ||
+    ''
+  )
+}
 
-export async function getJson<T>(path: string): Promise<ApiResult<T>> {
-  const res = await fetch(`${API_BASE}${path}`, { headers: { accept: 'application/json' } })
+export async function getJson<T>(path: string): Promise<T> {
+  const response = await fetch(`${apiBase()}${path}`)
   ...
 }
-// postJson / patchJson / deleteJson 同理在 path 前加 API_BASE
+// postJson / patchJson / deleteJson 同理在 path 前加 apiBase()
 ```
 
 影响：`web/src/api.ts` 一处。无新依赖。CLI `tg web` 下 `__TG_API_BASE__` 不存在，行为不变。
@@ -317,12 +324,12 @@ better-sqlite3 原生模块处理：
 
 ## 9. 风险与未决项
 
-| 风险 | 影响 | 缓解 |
+| 风险 | 影响 | 缓解 / 结论 |
 |---|---|---|
-| **ncc 对 better-sqlite3 v12 的 `.node` asset emit 行为未知** | 打包后 sidecar 可能找不到/加载错 `.node`，启动失败 | 第一阶段先做 POC：单独 ncc 打包 + 系统 node 跑 `tg web`，验证 better-sqlite3 加载。若 ncc emit 不正确，降级为手动拷 `prebuilds/` + `NODE_PATH` 或改用 `esbuild` + 显式 `copy`。 |
-| **`security.ts` Origin 校验拒绝 Tauri webview** | 前端 fetch 全部 403 | POC 阶段验证；必要时放行 Tauri origin（改动 `src/web/security.ts`，需同步 CLI 测试）。 |
-| **better-sqlite3 跨架构预编译** | x64 `.app` 在 arm64 上无法用（反之亦然） | macOS 提供双架构构建；或用 `lipo` 合并 universal `.node`。第一版分别构建 arm64 / x64 两个 `.dmg`。 |
-| **应用体积** | `.app` 约 60–90MB（含 Node 运行时） | 接受。未来可探索 Bun compile（更小、单二进制）作为优化，但需重新验证 mtcute/better-sqlite3 兼容。 |
+| **ncc 对 better-sqlite3 v12 的 `.node` asset emit 行为** | 打包后 sidecar 可能找不到/加载错 `.node`，启动失败 | ✅ **POC 已验证可行**（2026-07-23）：ncc CLI 正确 emit `build/Release/better_sqlite3.node`（arm64，1.9MB）+ `mtcute.wasm`/`mtcute-simd.wasm`。`node dist-bundle/index.js --version` → `0.8.1`；`node dist-bundle/index.js web --port <p>` → `/api/health` 返回 `{"ok":true}`，证明 better-sqlite3 在 bundle 内正确加载、web server 正常。无需降级方案。注意：必须用 ncc **CLI**（`ncc build`）而非 programmatic API（后者在本项目下报错）。 |
+| **`security.ts` Origin 校验拒绝 Tauri webview** | 前端 fetch 全部 403 | ✅ **POC 已确认会被拒**（2026-07-23）：`security.ts:8-11` 对存在的 Origin 头要求 `=== http://<host>`；Tauri webview 跨源请求带 `Origin: http://tauri.localhost`，必被 `forbidden_origin` 拒。**需改 `src/web/security.ts` 放行 Tauri origin**（`http://tauri.localhost`、`https://tauri.localhost`），并补 `tests/web/security.test.ts`。改动同时影响 CLI，需跑 `pnpm test`。 |
+| **better-sqlite3 跨架构预编译** | x64 `.app` 在 arm64 上无法用（反之亦然） | macOS 提供双架构构建；或用 `lipo` 合并 universal `.node`。第一版分别构建 arm64 / x64 两个 `.dmg`。ncc emit 的 `.node` 来自当前机器 `pnpm rebuild` 产物，故必须在目标架构机器上跑 ncc。 |
+| **应用体积** | `.app` 约 60–90MB（含 Node 运行时） | 接受。ncc bundle 本身约 7.6MB（index.js 5.4MB + .node 1.9MB + wasm），加上 portable node ~40MB。未来可探索 Bun compile 作为优化。 |
 | **sidecar 端口与系统冲突** | 极低（用 `:0` 动态分配） | 已用动态端口。 |
 | **sidecar 崩溃后无自动重启** | 后端挂了前端报错 | 第一版仅日志 + 错误提示；自动重启留待后续。 |
 | **CLI 与桌面应用并发同账户** | SQLite 锁竞争 / session 争用 | 文档明确禁止；第一版不做检测。 |

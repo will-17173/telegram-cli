@@ -163,13 +163,26 @@ export type GuardActivityItem = {
   action_created_at: string
 }
 
+// Desktop shell (Tauri) injects window.__TG_API_BASE__ pointing at the embedded
+// CLI web server on a dynamic localhost port. Read it lazily on each request:
+// Tauri injects it after the webview loads, so a module-top constant would miss
+// the value. In standalone `tg web` mode this is undefined, so requests fall
+// back to relative paths (same-origin).
+function apiBase(): string {
+  return (
+    (typeof window !== 'undefined' &&
+      (window as unknown as { __TG_API_BASE__?: string }).__TG_API_BASE__) ||
+    ''
+  )
+}
+
 export async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path)
+  const response = await fetch(`${apiBase()}${path}`)
   return unwrap<T>(response)
 }
 
 export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(`${apiBase()}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -178,7 +191,7 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function patchJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(`${apiBase()}${path}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -187,7 +200,7 @@ export async function patchJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function deleteJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, { method: 'DELETE' })
+  const response = await fetch(`${apiBase()}${path}`, { method: 'DELETE' })
   return unwrap<T>(response)
 }
 

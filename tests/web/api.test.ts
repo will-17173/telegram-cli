@@ -680,4 +680,17 @@ describe('handleApiRequest', () => {
     expect(response.status).toBe(200)
     expect(await json(response)).toEqual({ ok: true, data: { status: 'ok' } })
   })
+
+  it('accepts Tauri webview Origins (desktop shell)', async () => {
+    const root = makeRoot()
+
+    for (const origin of ['http://tauri.localhost', 'https://tauri.localhost']) {
+      const response = await api(root, '/api/health', {
+        headers: { origin },
+      })
+
+      expect(response.status).toBe(200)
+      expect(await json(response)).toEqual({ ok: true, data: { status: 'ok' } })
+    }
+  })
 })

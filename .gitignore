@@ -48,3 +48,12 @@ yarn-error.log*
 *.swp
 *.swo
 *~
+
+# Desktop app (Tauri) build artifacts
+/desktop/dist-bundle/
+/desktop/src-tauri/dist-bundle/
+/desktop/src-tauri/dist-web/
+/desktop/src-tauri/binaries/
+/desktop/src-tauri/target/
+/desktop/node_modules/
+/desktop/src-tauri/gen/

@@ -29,6 +29,7 @@
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:web": "vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts",
     "build": "pnpm clean && pnpm build:web && tsc -p tsconfig.build.json",
     "dev": "tsx src/dev.ts",
     "test": "vitest run",
@@ -53,6 +54,7 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@vercel/ncc": "^0.44.1",
     "@vitejs/plugin-react": "^6.0.3",
     "dotenv": "^17.2.3",
     "tsx": "^4.20.6",
