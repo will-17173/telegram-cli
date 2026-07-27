@@ -207,7 +207,7 @@ describe('DownloadService', () => {
       data: { requested: 1, downloaded: 1, skipped: 0, failed: 0 },
     })
     expect(source.iterHistoryPages).toHaveBeenCalledWith(expect.objectContaining({ chat: '@channel', minId: 41 }))
-    expect(readFileSync(join(output, 'photo-42.jpg'), 'utf8')).toBe('media 42')
+    expect(readFileSync(join(output, '10_100_42_1784116800.jpg'), 'utf8')).toBe('media 42')
   })
 
   it('downloads only the requested message when it is part of an album', async () => {
@@ -226,7 +226,7 @@ describe('DownloadService', () => {
 
     expect(result).toMatchObject({ ok: true, data: { requested: 1, downloaded: 1 } })
     expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId)).toEqual([42])
-    expect(readFileSync(join(output, 'photo-42.jpg'), 'utf8')).toBe('media 42')
+    expect(readFileSync(join(output, '10_100_42_1784116801.jpg'), 'utf8')).toBe('media 42')
   })
 
   it('downloads every locally resolved media item matching a grouped id', async () => {
@@ -248,8 +248,8 @@ describe('DownloadService', () => {
     expect(result).toMatchObject({ ok: true, data: { requested: 2, downloaded: 2 } })
     expect(source.iterHistoryPages).not.toHaveBeenCalled()
     expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId).sort((left, right) => left - right)).toEqual([42, 43])
-    expect(readFileSync(join(output, 'photo-42.jpg'), 'utf8')).toBe('media 42')
-    expect(readFileSync(join(output, 'photo-43.jpg'), 'utf8')).toBe('media 43')
+    expect(readFileSync(join(output, '10_100_42_1784116801.jpg'), 'utf8')).toBe('media 42')
+    expect(readFileSync(join(output, '10_100_43_1784116802.jpg'), 'utf8')).toBe('media 43')
   })
 
   it('rejects unresolved grouped ids without scanning Telegram history', async () => {
@@ -401,8 +401,8 @@ describe('DownloadService', () => {
       },
     })
     expect(source.downloadMedia.mock.calls.map(([input]) => input.msgId)).toEqual([3, 2])
-    expect(existsSync(join(output, 'photo.JPG'))).toBe(true)
-    expect(existsSync(join(output, '-100-2-1.png'))).toBe(true)
+    expect(existsSync(join(output, '10_100_3_1784116800.jpg'))).toBe(true)
+    expect(existsSync(join(output, '10_100_2_1784113200.png'))).toBe(true)
     expect(existsSync(join(output, 'clip.WEBM'))).toBe(false)
     expect(existsSync(join(output, 'document.pdf'))).toBe(false)
   })
@@ -475,11 +475,11 @@ describe('DownloadService', () => {
       'download all: scanning @channel newest to oldest in pages of up to 100 messages',
       'already downloaded: message 4 attachment 1',
       'download page: scanned 2 messages, found 1 media, downloaded 0, failed 0',
-      'downloading: message 5 attachment 1 -> photo-5.jpg',
+      'downloading: message 5 attachment 1 -> 10_100_5_1784116800.jpg',
       'download progress: scanned 2 messages, found 1 media, downloaded 1, failed 0',
       'download page: scanned 4 messages, found 3 media, downloaded 1, failed 0',
-      'downloading: message 3 attachment 1 -> photo-3.jpg',
-      'downloading: message 2 attachment 1 -> photo-2.jpg',
+      'downloading: message 3 attachment 1 -> 10_100_3_1784116800.jpg',
+      'downloading: message 2 attachment 1 -> 10_100_2_1784116800.jpg',
       'download progress: scanned 4 messages, found 3 media, downloaded 3, failed 0',
     ])
   })
@@ -540,6 +540,6 @@ describe('DownloadService', () => {
 
     expect(result).toMatchObject({ ok: true, data: { downloaded: 1, flood_waits: 1 } })
     expect(sleep).toHaveBeenCalledWith(3000)
-    expect(readFileSync(join(output, 'photo-42.jpg'), 'utf8')).toBe('retried')
+    expect(readFileSync(join(output, '10_100_42_1784116800.jpg'), 'utf8')).toBe('retried')
   })
 })

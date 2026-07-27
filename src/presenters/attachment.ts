@@ -1,8 +1,11 @@
 import type { Attachment, MediaKind, NormalizedMessage } from '../telegram/media-types.js'
+import { mediaDownloadFileName } from '../services/attachment-download.js'
 
 export type PresentedAttachment = Attachment & {
   chatId: number
   messageId: number
+  senderId?: number | null
+  timestamp?: string
   downloadPeer?: NormalizedMessage['download_peer']
   key: string
   depth: number
@@ -50,6 +53,8 @@ export function presentMessageAttachments(message: NormalizedMessage): Presented
       ...attachment,
       chatId: message.chat_id,
       messageId: message.msg_id,
+      senderId: message.sender_id,
+      timestamp: message.timestamp,
       ...(message.download_peer == null ? {} : { downloadPeer: message.download_peer }),
       key: `${message.chat_id}:${message.msg_id}:${attachment.attachment_index}`,
       depth,
@@ -85,11 +90,15 @@ export function formatAttachmentSize(bytes: number): string {
 }
 
 export function attachmentFileName(attachment: PresentedAttachment): string {
-  if (attachment.file_name != null) return attachment.file_name
-  const extension = attachment.mime_type == null
-    ? MEDIA_EXTENSIONS[attachment.kind] ?? 'bin'
-    : MIME_EXTENSIONS[attachment.mime_type.toLowerCase()] ?? MEDIA_EXTENSIONS[attachment.kind] ?? 'bin'
-  return `${attachment.chatId}-${attachment.messageId}-${attachment.attachment_index}.${extension}`
+  return mediaDownloadFileName({
+    senderId: attachment.senderId ?? null,
+    chatId: attachment.chatId,
+    messageId: attachment.messageId,
+    timestamp: attachment.timestamp ?? 'unknown',
+    fileName: attachment.file_name,
+    mimeType: attachment.mime_type,
+    kind: attachment.kind,
+  })
 }
 
 export function attachmentDownloadTarget(attachment: PresentedAttachment): { chat: number; msgId: number } {

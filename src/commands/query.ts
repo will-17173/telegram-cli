@@ -9,9 +9,11 @@ import { runWithAccountContext, type AccountCommandOptions } from './account-opt
 type QueryFlags = AccountCommandOptions & {
   chat?: string
   sender?: string
+  user?: string
   hours?: string
   regex?: boolean
   limit?: string
+  offset?: string
   by?: 'day' | 'hour'
   json?: boolean
   yaml?: boolean
@@ -43,16 +45,20 @@ export function registerQueryCommands(app: Command): void {
     .description('Show recently stored messages')
     .option('-c, --chat <chat>')
     .option('-s, --sender <sender>')
-    .option('--hours <hours>', 'Only show last N hours', '24')
-    .option('-n, --limit <limit>', 'Max messages', '50')
+    .option('--user <user>', 'Only show messages from a sender id or name in a chat')
+    .option('--hours <hours>', 'Only show last N hours')
+    .option('-n, --limit <limit>', 'Max messages')
+    .option('--offset <offset>', 'Skip N matching messages for pagination')
     .option('--json')
     .option('--yaml')
     .action(async (options: QueryFlags, command: Command) => {
       await renderQueryResult(options, (service) => service.recent({
         chat: options.chat,
         sender: options.sender,
+        user: options.user,
         hours: numberOption(options.hours),
         limit: numberOption(options.limit),
+        offset: numberOption(options.offset),
       }), command)
     })
 

@@ -43,36 +43,47 @@ describe('archive layout', () => {
     expect(slug.endsWith(grapheme)).toBe(true)
   })
 
-  it('builds a basename-only relative POSIX media path', () => {
-    expect(archiveMediaFile(-100123, 42, 1, '../../report.pdf'))
-      .toBe('media/-100123/42-1-report.pdf')
+  it('builds a sender chat message timestamp media path while preserving the extension', () => {
+    expect(archiveMediaFile({
+      senderId: 777,
+      chatId: -100123,
+      messageId: 42,
+      timestamp: '2026-07-13T10:00:00.000Z',
+      fileName: '../../report.pdf',
+    })).toBe('media/-100123/777_123_42_1783936800.pdf')
   })
 
-  it('sanitizes unsafe and reserved media filenames', () => {
-    expect(archiveMediaFile(-100123, 42, 1, '..\\..\\CON'))
-      .toBe('media/-100123/42-1-file-con')
-    expect(archiveMediaFile(-100123, 43, 2, '.')).toBe('media/-100123/43-2-file')
-    expect(archiveMediaFile(-100123, 44, 3, 'bad\u0000name?.txt'))
-      .toBe('media/-100123/44-3-bad-name.txt')
+  it('falls back to unknown sender and bin extension when media metadata is blank', () => {
+    expect(archiveMediaFile({
+      senderId: null,
+      chatId: -100123,
+      messageId: 43,
+      timestamp: '2026-07-13T10:00:00.000Z',
+      fileName: '.',
+    })).toBe('media/-100123/unknown_123_43_1783936800.bin')
   })
 
   it('caps multibyte media filename components by UTF-8 bytes', () => {
-    const path = archiveMediaFile(
-      -100123,
-      Number.MAX_SAFE_INTEGER,
-      1,
-      `${'文件'.repeat(100)}.${'扩展'.repeat(100)}`,
-    )
+    const path = archiveMediaFile({
+      senderId: Number.MAX_SAFE_INTEGER,
+      chatId: -100123,
+      messageId: Number.MAX_SAFE_INTEGER,
+      timestamp: '2026-07-13T10:00:00.000Z',
+      fileName: `${'文件'.repeat(100)}.${'扩展'.repeat(100)}`,
+    })
     const components = path.split('/')
 
     expect(components.every((component) => Buffer.byteLength(component) <= 255)).toBe(true)
     expect(components.at(-1)).not.toContain('\uFFFD')
   })
 
-  it('normalizes equivalent Unicode and portable trailing/reserved forms deterministically', () => {
-    expect(archiveMediaFile(-100, 40, 1, 'Cafe\u0301.txt'))
-      .toBe(archiveMediaFile(-100, 40, 1, 'Café.txt'))
-    expect(archiveMediaFile(-100, 40, 1, 'report. ')).toBe('media/-100/40-1-report')
-    expect(archiveMediaFile(-100, 40, 1, 'NUL.txt.')).toBe('media/-100/40-1-nul-txt')
+  it('normalizes unsafe timestamp characters deterministically', () => {
+    expect(archiveMediaFile({
+      senderId: 10,
+      chatId: -100,
+      messageId: 40,
+      timestamp: '2026-07-13T10:00:00.000Z',
+      fileName: 'report. ',
+    })).toBe('media/-100/10_100_40_1783936800.bin')
   })
 })

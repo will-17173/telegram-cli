@@ -2,7 +2,6 @@ import { StringDecoder } from 'node:string_decoder'
 import { posix } from 'node:path'
 import type { ArchiveMessage } from '../telegram/archive-types.js'
 import type { Attachment } from '../telegram/media-types.js'
-import { archiveMediaFile } from './archive-layout.js'
 
 export type { ArchiveMessage } from '../telegram/archive-types.js'
 
@@ -12,8 +11,8 @@ const MESSAGE_ID_PREFIX = ' id='
 const MESSAGE_MARKER_SUFFIX = ' -->'
 const MAX_MESSAGE_MARKER_LENGTH = `<!-- tg:message chat=-${Number.MAX_SAFE_INTEGER} id=${Number.MAX_SAFE_INTEGER} -->`.length
 const MAX_ARCHIVE_MEDIA_LINE_LENGTH = 4096
-const ARCHIVE_MEDIA_LINE = /^Attachment #[1-9]\d*: \[(?:\\.|[^\\\]])*\]\((media\/(?:\\.|[^\\)])+)\); type: .*; role: .*; size: (?:unknown|-?(?:0|[1-9]\d*) bytes); status: (?:downloaded|reused|failed); downloadable: yes(?:; downloaded: (?:yes|no))?$/u
-const ARCHIVE_MEDIA_PATH = /^media\/(-?(?:0|[1-9]\d*))\/([1-9]\d*)-([1-9]\d*)-(.+)$/u
+const ARCHIVE_MEDIA_LINE = /^Attachment #([1-9]\d*): \[(?:\\.|[^\\\]])*\]\((media\/(?:\\.|[^\\)])+)\); type: .*; role: .*; size: (?:unknown|-?(?:0|[1-9]\d*) bytes); status: (?:downloaded|reused|failed); downloadable: yes(?:; downloaded: (?:yes|no))?$/u
+const ARCHIVE_MEDIA_PATH = /^media\/(-?(?:0|[1-9]\d*))\/(?:unknown|-?(?:0|[1-9]\d*))_(-?(?:0|[1-9]\d*))_([1-9]\d*)_(?:unknown|[1-9]\d*)\.[A-Za-z0-9]+$/u
 
 export type ArchiveAttachmentRenderState = {
   attachment: Attachment
@@ -353,27 +352,31 @@ function archivedMediaLink(
   const normalized = line.endsWith('\r') ? line.slice(0, -1) : line
   const lineMatch = ARCHIVE_MEDIA_LINE.exec(normalized)
   if (lineMatch == null) return null
-  const path = decodeArchiveLinkDestination(lineMatch[1]!)
+  const attachmentIndex = Number(lineMatch[1])
+  const path = decodeArchiveLinkDestination(lineMatch[2]!)
   if (path == null) return null
 
   const pathMatch = ARCHIVE_MEDIA_PATH.exec(path)
+  const fileChatId = Number(pathMatch?.[2])
   if (pathMatch == null
     || Number(pathMatch[1]) !== chatId
     || String(chatId) !== pathMatch[1]
-    || Number(pathMatch[2]) !== messageId
-    || String(messageId) !== pathMatch[2]) {
+    || fileChatId !== mediaFileChatId(chatId)
+    || String(mediaFileChatId(chatId)) !== pathMatch[2]
+    || Number(pathMatch[3]) !== messageId
+    || String(messageId) !== pathMatch[3]) {
     return null
   }
 
-  const attachmentIndex = Number(pathMatch[3])
-  if (String(attachmentIndex) !== pathMatch[3]) return null
-  const safeName = pathMatch[4]!
-  if (safeName.includes('/')
-    || safeName.includes('\\')
-    || archiveMediaFile(chatId, messageId, attachmentIndex, safeName) !== path) {
+  if (!Number.isSafeInteger(attachmentIndex)) {
     return null
   }
   return { messageId, attachmentIndex, path }
+}
+
+function mediaFileChatId(chatId: number): number {
+  const value = String(chatId)
+  return value.startsWith('-100') ? Number(value.slice(4) || '100') : chatId
 }
 
 export async function scanArchiveRecovery(

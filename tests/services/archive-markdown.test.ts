@@ -117,13 +117,13 @@ describe('archive markdown', () => {
   it('renders a recoverable message marker, metadata, text, and media link', () => {
     const block = renderArchiveMessage(
       message(),
-      downloaded('media/-100123/42-1-report.pdf'),
+      downloaded('media/-100123/7_123_42_1783936800.pdf'),
     )
 
     expect(block).toContain('<!-- tg:message chat=-100123 id=42 -->')
     expect(block).toContain('**Alice** — 2026-07-13T10:00:00.000Z')
     expect(block).toContain('Reply to #40')
-    expect(block).toContain('[report.pdf](media/-100123/42-1-report.pdf)')
+    expect(block).toContain('[7\\_123\\_42\\_1783936800.pdf](media/-100123/7_123_42_1783936800.pdf)')
     expect(block).toContain('downloaded: no')
   })
 
@@ -292,7 +292,7 @@ describe('archive markdown', () => {
       renderArchiveMessage(message({ chat_id: -999, msg_id: 900 })),
       renderArchiveMessage(
         message({ msg_id: 43, timestamp: '2026-07-13T11:00:00.000Z' }),
-        [{ attachment: attachment(), status: 'downloaded', path: 'media/-100123/43-1-report.pdf' }],
+        [{ attachment: attachment(), status: 'downloaded', path: 'media/-100123/7_123_43_1783940400.pdf' }],
       ),
     ].join('\n\n---\n\n')
 
@@ -303,7 +303,7 @@ describe('archive markdown', () => {
       maxId: 43,
       maxTimestamp: '2026-07-13T11:00:00.000Z',
     })
-    expect(onMedia).toHaveBeenCalledWith({ messageId: 43, attachmentIndex: 1, path: 'media/-100123/43-1-report.pdf' })
+    expect(onMedia).toHaveBeenCalledWith({ messageId: 43, attachmentIndex: 1, path: 'media/-100123/7_123_43_1783940400.pdf' })
   })
 
   it('keeps bounded recovery state across a large archive', async () => {

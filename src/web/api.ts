@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 import { resolveAuthenticatedAccountContext } from '../account/account-context.js'
 import { getDataDir } from '../config/env.js'
-import { resolveAttachmentDestination } from '../services/attachment-download.js'
+import { mediaDownloadFileName, resolveAttachmentDestination } from '../services/attachment-download.js'
 import { isDataResetRequiredError, MESSAGE_DB_SCHEMA_VERSION, MessageDB } from '../storage/message-db.js'
 import { selectStoredAttachment, toAttachmentLocator, AttachmentLookupError } from '../telegram/attachment-locator.js'
 import { createTelegramClient } from '../telegram/client-factory.js'
@@ -181,7 +181,15 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
         const stored = selectStoredAttachment(message.attachments, attachment.attachmentIndex)
         const destination = resolveAttachmentDestination({
           homeDir: homedir(),
-          fileName: webDownloadFileName(attachment, stored),
+          fileName: mediaDownloadFileName({
+            senderId: message.sender_id,
+            chatId: attachment.chatId,
+            messageId: attachment.msgId,
+            timestamp: message.timestamp,
+            fileName: stored.file_name,
+            mimeType: stored.mime_type,
+            kind: stored.kind,
+          }),
           exists: existsSync,
           reserved,
         })
@@ -240,41 +248,6 @@ function parseDownloadAttachment(value: unknown): { chatId: number; msgId: numbe
     throw invalidRequest('attachment.attachment_index must be a positive integer.')
   }
   return { chatId: value.chat_id, msgId: value.msg_id, attachmentIndex: value.attachment_index }
-}
-
-function webDownloadFileName(
-  target: { chatId: number; msgId: number; attachmentIndex: number },
-  attachment: { file_name: string | null; mime_type: string | null; kind: string },
-): string {
-  const raw = attachment.file_name?.trim()
-  if (raw) return raw
-  return `${target.chatId}-${target.msgId}-${target.attachmentIndex}.${webDownloadExtension(attachment)}`
-}
-
-function webDownloadExtension(attachment: { mime_type: string | null; kind: string }): string {
-  const mimeExtension = attachment.mime_type == null
-    ? undefined
-    : WEB_DOWNLOAD_MIME_EXTENSIONS[attachment.mime_type.toLowerCase()]
-  if (mimeExtension != null) return mimeExtension
-  return WEB_DOWNLOAD_KIND_EXTENSIONS[attachment.kind] ?? 'bin'
-}
-
-const WEB_DOWNLOAD_MIME_EXTENSIONS: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'video/mp4': 'mp4',
-  'audio/mpeg': 'mp3',
-  'audio/ogg': 'ogg',
-  'application/pdf': 'pdf',
-}
-
-const WEB_DOWNLOAD_KIND_EXTENSIONS: Record<string, string> = {
-  photo: 'jpg',
-  video: 'mp4',
-  audio: 'mp3',
-  voice: 'ogg',
-  sticker: 'webp',
 }
 
 function isJsonRequest(request: Request): boolean {

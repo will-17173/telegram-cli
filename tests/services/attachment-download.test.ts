@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   attachmentDownloadProgress,
+  mediaDownloadFileName,
   resolveAttachmentDestination,
   sanitizeAttachmentFileName,
 } from '../../src/services/attachment-download.js'
@@ -16,6 +17,16 @@ describe('attachment download helpers', () => {
     expect(attachmentDownloadProgress(5, 12)).toBe(42)
     expect(attachmentDownloadProgress(1, 0)).toBeNull()
     expect(attachmentDownloadProgress(1, Number.NaN)).toBeNull()
+  })
+
+  it('names group media with local chat id and second-level timestamp', () => {
+    expect(mediaDownloadFileName({
+      senderId: 777,
+      chatId: -100123,
+      messageId: 42,
+      timestamp: '2026-07-13T10:00:00.123Z',
+      fileName: 'report.pdf',
+    })).toBe('777_123_42_1783936800.pdf')
   })
 })
 

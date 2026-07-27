@@ -9,6 +9,7 @@ type QueryOptions = {
   chat?: string
   hours?: number
   limit?: number
+  offset?: number
 }
 
 type ChatScope = {
@@ -43,7 +44,9 @@ export class QueryService {
     }
   }
 
-  recent(options: QueryOptions & { sender?: string }): HandlerResult {
+  recent(options: QueryOptions & { sender?: string; user?: string }): HandlerResult {
+    if (options.user != null) return this.recentByUser({ ...options, user: options.user })
+
     const normalized = { ...options, hours: options.hours ?? 24, limit: options.limit ?? 50 }
     const valid = validateQueryOptions(normalized)
     if (!valid.ok) return valid
@@ -51,15 +54,31 @@ export class QueryService {
     const chatScope = this.resolveChat(options.chat)
     if (!chatScope.ok) return chatScope
 
-    const data = this.db.getRecent({ chatId: chatScope.data.chatId, sender: options.sender, hours: normalized.hours, limit: normalized.limit })
+    const data = this.db.getRecent({ chatId: chatScope.data.chatId, sender: options.sender, hours: normalized.hours, limit: normalized.limit, offset: normalized.offset })
     const logicalMessages = this.recentLogicalMessages({
       chatId: chatScope.data.chatId,
       sender: options.sender,
       hours: normalized.hours,
       limit: normalized.limit,
+      offset: normalized.offset ?? 0,
     })
     this.attachReplyContexts(logicalMessages)
     return { ok: true, data, human: logicalMessageTable(logicalMessages, 'Recent Messages', 'No recent messages found.', { chatLabel: chatScope.data.chatLabel }) }
+  }
+
+  private recentByUser(options: QueryOptions & { user: string }): HandlerResult {
+    const user = options.user.trim()
+    if (user === '') return { ok: false, error: { code: 'invalid_user', message: 'Please provide a user id or sender name.' } }
+    const valid = validateQueryOptions({ hours: options.hours, limit: options.limit, offset: options.offset })
+    if (!valid.ok) return valid
+    if (!options.chat) return { ok: false, error: { code: 'chat_required', message: '--chat is required when using --user.' } }
+
+    const chatScope = this.resolveChat(options.chat)
+    if (!chatScope.ok) return chatScope
+    if (chatScope.data.chatId == null) return { ok: false, error: { code: 'chat_required', message: 'Chat is required.' } }
+
+    const data = this.db.getMessagesByUser({ chatId: chatScope.data.chatId, user, hours: options.hours, limit: options.limit, offset: options.offset })
+    return { ok: true, data, human: messageTable(data, 'User Messages', 'No messages found for that user.', { chatLabel: chatScope.data.chatLabel }) }
   }
 
   stats(): HandlerResult {
@@ -126,13 +145,15 @@ export class QueryService {
     return { ok: false, error: { code: 'ambiguous_chat', message: `Chat '${chat}' is ambiguous. Matches: ${matches.map((m) => m.chat_name ?? m.chat_id).join(', ')}` } }
   }
 
-  private recentLogicalMessages(options: { chatId?: number; sender?: string; hours: number; limit: number }): LogicalMessage[] {
-    const pageSize = Math.min(Math.max(options.limit, 100), 1000)
-    return collectRecentLogicalMessages({
-      target: options.limit,
+  private recentLogicalMessages(options: { chatId?: number; sender?: string; hours: number; limit: number; offset: number }): LogicalMessage[] {
+    const target = options.limit + options.offset
+    const pageSize = Math.min(Math.max(target, 100), 1000)
+    const collected = collectRecentLogicalMessages({
+      target,
       pageSize,
       getPage: (before) => this.db.getRecentPage({ ...options, limit: pageSize, before }),
     })
+    return options.offset === 0 ? collected : collected.slice(0, Math.max(0, collected.length - options.offset))
   }
 
   private attachReplyContexts(messages: LogicalMessage[]): void {
@@ -182,9 +203,12 @@ export function collectRecentLogicalMessages(options: {
   return (options.group ?? groupLogicalMessages)(rows).slice(-options.target)
 }
 
-function validateQueryOptions(options: { hours?: number; limit?: number }): HandlerResult<undefined> {
+function validateQueryOptions(options: { hours?: number; limit?: number; offset?: number }): HandlerResult<undefined> {
   if (options.limit != null && (!Number.isSafeInteger(options.limit) || options.limit <= 0)) {
     return invalidOption('limit', 'Limit must be a positive integer.')
+  }
+  if (options.offset != null && (!Number.isSafeInteger(options.offset) || options.offset < 0)) {
+    return invalidOption('offset', 'Offset must be a non-negative integer.')
   }
   if (options.hours != null && (!Number.isFinite(options.hours) || options.hours <= 0)) {
     return invalidOption('hours', 'Hours must be a positive number.')

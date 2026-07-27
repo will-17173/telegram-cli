@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-07-27
+
+### Added
+
+- Add a Tauri v2 desktop shell for the local Web UI, including bundling scripts, app icons, and desktop packaging configuration.
+- Add local `tg recent --limit --offset` pagination and `tg recent --chat --user` sender-specific history filtering.
+- Open the local Web UI in the default browser by default and add `tg web --no-open` for terminal-only startup.
+
+### Changed
+
+- Rename all downloaded media files to `{sender_id}_{chat_id}_{message_id}_{timestamp}.{ext}`, using local group/channel chat IDs without the `-100` prefix and second-level Unix timestamps.
+
+### Fixed
+
+- Add compare-and-swap guard action handling to reduce duplicate moderation work during concurrent guard processing.
+
 ## [0.8.1] - 2026-07-22
 
 ### Fixed

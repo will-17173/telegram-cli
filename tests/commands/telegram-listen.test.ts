@@ -163,7 +163,7 @@ describe('listen command', () => {
     expect(client.downloadMessageMedia).toHaveBeenCalledOnce()
     const output = writes.join('')
     expect(output).toContain('📎 photo: IMG_001.jpg')
-    expect(output).toContain(`downloaded: ${join(dataDir, 'Downloads', 'telegram-cli', 'IMG_001.jpg')}\n`)
+    expect(output).toContain(`downloaded: ${join(dataDir, 'Downloads', 'telegram-cli', '1_100_1_1773050580.jpg')}\n`)
     expect(output).not.toMatch(/Downloading|%|queued/)
   })
 
@@ -198,7 +198,7 @@ describe('listen command', () => {
     const output = writes.join('')
     expect(client.downloadMessageMedia).toHaveBeenCalledTimes(2)
     expect(output).toContain('download failed: 100:1: network unavailable\n')
-    expect(output).toContain(`downloaded: ${join(dataDir, 'Downloads', 'telegram-cli', 'second.jpg')}\n`)
+    expect(output).toContain(`downloaded: ${join(dataDir, 'Downloads', 'telegram-cli', '1_100_2_1773050580.jpg')}\n`)
     expect(output).toContain('listening completed\n')
     expect(output).not.toMatch(/Downloading|%|queued/)
   })
@@ -241,7 +241,7 @@ describe('listen command', () => {
     const outputAfterCompletion = output
     expect(settled).toBe(true)
     expect(client.close).toHaveBeenCalledOnce()
-    expect(existsSync(join(downloadDir, 'IMG_001.jpg'))).toBe(true)
+    expect(existsSync(join(downloadDir, '1_100_1_1773050580.jpg'))).toBe(true)
     expect(readdirSync(downloadDir).some((entry) => entry.endsWith('.part'))).toBe(false)
     expect(output.indexOf('downloaded: ')).toBeLessThan(output.indexOf('listening completed\n'))
     expect(output.endsWith('listening completed\n')).toBe(true)

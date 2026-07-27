@@ -7,7 +7,7 @@ import type { CommandFailure, HandlerResult, HumanOutput } from '../commands/typ
 import type { ArchiveMessage, TelegramArchiveAdapter } from '../telegram/archive-types.js'
 import { AttachmentLookupError, toAttachmentLocator } from '../telegram/attachment-locator.js'
 import type { Attachment, MediaKind } from '../telegram/media-types.js'
-import { sanitizeAttachmentFileName } from './attachment-download.js'
+import { mediaDownloadFileName, sanitizeAttachmentFileName } from './attachment-download.js'
 
 export type DownloadInput = {
   chat: string | number
@@ -553,10 +553,15 @@ function skipFor(
 }
 
 function fileNameForAttachment(message: ArchiveMessage, attachment: Attachment): string {
-  const raw = attachment.file_name?.trim()
-  if (raw) return raw
-  const extension = extensionForAttachment(attachment)
-  return `${message.chat_id}-${message.msg_id}-${attachment.attachment_index}.${extension}`
+  return mediaDownloadFileName({
+    senderId: message.sender_id,
+    chatId: message.chat_id,
+    messageId: message.msg_id,
+    timestamp: message.timestamp,
+    fileName: attachment.file_name,
+    mimeType: attachment.mime_type,
+    kind: attachment.kind,
+  })
 }
 
 function matchesExtensionFilter(message: ArchiveMessage, attachment: Attachment, input: DownloadInput): boolean {

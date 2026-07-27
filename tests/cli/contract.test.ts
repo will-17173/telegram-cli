@@ -258,6 +258,85 @@ describe('local command contracts', () => {
     }
   })
 
+  it('paginates recent messages with offset without a user filter', async () => {
+    const now = Date.now()
+    seed(Array.from({ length: 5 }, (_, index) => message({
+      msg_id: index + 1,
+      content: `recent page item ${index + 1}`,
+      timestamp: new Date(now + index * 1_000).toISOString(),
+    })))
+
+    const result = await run(['recent', '--limit', '2', '--offset', '2', '--json'])
+    const payload = JSON.parse(result.stdout) as { data: Array<{ msg_id: number; content: string }> }
+
+    expect(result.code).toBe(0)
+    expect(payload.data.map((row) => row.msg_id)).toEqual([2, 3])
+    expect(payload.data.map((row) => row.content)).toEqual(['recent page item 2', 'recent page item 3'])
+  })
+
+  it('lists all local messages from a user in a chat by sender id', async () => {
+    seed([
+      message({ msg_id: 1, sender_id: 7, sender_name: 'Alice', content: 'first from alice', timestamp: '2026-03-09T10:00:00.000Z' }),
+      message({ msg_id: 2, sender_id: 8, sender_name: 'Bob', content: 'from bob', timestamp: '2026-03-09T10:01:00.000Z' }),
+      message({ msg_id: 3, sender_id: 7, sender_name: 'Alice', content: 'second from alice', timestamp: '2026-03-09T10:02:00.000Z' }),
+      message({ msg_id: 4, chat_id: 200, chat_name: 'OtherGroup', sender_id: 7, sender_name: 'Alice', content: 'wrong chat', timestamp: '2026-03-09T10:03:00.000Z' }),
+    ])
+
+    const result = await run(['recent', '--chat', 'TestGroup', '--user', '7', '--json'])
+    const payload = JSON.parse(result.stdout) as { data: Array<{ msg_id: number; content: string }> }
+
+    expect(result.code).toBe(0)
+    expect(payload.data.map((row) => row.msg_id)).toEqual([1, 3])
+    expect(payload.data.map((row) => row.content)).toEqual(['first from alice', 'second from alice'])
+  })
+
+  it('lists all local messages from a user in a chat by sender name', async () => {
+    seed([
+      message({ msg_id: 1, sender_id: 7, sender_name: 'Alice Admin', content: 'first from alice' }),
+      message({ msg_id: 2, sender_id: 8, sender_name: 'Bob', content: 'from bob' }),
+    ])
+
+    const result = await run(['recent', '--chat', 'TestGroup', '--user', 'Alice', '--yaml'])
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('first from alice')
+    expect(result.stdout).not.toContain('from bob')
+  })
+
+  it('paginates local messages from a user in a chat with offset', async () => {
+    seed(Array.from({ length: 5 }, (_, index) => message({
+      msg_id: index + 1,
+      sender_id: 7,
+      sender_name: 'Alice',
+      content: `alice page item ${index + 1}`,
+      timestamp: `2026-03-09T10:0${index}:00.000Z`,
+    })))
+
+    const result = await run(['recent', '--chat', 'TestGroup', '--user', '7', '--limit', '2', '--offset', '2', '--json'])
+    const payload = JSON.parse(result.stdout) as { data: Array<{ msg_id: number; content: string }> }
+
+    expect(result.code).toBe(0)
+    expect(payload.data.map((row) => row.msg_id)).toEqual([3, 4])
+    expect(payload.data.map((row) => row.content)).toEqual(['alice page item 3', 'alice page item 4'])
+  })
+
+  it('rejects invalid recent user offsets', async () => {
+    seed()
+    const result = await run(['recent', '--chat', 'TestGroup', '--user', '7', '--offset', '-1', '--yaml'])
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain('code: invalid_option')
+    expect(result.stdout).toContain('option: offset')
+  })
+
+  it('rejects an empty user for recent', async () => {
+    seed()
+    const result = await run(['recent', '--chat', 'TestGroup', '--user', '   ', '--yaml'])
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toContain('code: invalid_user')
+  })
+
   it('prints top senders as yaml', async () => {
     seed()
     const result = await run(['top', '--yaml'])

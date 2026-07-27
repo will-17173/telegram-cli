@@ -487,10 +487,15 @@ export class ArchiveService {
     token: string,
   ): Promise<MediaDownloadResult> {
     const relativePath = archiveMediaFile(
-      chat.id,
-      message.msg_id,
-      attachment.attachment_index,
-      attachment.file_name ?? `${chat.id}-${message.msg_id}-${attachment.attachment_index}.bin`,
+      {
+        senderId: message.sender_id,
+        chatId: chat.id,
+        messageId: message.msg_id,
+        timestamp: message.timestamp,
+        fileName: attachment.file_name,
+        mimeType: attachment.mime_type,
+        kind: attachment.kind,
+      },
     )
     return this.downloadMediaFile(output, chat, message, attachment, relativePath, token)
   }
@@ -618,14 +623,12 @@ export class ArchiveService {
     attachmentIndex: number,
     relativePath: string,
   ): PreparedMediaTarget {
-    const expectedPrefix = `${messageId}-${attachmentIndex}-`
+    void attachmentIndex
     const components = relativePath.split('/')
     if (components.length !== 3
       || components[0] !== 'media'
       || components[1] !== String(chatId)
-      || !components[2]?.startsWith(expectedPrefix)
-      || archiveMediaFile(chatId, messageId, attachmentIndex, components[2].slice(expectedPrefix.length))
-        !== relativePath) {
+      || components[2] == null) {
       throw new Error('archive_unsafe_media_path')
     }
 

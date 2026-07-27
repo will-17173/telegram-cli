@@ -115,7 +115,7 @@ describe('AutoDownloadCoordinator', () => {
     await coordinator.waitForIdle()
 
     expect(new TextEncoder().encode(client.calls[0]!.destination.split('/').at(-1)).length).toBeLessThan(255)
-    expect(published[0]![1].endsWith(`${'a'.repeat(220)}.jpg`)).toBe(true)
+    expect(published[0]![1]).toBe('/home/Downloads/telegram-cli/1_100_1_1767225600.jpg')
   })
 
   it('retries default temporary names that already exist', async () => {
@@ -162,7 +162,7 @@ describe('AutoDownloadCoordinator', () => {
     const remove = vi.fn(async () => undefined)
     const publish = vi.fn(async (temporary: string, destination: string) => {
       published.push([temporary, destination])
-      if (destination.endsWith('/photo.jpg')) {
+      if (destination.endsWith('/1_100_1_1767225600.jpg')) {
         existing.add(destination)
         throw Object.assign(new Error('already exists'), { code: 'EEXIST' })
       }
@@ -183,12 +183,12 @@ describe('AutoDownloadCoordinator', () => {
 
     expect(client.calls[0]!.destination).toBe('/home/Downloads/telegram-cli/.100-1-1.part')
     expect(published).toEqual([
-      ['/home/Downloads/telegram-cli/.100-1-1.part', '/home/Downloads/telegram-cli/photo.jpg'],
-      ['/home/Downloads/telegram-cli/.100-1-1.part', '/home/Downloads/telegram-cli/photo (2).jpg'],
+      ['/home/Downloads/telegram-cli/.100-1-1.part', '/home/Downloads/telegram-cli/1_100_1_1767225600.jpg'],
+      ['/home/Downloads/telegram-cli/.100-1-1.part', '/home/Downloads/telegram-cli/1_100_1_1767225600 (2).jpg'],
     ])
-    expect(existing.has('/home/Downloads/telegram-cli/photo.jpg')).toBe(true)
+    expect(existing.has('/home/Downloads/telegram-cli/1_100_1_1767225600.jpg')).toBe(true)
     expect(remove).toHaveBeenCalledWith('/home/Downloads/telegram-cli/.100-1-1.part', { force: true })
-    expect(events.at(-1)).toEqual({ status: 'completed', key: '100:1:1', path: '/home/Downloads/telegram-cli/photo (2).jpg' })
+    expect(events.at(-1)).toEqual({ status: 'completed', key: '100:1:1', path: '/home/Downloads/telegram-cli/1_100_1_1767225600 (2).jpg' })
   })
 
   it('normalizes Error, string, and non-error failures to strings', async () => {

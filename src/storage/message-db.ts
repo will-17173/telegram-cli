@@ -68,6 +68,7 @@ export type SearchOptions = {
   sender?: string
   hours?: number
   limit?: number
+  offset?: number
 }
 
 export type ChatListOptions = {
@@ -87,6 +88,14 @@ export type MessagePageOptions = {
   limit?: number
   offset?: number
   cursor?: string
+}
+
+export type UserMessageOptions = {
+  chatId: number
+  user: string
+  hours?: number
+  limit?: number
+  offset?: number
 }
 
 export type RecentPageOptions = SearchOptions & {
@@ -318,11 +327,12 @@ export class MessageDB {
     const conditions: string[] = ['1=1']
     this.addFilters(conditions, params, options)
     const limit = options.limit ?? 500
+    const offset = options.offset ?? 0
     return this.hydrateMessages(this.db.prepare(`
       SELECT * FROM (
-        SELECT * FROM messages WHERE ${conditions.join(' AND ')} ORDER BY timestamp DESC, id DESC LIMIT ?
+        SELECT * FROM messages WHERE ${conditions.join(' AND ')} ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?
       ) ORDER BY timestamp ASC, id ASC
-    `).all(...params, limit) as MessageRow[])
+    `).all(...params, limit, offset) as MessageRow[])
   }
 
   getRecentPage(options: RecentPageOptions = {}): StoredMessage[] {
@@ -410,6 +420,38 @@ export class MessageDB {
       return this.hydrateMessages(messages)
     })
     return read(keys)
+  }
+
+  getMessagesByUser(options: UserMessageOptions): StoredMessage[] {
+    const user = options.user.trim()
+    const params: unknown[] = [canonicalChatId(options.chatId)]
+    const conditions = ['chat_id = ?']
+    const senderId = parseStrictInteger(user)
+    if (senderId == null) {
+      conditions.push('sender_name LIKE ?')
+      params.push(`%${user}%`)
+    } else {
+      conditions.push('sender_id = ?')
+      params.push(senderId)
+    }
+    if (options.hours != null) {
+      conditions.push('timestamp >= ?')
+      params.push(new Date(Date.now() - options.hours * 60 * 60 * 1000).toISOString())
+    }
+    const limitSql = options.limit == null
+      ? options.offset == null ? '' : 'LIMIT -1 OFFSET ?'
+      : 'LIMIT ? OFFSET ?'
+    if (options.limit != null) {
+      params.push(options.limit, options.offset ?? 0)
+    } else if (options.offset != null) {
+      params.push(options.offset)
+    }
+    return this.hydrateMessages(this.db.prepare(`
+      SELECT * FROM messages
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY timestamp ASC, id ASC
+      ${limitSql}
+    `).all(...params) as MessageRow[])
   }
 
   findMessagesByGroupedId(chatId: number, groupedId: string): StoredMessage[] {
@@ -803,6 +845,12 @@ function sameAttachmentMedia(previous: StoredAttachment, next: Attachment): bool
 function deriveMessageDownloaded(attachments: StoredAttachment[]): boolean {
   const downloadable = attachments.filter((attachment) => attachment.downloadable)
   return downloadable.length > 0 && downloadable.every((attachment) => attachment.downloaded)
+}
+
+function parseStrictInteger(value: string): number | null {
+  if (!/^-?\d+$/.test(value)) return null
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) ? parsed : null
 }
 
 function parseMetadata(value: string): JsonValue {

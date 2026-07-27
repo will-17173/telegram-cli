@@ -457,7 +457,7 @@ describe('handleApiRequest', () => {
       chat: -1001220606936,
       msgId: 1,
       attachment: expect.objectContaining({ attachment_index: 1 }),
-      destination: expect.stringContaining('photo.jpg'),
+      destination: expect.stringContaining('1_1220606936_1_1784016000.jpg'),
     }))
     expect(fakeClient.downloadMessageMedia.mock.calls[0]?.[0]).not.toHaveProperty('location')
     expect(fakeClient.close).toHaveBeenCalledOnce()
@@ -467,7 +467,7 @@ describe('handleApiRequest', () => {
     expect(stored?.attachments[0]).toMatchObject({
       downloaded: true,
       downloaded_at: expect.any(String),
-      download_path: expect.stringContaining('photo.jpg'),
+      download_path: expect.stringContaining('1_1220606936_1_1784016000.jpg'),
     })
   })
 
@@ -493,7 +493,7 @@ describe('handleApiRequest', () => {
 
     expect(response.status).toBe(200)
     expect(fakeClient.downloadMessageMedia).toHaveBeenCalledWith(expect.objectContaining({
-      destination: expect.stringContaining('1220606936-5-1.jpg'),
+      destination: expect.stringContaining('1_1220606936_5_1784016000.jpg'),
     }))
     expect(fakeClient.downloadMessageMedia.mock.calls.at(-1)?.[0]).not.toMatchObject({
       destination: expect.stringContaining('.bin'),

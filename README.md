@@ -44,9 +44,10 @@ Sync one chat or many chats into the selected account’s SQLite database. Searc
 tg sync @team
 tg search "release" --chat @team
 tg recent --chat @team --hours 24
+tg recent --chat @team --user 123456 --limit 50 --offset 0 --json
 ```
 
-Local commands can also filter, summarize, and export stored messages.
+Local commands can also filter, summarize, export stored messages, and page through results with `recent --limit --offset`, including sender-specific local history via `recent --chat --user`.
 
 ### Browse local data in a web UI
 

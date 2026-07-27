@@ -44,9 +44,10 @@ tg search-online "incident" --chat @team --json
 tg sync @team
 tg search "release" --chat @team
 tg recent --chat @team --hours 24
+tg recent --chat @team --user 123456 --limit 50 --offset 0 --json
 ```
 
-本地命令还可以筛选、汇总和导出已存储消息。
+本地命令还可以筛选、汇总、导出已存储消息，并通过 `recent --limit --offset` 翻页；也可以用 `recent --chat --user` 查看某个聊天中某个发送者的本地消息。
 
 ### 在 Web 界面浏览本地数据
 

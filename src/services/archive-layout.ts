@@ -1,9 +1,8 @@
 import { posix } from 'node:path'
+import { mediaDownloadFileName, type MediaDownloadFileNameInput } from './attachment-download.js'
 
 const MAX_CHAT_SLUG_BYTES = 80
 const MAX_FILENAME_BYTES = 255
-const MAX_EXTENSION_BYTES = 32
-const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu
 const graphemeSegmenter = new Intl.Segmenter('und', { granularity: 'grapheme' })
 
 function sanitizePart(value: string): string {
@@ -43,35 +42,8 @@ export function archiveChatFile(chatId: number, title: string): string {
   return `${id}-${slug}.md`
 }
 
-function mediaBasename(filename: string, mediaPrefix: string): string {
-  const basename = filename.replace(/\\/gu, '/').split('/').at(-1) ?? ''
-  const extensionIndex = basename.lastIndexOf('.')
-  const hasExtension = extensionIndex > 0 && extensionIndex < basename.length - 1
-  const rawStem = hasExtension ? basename.slice(0, extensionIndex) : basename
-  const rawExtension = hasExtension ? basename.slice(extensionIndex + 1) : ''
-  let stem = sanitizePart(rawStem) || 'file'
-  const extension = truncateUtf8(sanitizePart(rawExtension), MAX_EXTENSION_BYTES)
-
-  if (WINDOWS_RESERVED_NAME.test(stem)) {
-    stem = `file-${stem}`
-  }
-
-  const reservedBytes = Buffer.byteLength(mediaPrefix)
-    + (extension ? Buffer.byteLength(extension) + 1 : 0)
-  stem = truncateUtf8(stem, MAX_FILENAME_BYTES - reservedBytes) || 'file'
-
-  return extension ? `${stem}.${extension}` : stem
-}
-
-export function archiveMediaFile(
-  chatId: number,
-  messageId: number,
-  attachmentIndex: number,
-  filename: string,
-): string {
-  const chat = safeInteger(chatId, 'chat_id')
-  const message = safeInteger(messageId, 'message_id')
-  const attachment = safeInteger(attachmentIndex, 'attachment_index')
-  const mediaPrefix = `${message}-${attachment}-`
-  return posix.join('media', chat, `${mediaPrefix}${mediaBasename(filename, mediaPrefix)}`)
+export function archiveMediaFile(input: MediaDownloadFileNameInput): string {
+  const chat = safeInteger(input.chatId, 'chat_id')
+  const basename = truncateUtf8(mediaDownloadFileName(input), MAX_FILENAME_BYTES)
+  return posix.join('media', chat, basename)
 }

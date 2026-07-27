@@ -274,7 +274,7 @@ describe('download command', () => {
     expect(chunks).toEqual([
       'download all: scanning @channel newest to oldest in pages of up to 100 messages\n',
       'download page: scanned 1 messages, found 1 media, downloaded 0, failed 0\n',
-      'downloading: message 42 attachment 1 -> photo-42.jpg\n',
+      'downloading: message 42 attachment 1 -> 10_100_42_1784116800.jpg\n',
       'download progress: scanned 1 messages, found 1 media, downloaded 1, failed 0\n',
     ])
     expect(archive.iterHistoryPages.mock.calls[0]?.[0]).not.toHaveProperty('minId')

@@ -310,7 +310,8 @@ describe('ArchiveService', () => {
         },
       },
     })
-    expect(readFileSync(join(output, '-100-team.md'), 'utf8')).toContain('report.pdf')
+    expect(readFileSync(join(output, '-100-team.md'), 'utf8'))
+      .toContain('10_100_40_1783684800.pdf')
     expect(JSON.stringify(result)).not.toContain('/secret/')
     expect(readdirSync(output).some((file) => file.includes('.tmp'))).toBe(false)
   })
@@ -335,7 +336,7 @@ describe('ArchiveService', () => {
     const secondMarkdown = readFileSync(join(output, '-100-team.md'), 'utf8')
 
     expect(first).toMatchObject({ ok: false, error: { code: 'archive_partial_failure' } })
-    expect(firstMarkdown).toContain('(media/-100/40-1-report.pdf)')
+    expect(firstMarkdown).toContain('(media/-100/10_100_40_1783684800.pdf)')
     expect(second).toMatchObject({
       ok: true,
       data: { completed: [expect.objectContaining({ messages_archived: 0, media_archived: 1 })] },
@@ -343,7 +344,7 @@ describe('ArchiveService', () => {
     expect([...secondMarkdown.matchAll(/id=(\d+)/gu)].map((match) => Number(match[1])))
       .toEqual([40])
     expect(source.downloadMedia).toHaveBeenCalledTimes(2)
-    expect(readFileSync(join(output, 'media', '-100', '40-1-report.pdf'), 'utf8')).toBe('pdf')
+    expect(readFileSync(join(output, 'media', '-100', '10_100_40_1783684800.pdf'), 'utf8')).toBe('pdf')
     expect(readArchiveManifest(join(output, 'archive-manifest.json'))?.chats['-100']?.last_message_id)
       .toBe(40)
   })
@@ -383,7 +384,7 @@ describe('ArchiveService', () => {
       writeFileSync(sentinel, 'keep')
       const mediaDirectory = join(output, 'media')
       const chatDirectory = join(mediaDirectory, '-100')
-      const destination = join(chatDirectory, '40-1-report.pdf')
+      const destination = join(chatDirectory, '10_100_40_1783684800.pdf')
       if (layer === 'media directory') {
         symlinkSync(outside, mediaDirectory, 'dir')
       } else if (layer === 'chat directory') {
@@ -467,10 +468,10 @@ describe('ArchiveService', () => {
     const first = await service.archive(input(output, { full: true, media: true }))
     const second = await service.archive(input(output, { full: true, media: true, rebuild: true }))
 
-    const mediaPath = join(realpathSync(output), 'media', '-100', '40-1-report.pdf')
+    const mediaPath = join(realpathSync(output), 'media', '-100', '10_100_40_1783684800.pdf')
     expect(readFileSync(mediaPath, 'utf8')).toBe('pdf')
     expect(readFileSync(join(output, '-100-team.md'), 'utf8'))
-      .toContain('(media/-100/40-1-report.pdf)')
+      .toContain('(media/-100/10_100_40_1783684800.pdf)')
     expect(source.downloadMedia).toHaveBeenCalledTimes(1)
     expect(archiveDetails(first).completed[0]?.media_archived).toBe(1)
     expect(archiveDetails(second).completed[0]?.media_archived).toBe(1)
@@ -501,7 +502,7 @@ describe('ArchiveService', () => {
     await service.archive(input(output, { full: true, media: true }))
     await service.archive(input(output, { full: true, media: true, rebuild: true }))
 
-    const mediaPath = join(realpathSync(output), 'media', '-100', '40-1-report.pdf')
+    const mediaPath = join(realpathSync(output), 'media', '-100', '10_100_40_1783684800.pdf')
     expect(source.downloadMedia).toHaveBeenCalledTimes(1)
     expect(marked).toEqual([
       {
@@ -553,7 +554,7 @@ describe('ArchiveService', () => {
         },
       },
     })
-    expect(readFileSync(join(output, 'media', '-100', '40-1-report.pdf'), 'utf8')).toBe('pdf')
+    expect(readFileSync(join(output, 'media', '-100', '10_100_40_1783684800.pdf'), 'utf8')).toBe('pdf')
   })
 
   it('uses a bounded canonical portable media basename and label', async () => {
@@ -574,7 +575,15 @@ describe('ArchiveService', () => {
     await service.archive(input(output, { full: true, media: true }))
     const retry = await service.archive(input(output, { full: true, media: true }))
 
-    const relativePath = archiveMediaFile(-100, 40, 1, fileName)
+    const relativePath = archiveMediaFile({
+      senderId: attached.sender_id,
+      chatId: -100,
+      messageId: 40,
+      timestamp: attached.timestamp,
+      fileName,
+      mimeType: 'application/pdf',
+      kind: 'document',
+    })
     const component = relativePath.split('/').at(-1)!
     expect(Buffer.byteLength(component)).toBeLessThanOrEqual(255)
     expect(readFileSync(join(output, '-100-team.md'), 'utf8')).toContain(`](${relativePath})`)
