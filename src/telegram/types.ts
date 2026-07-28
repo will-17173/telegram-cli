@@ -37,8 +37,10 @@ export type FetchHistoryOptions = {
   onProgress?: (count: number) => void
 }
 
+export type TelegramSendTarget = string | number | NonNullable<NormalizedMessage['download_peer']>
+
 export type SendMediaOptions = {
-  chat: string | number
+  chat: TelegramSendTarget
   files: string[]
   caption?: string
   reply?: number
@@ -72,7 +74,7 @@ export interface TelegramClientAdapter {
   getChatInfo(chat: string | number): Promise<Record<string, string> | null>
   fetchHistory(options: FetchHistoryOptions): Promise<NormalizedMessage[]>
   downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void>
-  sendMessage(options: { chat: string | number; message: string; reply?: number; linkPreview: boolean }): Promise<{
+  sendMessage(options: { chat: TelegramSendTarget; message: string; reply?: number; linkPreview: boolean }): Promise<{
     msg_id: number
     sent_message?: NormalizedMessage
   }>

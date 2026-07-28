@@ -5,7 +5,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
-import type { TelegramClientAdapter } from '../../telegram/types.js'
+import type { TelegramClientAdapter, TelegramSendTarget } from '../../telegram/types.js'
 import { toAttachmentLocator } from '../../telegram/attachment-locator.js'
 import type { StoredMessageInput } from '../../storage/message-db.js'
 import {
@@ -698,6 +698,7 @@ export function InteractiveListen({
   const [sendTargetLabel, setSendTargetLabel] = useState(sendTo == null ? '' : buildSendTargetLabel(sendTo))
   const [knownGroup, setKnownGroup] = useState<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
+  const sendTargetRef = useRef<TelegramSendTarget | undefined>(sendTo)
   const replyExecutionLockRef = useRef(false)
   const inputGenerationRef = useRef<object>({})
   const commandSelectionRef = useRef(0)
@@ -710,6 +711,7 @@ export function InteractiveListen({
   useEffect(() => {
     groupLookupGenerationRef.current = {}
     knownGroupRef.current = undefined
+    sendTargetRef.current = sendTo
     setKnownGroup(undefined)
   }, [sendTo])
   const groupCommand = useGroupCommand(useCallback(async (request, options) => {
@@ -1119,7 +1121,8 @@ export function InteractiveListen({
           const originalInput = input
           setSending(true)
           setNote('sending...')
-          void executeListenReply(client, sendTo, parsed.command).then((sentMessages) => {
+          const target = sendTargetRef.current ?? sendTo
+          void executeListenReply(client, target, parsed.command).then((sentMessages) => {
             if (ownedGeneration !== inputGenerationRef.current) return
             for (const sentMessage of sentMessages) acceptListenMessage(sentMessage, seenRef.current, seenOrderRef.current, (message) => {
               registerPendingAttachmentKeys(pendingAttachmentKeysRef.current, message, showMedia)
@@ -1273,8 +1276,12 @@ export function InteractiveListen({
           void client.groups.getGroup(sendTo).then((group) => {
             if (isActive() && lookup === groupLookupGenerationRef.current && clientRef.current === client) { knownGroupRef.current = group; setKnownGroup(group) }
           }).catch(() => undefined)
-          void resolveSendTargetLabel(client, sendTo).then((label) => {
-            if (isActive() && label != null) setSendTargetLabel(label)
+          void resolveSendTarget(client, sendTo).then((resolved) => {
+            if (!isActive() || resolved == null) return
+            setSendTargetLabel(resolved.label)
+            if (resolved.target != null && typeof sendTargetRef.current !== 'object') {
+              sendTargetRef.current = resolved.target
+            }
           })
         }
       },
@@ -1289,6 +1296,11 @@ export function InteractiveListen({
       onMessage: (message) => {
         if (!isActive()) return
         if (sendTo != null) {
+          if (shouldUseMessagePeerForSend(sendTo, chats, message)) {
+            sendTargetRef.current = message.download_peer
+          } else if (shouldUseMessageChatIdForSend(sendTo, chats, message) && typeof sendTargetRef.current !== 'object') {
+            sendTargetRef.current = message.chat_id
+          }
           const inferred = inferSendTargetLabel(sendTo, message)
           if (inferred != null) setSendTargetLabel(inferred)
         }
@@ -1368,10 +1380,11 @@ export function InteractiveListen({
     setSending(true)
     setNote('sending...')
     try {
+      const target = sendTargetRef.current ?? sendTo
       const sentMessages = command.kind === 'reply'
-        ? await executeListenReply(client, sendTo, command)
+        ? await executeListenReply(client, target, command)
         : [await client.sendMessage({
-            chat: sendTo,
+            chat: target,
             message: command.content,
             linkPreview: true,
           })].flatMap(({ sent_message: message }) => message == null ? [] : [message])
@@ -1656,21 +1669,27 @@ function buildSendTargetLabel(value: string | number): string {
   return `${normalized}|unknown`
 }
 
-async function resolveSendTargetLabel(
+type ResolvedSendTarget = {
+  label: string
+  target?: string | number
+}
+
+async function resolveSendTarget(
   client: TelegramClientAdapter,
   sendTo: string | number,
-): Promise<string | null> {
+): Promise<ResolvedSendTarget | null> {
   try {
     const info = await client.getChatInfo(sendTo)
     if (info == null) return null
     const fallback = buildSendTargetLabel(sendTo)
     const name = typeof info.Name === 'string' && info.Name.trim() !== '' ? info.Name : undefined
     const id = typeof info.ID === 'string' && info.ID.trim() !== '' ? info.ID : undefined
-    if (name == null && id == null) return fallback
+    if (name == null && id == null) return { label: fallback }
     const fallbackParts = fallback.split('|')
     const resolvedName = name == null ? fallbackParts[0] : name
     const resolvedId = id == null ? fallbackParts[1] ?? 'unknown' : id
-    return `${resolvedName}|${resolvedId}`
+    const target = id == null ? undefined : parseResolvedSendTargetId(id)
+    return { label: `${resolvedName}|${resolvedId}`, target }
   } catch {
     return null
   }
@@ -1685,6 +1704,38 @@ function inferSendTargetLabel(sendTo: string | number, message: StoredMessageInp
   const nameMatch = typeof sendTo === 'string' && message.chat_name?.toLowerCase() === String(sendTo).toLowerCase()
   if (nameMatch) return `${message.chat_name ?? 'Unknown'}|${message.chat_id}`
   return null
+}
+
+function messageMatchesSendTarget(sendTo: string | number, message: StoredMessageInput): boolean {
+  const numericSendTo = isNumericValue(sendTo) ? Number(sendTo) : null
+  if (numericSendTo != null && message.chat_id === numericSendTo) return true
+  return typeof sendTo === 'string' && message.chat_name?.toLowerCase() === String(sendTo).toLowerCase()
+}
+
+function shouldUseMessagePeerForSend(
+  sendTo: string | number,
+  chats: Array<string | number> | undefined,
+  message: StoredMessageInput,
+): message is StoredMessageInput & { download_peer: NonNullable<StoredMessageInput['download_peer']> } {
+  if (message.download_peer == null) return false
+  if (messageMatchesSendTarget(sendTo, message)) return true
+  return chats?.length === 1 && chats[0] === sendTo
+}
+
+function shouldUseMessageChatIdForSend(
+  sendTo: string | number,
+  chats: Array<string | number> | undefined,
+  message: StoredMessageInput,
+): boolean {
+  if (messageMatchesSendTarget(sendTo, message)) return true
+  return chats?.length === 1 && chats[0] === sendTo
+}
+
+function parseResolvedSendTargetId(value: string): string | number {
+  const trimmed = value.trim()
+  if (!/^-?\d+$/.test(trimmed)) return value
+  const parsed = Number(trimmed)
+  return Number.isSafeInteger(parsed) ? parsed : value
 }
 
 function isNumericLike(value: string): boolean {

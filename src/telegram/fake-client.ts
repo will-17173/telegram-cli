@@ -11,6 +11,7 @@ import type {
   TelegramChat,
   TelegramChatType,
   TelegramClientAdapter,
+  TelegramSendTarget,
   TelegramUser,
 } from './types.js'
 import type { TelegramContact, TelegramContactAdapter } from './contact-types.js'
@@ -103,7 +104,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
   readonly calls: FakeTelegramCall[] = []
   readonly fetchHistoryCalls: FetchHistoryOptions[] = []
   readonly downloadMessageMediaCalls: DownloadMessageMediaOptions[] = []
-  readonly sendMessageCalls: Array<{ chat: string | number; message: string; reply?: number; linkPreview: boolean }> = []
+  readonly sendMessageCalls: Array<{ chat: TelegramSendTarget; message: string; reply?: number; linkPreview: boolean }> = []
   readonly sendMediaCalls: SendMediaOptions[] = []
   readonly editMessageCalls: Array<{ chat: string | number; msgId: number; text: string; linkPreview: boolean }> = []
   readonly deleteMessagesCalls: Array<{ chat: string | number; msgIds: number[] }> = []
@@ -242,9 +243,9 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     options.onProgress?.(1, 1)
   }
 
-  async sendMessage(options: { chat: string | number; message: string; reply?: number; linkPreview: boolean }): Promise<{ msg_id: number }> {
+  async sendMessage(options: { chat: TelegramSendTarget; message: string; reply?: number; linkPreview: boolean }): Promise<{ msg_id: number }> {
     this.sendMessageCalls.push({ ...options })
-    const chat = this.findChat(options.chat)
+    const chat = typeof options.chat === 'object' ? undefined : this.findChat(options.chat)
     const failure = this.sendFailures[String(options.chat)]
       ?? (chat == null ? undefined : this.sendFailures[chat.name])
     if (failure) throw failure
@@ -253,7 +254,7 @@ export class FakeTelegramClient implements TelegramClientAdapter {
 
   async sendMedia(options: SendMediaOptions): Promise<SendMediaResult> {
     this.sendMediaCalls.push({ ...options, files: [...options.files] })
-    const chat = this.findChat(options.chat)
+    const chat = typeof options.chat === 'object' ? undefined : this.findChat(options.chat)
     const failure = this.mediaSendFailures[String(options.chat)]
       ?? (chat == null ? undefined : this.mediaSendFailures[chat.name])
     if (failure) throw failure

@@ -5,7 +5,7 @@ import type {
   Message,
 } from '@mtcute/node'
 import { MtPeerNotFoundError } from '@mtcute/node'
-import { TelegramSessionTerminatedError, type DownloadMessageMediaOptions, type TelegramChat, type TelegramClientAdapter, type TelegramUser, type FetchHistoryOptions, type SendMediaOptions, type SendMediaResult } from './types.js'
+import { TelegramSessionTerminatedError, type DownloadMessageMediaOptions, type TelegramChat, type TelegramClientAdapter, type TelegramUser, type FetchHistoryOptions, type SendMediaOptions, type SendMediaResult, type TelegramSendTarget } from './types.js'
 import type { NormalizedMessage } from './media-types.js'
 import { MtcuteGroupManagement } from './mtcute-group-management.js'
 import type { TelegramGroupManagementAdapter } from './group-types.js'
@@ -232,15 +232,16 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     })
   }
 
-  async sendMessage(options: { chat: string | number; message: string; reply?: number; linkPreview: boolean }): Promise<{
+  async sendMessage(options: { chat: TelegramSendTarget; message: string; reply?: number; linkPreview: boolean }): Promise<{
     msg_id: number
     sent_message: NormalizedMessage
   }> {
     await this.ensureReady()
-    const sent = await this.client.sendText(
-      normalizeChatId(options.chat),
-      options.message,
-      { replyTo: options.reply, disableWebPreview: !options.linkPreview },
+    const chat = normalizeChatId(options.chat)
+    const params = { replyTo: options.reply, disableWebPreview: !options.linkPreview }
+    const sent = await sendWithLocalChannelFallback(
+      chat,
+      (target) => this.client.sendText(target, options.message, params),
     )
     return { msg_id: sent.id, sent_message: normalizeMtcuteMessage(sent) }
   }
@@ -251,21 +252,27 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     const chat = normalizeChatId(options.chat)
 
     if (options.files.length === 1) {
-      const sent = await this.client.sendMedia(
+      const media = inputMediaForFile(options.files[0]!)
+      const params = { caption: options.caption, replyTo: options.reply }
+      const sent = await sendWithLocalChannelFallback(
         chat,
-        inputMediaForFile(options.files[0]!),
-        { caption: options.caption, replyTo: options.reply },
+        (target) => this.client.sendMedia(target, media, params),
       )
       return { messages: [toSendMediaMessage(sent)] }
     }
 
-    const sent = await this.client.sendMediaGroup(
+    const media = options.files.map((file, index) => inputMediaForFile(
+      file,
+      index === 0 ? options.caption : undefined,
+    ))
+    const params = { replyTo: options.reply }
+    const sent = await sendWithLocalChannelFallback(
       chat,
-      options.files.map((file, index) => inputMediaForFile(
-        file,
-        index === 0 ? options.caption : undefined,
-      )),
-      { replyTo: options.reply },
+      (target) => this.client.sendMediaGroup(
+        target,
+        media,
+        params,
+      ),
     )
     return { messages: sent.map(toSendMediaMessage) }
   }
@@ -396,12 +403,34 @@ function floodWaitSeconds(error: unknown): number {
   return Number(/^FLOOD_WAIT_(\d+)$/.exec(error.text)?.[1])
 }
 
-function normalizeChatId(chat: string | number): string | number {
+function normalizeChatId(chat: string | number): string | number
+function normalizeChatId(chat: TelegramSendTarget): TelegramSendTarget
+function normalizeChatId(chat: TelegramSendTarget): TelegramSendTarget {
+  if (typeof chat === 'object' && chat != null) return chat
   if (typeof chat === 'number') return chat
   const trimmed = chat.trim()
   if (trimmed === '') return chat
   const numeric = Number.parseInt(trimmed, 10)
   return Number.isNaN(numeric) ? chat : String(numeric) === trimmed ? numeric : chat
+}
+
+async function sendWithLocalChannelFallback<T>(
+  chat: TelegramSendTarget,
+  send: (chat: TelegramSendTarget) => Promise<T>,
+): Promise<T> {
+  try {
+    return await send(chat)
+  } catch (error) {
+    const fallback = localChannelPeerId(chat)
+    if (fallback == null || !tl.RpcError.is(error, 'CHANNEL_INVALID')) throw error
+    return await send(fallback)
+  }
+}
+
+function localChannelPeerId(chat: TelegramSendTarget): number | null {
+  if (typeof chat !== 'number' || chat <= 1_000_000_000) return null
+  const peerId = Number(`-100${chat}`)
+  return Number.isSafeInteger(peerId) ? peerId : null
 }
 
 function inputMediaForFile(file: string, caption?: string) {

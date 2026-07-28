@@ -1,4 +1,4 @@
-import { InputMedia } from '@mtcute/node'
+import { InputMedia, tl } from '@mtcute/node'
 import type { Message, TelegramClient } from '@mtcute/node'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -46,6 +46,51 @@ describe('MtcuteTelegramClient sendMedia', () => {
         msg_id: 21,
         sent_message: normalizedMessage(21, 'single'),
       }],
+    })
+  })
+
+  it('retries local channel ids with Telegram peer ids after CHANNEL_INVALID when sending media', async () => {
+    const sent = message(22, 'local id media')
+    const sendMedia = vi.fn()
+      .mockRejectedValueOnce(new tl.RpcError(400, 'CHANNEL_INVALID'))
+      .mockResolvedValueOnce(sent)
+    const client = telegramClient({ sendMedia })
+
+    await new MtcuteTelegramClient(client).sendMedia({
+      chat: 1220606936,
+      files: ['/tmp/photo.jpg'],
+    })
+
+    expect(sendMedia).toHaveBeenNthCalledWith(1, 1220606936, InputMedia.photo('file:/tmp/photo.jpg'), {
+      caption: undefined,
+      replyTo: undefined,
+    })
+    expect(sendMedia).toHaveBeenNthCalledWith(2, -1001220606936, InputMedia.photo('file:/tmp/photo.jpg'), {
+      caption: undefined,
+      replyTo: undefined,
+    })
+  })
+
+  it('retries local channel ids with Telegram peer ids after CHANNEL_INVALID when sending text', async () => {
+    const sent = message(23, 'hello')
+    const sendText = vi.fn()
+      .mockRejectedValueOnce(new tl.RpcError(400, 'CHANNEL_INVALID'))
+      .mockResolvedValueOnce(sent)
+    const client = telegramClient({ sendText })
+
+    await new MtcuteTelegramClient(client).sendMessage({
+      chat: 1220606936,
+      message: 'hello',
+      linkPreview: true,
+    })
+
+    expect(sendText).toHaveBeenNthCalledWith(1, 1220606936, 'hello', {
+      replyTo: undefined,
+      disableWebPreview: false,
+    })
+    expect(sendText).toHaveBeenNthCalledWith(2, -1001220606936, 'hello', {
+      replyTo: undefined,
+      disableWebPreview: false,
     })
   })
 

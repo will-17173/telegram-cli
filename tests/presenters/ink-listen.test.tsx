@@ -509,6 +509,63 @@ describe('InteractiveListen slash commands', () => {
     controller.abort(); app.unmount()
   })
 
+  it('uses the runtime input peer from the listened chat when sending', async () => {
+    const controller = new AbortController()
+    const inputPeer = { _: 'inputPeerChannel', channelId: 1220606936, accessHash: 'hash' } as unknown as NonNullable<NormalizedMessage['download_peer']>
+    const client = interactiveClient(
+      { getGroup: vi.fn().mockResolvedValue(groupDetails()) },
+      { ...storedPhoto(88, 'message before command'), chat_id: 1220606936, download_peer: inputPeer },
+    )
+    client.sendMessage.mockResolvedValue({ sent_message: storedText(99, 'sent') })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[1220606936]} persist retrySeconds={1} sendTo={1220606936} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+
+    stdin.write('hello'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('hello'))
+    stdin.write('\r')
+
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledWith({ chat: inputPeer, message: 'hello', linkPreview: true }))
+    controller.abort(); app.unmount()
+  })
+
+  it('uses the runtime input peer from the single listened chat even when the send target is a partial name', async () => {
+    const controller = new AbortController()
+    const inputPeer = { _: 'inputPeerChannel', channelId: 3688621340, accessHash: 'hash' } as unknown as NonNullable<NormalizedMessage['download_peer']>
+    const client = interactiveClient(
+      { getGroup: vi.fn().mockResolvedValue(groupDetails()) },
+      { ...storedPhoto(88, 'message before command'), chat_id: 3688621340, chat_name: '日常居家|闲聊区', download_peer: inputPeer },
+    )
+    client.sendMessage.mockResolvedValue({ sent_message: storedText(99, 'sent') })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={['闲聊']} persist retrySeconds={1} sendTo="闲聊" showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+
+    stdin.write('hello'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('hello'))
+    stdin.write('\r')
+
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledWith({ chat: inputPeer, message: 'hello', linkPreview: true }))
+    controller.abort(); app.unmount()
+  })
+
+  it('sends to the resolved chat id when listening by chat name', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient(
+      { getGroup: vi.fn().mockResolvedValue(groupDetails()) },
+      { ...storedPhoto(88, 'message before command'), chat_id: 3688621340, chat_name: '日常居家|闲聊区' },
+    )
+    vi.mocked(client.getChatInfo).mockResolvedValue({ Name: '日常居家|闲聊区', ID: '-1003688621340' })
+    client.sendMessage.mockResolvedValue({ sent_message: storedText(99, 'sent') })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={['闲聊']} persist retrySeconds={1} sendTo="闲聊" showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('日常居家|闲聊区|-1003688621340'))
+
+    stdin.write('hello'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('hello'))
+    stdin.write('\r')
+
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledWith({ chat: -1003688621340, message: 'hello', linkPreview: true }))
+    controller.abort(); app.unmount()
+  })
+
   it('locks repeated reply submission and keeps its outcome visible after Escape', async () => {
     let rejectSend!: (error: Error) => void
     const pending = new Promise<{ sent_message: NormalizedMessage }>((_resolve, reject) => { rejectSend = reject })
@@ -2277,7 +2334,10 @@ function groupDetails() {
   return { id: 100, title: 'Test Group', type: 'supergroup', forum: true, current_user_role: 'creator' }
 }
 
-function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
+function interactiveClient(
+  groups: { getGroup: ReturnType<typeof vi.fn> },
+  listenMessage: NormalizedMessage = storedPhoto(88, 'message before command'),
+) {
   return {
     groups: {
       ...groups,
@@ -2290,7 +2350,7 @@ function interactiveClient(groups: { getGroup: ReturnType<typeof vi.fn> }) {
     },
     listen: vi.fn(async ({ onConnected, onMessage, signal }: { onConnected?: () => void; onMessage: (message: NormalizedMessage) => void; signal: AbortSignal }) => {
       onConnected?.()
-      onMessage(storedPhoto(88, 'message before command'))
+      onMessage(listenMessage)
       await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
       return 'stopped' as const
     }),

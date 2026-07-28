@@ -1,7 +1,7 @@
 export const REPLY_COMMAND_USAGE = 'reply <message-id> [content] [--file <path> ...]'
 
 import type { StoredMessageInput } from '../storage/message-db.js'
-import type { TelegramClientAdapter } from '../telegram/types.js'
+import type { TelegramClientAdapter, TelegramSendTarget } from '../telegram/types.js'
 
 export type ListenComposerCommand =
   | { kind: 'message'; content: string }
@@ -10,7 +10,7 @@ export type ListenComposerCommand =
 
 export async function executeListenReply(
   client: TelegramClientAdapter,
-  chat: string | number,
+  chat: TelegramSendTarget,
   command: Extract<ListenComposerCommand, { kind: 'reply' }>,
 ): Promise<StoredMessageInput[]> {
   if (command.files.length > 0) {
