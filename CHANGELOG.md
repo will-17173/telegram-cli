@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-07-28
+
+### Fixed
+
+- Resolve interactive `tg listen` send targets from chat info and runtime input peers so messages sent while listening by chat name do not fail with `CHANNEL_INVALID`.
+- Add spacing around the chat name and ID separator in the interactive listen composer target label.
+
 ## [0.8.2] - 2026-07-27
 
 ### Added
