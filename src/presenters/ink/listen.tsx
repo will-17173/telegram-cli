@@ -89,6 +89,7 @@ const LISTEN_MESSAGE_COLORS = {
   media: '#9bdca8',
   separator: '#56606b',
 } as const
+const SEND_TARGET_LABEL_SEPARATOR = ' | '
 const OWNERSHIP_SHUTDOWN_GRACE_MS = 250
 /** Maximum number of grouped messages retained by a long-running interactive listener. */
 export const LISTEN_HISTORY_LIMIT = 500
@@ -1664,9 +1665,9 @@ function messageFromError(error: unknown): string {
 function buildSendTargetLabel(value: string | number): string {
   const normalized = String(value).trim()
   if (isNumericLike(normalized)) {
-    return `unknown|${normalized}`
+    return formatSendTargetLabel('unknown', normalized)
   }
-  return `${normalized}|unknown`
+  return formatSendTargetLabel(normalized, 'unknown')
 }
 
 type ResolvedSendTarget = {
@@ -1685,11 +1686,11 @@ async function resolveSendTarget(
     const name = typeof info.Name === 'string' && info.Name.trim() !== '' ? info.Name : undefined
     const id = typeof info.ID === 'string' && info.ID.trim() !== '' ? info.ID : undefined
     if (name == null && id == null) return { label: fallback }
-    const fallbackParts = fallback.split('|')
+    const fallbackParts = fallback.split(SEND_TARGET_LABEL_SEPARATOR)
     const resolvedName = name == null ? fallbackParts[0] : name
     const resolvedId = id == null ? fallbackParts[1] ?? 'unknown' : id
     const target = id == null ? undefined : parseResolvedSendTargetId(id)
-    return { label: `${resolvedName}|${resolvedId}`, target }
+    return { label: formatSendTargetLabel(resolvedName, resolvedId), target }
   } catch {
     return null
   }
@@ -1699,11 +1700,15 @@ function inferSendTargetLabel(sendTo: string | number, message: StoredMessageInp
   const numericSendTo = isNumericValue(sendTo) ? Number(sendTo) : null
   if (numericSendTo != null && message.chat_id === numericSendTo) {
     const name = message.chat_name == null ? 'Unknown' : message.chat_name
-    return `${name}|${numericSendTo}`
+    return formatSendTargetLabel(name, String(numericSendTo))
   }
   const nameMatch = typeof sendTo === 'string' && message.chat_name?.toLowerCase() === String(sendTo).toLowerCase()
-  if (nameMatch) return `${message.chat_name ?? 'Unknown'}|${message.chat_id}`
+  if (nameMatch) return formatSendTargetLabel(message.chat_name ?? 'Unknown', String(message.chat_id))
   return null
+}
+
+function formatSendTargetLabel(name: string, id: string): string {
+  return `${name}${SEND_TARGET_LABEL_SEPARATOR}${id}`
 }
 
 function messageMatchesSendTarget(sendTo: string | number, message: StoredMessageInput): boolean {

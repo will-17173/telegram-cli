@@ -313,8 +313,8 @@ describe('web frontend source', () => {
   })
 
   it('formats local supergroup identifiers as Telegram peer IDs', () => {
-    expect(displayChatId(3688621340)).toBe('-1003688621340')
-    expect(displayChatId(-1003688621340)).toBe('-1003688621340')
+    expect(displayChatId(2345678901)).toBe('-1002345678901')
+    expect(displayChatId(-1002345678901)).toBe('-1002345678901')
     expect(displayChatId(10)).toBe('10')
     expect(displayChatId(-123)).toBe('-123')
   })
@@ -360,7 +360,7 @@ describe('web frontend source', () => {
       event_id: 1,
       group_id: 7,
       event_type: 'message',
-      chat_id: 3688621340,
+      chat_id: 2345678901,
       message_id: 42,
       user_id: 17173,
       matched_rule_ids: [9],

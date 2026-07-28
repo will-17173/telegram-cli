@@ -113,7 +113,7 @@ describe('ListenComposer', () => {
     const output = renderToString(
       <ListenComposer
         input="hello"
-        sendTargetLabel="Example|-1001"
+        sendTargetLabel="Example | -1001"
         terminalWidth={64}
       />,
       { columns: 64 },
@@ -122,7 +122,7 @@ describe('ListenComposer', () => {
     const lines = output.split('\n')
     expect(lines).toHaveLength(4)
     expect(lines[1]).toContain('› hello')
-    expect(lines[3]).toContain('To: Example|-1001')
+    expect(lines[3]).toContain('To: Example | -1001')
     expect(lines[3]).toContain('Enter to send · Ctrl+C to exit')
     expect(LISTEN_COMPOSER_THEME).toEqual({
       background: '#454950',
@@ -530,14 +530,14 @@ describe('InteractiveListen slash commands', () => {
 
   it('uses the runtime input peer from the single listened chat even when the send target is a partial name', async () => {
     const controller = new AbortController()
-    const inputPeer = { _: 'inputPeerChannel', channelId: 3688621340, accessHash: 'hash' } as unknown as NonNullable<NormalizedMessage['download_peer']>
+    const inputPeer = { _: 'inputPeerChannel', channelId: 2345678901, accessHash: 'hash' } as unknown as NonNullable<NormalizedMessage['download_peer']>
     const client = interactiveClient(
       { getGroup: vi.fn().mockResolvedValue(groupDetails()) },
-      { ...storedPhoto(88, 'message before command'), chat_id: 3688621340, chat_name: '日常居家|闲聊区', download_peer: inputPeer },
+      { ...storedPhoto(88, 'message before command'), chat_id: 2345678901, chat_name: 'Example Group', download_peer: inputPeer },
     )
     client.sendMessage.mockResolvedValue({ sent_message: storedText(99, 'sent') })
     const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
-    const app = render(<InteractiveListen dbPath=":memory:" chats={['闲聊']} persist retrySeconds={1} sendTo="闲聊" showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    const app = render(<InteractiveListen dbPath=":memory:" chats={['Example']} persist retrySeconds={1} sendTo="Example" showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
     await vi.waitFor(() => expect(stdout.output).toContain('connected'))
 
     stdin.write('hello'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('hello'))
@@ -551,18 +551,22 @@ describe('InteractiveListen slash commands', () => {
     const controller = new AbortController()
     const client = interactiveClient(
       { getGroup: vi.fn().mockResolvedValue(groupDetails()) },
-      { ...storedPhoto(88, 'message before command'), chat_id: 3688621340, chat_name: '日常居家|闲聊区' },
+      { ...storedPhoto(88, 'message before command'), chat_id: 2345678901, chat_name: 'Example Group' },
     )
-    vi.mocked(client.getChatInfo).mockResolvedValue({ Name: '日常居家|闲聊区', ID: '-1003688621340' })
+    vi.mocked(client.getChatInfo).mockResolvedValue({ Name: 'Example Group', ID: '-1002345678901' })
     client.sendMessage.mockResolvedValue({ sent_message: storedText(99, 'sent') })
     const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
-    const app = render(<InteractiveListen dbPath=":memory:" chats={['闲聊']} persist retrySeconds={1} sendTo="闲聊" showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
-    await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('日常居家|闲聊区|-1003688621340'))
+    const app = render(<InteractiveListen dbPath=":memory:" chats={['Example']} persist retrySeconds={1} sendTo="Example" showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('Example Group |')
+      expect(frame).toContain('-1002345678901')
+    })
 
     stdin.write('hello'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('hello'))
     stdin.write('\r')
 
-    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledWith({ chat: -1003688621340, message: 'hello', linkPreview: true }))
+    await vi.waitFor(() => expect(client.sendMessage).toHaveBeenCalledWith({ chat: -1002345678901, message: 'hello', linkPreview: true }))
     controller.abort(); app.unmount()
   })
 

@@ -210,7 +210,7 @@ describe('SyncTaskRunner', () => {
     const db = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
     db.upsertBatch([{
       platform: 'telegram',
-      chat_id: -1003688621340,
+      chat_id: -1002345678901,
       chat_name: 'Supergroup',
       msg_id: 1,
       sender_id: 1,
@@ -225,10 +225,10 @@ describe('SyncTaskRunner', () => {
     db.close()
     const runner = new SyncTaskRunner({ dataDir: root })
 
-    await runner.start({ account: 'work', chatId: 3688621340, limit: 500 })
+    await runner.start({ account: 'work', chatId: 2345678901, limit: 500 })
 
     expect(fakeClient.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({
-      chat: -1003688621340,
+      chat: -1002345678901,
       minId: 1,
     }))
   })
