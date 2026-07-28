@@ -44,7 +44,7 @@ export function parseListenComposerInput(input: string): ListenComposerCommand {
     return { kind: 'error', error: `usage: /${REPLY_COMMAND_USAGE}` }
   }
 
-  const reply = Number(tokens[1])
+  const reply = Number(normalizeReplyMessageIdToken(tokens[1]!))
   if (!Number.isInteger(reply) || reply <= 0) {
     return { kind: 'error', error: 'reply message ID must be a positive integer' }
   }
@@ -75,6 +75,10 @@ export function parseListenComposerInput(input: string): ListenComposerCommand {
     ...(message ? { content: message } : {}),
     files,
   }
+}
+
+function normalizeReplyMessageIdToken(token: string): string {
+  return token.startsWith('#') ? token.slice(1) : token
 }
 
 function tokenize(input: string): string[] | string {

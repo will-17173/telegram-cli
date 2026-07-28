@@ -14,6 +14,15 @@ describe('parseListenComposerInput', () => {
     })
   })
 
+  it('accepts a message ID prefixed with # in reply commands', () => {
+    expect(parseListenComposerInput('/reply #42 thanks for the update')).toEqual({
+      kind: 'reply',
+      reply: 42,
+      content: 'thanks for the update',
+      files: [],
+    })
+  })
+
   it('parses repeated file options and quoted paths', () => {
     expect(parseListenComposerInput('/reply 42 caption --file ./one.jpg --file "./two words.png"')).toEqual({
       kind: 'reply',
