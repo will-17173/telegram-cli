@@ -262,6 +262,24 @@ describe('human output builders', () => {
     })
   })
 
+  it('renders stored message attachments in message tables', () => {
+    const withCaption = storedMessage({
+      content: 'quarterly report',
+      attachments: [storedAttachment(attachment({ kind: 'document', file_name: 'report.pdf', file_size: 2048 }))],
+    })
+    const mediaOnly = storedMessage({
+      msg_id: 12,
+      content: null,
+      attachments: [storedAttachment(attachment({ kind: 'photo' }))],
+    })
+
+    expect(messageTable([withCaption, mediaOnly], 'User Messages', 'None', { chatLabel: 'General' }).rows)
+      .toEqual([
+        [localTimestamp(withCaption.timestamp), 'Ada', 'quarterly report\n📎 document: report.pdf, 2 KB'],
+        [localTimestamp(mediaOnly.timestamp), 'Ada', '📎 photo'],
+      ])
+  })
+
   it('formats offset ISO timestamps in host local time across day boundaries', () => {
     const timestamp = '2026-07-10T23:30:00-02:00'
 

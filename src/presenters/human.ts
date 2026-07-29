@@ -205,8 +205,8 @@ export function messageTable(messages: StoredMessage[], title = 'Messages', empt
     title: scoped ? `[${options.chatLabel}] ${title}` : title,
     columns: scoped ? ['TIME', 'SENDER', 'MESSAGE'] : ['TIME', 'CHAT', 'SENDER', 'MESSAGE'],
     rows: messages.map((message) => scoped
-      ? [display(message.timestamp), display(message.sender_name), display(message.content)]
-      : [display(message.timestamp), display(message.chat_name), display(message.sender_name), display(message.content)]),
+      ? [display(message.timestamp), display(message.sender_name), storedMessageCell(message)]
+      : [display(message.timestamp), display(message.chat_name), display(message.sender_name), storedMessageCell(message)]),
     emptyText,
   }
 }
@@ -314,6 +314,12 @@ function display(value: unknown): string {
     return safeJson(value)
   }
   return String(value)
+}
+
+function storedMessageCell(message: StoredMessage): string {
+  const text = message.content?.trim() || null
+  const attachment = summarizeAttachments(message.attachments)
+  return [text, attachment || null].filter((value): value is string => value != null).join('\n') || '—'
 }
 
 function fallback(value: string | null): string {
