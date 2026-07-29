@@ -11,10 +11,10 @@ const ids = (input: string) => matchListenCommands(input).map(match => match.def
 
 describe('listen command matching', () => {
   it('returns reply first for an empty slash query and keeps all results available', () => {
-    expect(MAX_LISTEN_COMMAND_MATCHES).toBe(6)
+    expect(MAX_LISTEN_COMMAND_MATCHES).toBe(7)
     expect(ids('/')[0]).toBe('reply')
     expect(matchListenCommands('/').length).toBeGreaterThan(MAX_LISTEN_COMMAND_MATCHES)
-    expect(visibleListenCommandMatches('/')).toEqual(matchListenCommands('/').slice(0, 6))
+    expect(visibleListenCommandMatches('/')).toEqual(matchListenCommands('/').slice(0, 7))
   })
 
   it.each(['/reply', '/reply 42 hi'])('prefers an exact command path for %s', (input) => {
@@ -41,6 +41,11 @@ describe('listen command matching', () => {
   it('does not treat arguments as command path query tokens', () => {
     expect(ids('/member ban @user')[0]).toBe('group:member ban')
     expect(ids('/reply 42 hi')[0]).toBe('reply')
+  })
+
+  it('treats plain words after a complete one-part command as arguments', () => {
+    expect(ids('/send note --file ./a.jpg')[0]).toBe('send')
+    expect(completeListenCommand('/send note --file ./a.jpg')).toBe('/send note --file ./a.jpg')
   })
 
   it('breaks score ties by general category, then stable catalog order', () => {
@@ -109,11 +114,11 @@ describe('listen command completion', () => {
     expect(completeListenCommand('/reply @x')).toBe('/reply @x')
   })
 
-  it('only selects among the six visible matches and safely keeps invalid selections unchanged', () => {
+  it('only selects among the visible matches and safely keeps invalid selections unchanged', () => {
     const visible = visibleListenCommandMatches('/')
-    expect(visible).toHaveLength(6)
-    expect(completeListenCommand('/', 5)).toBe(`/${visible[5]!.definition.path.join(' ')} `)
-    expect(completeListenCommand('/', 6)).toBe('/')
+    expect(visible).toHaveLength(7)
+    expect(completeListenCommand('/', 6)).toBe(`/${visible[6]!.definition.path.join(' ')} `)
+    expect(completeListenCommand('/', 7)).toBe('/')
     expect(completeListenCommand('/', -1)).toBe('/')
   })
 

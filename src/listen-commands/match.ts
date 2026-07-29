@@ -1,7 +1,7 @@
 import { tokenizeGroupCommand, type GroupCommandToken } from '../group-commands/tokenize.js'
 import { LISTEN_COMMANDS, type ListenCommandDefinition } from './catalog.js'
 
-export const MAX_LISTEN_COMMAND_MATCHES = 6
+export const MAX_LISTEN_COMMAND_MATCHES = 7
 
 export interface ListenCommandMatch {
   readonly definition: ListenCommandDefinition
@@ -71,6 +71,9 @@ function parseQuery(input: string): ParsedQuery | undefined {
   if (tokens.length === 0) return { tokens, query: [], argumentBoundary: false }
   const values = tokens.map(token => token.value.toLowerCase())
   if (values[0] === '') return { tokens, query: [], argumentBoundary: false }
+  if (LISTEN_COMMANDS.some(definition => definition.path.length === 1 && definition.path[0] === values[0])) {
+    return { tokens, query: values.slice(0, 1), argumentBoundary: false }
+  }
 
   // A listen command has at most two path components. Treat a second token as
   // command text only when it can identify a command; otherwise it is an arg.

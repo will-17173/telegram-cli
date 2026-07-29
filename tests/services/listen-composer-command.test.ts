@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { REPLY_COMMAND_USAGE } from '../../src/listen-commands/catalog.js'
-import { executeListenReply, parseHistoryLimit, parseListenComposerInput } from '../../src/services/listen-composer-command.js'
+import { executeListenComposerCommand, executeListenReply, parseHistoryLimit, parseListenComposerInput } from '../../src/services/listen-composer-command.js'
 import type { TelegramClientAdapter } from '../../src/telegram/types.js'
 
 describe('parseListenComposerInput', () => {
@@ -39,6 +39,21 @@ describe('parseListenComposerInput', () => {
     })
   })
 
+  it('parses a send command with caption and repeated file options', () => {
+    expect(parseListenComposerInput('/send caption --file ./one.jpg --file "./two words.png"')).toEqual({
+      kind: 'send',
+      content: 'caption',
+      files: ['./one.jpg', './two words.png'],
+    })
+  })
+
+  it('parses a send command with only files', () => {
+    expect(parseListenComposerInput('/send --file ./report.pdf')).toEqual({
+      kind: 'send',
+      files: ['./report.pdf'],
+    })
+  })
+
   it.each([
     ['/reply', `usage: /${REPLY_COMMAND_USAGE}`],
     ['/reply nope hello', 'reply message ID must be a positive integer'],
@@ -46,8 +61,27 @@ describe('parseListenComposerInput', () => {
     ['/reply 42 --file', '--file requires a path'],
     ['/reply 42', 'reply requires content or at least one file'],
     ['/reply 42 "unfinished', 'unterminated quote'],
+    ['/send caption --file', '--file requires a path'],
+    ['/send caption', 'send requires at least one file'],
   ])('rejects invalid command %s', (input, error) => {
     expect(parseListenComposerInput(input)).toEqual({ kind: 'error', error })
+  })
+})
+
+describe('executeListenComposerCommand', () => {
+  it('sends files as media with an optional caption', async () => {
+    const client = composerClient()
+
+    await executeListenComposerCommand(client, -1001, {
+      kind: 'send', content: 'caption', files: ['./one.jpg', './two.png'],
+    })
+
+    expect(client.sendMedia).toHaveBeenCalledWith({
+      chat: -1001,
+      files: ['./one.jpg', './two.png'],
+      caption: 'caption',
+    })
+    expect(client.sendMessage).not.toHaveBeenCalled()
   })
 })
 

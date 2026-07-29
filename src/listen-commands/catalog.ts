@@ -3,9 +3,9 @@ import {
   GROUP_COMMANDS,
   type GroupCommandKey,
 } from '../group-commands/catalog.js'
-import { HISTORY_COMMAND_USAGE, REPLY_COMMAND_USAGE } from '../services/listen-composer-command.js'
+import { HISTORY_COMMAND_USAGE, REPLY_COMMAND_USAGE, SEND_COMMAND_USAGE } from '../services/listen-composer-command.js'
 
-export { REPLY_COMMAND_USAGE }
+export { REPLY_COMMAND_USAGE, SEND_COMMAND_USAGE }
 
 export interface ReplyListenCommandDefinition {
   readonly id: 'reply'
@@ -15,6 +15,16 @@ export interface ReplyListenCommandDefinition {
   readonly summary: 'Reply to a message'
   readonly usage: typeof REPLY_COMMAND_USAGE
   readonly keywords: readonly ['reply', 'respond', 'message', 'file']
+}
+
+export interface SendListenCommandDefinition {
+  readonly id: 'send'
+  readonly kind: 'send'
+  readonly category: 'general'
+  readonly path: readonly ['send']
+  readonly summary: 'Send attachments'
+  readonly usage: typeof SEND_COMMAND_USAGE
+  readonly keywords: readonly ['send', 'attachment', 'file', 'media']
 }
 
 export interface SyncListenCommandDefinition {
@@ -61,6 +71,7 @@ export type GroupListenCommandDefinition =
 
 export type ListenCommandDefinition =
   | ReplyListenCommandDefinition
+  | SendListenCommandDefinition
   | SyncListenCommandDefinition
   | HistoryListenCommandDefinition
   | GroupListenCommandDefinition
@@ -73,6 +84,16 @@ const replyCommand = freezeDefinition({
   summary: 'Reply to a message',
   usage: REPLY_COMMAND_USAGE,
   keywords: ['reply', 'respond', 'message', 'file'],
+} as const)
+
+const sendCommand = freezeDefinition({
+  id: 'send',
+  kind: 'send',
+  category: 'general',
+  path: ['send'],
+  summary: 'Send attachments',
+  usage: SEND_COMMAND_USAGE,
+  keywords: ['send', 'attachment', 'file', 'media'],
 } as const)
 
 const syncCommand = freezeDefinition({
@@ -129,6 +150,7 @@ function isGroupCommandKey(value: string): value is GroupCommandKey {
 
 const listenCommands: readonly ListenCommandDefinition[] = [
   replyCommand,
+  sendCommand,
   syncCommand,
   historyCommand,
   ...groupCommands,

@@ -40,7 +40,7 @@ function menuRows(element: React.JSX.Element) {
 
 describe('ListenCommandMenu', () => {
   it('uses the unified bounded matches for reply and group commands', () => {
-    expect(visibleListenCommandMatches('/')).toHaveLength(6)
+    expect(visibleListenCommandMatches('/')).toHaveLength(7)
     expect(renderToString(<ListenCommandMenu input="/" selectedIndex={0} width={64} />)).toContain('reply')
     expect(renderToString(<ListenCommandMenu input="/rep" selectedIndex={0} width={64} />)).toContain('Reply to a message')
     expect(renderToString(<ListenCommandMenu input="/ban" selectedIndex={0} width={64} />)).toContain('member ban')

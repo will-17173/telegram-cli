@@ -8,7 +8,7 @@ import {
   LISTEN_COMMANDS,
   type GroupListenCommandDefinition,
 } from '../../src/listen-commands/catalog.js'
-import { REPLY_COMMAND_USAGE } from '../../src/services/listen-composer-command.js'
+import { REPLY_COMMAND_USAGE, SEND_COMMAND_USAGE } from '../../src/services/listen-composer-command.js'
 
 function assertMemberBanNarrowing(command: GroupListenCommandDefinition): void {
   if (command.groupKey !== 'member ban') return
@@ -49,8 +49,20 @@ describe('LISTEN_COMMANDS', () => {
     })
   })
 
-  it('includes sync as a general command before group commands', () => {
+  it('includes send as a general command before group commands', () => {
     expect(LISTEN_COMMANDS[1]).toEqual({
+      id: 'send',
+      kind: 'send',
+      category: 'general',
+      path: ['send'],
+      summary: 'Send attachments',
+      usage: SEND_COMMAND_USAGE,
+      keywords: ['send', 'attachment', 'file', 'media'],
+    })
+  })
+
+  it('includes sync as a general command before group commands', () => {
+    expect(LISTEN_COMMANDS[2]).toEqual({
       id: 'sync',
       kind: 'sync',
       category: 'general',
@@ -62,7 +74,7 @@ describe('LISTEN_COMMANDS', () => {
   })
 
   it('includes history as a general command before group commands', () => {
-    expect(LISTEN_COMMANDS[2]).toEqual({
+    expect(LISTEN_COMMANDS[3]).toEqual({
       id: 'history',
       kind: 'history',
       category: 'general',

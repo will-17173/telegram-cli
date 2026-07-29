@@ -12,7 +12,7 @@ import type { StoredMessageInput } from '../../src/storage/message-db.js'
 const selected = (input: string, index = 0) => matchListenCommands(input)[index]!
 
 const executable = (result: ListenCommandParseResult) => {
-  if (result.kind !== 'reply' && result.kind !== 'group' && result.kind !== 'sync' && result.kind !== 'history') throw new Error(`Expected executable result, received ${result.kind}`)
+  if (result.kind !== 'send' && result.kind !== 'reply' && result.kind !== 'group' && result.kind !== 'sync' && result.kind !== 'history') throw new Error(`Expected executable result, received ${result.kind}`)
   return result
 }
 
@@ -34,6 +34,13 @@ describe('parseSelectedListenCommand', () => {
     expect(parseSelectedListenCommand('/reply 42 note --file ./a.jpg', selected('/reply 42 note --file ./a.jpg'))).toEqual({
       kind: 'reply',
       command: { kind: 'reply', reply: 42, content: 'note', files: ['./a.jpg'] },
+    })
+  })
+
+  it('parses send media commands', () => {
+    expect(parseSelectedListenCommand('/send note --file ./a.jpg', selected('/send note --file ./a.jpg'))).toEqual({
+      kind: 'send',
+      command: { kind: 'send', content: 'note', files: ['./a.jpg'] },
     })
   })
 
@@ -104,10 +111,35 @@ describe('executeSelectedListenCommand', () => {
     }))
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/reply 42 hi', selected('/reply 42 hi'))),
-      { executeReply, executeSync: vi.fn(), executeHistory: vi.fn(), executeGroup },
+      { executeSend: vi.fn(), executeReply, executeSync: vi.fn(), executeHistory: vi.fn(), executeGroup },
     )).resolves.toEqual({ kind: 'reply', result: outcome })
     expect(executeReply).toHaveBeenCalledOnce()
     expect(executeGroup).not.toHaveBeenCalled()
+  })
+
+  it('calls only the send executor for send commands', async () => {
+    const outcome: StoredMessageInput[] = [{
+      platform: 'telegram', chat_id: -1001, chat_name: 'Test', msg_id: 44,
+      sender_id: 1, sender_name: 'Alice', content: 'sent', timestamp: '2026-01-01T00:00:00.000Z',
+      reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
+    }]
+    const executeSend = vi.fn(async () => outcome)
+    const executeReply = vi.fn(async (): Promise<StoredMessageInput[]> => [])
+
+    await expect(executeSelectedListenCommand(
+      executable(parseSelectedListenCommand('/send note --file ./a.jpg', selected('/send note --file ./a.jpg'))),
+      {
+        executeSend,
+        executeReply,
+        executeSync: vi.fn(),
+        executeHistory: vi.fn(),
+        executeGroup: vi.fn(async (): Promise<GroupCommandExecutionResult> => ({
+          ok: true, data: { chat_id: -1001, invites: [], total: 0 },
+        })),
+      },
+    )).resolves.toEqual({ kind: 'send', result: outcome })
+    expect(executeSend).toHaveBeenCalledOnce()
+    expect(executeReply).not.toHaveBeenCalled()
   })
 
   it('calls only the group executor for group commands', async () => {
@@ -116,7 +148,7 @@ describe('executeSelectedListenCommand', () => {
     const executeGroup = vi.fn(async () => groupOutcome)
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/invite list', selected('/invite list'))),
-      { executeReply, executeSync: vi.fn(), executeHistory: vi.fn(), executeGroup },
+      { executeSend: vi.fn(), executeReply, executeSync: vi.fn(), executeHistory: vi.fn(), executeGroup },
     )).resolves.toEqual({ kind: 'group', result: groupOutcome })
     expect(executeGroup).toHaveBeenCalledOnce()
     expect(executeReply).not.toHaveBeenCalled()
@@ -130,7 +162,7 @@ describe('executeSelectedListenCommand', () => {
     const executeSync = vi.fn(async () => ({ synced: 2 }))
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/sync', selected('/sync'))),
-      { executeReply, executeGroup, executeSync, executeHistory: vi.fn() },
+      { executeSend: vi.fn(), executeReply, executeGroup, executeSync, executeHistory: vi.fn() },
     )).resolves.toEqual({ kind: 'sync', result: { synced: 2 } })
     expect(executeSync).toHaveBeenCalledOnce()
     expect(executeReply).not.toHaveBeenCalled()
@@ -146,7 +178,7 @@ describe('executeSelectedListenCommand', () => {
     const executeHistory = vi.fn(async () => ({ loaded: 25 }))
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/history 25', selected('/history 25'))),
-      { executeReply, executeGroup, executeSync, executeHistory },
+      { executeSend: vi.fn(), executeReply, executeGroup, executeSync, executeHistory },
     )).resolves.toEqual({ kind: 'history', result: { loaded: 25 } })
     expect(executeHistory).toHaveBeenCalledWith(25)
     expect(executeReply).not.toHaveBeenCalled()
@@ -159,6 +191,7 @@ describe('executeSelectedListenCommand', () => {
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/reply 42 hi', selected('/reply 42 hi'))),
       {
+        executeSend: async () => undefined,
         executeReply: async () => { throw failure },
         executeSync: async () => undefined,
         executeHistory: async () => undefined,

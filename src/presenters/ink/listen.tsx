@@ -29,7 +29,7 @@ import {
 } from './mouse-scroll.js'
 import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
 import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
-import { executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
+import { executeListenComposerCommand, executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
 import { ListenCommandMenu, listenCommandMenuAvailability, moveListenCommandSelectionEnabled, visibleListenCommandMenuMatches } from './listen-command-menu.js'
 import { completeListenCommand } from '../../listen-commands/match.js'
 import { parseSelectedListenCommand } from '../../listen-commands/dispatch.js'
@@ -1147,6 +1147,10 @@ export function InteractiveListen({
           })
           return
         }
+        if (parsed.kind === 'send') {
+          void sendMessage(input)
+          return
+        }
         if (parsed.kind === 'sync') {
           if (sendTo == null) { setNote('set --send-to before syncing'); return }
           const client = clientRef.current
@@ -1415,13 +1419,7 @@ export function InteractiveListen({
     setNote('sending...')
     try {
       const target = sendTargetRef.current ?? sendTo
-      const sentMessages = command.kind === 'reply'
-        ? await executeListenReply(client, target, command)
-        : [await client.sendMessage({
-            chat: target,
-            message: command.content,
-            linkPreview: true,
-          })].flatMap(({ sent_message: message }) => message == null ? [] : [message])
+      const sentMessages = await executeListenComposerCommand(client, target, command)
       if (isCurrent()) {
         for (const sentMessage of sentMessages) acceptListenMessage(sentMessage, seenRef.current, seenOrderRef.current, (message) => {
           registerPendingAttachmentKeys(pendingAttachmentKeysRef.current, message, showMedia)

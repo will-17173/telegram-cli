@@ -1,3 +1,4 @@
+export const SEND_COMMAND_USAGE = 'send [content] --file <path> ...'
 export const REPLY_COMMAND_USAGE = 'reply <message-id> [content] [--file <path> ...]'
 export const HISTORY_COMMAND_USAGE = 'history [count]'
 export const DEFAULT_HISTORY_LIMIT = 100
@@ -7,8 +8,32 @@ import type { TelegramClientAdapter, TelegramSendTarget } from '../telegram/type
 
 export type ListenComposerCommand =
   | { kind: 'message'; content: string }
+  | { kind: 'send'; content?: string; files: string[] }
   | { kind: 'reply'; reply: number; content?: string; files: string[] }
   | { kind: 'error'; error: string }
+
+export async function executeListenComposerCommand(
+  client: TelegramClientAdapter,
+  chat: TelegramSendTarget,
+  command: Exclude<ListenComposerCommand, { kind: 'error' }>,
+): Promise<StoredMessageInput[]> {
+  if (command.kind === 'reply') return executeListenReply(client, chat, command)
+  if (command.kind === 'send') {
+    const result = await client.sendMedia({
+      chat,
+      files: command.files,
+      ...(command.content == null ? {} : { caption: command.content }),
+    })
+    return result.messages.flatMap(({ sent_message: message }) => message == null ? [] : [message])
+  }
+
+  const result = await client.sendMessage({
+    chat,
+    message: command.content,
+    linkPreview: true,
+  })
+  return result.sent_message == null ? [] : [result.sent_message]
+}
 
 export async function executeListenReply(
   client: TelegramClientAdapter,
@@ -36,6 +61,7 @@ export async function executeListenReply(
 
 export function parseListenComposerInput(input: string): ListenComposerCommand {
   const trimmed = input.trim()
+  if (/^\/send(?:\s|$)/.test(trimmed)) return parseSendCommand(trimmed)
   if (!trimmed.startsWith('/reply') || !/^\/reply(?:\s|$)/.test(trimmed)) {
     return { kind: 'message', content: trimmed }
   }
@@ -74,6 +100,35 @@ export function parseListenComposerInput(input: string): ListenComposerCommand {
   return {
     kind: 'reply',
     reply,
+    ...(message ? { content: message } : {}),
+    files,
+  }
+}
+
+function parseSendCommand(input: string): ListenComposerCommand {
+  const tokens = tokenize(input)
+  if (typeof tokens === 'string') return { kind: 'error', error: tokens }
+
+  const content: string[] = []
+  const files: string[] = []
+  for (let index = 1; index < tokens.length; index += 1) {
+    const token = tokens[index]!
+    if (token !== '--file' && token !== '-f') {
+      content.push(token)
+      continue
+    }
+    const path = tokens[index + 1]
+    if (path == null || path === '--file' || path === '-f') {
+      return { kind: 'error', error: '--file requires a path' }
+    }
+    files.push(path)
+    index += 1
+  }
+
+  if (files.length === 0) return { kind: 'error', error: 'send requires at least one file' }
+  const message = content.join(' ')
+  return {
+    kind: 'send',
     ...(message ? { content: message } : {}),
     files,
   }
