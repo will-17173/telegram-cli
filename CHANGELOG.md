@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-07-29
+
+### Added
+
+- Add `/history [count]` in single-chat interactive `tg listen` sessions to load recent Telegram history directly into the current view.
+- Allow `/reply #<message-id>` as an alias for `/reply <message-id>`.
+
+### Changed
+
+- Hide group member management commands from the interactive listen slash menu when the target chat is a private user.
+- Show the local date in listen message headers for messages that are not from today.
+
 ## [0.8.3] - 2026-07-28
 
 ### Fixed
