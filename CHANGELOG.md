@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-07-29
+
+### Fixed
+
+- Show attachment summaries in stored message tables, including media-only `tg recent --chat --user` results.
+
 ## [0.8.4] - 2026-07-29
 
 ### Added
