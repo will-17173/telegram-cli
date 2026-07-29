@@ -46,6 +46,15 @@ describe('ListenCommandMenu', () => {
     expect(renderToString(<ListenCommandMenu input="/ban" selectedIndex={0} width={64} />)).toContain('member ban')
   })
 
+  it('hides group member commands for private user targets', () => {
+    const output = renderToString(<ListenCommandMenu input="/" selectedIndex={0} width={80} targetChatType="user" />)
+    expect(output).toContain('reply')
+    expect(output).toContain('sync')
+    expect(output).not.toContain('member add')
+    expect(output).not.toContain('member kick')
+    expect(output).not.toContain('member ban')
+  })
+
   it('keeps general commands enabled without evaluating group availability', () => {
     const evaluate = vi.spyOn(groupExecutor, 'evaluateGroupCommandAvailability')
     const matches = visibleListenCommandMatches('/sync')

@@ -68,6 +68,19 @@ describe('listen message formatting', () => {
     expect(output).toContain('TestGroup (100) | Alice')
   })
 
+  it('shows the local date for messages outside today', () => {
+    const timestamp = new Date(2000, 0, 2, 3, 4).toISOString()
+
+    expect(buildListenMessage(mediaMessage({ timestamp })).time).toBe('2000-01-02 03:04')
+    expect(formatListenLine(mediaMessage({ timestamp }))).toContain('[2000-01-02 03:04] Alice')
+  })
+
+  it('keeps today messages formatted as local time only', () => {
+    const timestamp = new Date(new Date().setHours(3, 4, 0, 0)).toISOString()
+
+    expect(buildListenMessage(mediaMessage({ timestamp })).time).toBe('03:04')
+  })
+
   it('associates a photo preview with its attachment when media is shown', () => {
     const message = mediaMessage({ previewJpegBase64: 'jpeg-preview' })
 
@@ -152,7 +165,7 @@ describe('listen message formatting', () => {
   })
 })
 
-function mediaMessage(options: { msgId?: number; content?: string; previewJpegBase64?: string } = {}): StoredMessageInput {
+function mediaMessage(options: { msgId?: number; content?: string; previewJpegBase64?: string; timestamp?: string } = {}): StoredMessageInput {
   return {
     platform: 'telegram',
     chat_id: 100,
@@ -161,7 +174,7 @@ function mediaMessage(options: { msgId?: number; content?: string; previewJpegBa
     sender_id: 1,
     sender_name: 'Alice',
     content: options.content ?? '',
-    timestamp: '2026-07-10T07:22:00.000Z',
+    timestamp: options.timestamp ?? '2026-07-10T07:22:00.000Z',
     reply_to_msg_id: null,
     media_group_id: null,
     raw_json: null,

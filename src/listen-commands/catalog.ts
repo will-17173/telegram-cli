@@ -3,7 +3,7 @@ import {
   GROUP_COMMANDS,
   type GroupCommandKey,
 } from '../group-commands/catalog.js'
-import { REPLY_COMMAND_USAGE } from '../services/listen-composer-command.js'
+import { HISTORY_COMMAND_USAGE, REPLY_COMMAND_USAGE } from '../services/listen-composer-command.js'
 
 export { REPLY_COMMAND_USAGE }
 
@@ -25,6 +25,16 @@ export interface SyncListenCommandDefinition {
   readonly summary: 'Sync this chat'
   readonly usage: 'sync'
   readonly keywords: readonly ['sync', 'history', 'messages', 'chat']
+}
+
+export interface HistoryListenCommandDefinition {
+  readonly id: 'history'
+  readonly kind: 'history'
+  readonly category: 'general'
+  readonly path: readonly ['history']
+  readonly summary: 'Load recent history'
+  readonly usage: typeof HISTORY_COMMAND_USAGE
+  readonly keywords: readonly ['history', 'recent', 'messages', 'backfill']
 }
 
 type GroupListenCommandDefinitionByKey = {
@@ -52,6 +62,7 @@ export type GroupListenCommandDefinition =
 export type ListenCommandDefinition =
   | ReplyListenCommandDefinition
   | SyncListenCommandDefinition
+  | HistoryListenCommandDefinition
   | GroupListenCommandDefinition
 
 const replyCommand = freezeDefinition({
@@ -72,6 +83,16 @@ const syncCommand = freezeDefinition({
   summary: 'Sync this chat',
   usage: 'sync',
   keywords: ['sync', 'history', 'messages', 'chat'],
+} as const)
+
+const historyCommand = freezeDefinition({
+  id: 'history',
+  kind: 'history',
+  category: 'general',
+  path: ['history'],
+  summary: 'Load recent history',
+  usage: HISTORY_COMMAND_USAGE,
+  keywords: ['history', 'recent', 'messages', 'backfill'],
 } as const)
 
 const groupCommands: readonly GroupListenCommandDefinition[] =
@@ -109,6 +130,7 @@ function isGroupCommandKey(value: string): value is GroupCommandKey {
 const listenCommands: readonly ListenCommandDefinition[] = [
   replyCommand,
   syncCommand,
+  historyCommand,
   ...groupCommands,
 ]
 

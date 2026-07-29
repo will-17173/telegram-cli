@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { REPLY_COMMAND_USAGE } from '../../src/listen-commands/catalog.js'
-import { executeListenReply, parseListenComposerInput } from '../../src/services/listen-composer-command.js'
+import { executeListenReply, parseHistoryLimit, parseListenComposerInput } from '../../src/services/listen-composer-command.js'
 import type { TelegramClientAdapter } from '../../src/telegram/types.js'
 
 describe('parseListenComposerInput', () => {
@@ -79,6 +79,20 @@ describe('executeListenReply', () => {
       reply: 42,
     })
     expect(client.sendMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('parseHistoryLimit', () => {
+  it('defaults history pulls to 100 messages', () => {
+    expect(parseHistoryLimit('/history')).toEqual({ ok: true, limit: 100 })
+  })
+
+  it('parses an explicit positive history limit', () => {
+    expect(parseHistoryLimit('/history 25')).toEqual({ ok: true, limit: 25 })
+  })
+
+  it.each(['/history 0', '/history nope', '/history 1.5', '/history 10 extra'])('rejects invalid history command %s', (input) => {
+    expect(parseHistoryLimit(input)).toEqual({ ok: false, error: 'usage: /history [count]' })
   })
 })
 

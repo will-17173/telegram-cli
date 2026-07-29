@@ -1,4 +1,6 @@
 export const REPLY_COMMAND_USAGE = 'reply <message-id> [content] [--file <path> ...]'
+export const HISTORY_COMMAND_USAGE = 'history [count]'
+export const DEFAULT_HISTORY_LIMIT = 100
 
 import type { StoredMessageInput } from '../storage/message-db.js'
 import type { TelegramClientAdapter, TelegramSendTarget } from '../telegram/types.js'
@@ -75,6 +77,19 @@ export function parseListenComposerInput(input: string): ListenComposerCommand {
     ...(message ? { content: message } : {}),
     files,
   }
+}
+
+export function parseHistoryLimit(input: string): { ok: true; limit: number } | { ok: false; error: string } {
+  const tokens = tokenize(input.trim())
+  if (typeof tokens === 'string') return { ok: false, error: tokens }
+  if (tokens.length > 2) return { ok: false, error: `usage: /${HISTORY_COMMAND_USAGE}` }
+  const raw = tokens[1]
+  if (raw == null) return { ok: true, limit: DEFAULT_HISTORY_LIMIT }
+  const limit = Number(raw)
+  if (!Number.isInteger(limit) || limit <= 0) {
+    return { ok: false, error: `usage: /${HISTORY_COMMAND_USAGE}` }
+  }
+  return { ok: true, limit }
 }
 
 function normalizeReplyMessageIdToken(token: string): string {

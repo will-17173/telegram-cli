@@ -4,10 +4,16 @@ import { Box, Text } from 'ink'
 import { evaluateGroupCommandAvailability } from '../../group-commands/executor.js'
 import { visibleListenCommandMatches } from '../../listen-commands/match.js'
 import type { TelegramGroupDetails } from '../../telegram/group-types.js'
+import type { TelegramChatType } from '../../telegram/types.js'
 import { truncateCell } from './display-width.js'
 
-export function listenCommandMenuAvailability(input: string, knownGroup?: TelegramGroupDetails) {
-  return visibleListenCommandMatches(input).map(match => match.definition.kind !== 'group'
+export function visibleListenCommandMenuMatches(input: string, targetChatType?: TelegramChatType) {
+  return visibleListenCommandMatches(input)
+    .filter(match => targetChatType !== 'user' || match.definition.kind !== 'group')
+}
+
+export function listenCommandMenuAvailability(input: string, knownGroup?: TelegramGroupDetails, targetChatType?: TelegramChatType) {
+  return visibleListenCommandMenuMatches(input, targetChatType).map(match => match.definition.kind !== 'group'
     ? undefined
     : evaluateGroupCommandAvailability(match.definition.groupDefinition, knownGroup))
 }
@@ -34,16 +40,17 @@ function groupAdminBadge(knownGroup?: TelegramGroupDetails): string | null {
   return `Target: ${knownGroup.title} · ${knownGroup.type} · ${knownGroup.current_user_role}`
 }
 
-export function ListenCommandMenu({ input, selectedIndex, width, knownGroup }: {
+export function ListenCommandMenu({ input, selectedIndex, width, knownGroup, targetChatType }: {
   input: string
   selectedIndex: number
   width: number
   knownGroup?: TelegramGroupDetails
+  targetChatType?: TelegramChatType
 }): React.JSX.Element | null {
-  const matches = visibleListenCommandMatches(input)
+  const matches = visibleListenCommandMenuMatches(input, targetChatType)
   if (matches.length === 0) return null
   const selected = Math.max(0, Math.min(selectedIndex, matches.length - 1))
-  const availability = listenCommandMenuAvailability(input, knownGroup)
+  const availability = listenCommandMenuAvailability(input, knownGroup, targetChatType)
   const adminBadge = groupAdminBadge(knownGroup)
 
   return <Box flexDirection="column" width={width}>

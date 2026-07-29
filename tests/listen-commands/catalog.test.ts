@@ -61,6 +61,18 @@ describe('LISTEN_COMMANDS', () => {
     })
   })
 
+  it('includes history as a general command before group commands', () => {
+    expect(LISTEN_COMMANDS[2]).toEqual({
+      id: 'history',
+      kind: 'history',
+      category: 'general',
+      path: ['history'],
+      summary: 'Load recent history',
+      usage: 'history [count]',
+      keywords: ['history', 'recent', 'messages', 'backfill'],
+    })
+  })
+
   it('follows general commands with every group command in stable catalog order', () => {
     const groupCommands = LISTEN_COMMANDS.filter(command => command.kind === 'group')
 

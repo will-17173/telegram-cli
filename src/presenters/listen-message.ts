@@ -81,5 +81,21 @@ function contentPreview(content: string | null, hasVisibleMedia: boolean): strin
 function formatListenTimestamp(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  const time = `${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`
+  return isLocalToday(date) ? time : `${formatLocalDate(date)} ${time}`
+}
+
+function isLocalToday(date: Date): boolean {
+  const now = new Date()
+  return date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate()
+}
+
+function formatLocalDate(date: Date): string {
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`
+}
+
+function padDatePart(value: number): string {
+  return String(value).padStart(2, '0')
 }

@@ -1,6 +1,7 @@
 import { parseGroupCommand, type ParsedGroupCommandRequest } from '../group-commands/parser.js'
 import {
   parseListenComposerInput,
+  parseHistoryLimit,
   REPLY_COMMAND_USAGE,
   type ListenComposerCommand,
 } from '../services/listen-composer-command.js'
@@ -17,10 +18,11 @@ export type ListenCommandParseResult =
   | { readonly kind: 'complete'; readonly input: string }
   | { readonly kind: 'reply'; readonly command: ReplyCommand }
   | { readonly kind: 'sync' }
+  | { readonly kind: 'history'; readonly limit: number }
   | { readonly kind: 'group'; readonly request: ParsedGroupCommandRequest }
   | { readonly kind: 'error'; readonly message: string; readonly usage?: string }
 
-export type ExecutableListenCommand = Extract<ListenCommandParseResult, { kind: 'reply' | 'sync' | 'group' }>
+export type ExecutableListenCommand = Extract<ListenCommandParseResult, { kind: 'reply' | 'sync' | 'history' | 'group' }>
 
 export function parseSelectedListenCommand(
   input: string,
@@ -52,6 +54,12 @@ export function parseSelectedListenCommand(
 
   if (selected.definition.kind === 'sync') return { kind: 'sync' }
 
+  if (selected.definition.kind === 'history') {
+    const parsed = parseHistoryLimit(input)
+    if (!parsed.ok) return { kind: 'error', message: parsed.error }
+    return { kind: 'history', limit: parsed.limit }
+  }
+
   const parsed = parseGroupCommand(input)
   if (!parsed.ok) {
     return {
@@ -66,19 +74,23 @@ export function parseSelectedListenCommand(
   return { kind: 'group', request: parsed.request }
 }
 
-export async function executeSelectedListenCommand<RReply, RSync, RGroup>(
+export async function executeSelectedListenCommand<RReply, RSync, RHistory, RGroup>(
   selected: ExecutableListenCommand,
   executors: {
     readonly executeReply: (command: ReplyCommand) => Promise<RReply>
     readonly executeSync: () => Promise<RSync>
+    readonly executeHistory: (limit: number) => Promise<RHistory>
     readonly executeGroup: (request: ParsedGroupCommandRequest) => Promise<RGroup>
   },
-): Promise<{ readonly kind: 'reply'; readonly result: RReply } | { readonly kind: 'sync'; readonly result: RSync } | { readonly kind: 'group'; readonly result: RGroup }> {
+): Promise<{ readonly kind: 'reply'; readonly result: RReply } | { readonly kind: 'sync'; readonly result: RSync } | { readonly kind: 'history'; readonly result: RHistory } | { readonly kind: 'group'; readonly result: RGroup }> {
   if (selected.kind === 'reply') {
     return { kind: 'reply', result: await executors.executeReply(selected.command) }
   }
   if (selected.kind === 'sync') {
     return { kind: 'sync', result: await executors.executeSync() }
+  }
+  if (selected.kind === 'history') {
+    return { kind: 'history', result: await executors.executeHistory(selected.limit) }
   }
   return { kind: 'group', result: await executors.executeGroup(selected.request) }
 }

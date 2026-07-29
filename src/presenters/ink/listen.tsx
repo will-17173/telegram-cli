@@ -5,7 +5,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 
-import type { TelegramClientAdapter, TelegramSendTarget } from '../../telegram/types.js'
+import type { TelegramChatType, TelegramClientAdapter, TelegramSendTarget } from '../../telegram/types.js'
 import { toAttachmentLocator } from '../../telegram/attachment-locator.js'
 import type { StoredMessageInput } from '../../storage/message-db.js'
 import {
@@ -30,8 +30,8 @@ import {
 import { createListenReplyResolver, type ListenReplyResolver } from '../../services/listen-reply-resolver.js'
 import { formatReplyContext, type ReplyContext } from '../../services/reply-context.js'
 import { executeListenReply, parseListenComposerInput } from '../../services/listen-composer-command.js'
-import { ListenCommandMenu, listenCommandMenuAvailability, moveListenCommandSelectionEnabled } from './listen-command-menu.js'
-import { completeListenCommand, visibleListenCommandMatches } from '../../listen-commands/match.js'
+import { ListenCommandMenu, listenCommandMenuAvailability, moveListenCommandSelectionEnabled, visibleListenCommandMenuMatches } from './listen-command-menu.js'
+import { completeListenCommand } from '../../listen-commands/match.js'
 import { parseSelectedListenCommand } from '../../listen-commands/dispatch.js'
 import { GroupCommandResult } from './group-command-result.js'
 import { useGroupCommand } from './use-group-command.js'
@@ -697,6 +697,7 @@ export function InteractiveListen({
   const [downloadStates, setDownloadStates] = useState<Record<string, AttachmentDownloadState>>({})
   const [scrollState, setScrollState] = useState<ListenScrollState>({ offset: 0, unseenCount: 0 })
   const [sendTargetLabel, setSendTargetLabel] = useState(sendTo == null ? '' : buildSendTargetLabel(sendTo))
+  const [sendTargetChatType, setSendTargetChatType] = useState<TelegramChatType | undefined>(undefined)
   const [knownGroup, setKnownGroup] = useState<Awaited<ReturnType<TelegramClientAdapter['groups']['getGroup']>> | undefined>(undefined)
   const clientRef = useRef<TelegramClientAdapter | null>(null)
   const sendTargetRef = useRef<TelegramSendTarget | undefined>(sendTo)
@@ -713,6 +714,7 @@ export function InteractiveListen({
     groupLookupGenerationRef.current = {}
     knownGroupRef.current = undefined
     sendTargetRef.current = sendTo
+    setSendTargetChatType(undefined)
     setKnownGroup(undefined)
   }, [sendTo])
   const groupCommand = useGroupCommand(useCallback(async (request, options) => {
@@ -1008,8 +1010,8 @@ export function InteractiveListen({
       return
     }
     if (slashMode && (key.upArrow || key.downArrow)) {
-      const count = visibleListenCommandMatches(input).length
-      const disabled = listenCommandMenuAvailability(input, knownGroup).map(Boolean)
+      const count = visibleListenCommandMenuMatches(input, sendTargetChatType).length
+      const disabled = listenCommandMenuAvailability(input, knownGroup, sendTargetChatType).map(Boolean)
       const selectedIndex = moveListenCommandSelectionEnabled(commandSelectionRef.current, key.upArrow ? -1 : 1, disabled.slice(0, count))
       commandSelectionRef.current = selectedIndex
       groupCommand.setState({ kind: 'menu', selectedIndex })
@@ -1017,8 +1019,10 @@ export function InteractiveListen({
     }
     if (slashMode && key.tab) {
       const selected = commandSelectionRef.current
-      const failure = listenCommandMenuAvailability(input, knownGroup)[selected]
+      const matches = visibleListenCommandMenuMatches(input, sendTargetChatType)
+      const failure = listenCommandMenuAvailability(input, knownGroup, sendTargetChatType)[selected]
       if (failure && 'error' in failure) { setNote(failure.error.message); return }
+      if (!matches[selected]) { setNote('No matching command.'); return }
       inputGenerationRef.current = {}
       setInput(completeListenCommand(input, selected))
       commandSelectionRef.current = 0
@@ -1091,9 +1095,9 @@ export function InteractiveListen({
     if (key.return) {
       if (slashMode) {
         const selected = commandSelectionRef.current
-        const failure = listenCommandMenuAvailability(input, knownGroup)[selected]
+        const failure = listenCommandMenuAvailability(input, knownGroup, sendTargetChatType)[selected]
         if (failure && 'error' in failure) { setNote(failure.error.message); return }
-        const match = visibleListenCommandMatches(input)[selected]
+        const match = visibleListenCommandMenuMatches(input, sendTargetChatType)[selected]
         if (!match) { setNote('No matching command.'); return }
         const parsed = parseSelectedListenCommand(input, match)
         if (parsed.kind === 'complete') {
@@ -1161,6 +1165,34 @@ export function InteractiveListen({
             setNote(`synced ${result.data.synced}`)
           }).catch((error) => {
             if (ownedGeneration === inputGenerationRef.current) setNote(`sync failed: ${messageFromError(error)}`)
+          }).finally(() => {
+            if (ownedGeneration === inputGenerationRef.current) {
+              setSending(false)
+              setComposerActivity(undefined)
+            }
+          })
+          return
+        }
+        if (parsed.kind === 'history') {
+          if (sendTo == null) { setNote('set --send-to before loading history'); return }
+          const client = clientRef.current
+          if (client == null) { setNote('connection is not ready'); return }
+          const ownedGeneration = inputGenerationRef.current
+          const target = historyFetchTarget(sendTargetRef.current, sendTo)
+          setSending(true)
+          setComposerActivity('syncing')
+          setNote('loading history...')
+          void client.fetchHistory({ chat: target, limit: parsed.limit }).then((messages) => {
+            if (ownedGeneration !== inputGenerationRef.current) return
+            for (const historyMessage of messages) acceptListenMessage(historyMessage, seenRef.current, seenOrderRef.current, (message) => {
+              registerPendingAttachmentKeys(pendingAttachmentKeysRef.current, message, showMedia)
+              autoDownloaderRef.current?.enqueue(message)
+              albumAggregatorRef.current?.add(message)
+            })
+            setInput('')
+            setNote(`loaded ${messages.length} history messages`)
+          }).catch((error) => {
+            if (ownedGeneration === inputGenerationRef.current) setNote(`history failed: ${messageFromError(error)}`)
           }).finally(() => {
             if (ownedGeneration === inputGenerationRef.current) {
               setSending(false)
@@ -1280,6 +1312,7 @@ export function InteractiveListen({
           void resolveSendTarget(client, sendTo).then((resolved) => {
             if (!isActive() || resolved == null) return
             setSendTargetLabel(resolved.label)
+            setSendTargetChatType(resolved.chatType)
             if (resolved.target != null && typeof sendTargetRef.current !== 'object') {
               sendTargetRef.current = resolved.target
             }
@@ -1493,7 +1526,7 @@ export function InteractiveListen({
         {groupCommand.state.kind !== 'result' ? <Box flexDirection="column">
           {sendTo == null ? <Text dimColor>Set --send-to &lt;chat&gt; (or pass one chat to listen) before sending messages.</Text> : null}
           <Box marginTop={1} flexDirection="column" flexShrink={0}>
-            {input.trimStart().startsWith('/') && groupCommand.state.kind === 'menu' ? <ListenCommandMenu input={input} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} knownGroup={knownGroup} /> : null}
+            {input.trimStart().startsWith('/') && groupCommand.state.kind === 'menu' ? <ListenCommandMenu input={input} selectedIndex={groupCommand.state.selectedIndex} width={contentWidth} knownGroup={knownGroup} targetChatType={sendTargetChatType} /> : null}
             <ListenComposer
               input={input}
               sendTargetLabel={sendTo == null ? '(not selected)' : sendTargetLabel}
@@ -1633,6 +1666,10 @@ async function syncListenChat(
   }
 }
 
+function historyFetchTarget(current: TelegramSendTarget | undefined, fallback: string | number): string | number {
+  return typeof current === 'string' || typeof current === 'number' ? current : fallback
+}
+
 function normalizedPreviewWidth(previewWidth: number): number {
   return Math.max(1, Math.min(24, previewWidth))
 }
@@ -1673,6 +1710,7 @@ function buildSendTargetLabel(value: string | number): string {
 type ResolvedSendTarget = {
   label: string
   target?: string | number
+  chatType?: TelegramChatType
 }
 
 async function resolveSendTarget(
@@ -1685,12 +1723,13 @@ async function resolveSendTarget(
     const fallback = buildSendTargetLabel(sendTo)
     const name = typeof info.Name === 'string' && info.Name.trim() !== '' ? info.Name : undefined
     const id = typeof info.ID === 'string' && info.ID.trim() !== '' ? info.ID : undefined
+    const chatType = parseResolvedChatType(info.Type)
     if (name == null && id == null) return { label: fallback }
     const fallbackParts = fallback.split(SEND_TARGET_LABEL_SEPARATOR)
     const resolvedName = name == null ? fallbackParts[0] : name
     const resolvedId = id == null ? fallbackParts[1] ?? 'unknown' : id
     const target = id == null ? undefined : parseResolvedSendTargetId(id)
-    return { label: formatSendTargetLabel(resolvedName, resolvedId), target }
+    return { label: formatSendTargetLabel(resolvedName, resolvedId), target, chatType }
   } catch {
     return null
   }
@@ -1741,6 +1780,19 @@ function parseResolvedSendTargetId(value: string): string | number {
   if (!/^-?\d+$/.test(trimmed)) return value
   const parsed = Number(trimmed)
   return Number.isSafeInteger(parsed) ? parsed : value
+}
+
+function parseResolvedChatType(value: string | undefined): TelegramChatType | undefined {
+  switch (value) {
+    case 'user':
+    case 'group':
+    case 'supergroup':
+    case 'channel':
+    case 'unknown':
+      return value
+    default:
+      return undefined
+  }
 }
 
 function isNumericLike(value: string): boolean {

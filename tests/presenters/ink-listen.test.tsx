@@ -443,7 +443,7 @@ describe('InteractiveListen slash commands', () => {
     const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
     await vi.waitFor(() => expect(stdout.output).toContain('connected'))
     stdin.write('/'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› reply'))
-    stdin.write('\u001b[B'); stdin.write('\u001b[B'); stdin.write('\t')
+    stdin.write('\u001b[B'); stdin.write('\u001b[B'); stdin.write('\u001b[B'); stdin.write('\t')
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /member add'))
     stdin.write('\r'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Missing argument: users'))
     expect(lastTerminalFrame(stdout.output)).not.toContain('No matching command')
@@ -457,7 +457,7 @@ describe('InteractiveListen slash commands', () => {
     const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
     await vi.waitFor(() => expect(stdout.output).toContain('connected'))
     stdin.write('/'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› reply'))
-    stdin.write('\u001b[B'); stdin.write('\u001b[B'); stdin.write('\r')
+    stdin.write('\u001b[B'); stdin.write('\u001b[B'); stdin.write('\u001b[B'); stdin.write('\r')
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /member add'))
     stdin.write('\r'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('Missing argument: users'))
     expect(lastTerminalFrame(stdout.output)).not.toContain('No matching command')
@@ -491,6 +491,25 @@ describe('InteractiveListen slash commands', () => {
     stdin.write('\r')
     await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('› /reply'))
     expect(lastTerminalFrame(stdout.output)).not.toContain('› /member add')
+    controller.abort(); app.unmount()
+  })
+
+  it('hides member commands from the slash menu when listening to a private user chat', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockRejectedValue(new Error('not a group')) })
+    vi.mocked(client.getChatInfo).mockResolvedValue({ Name: 'Alice', ID: '1001', Type: 'user' })
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={['Alice']} persist retrySeconds={1} sendTo="Alice" showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('Alice | 1001'))
+
+    stdin.write('/'); await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('reply  Reply to a message')
+      expect(frame).toContain('sync  Sync this chat')
+      expect(frame).not.toContain('member add')
+      expect(frame).not.toContain('member kick')
+      expect(frame).not.toContain('member ban')
+    })
     controller.abort(); app.unmount()
   })
 
@@ -646,6 +665,30 @@ describe('InteractiveListen slash commands', () => {
     expect(client.sendMessage).not.toHaveBeenCalled()
     controller.abort(); app.unmount()
     rmSync(dataDir, { recursive: true, force: true })
+  })
+
+  it('loads recent history into the current single-chat view from /history', async () => {
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    client.fetchHistory.mockResolvedValue([
+      storedText(70, 'older fetched history'),
+      storedText(71, 'newer fetched history'),
+    ])
+    const stdout = new MockStdout(80, 24, 24); const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath=":memory:" chats={[100]} persist retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => undefined} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+    await vi.waitFor(() => expect(stdout.output).toContain('connected'))
+
+    stdin.write('/history 2'); await vi.waitFor(() => expect(lastTerminalFrame(stdout.output)).toContain('/history 2')); stdin.write('\r')
+
+    await vi.waitFor(() => expect(client.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({ chat: 100, limit: 2 })))
+    await vi.waitFor(() => {
+      const frame = lastTerminalFrame(stdout.output)
+      expect(frame).toContain('older fetched history')
+      expect(frame).toContain('newer fetched history')
+      expect(frame).toContain('loaded 2 history messages')
+    })
+    expect(client.sendMessage).not.toHaveBeenCalled()
+    controller.abort(); app.unmount()
   })
 
   it('reports an ambiguous multi-chat target without writing', async () => {

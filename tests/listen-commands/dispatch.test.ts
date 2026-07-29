@@ -12,13 +12,18 @@ import type { StoredMessageInput } from '../../src/storage/message-db.js'
 const selected = (input: string, index = 0) => matchListenCommands(input)[index]!
 
 const executable = (result: ListenCommandParseResult) => {
-  if (result.kind !== 'reply' && result.kind !== 'group' && result.kind !== 'sync') throw new Error(`Expected executable result, received ${result.kind}`)
+  if (result.kind !== 'reply' && result.kind !== 'group' && result.kind !== 'sync' && result.kind !== 'history') throw new Error(`Expected executable result, received ${result.kind}`)
   return result
 }
 
 describe('parseSelectedListenCommand', () => {
   it('parses sync as a standalone listen command', () => {
     expect(parseSelectedListenCommand('/sync', selected('/sync'))).toEqual({ kind: 'sync' })
+  })
+
+  it('parses history with an optional count', () => {
+    expect(parseSelectedListenCommand('/history', selected('/history'))).toEqual({ kind: 'history', limit: 100 })
+    expect(parseSelectedListenCommand('/history 25', selected('/history 25'))).toEqual({ kind: 'history', limit: 25 })
   })
 
   it('parses text and file replies', () => {
@@ -99,7 +104,7 @@ describe('executeSelectedListenCommand', () => {
     }))
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/reply 42 hi', selected('/reply 42 hi'))),
-      { executeReply, executeSync: vi.fn(), executeGroup },
+      { executeReply, executeSync: vi.fn(), executeHistory: vi.fn(), executeGroup },
     )).resolves.toEqual({ kind: 'reply', result: outcome })
     expect(executeReply).toHaveBeenCalledOnce()
     expect(executeGroup).not.toHaveBeenCalled()
@@ -111,7 +116,7 @@ describe('executeSelectedListenCommand', () => {
     const executeGroup = vi.fn(async () => groupOutcome)
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/invite list', selected('/invite list'))),
-      { executeReply, executeSync: vi.fn(), executeGroup },
+      { executeReply, executeSync: vi.fn(), executeHistory: vi.fn(), executeGroup },
     )).resolves.toEqual({ kind: 'group', result: groupOutcome })
     expect(executeGroup).toHaveBeenCalledOnce()
     expect(executeReply).not.toHaveBeenCalled()
@@ -125,10 +130,27 @@ describe('executeSelectedListenCommand', () => {
     const executeSync = vi.fn(async () => ({ synced: 2 }))
     await expect(executeSelectedListenCommand(
       executable(parseSelectedListenCommand('/sync', selected('/sync'))),
-      { executeReply, executeGroup, executeSync },
+      { executeReply, executeGroup, executeSync, executeHistory: vi.fn() },
     )).resolves.toEqual({ kind: 'sync', result: { synced: 2 } })
     expect(executeSync).toHaveBeenCalledOnce()
     expect(executeReply).not.toHaveBeenCalled()
+    expect(executeGroup).not.toHaveBeenCalled()
+  })
+
+  it('calls only the history executor for history commands', async () => {
+    const executeReply = vi.fn(async (): Promise<StoredMessageInput[]> => [])
+    const executeSync = vi.fn()
+    const executeGroup = vi.fn(async (): Promise<GroupCommandExecutionResult> => ({
+      ok: true, data: { chat_id: -1001, invites: [], total: 0 },
+    }))
+    const executeHistory = vi.fn(async () => ({ loaded: 25 }))
+    await expect(executeSelectedListenCommand(
+      executable(parseSelectedListenCommand('/history 25', selected('/history 25'))),
+      { executeReply, executeGroup, executeSync, executeHistory },
+    )).resolves.toEqual({ kind: 'history', result: { loaded: 25 } })
+    expect(executeHistory).toHaveBeenCalledWith(25)
+    expect(executeReply).not.toHaveBeenCalled()
+    expect(executeSync).not.toHaveBeenCalled()
     expect(executeGroup).not.toHaveBeenCalled()
   })
 
@@ -139,6 +161,7 @@ describe('executeSelectedListenCommand', () => {
       {
         executeReply: async () => { throw failure },
         executeSync: async () => undefined,
+        executeHistory: async () => undefined,
         executeGroup: async (): Promise<GroupCommandExecutionResult> => ({
           ok: true, data: { chat_id: -1001, invites: [], total: 0 },
         }),
