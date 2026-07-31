@@ -94,6 +94,32 @@ describe('MtcuteTelegramClient sendMedia', () => {
     })
   })
 
+  it('refreshes channel peers after CHANNEL_INVALID when sending text to a Telegram peer id', async () => {
+    const sent = message(24, 'hello')
+    const refreshedPeer = { _: 'inputPeerChannel', channelId: 1220606936, accessHash: 456n } as const
+    const sendText = vi.fn()
+      .mockRejectedValueOnce(new tl.RpcError(400, 'CHANNEL_INVALID'))
+      .mockResolvedValueOnce(sent)
+    const getPeer = vi.fn().mockResolvedValue({ inputPeer: refreshedPeer })
+    const client = telegramClient({ sendText, getPeer })
+
+    await new MtcuteTelegramClient(client).sendMessage({
+      chat: -1001220606936,
+      message: 'hello',
+      linkPreview: true,
+    })
+
+    expect(getPeer).toHaveBeenCalledWith(-1001220606936)
+    expect(sendText).toHaveBeenNthCalledWith(1, -1001220606936, 'hello', {
+      replyTo: undefined,
+      disableWebPreview: false,
+    })
+    expect(sendText).toHaveBeenNthCalledWith(2, refreshedPeer, 'hello', {
+      replyTo: undefined,
+      disableWebPreview: false,
+    })
+  })
+
   it('sends multiple files in order with caption only on the first media', async () => {
     const sendMediaGroup = vi.fn().mockResolvedValue([
       message(31, 'first'),

@@ -202,6 +202,15 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     }
   }
 
+  private async refreshSendPeer(chat: TelegramSendTarget): Promise<TelegramSendTarget | undefined> {
+    try {
+      const peer = await this.client.getPeer(chat)
+      return (peer as { inputPeer?: TelegramSendTarget }).inputPeer
+    } catch {
+      return undefined
+    }
+  }
+
   async downloadMessageMedia(options: DownloadMessageMediaOptions): Promise<void> {
     await this.ensureReady()
     if (options.attachment.downloadLocation != null) {
@@ -242,6 +251,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     const sent = await sendWithLocalChannelFallback(
       chat,
       (target) => this.client.sendText(target, options.message, params),
+      (target) => this.refreshSendPeer(target),
     )
     return { msg_id: sent.id, sent_message: normalizeMtcuteMessage(sent) }
   }
@@ -257,6 +267,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       const sent = await sendWithLocalChannelFallback(
         chat,
         (target) => this.client.sendMedia(target, media, params),
+        (target) => this.refreshSendPeer(target),
       )
       return { messages: [toSendMediaMessage(sent)] }
     }
@@ -273,6 +284,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
         media,
         params,
       ),
+      (target) => this.refreshSendPeer(target),
     )
     return { messages: sent.map(toSendMediaMessage) }
   }
@@ -417,13 +429,23 @@ function normalizeChatId(chat: TelegramSendTarget): TelegramSendTarget {
 async function sendWithLocalChannelFallback<T>(
   chat: TelegramSendTarget,
   send: (chat: TelegramSendTarget) => Promise<T>,
+  refreshPeer?: (chat: TelegramSendTarget) => Promise<TelegramSendTarget | undefined>,
 ): Promise<T> {
   try {
     return await send(chat)
   } catch (error) {
+    if (!tl.RpcError.is(error, 'CHANNEL_INVALID')) throw error
     const fallback = localChannelPeerId(chat)
-    if (fallback == null || !tl.RpcError.is(error, 'CHANNEL_INVALID')) throw error
-    return await send(fallback)
+    if (fallback != null) {
+      try {
+        return await send(fallback)
+      } catch (fallbackError) {
+        if (!tl.RpcError.is(fallbackError, 'CHANNEL_INVALID')) throw fallbackError
+      }
+    }
+    const refreshed = await refreshPeer?.(fallback ?? chat)
+    if (refreshed == null) throw error
+    return await send(refreshed)
   }
 }
 
