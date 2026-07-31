@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-07-31
+
+### Fixed
+
+- Refresh Telegram send peers after `CHANNEL_INVALID` so interactive `tg listen` group sends can recover before any runtime message peer is observed.
+
 ## [0.8.5] - 2026-07-29
 
 ### Fixed
