@@ -188,6 +188,32 @@ describe('SyncService', () => {
     sync.close()
   })
 
+  it('syncs the next contiguous newer page instead of the latest page when newer backlog exceeds the limit', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-contiguous-newer-')), 'messages.db'))
+    const messages = Array.from({ length: 201 }, (_, index) => message({ msg_id: 1000 + index }))
+    const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
+    const sync = new SyncService(fake, db)
+    db.upsertBatch([messages[0]!])
+
+    const result = await sync.sync({ chat: 'TestGroup', limit: 100, pageDelay: 1 })
+
+    expect(result).toMatchObject({ ok: true, data: { synced: 100, chat: 'TestGroup' } })
+    expect(fake.fetchHistoryCalls[0]).toMatchObject({
+      chat: 'TestGroup',
+      limit: 100,
+      offset: { id: 1000, date: Math.floor(Date.parse(messages[0]!.timestamp) / 1000) },
+      minId: 1000,
+      reverse: true,
+    })
+    expect(db.getLastMsgId(100)).toBe(1100)
+    expect(db.getMessagesByKeys([
+      { chatId: 100, msgId: 1001 },
+      { chatId: 100, msgId: 1100 },
+    ]).map((row) => row.msg_id)).toEqual([1001, 1100])
+    expect(db.getMessagesByKeys([{ chatId: 100, msgId: 1101 }])).toEqual([])
+    sync.close()
+  })
+
   it('does not persist partial newer pages when sync fails before the newer range is complete', async () => {
     const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-sync-newer-atomic-')), 'messages.db'))
     db.upsertBatch([message({ msg_id: 1000 })])
@@ -393,6 +419,241 @@ describe('SyncService', () => {
         },
       },
     })
+    sync.close()
+  })
+
+  it('refresh syncs the next contiguous newer page for chats with newer backlog', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-refresh-contiguous-newer-')), 'messages.db'))
+    const messages = Array.from({ length: 201 }, (_, index) => message({ msg_id: 1000 + index }))
+    const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
+    const sync = new SyncService(fake, db)
+    db.upsertBatch([messages[0]!])
+
+    const result = await sync.refresh({ limit: 100, delay: 0 })
+
+    expect(result).toMatchObject({ ok: true, data: { new_messages: 100, results: { TestGroup: 100 } } })
+    expect(fake.fetchHistoryCalls[0]).toMatchObject({
+      chat: 100,
+      limit: 100,
+      offset: { id: 1000, date: Math.floor(Date.parse(messages[0]!.timestamp) / 1000) },
+      minId: 1000,
+      reverse: true,
+    })
+    expect(db.getLastMsgId(100)).toBe(1100)
+    expect(db.getMessagesByKeys([{ chatId: 100, msgId: 1101 }])).toEqual([])
+    sync.close()
+  })
+
+  it('repair fills stored message id gaps without moving outside the missing range', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-repair-gap-')), 'messages.db'))
+    const messages = Array.from({ length: 6 }, (_, index) => message({ msg_id: 1000 + index }))
+    const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
+    const sync = new SyncService(fake, db)
+    db.upsertBatch([messages[0]!, messages[5]!])
+
+    const result = await sync.repair({ chat: 'TestGroup', minGap: 1, maxGaps: 10, limit: 100, pageDelay: 1 })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        chat: 'TestGroup',
+        gaps_scanned: 1,
+        gaps_repaired: 1,
+        stored: 4,
+      },
+    })
+    expect(fake.fetchHistoryCalls[0]).toMatchObject({
+      chat: 'TestGroup',
+      minId: 1000,
+      maxId: 1005,
+      offset: { id: 1000, date: Math.floor(Date.parse(messages[0]!.timestamp) / 1000) },
+      reverse: true,
+    })
+    expect(db.getMessagesByKeys([
+      { chatId: 100, msgId: 1001 },
+      { chatId: 100, msgId: 1002 },
+      { chatId: 100, msgId: 1003 },
+      { chatId: 100, msgId: 1004 },
+    ]).map((row) => row.msg_id)).toEqual([1001, 1002, 1003, 1004])
+    sync.close()
+  })
+
+  it('repair reports gap progress while writing each fetched page immediately', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-repair-progress-')), 'messages.db'))
+    const messages = Array.from({ length: 5 }, (_, index) => message({ msg_id: 1000 + index }))
+    const progress: string[] = []
+    const fetchHistory = vi.fn(async (options: FetchHistoryOptions) => {
+      const first = messages.find((item) => item.msg_id === 1001)!
+      const second = messages.find((item) => item.msg_id === 1002)!
+      options.onPage?.([first])
+      progress.push(`after-page:${db.getMessagesByKeys([{ chatId: 100, msgId: 1001 }]).length}`)
+      options.onPage?.([second])
+      return [first, second]
+    })
+    const client = { fetchHistory } as unknown as TelegramClientAdapter
+    const sync = new SyncService(client, db)
+    db.upsertBatch([messages[0]!, messages[3]!])
+
+    const result = await sync.repair({
+      chat: 'TestGroup',
+      minGap: 1,
+      maxGaps: 10,
+      limit: 100,
+      pageDelay: 1,
+      onGapStart: (gap) => progress.push(`start:${gap.index}/${gap.total}:${gap.before_id}->${gap.after_id}`),
+      onGapComplete: (gap) => progress.push(`complete:${gap.index}:${gap.stored}`),
+    })
+
+    expect(result).toMatchObject({ ok: true, data: { stored: 2, gaps_repaired: 1, failures: [] } })
+    expect(progress).toEqual([
+      'start:1/1:1000->1003',
+      'after-page:1',
+      'complete:1:2',
+    ])
+    expect(db.getMessagesByKeys([{ chatId: 100, msgId: 1001 }, { chatId: 100, msgId: 1002 }]).map((row) => row.msg_id)).toEqual([1001, 1002])
+    sync.close()
+  })
+
+  it('repair keeps earlier page writes and continues when a gap fetch fails', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-repair-partial-failure-')), 'messages.db'))
+    const rows = [1000, 1001, 1002, 1003, 1004].map((msgId) => message({ msg_id: msgId }))
+    const failures: string[] = []
+    const fetchHistory = vi.fn(async (options: FetchHistoryOptions) => {
+      if (options.minId === 1000) {
+        options.onPage?.([rows[1]!])
+        throw new Error('first gap unavailable')
+      }
+      options.onPage?.([rows[3]!])
+      return [rows[3]!]
+    })
+    const client = { fetchHistory } as unknown as TelegramClientAdapter
+    const sync = new SyncService(client, db)
+    db.upsertBatch([rows[0]!, rows[2]!, rows[4]!])
+
+    const result = await sync.repair({
+      chat: 'TestGroup',
+      minGap: 1,
+      maxGaps: 10,
+      limit: 100,
+      pageDelay: 1,
+      onGapFailure: (gap) => failures.push(`${gap.before_id}->${gap.after_id}:${gap.error}`),
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        gaps_scanned: 2,
+        gaps_repaired: 2,
+        stored: 2,
+        failures: [{ before_id: 1000, after_id: 1002, error: 'first gap unavailable' }],
+      },
+    })
+    expect(result.ok && result.human?.kind === 'summary' ? result.human.fields : []).toEqual(expect.arrayContaining([
+      { label: 'failures', value: '1', tone: 'warning' },
+    ]))
+    expect(failures).toEqual(['1000->1002:first gap unavailable'])
+    expect(db.getMessagesByKeys([{ chatId: 100, msgId: 1001 }, { chatId: 100, msgId: 1003 }]).map((row) => row.msg_id)).toEqual([1001, 1003])
+    sync.close()
+  })
+
+  it('repair can limit gap scanning to a message id range', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-repair-range-')), 'messages.db'))
+    const messages = Array.from({ length: 16 }, (_, index) => message({ msg_id: 1000 + index }))
+    const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
+    const sync = new SyncService(fake, db)
+    db.upsertBatch([messages[0]!, messages[5]!, messages[10]!, messages[15]!])
+
+    const result = await sync.repair({
+      chat: 'TestGroup',
+      minGap: 1,
+      maxGaps: 10,
+      limit: 100,
+      fromId: 1006,
+      toId: 1015,
+      pageDelay: 1,
+    })
+
+    expect(result).toMatchObject({ ok: true, data: { gaps_scanned: 1, gaps_repaired: 1, stored: 4 } })
+    expect(fake.fetchHistoryCalls).toHaveLength(1)
+    expect(fake.fetchHistoryCalls[0]).toMatchObject({ minId: 1010, maxId: 1015 })
+    expect(db.getMessagesByKeys([{ chatId: 100, msgId: 1001 }])).toEqual([])
+    expect(db.getMessagesByKeys([{ chatId: 100, msgId: 1011 }])[0]?.msg_id).toBe(1011)
+    sync.close()
+  })
+
+  it('repair dry run previews gaps without fetching or writing messages', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-repair-dry-run-')), 'messages.db'))
+    const messages = Array.from({ length: 6 }, (_, index) => message({ msg_id: 1000 + index }))
+    const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
+    const sync = new SyncService(fake, db)
+    db.upsertBatch([messages[0]!, messages[5]!])
+
+    const result = await sync.repair({
+      chat: 'TestGroup',
+      minGap: 1,
+      maxGaps: 10,
+      limit: 100,
+      pageDelay: 1,
+      dryRun: true,
+    })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        chat: 'TestGroup',
+        dry_run: true,
+        gaps_scanned: 1,
+        gaps_repaired: 0,
+        missing_ids: 4,
+        stored: 0,
+        gaps: [{ before_id: 1000, after_id: 1005, missing_ids: 4 }],
+      },
+      human: {
+        kind: 'summary',
+        title: 'Repair Preview',
+        fields: [
+          { label: 'chat', value: 'TestGroup' },
+          { label: 'dry_run', value: 'true', tone: 'success' },
+          { label: 'gaps_scanned', value: '1' },
+          { label: 'missing_ids', value: '4' },
+          { label: 'stored', value: '0' },
+        ],
+        table: {
+          columns: ['BEFORE', 'BEFORE TIME', 'AFTER', 'AFTER TIME', 'MISSING'],
+          rows: [['1000', expect.stringMatching(/^2026-03-09 /), '1005', expect.stringMatching(/^2026-03-09 /), '4']],
+          emptyText: 'No local message gaps found.',
+        },
+      },
+    })
+    expect(fake.fetchHistoryCalls).toEqual([])
+    expect(db.getMessagesByKeys([{ chatId: 100, msgId: 1001 }])).toEqual([])
+    sync.close()
+  })
+
+  it('repair dry run renders every scanned gap in the human table', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-repair-dry-run-table-')), 'messages.db'))
+    const stored = Array.from({ length: 26 }, (_, index) => message({
+      msg_id: 1000 + index * 2,
+      timestamp: new Date(Date.UTC(2026, 2, 9, 10, index)).toISOString(),
+    }))
+    const fake = new FakeTelegramClient()
+    const sync = new SyncService(fake, db)
+    db.upsertBatch(stored)
+
+    const result = await sync.repair({
+      chat: 'TestGroup',
+      minGap: 1,
+      maxGaps: 25,
+      limit: 100,
+      pageDelay: 1,
+      dryRun: true,
+    })
+
+    expect(result).toMatchObject({ ok: true, data: { gaps_scanned: 25 } })
+    const human = result.ok ? result.human : undefined
+    expect(human?.kind).toBe('summary')
+    expect(human?.kind === 'summary' ? human.table?.rows : []).toHaveLength(25)
+    expect(fake.fetchHistoryCalls).toEqual([])
     sync.close()
   })
 

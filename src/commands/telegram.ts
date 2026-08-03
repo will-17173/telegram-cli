@@ -70,6 +70,14 @@ type RefreshFlags = SyncFlags & {
   maxChats?: string
 }
 
+type RepairFlags = SyncFlags & {
+  minGap?: string
+  maxGaps?: string
+  fromId?: string
+  toId?: string
+  dryRun?: boolean
+}
+
 type ListenOptions = MachineOptions & {
   persist?: boolean
   retrySeconds?: string
@@ -168,6 +176,43 @@ export function registerTelegramCommands(app: Command): void {
       const pageDelay = parsePageDelay(options.delay)
       const onProgress = createSyncProgressReporter(options)
       await renderSyncResult(options, async (service) => service.sync({ chat, limit, pageDelay, onProgress }), command)
+    })
+
+  app.command('repair')
+    .description('Repair local message gaps for a Telegram chat')
+    .argument('<chat>')
+    .option('-n, --limit <limit>', 'Max messages to fetch across repaired gaps', '5000')
+    .option('--min-gap <minGap>', 'Minimum missing message ids to repair', '10')
+    .option('--max-gaps <maxGaps>', 'Maximum gaps to inspect', '50')
+    .option('--from-id <fromId>', 'Only repair gaps at or after this local message id')
+    .option('--to-id <toId>', 'Only repair gaps at or before this local message id')
+    .option('--dry-run', 'Preview local gaps without fetching or writing messages')
+    .option('--delay <delay>', 'Seconds between history pages', '1')
+    .option('--json')
+    .option('--yaml')
+    .action(async (chat: string, options: RepairFlags, command: Command) => {
+      const limit = Number.parseInt(options.limit ?? '0', 10)
+      const minGap = Number.parseInt(options.minGap ?? '0', 10)
+      const maxGaps = Number.parseInt(options.maxGaps ?? '0', 10)
+      const fromId = options.fromId == null ? undefined : Number.parseInt(options.fromId, 10)
+      const toId = options.toId == null ? undefined : Number.parseInt(options.toId, 10)
+      const pageDelay = parsePageDelay(options.delay)
+      const onProgress = createSyncProgressReporter(options)
+      const repairProgress = createRepairProgressReporter(options)
+      await renderSyncResult(options, async (service) => service.repair({
+        chat,
+        limit,
+        minGap,
+        maxGaps,
+        fromId,
+        toId,
+        dryRun: options.dryRun,
+        pageDelay,
+        onProgress,
+        onGapStart: repairProgress?.onGapStart,
+        onGapComplete: repairProgress?.onGapComplete,
+        onGapFailure: repairProgress?.onGapFailure,
+      }), command)
     })
 
   app.command('sync-all')
@@ -713,6 +758,38 @@ type RefreshStatusReporter = {
   onChatStart: (chatName: string) => void
   onChatComplete: (chatName: string, count: number, error?: string) => void
   onProgress: (chatName: string, count: number) => void
+}
+
+type RepairGapStatus = {
+  index: number
+  total: number
+  before_id: number
+  after_id: number
+  missing_ids: number
+  fetched?: number
+  stored?: number
+  error?: string
+}
+
+type RepairProgressReporter = {
+  onGapStart: (gap: RepairGapStatus) => void
+  onGapComplete: (gap: RepairGapStatus) => void
+  onGapFailure: (gap: RepairGapStatus) => void
+}
+
+function createRepairProgressReporter(options: RepairFlags): RepairProgressReporter | undefined {
+  if (options.json || options.yaml || options.markdown || options.dryRun) return undefined
+  return {
+    onGapStart: (gap) => {
+      process.stderr.write(`repair gap ${gap.index}/${gap.total}: ${gap.before_id} -> ${gap.after_id} (${gap.missing_ids} missing)\n`)
+    },
+    onGapComplete: (gap) => {
+      process.stderr.write(`repair gap ${gap.index}/${gap.total}: stored ${gap.stored ?? 0} messages\n`)
+    },
+    onGapFailure: (gap) => {
+      process.stderr.write(`repair gap ${gap.index}/${gap.total}: failed after storing ${gap.stored ?? 0} messages (${gap.error ?? 'unknown error'})\n`)
+    },
+  }
 }
 
 function createRefreshStatusReporter(options: SyncFlags): RefreshStatusReporter | undefined {

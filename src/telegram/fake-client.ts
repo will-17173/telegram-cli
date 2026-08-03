@@ -227,10 +227,21 @@ export class FakeTelegramClient implements TelegramClientAdapter {
     const chat = this.findChat(options.chat)
     const failure = this.fetchFailures[String(options.chat)] ?? (chat == null ? undefined : this.fetchFailures[chat.name])
     if (failure) throw failure
-    const rows = this.messagesFor(options.chat, chat)
+    let messages = this.messagesFor(options.chat, chat)
       .filter((message) => message.msg_id > (options.minId ?? 0))
       .filter((message) => options.maxId == null || message.msg_id < options.maxId)
-      .filter((message) => options.offset == null || message.msg_id < options.offset.id)
+    if (options.reverse) {
+      messages = messages
+        .filter((message) => options.offset == null || message.msg_id >= options.offset.id)
+        .slice()
+        .sort((left, right) => left.msg_id - right.msg_id)
+    } else {
+      messages = messages
+        .filter((message) => options.offset == null || message.msg_id < options.offset.id)
+        .slice()
+        .sort((left, right) => right.msg_id - left.msg_id)
+    }
+    const rows = messages
       .slice(0, options.limit)
       .map(toNormalizedHistoryMessage)
     options.onPage?.(rows)

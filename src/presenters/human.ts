@@ -45,6 +45,26 @@ type SyncResult = {
   failures?: Record<string, string>
 }
 
+type RepairGap = {
+  before_id: number
+  before_date: number
+  after_id: number
+  after_date: number
+  missing_ids: number
+}
+
+type RepairResult = {
+  chat: unknown
+  dry_run?: boolean
+  gaps_scanned: number
+  gaps_repaired: number
+  fetched: number
+  stored: number
+  missing_ids?: number
+  gaps?: RepairGap[]
+  failures?: Array<unknown>
+}
+
 const MAX_NESTING_DEPTH = 4
 const MAX_COLLECTION_ENTRIES = 20
 const MAX_STRING_LENGTH = 200
@@ -195,6 +215,35 @@ export function actionDetail(title: string, values: Record<string, unknown>): Hu
       if (value === false) field.tone = 'danger'
       return field
     }),
+  }
+}
+
+export function repairSummary(title: string, result: RepairResult): HumanOutput & { kind: 'summary' } {
+  const gaps = result.gaps ?? []
+  return {
+    kind: 'summary',
+    title,
+    fields: [
+      { label: 'chat', value: display(result.chat) },
+      ...(result.dry_run == null ? [] : [{ label: 'dry_run', value: display(result.dry_run), tone: result.dry_run ? 'success' as const : 'danger' as const }]),
+      { label: 'gaps_scanned', value: String(result.gaps_scanned) },
+      ...(result.missing_ids == null ? [] : [{ label: 'missing_ids', value: String(result.missing_ids) }]),
+      { label: 'stored', value: String(result.stored) },
+      ...(result.dry_run === true ? [] : [{ label: 'gaps_repaired', value: String(result.gaps_repaired) }]),
+      ...(result.dry_run === true ? [] : [{ label: 'fetched', value: String(result.fetched) }]),
+      ...(result.failures == null || result.failures.length === 0 ? [] : [{ label: 'failures', value: String(result.failures.length), tone: 'warning' as const }]),
+    ],
+    table: {
+      columns: ['BEFORE', 'BEFORE TIME', 'AFTER', 'AFTER TIME', 'MISSING'],
+      rows: gaps.map((gap) => [
+        String(gap.before_id),
+        localTimestamp(new Date(gap.before_date * 1000).toISOString()),
+        String(gap.after_id),
+        localTimestamp(new Date(gap.after_date * 1000).toISOString()),
+        String(gap.missing_ids),
+      ]),
+      emptyText: 'No local message gaps found.',
+    },
   }
 }
 

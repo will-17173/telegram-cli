@@ -620,6 +620,77 @@ export class MessageDB {
     return Number.isFinite(date) ? { id: row.msg_id, date } : null
   }
 
+  getLastMsgOffset(chatId: number): { id: number; date: number } | null {
+    const row = this.db.prepare(`
+      SELECT msg_id, timestamp
+      FROM messages
+      WHERE chat_id = ?
+      ORDER BY msg_id DESC
+      LIMIT 1
+    `).get(canonicalChatId(chatId)) as { msg_id: number; timestamp: string } | undefined
+    if (row == null) return null
+    const date = Math.floor(Date.parse(row.timestamp) / 1000)
+    return Number.isFinite(date) ? { id: row.msg_id, date } : null
+  }
+
+  getMessageGaps(chatId: number, options: { minGap: number; limit: number; fromId?: number; toId?: number }): Array<{
+    before_id: number
+    before_date: number
+    after_id: number
+    after_date: number
+    missing_ids: number
+  }> {
+    const conditions = ['platform = \'telegram\'', 'chat_id = ?']
+    const params: unknown[] = [canonicalChatId(chatId)]
+    if (options.fromId != null) {
+      conditions.push('msg_id >= ?')
+      params.push(options.fromId)
+    }
+    if (options.toId != null) {
+      conditions.push('msg_id <= ?')
+      params.push(options.toId)
+    }
+    const rows = this.db.prepare(`
+      WITH ordered AS (
+        SELECT
+          msg_id,
+          timestamp,
+          lag(msg_id) OVER (ORDER BY msg_id) AS prev_id,
+          lag(timestamp) OVER (ORDER BY msg_id) AS prev_ts
+        FROM messages
+        WHERE ${conditions.join(' AND ')}
+      )
+      SELECT
+        prev_id AS before_id,
+        prev_ts AS before_timestamp,
+        msg_id AS after_id,
+        timestamp AS after_timestamp,
+        msg_id - prev_id - 1 AS missing_ids
+      FROM ordered
+      WHERE prev_id IS NOT NULL AND msg_id - prev_id - 1 >= ?
+      ORDER BY prev_id ASC
+      LIMIT ?
+    `).all(...params, options.minGap, options.limit) as Array<{
+      before_id: number
+      before_timestamp: string
+      after_id: number
+      after_timestamp: string
+      missing_ids: number
+    }>
+    return rows.flatMap((row) => {
+      const beforeDate = Math.floor(Date.parse(row.before_timestamp) / 1000)
+      const afterDate = Math.floor(Date.parse(row.after_timestamp) / 1000)
+      if (!Number.isFinite(beforeDate) || !Number.isFinite(afterDate)) return []
+      return [{
+        before_id: row.before_id,
+        before_date: beforeDate,
+        after_id: row.after_id,
+        after_date: afterDate,
+        missing_ids: row.missing_ids,
+      }]
+    })
+  }
+
   count(chatId?: number): number {
     const row = chatId == null
       ? this.db.prepare('SELECT COUNT(*) as value FROM messages').get() as { value: number }

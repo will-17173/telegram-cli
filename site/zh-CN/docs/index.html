@@ -339,7 +339,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
 
         <section id="command-reference" class="doc-section docs-section" aria-labelledby="command-reference-title">
           <p class="section-kicker docs-kicker">05 · Reference</p>
-          <h2 id="command-reference-title">36 个顶层命令</h2>
+          <h2 id="command-reference-title">37 个顶层命令</h2>
           <p class="section-lede">这是 <code translate="no">tg</code> v0.8.6 的完整顶层 Commander 命令清单。范围徽标描述主要行为；带子命令的命令组可能同时包含读取和写入操作。</p>
 
           <div class="table-scroll table-wrap" tabindex="0" role="region" aria-label="完整顶层命令参考，可横向滚动">
@@ -442,6 +442,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <th scope="row"><code dir="ltr" translate="no">tg refresh</code></th>
                   <td><span class="scope-badge" data-scope="persist">写入本地</span></td>
                   <td>批量刷新聊天；脚本应在顶层成功时继续检查 <code translate="no">data.failures</code>。</td>
+                </tr>
+                <tr data-command="repair">
+                  <th scope="row"><code dir="ltr" translate="no">tg repair &lt;chat&gt;</code></th>
+                  <td><span class="scope-badge" data-scope="persist">写入本地</span></td>
+                  <td>按本地消息 ID 断层修复一个聊天；先用 <code translate="no">--dry-run</code> 预览，也可用 <code translate="no">--from-id</code> 和 <code translate="no">--to-id</code> 限定范围。</td>
                 </tr>
                 <tr data-command="info">
                   <th scope="row"><code dir="ltr" translate="no">tg info &lt;chat&gt;</code></th>
@@ -866,7 +871,7 @@ tg config write-access on --json</code></pre>
         </section>
       </article>
 
-      <aside class="docs-status-card docs-page-outline" data-command-count="36" data-group-command-count="48" aria-label="本页范围说明">
+      <aside class="docs-status-card docs-page-outline" data-command-count="37" data-group-command-count="48" aria-label="本页范围说明">
         <p class="status-card-label docs-outline-label">THIS PAGE</p>
         <h2>命令信号</h2>
         <dl class="scope-key">
@@ -892,7 +897,7 @@ tg config write-access on --json</code></pre>
           </div>
         </dl>
         <div class="status-card-counts">
-          <p><strong>36</strong><span>顶层命令</span></p>
+          <p><strong>37</strong><span>顶层命令</span></p>
           <p><strong>48</strong><span>群管理操作</span></p>
           <p><strong>1</strong><span>稳定 schema</span></p>
         </div>

@@ -148,6 +148,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
         offset,
         ...(options.minId == null ? {} : { minId: options.minId }),
         ...(options.maxId == null ? {} : { maxId: options.maxId }),
+        ...(options.reverse == null ? {} : { reverse: options.reverse }),
       }
       let page
       while (true) {

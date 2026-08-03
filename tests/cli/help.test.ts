@@ -36,6 +36,7 @@ describe('cli help', () => {
       'read',
       'recent',
       'refresh',
+      'repair',
       'search',
       'search-online',
       'send',
@@ -123,7 +124,7 @@ describe('cli help', () => {
   it('describes every top-level command', () => {
     const commands = createApp().commands
 
-    expect(commands).toHaveLength(36)
+    expect(commands).toHaveLength(37)
     expect(commands.every((command) => command.description().trim().length > 0)).toBe(true)
   })
 
@@ -197,6 +198,22 @@ describe('cli help', () => {
       const command = app.commands.find((candidate) => candidate.name() === name)
       expect(command?.options.map((option) => option.long)).toContain('--delay')
     }
+  })
+
+  it('registers repair preview and gap range options', () => {
+    const repair = createApp().commands.find((command) => command.name() === 'repair')
+
+    expect(repair?.options.map((option) => option.long)).toEqual([
+      '--limit',
+      '--min-gap',
+      '--max-gaps',
+      '--from-id',
+      '--to-id',
+      '--dry-run',
+      '--delay',
+      '--json',
+      '--yaml',
+    ])
   })
 
   it('describes history as an older-message backfill', () => {

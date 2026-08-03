@@ -443,6 +443,126 @@ describe('Telegram command lifecycle', () => {
     expect(client.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({ pageDelay: 2.5 }))
   })
 
+  it('repairs local message gaps for a chat', async () => {
+    client.fetchHistory.mockImplementationOnce(async ({ chat }: { chat: string | number }) => [{
+      platform: 'telegram', chat_id: Number(chat) || 42, chat_name: String(chat), msg_id: 11,
+      sender_id: 1, sender_name: 'Alice', content: 'gap', timestamp: '2026-03-09T10:11:00.000Z',
+      reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
+    }])
+    const { MessageDB } = await import('../../src/storage/message-db.js')
+    const db = new MessageDB(join(currentDataDir, 'accounts', 'alice', 'messages.db'))
+    db.upsertBatch([
+      {
+        platform: 'telegram', chat_id: 42, chat_name: 'General', msg_id: 10,
+        sender_id: 1, sender_name: 'Alice', content: 'before', timestamp: '2026-03-09T10:10:00.000Z',
+        reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
+      },
+      {
+        platform: 'telegram', chat_id: 42, chat_name: 'General', msg_id: 12,
+        sender_id: 1, sender_name: 'Alice', content: 'after', timestamp: '2026-03-09T10:12:00.000Z',
+        reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
+      },
+    ])
+    db.close()
+
+    await createApp().exitOverride().parseAsync([
+      'node', 'tg', 'repair', 'General',
+      '--min-gap', '1',
+      '--limit', '10',
+      '--from-id', '10',
+      '--to-id', '12',
+    ])
+
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({ chat: 'General', stored: 1, gaps_repaired: 1 }),
+    }), expect.any(Object))
+    expect(client.fetchHistory).toHaveBeenCalledWith(expect.objectContaining({
+      chat: 'General',
+      minId: 10,
+      maxId: 12,
+      reverse: true,
+    }))
+  })
+
+  it('previews local message gaps without fetching when repair dry-run is used', async () => {
+    const { MessageDB } = await import('../../src/storage/message-db.js')
+    const db = new MessageDB(join(currentDataDir, 'accounts', 'alice', 'messages.db'))
+    db.upsertBatch([
+      {
+        platform: 'telegram', chat_id: 42, chat_name: 'General', msg_id: 10,
+        sender_id: 1, sender_name: 'Alice', content: 'before', timestamp: '2026-03-09T10:10:00.000Z',
+        reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
+      },
+      {
+        platform: 'telegram', chat_id: 42, chat_name: 'General', msg_id: 12,
+        sender_id: 1, sender_name: 'Alice', content: 'after', timestamp: '2026-03-09T10:12:00.000Z',
+        reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
+      },
+    ])
+    db.close()
+
+    await createApp().exitOverride().parseAsync([
+      'node', 'tg', 'repair', 'General',
+      '--dry-run',
+      '--min-gap', '1',
+      '--limit', '10',
+    ])
+
+    expect(renderResult).toHaveBeenCalledWith(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({
+        chat: 'General',
+        dry_run: true,
+        stored: 0,
+        gaps_repaired: 0,
+        missing_ids: 1,
+      }),
+    }), expect.any(Object))
+    expect(client.fetchHistory).not.toHaveBeenCalled()
+  })
+
+  it('prints repair progress for each gap', async () => {
+    client.fetchHistory.mockImplementationOnce(async ({ chat }: { chat: string | number }) => [{
+      platform: 'telegram', chat_id: Number(chat) || 42, chat_name: String(chat), msg_id: 11,
+      sender_id: 1, sender_name: 'Alice', content: 'gap', timestamp: '2026-03-09T10:11:00.000Z',
+      reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
+    }])
+    const { MessageDB } = await import('../../src/storage/message-db.js')
+    const db = new MessageDB(join(currentDataDir, 'accounts', 'alice', 'messages.db'))
+    db.upsertBatch([
+      {
+        platform: 'telegram', chat_id: 42, chat_name: 'General', msg_id: 10,
+        sender_id: 1, sender_name: 'Alice', content: 'before', timestamp: '2026-03-09T10:10:00.000Z',
+        reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
+      },
+      {
+        platform: 'telegram', chat_id: 42, chat_name: 'General', msg_id: 12,
+        sender_id: 1, sender_name: 'Alice', content: 'after', timestamp: '2026-03-09T10:12:00.000Z',
+        reply_to_msg_id: null, media_group_id: null, raw_json: null, attachments: [],
+      },
+    ])
+    db.close()
+    const writes: string[] = []
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: Parameters<typeof process.stderr.write>[0]) => {
+      writes.push(String(chunk))
+      return true
+    })
+
+    try {
+      await createApp().exitOverride().parseAsync([
+        'node', 'tg', 'repair', 'General',
+        '--min-gap', '1',
+        '--limit', '10',
+      ])
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(writes.join('')).toContain('repair gap 1/1: 10 -> 12 (1 missing)')
+    expect(writes.join('')).toContain('repair gap 1/1: stored 1 messages')
+  })
+
   it('prints sync progress for each completed history page', async () => {
     const writes: string[] = []
     const write = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: Parameters<typeof process.stderr.write>[0]) => {

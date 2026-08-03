@@ -493,7 +493,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
         <section id="command-reference" class="doc-section docs-section doc-section-wide" aria-labelledby="command-reference-title">
           <header class="doc-section-heading">
             <p class="section-index docs-kicker">05 · Reference</p>
-            <h2 id="command-reference-title">All 36 top-level commands.</h2>
+            <h2 id="command-reference-title">All 37 top-level commands.</h2>
             <p>Examples show the representative route, not every option. Run <code translate="no">tg &lt;command&gt; --help</code> for the installed version’s exact arguments and flags.</p>
           </header>
 
@@ -604,6 +604,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <th scope="row"><code>refresh</code></th>
                   <td><span class="scope-badge" data-scope="persist">Persist</span></td>
                   <td>Bulk-sync dialogs and retain per-chat failures in <code>data.failures</code>.<code class="command-syntax">tg refresh --max-chats 20 --json</code></td>
+                </tr>
+                <tr data-command="repair">
+                  <th scope="row"><code>repair</code></th>
+                  <td><span class="scope-badge" data-scope="persist">Persist</span></td>
+                  <td>Repair local message-id gaps for one chat, with <code>--dry-run</code> preview and optional <code>--from-id</code>/<code>--to-id</code> constraints.<code class="command-syntax">tg repair @team --dry-run --min-gap 10 --limit 5000</code></td>
                 </tr>
                 <tr data-command="info">
                   <th scope="row"><code>info</code></th>
@@ -1341,13 +1346,13 @@ tg config write-access on</code></pre>
         </section>
       </article>
 
-      <aside class="docs-status-card docs-page-outline" data-command-count="36" data-group-command-count="48" aria-label="Page status">
+      <aside class="docs-status-card docs-page-outline" data-command-count="37" data-group-command-count="48" aria-label="Page status">
         <p class="mini-label">This page</p>
         <strong>v0.8.6</strong>
         <dl>
           <div>
             <dt>Top-level</dt>
-            <dd>36 commands</dd>
+            <dd>37 commands</dd>
           </div>
           <div>
             <dt>Group catalog</dt>

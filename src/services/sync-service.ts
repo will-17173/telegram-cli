@@ -1,6 +1,6 @@
 import { setTimeout as delayMs } from 'node:timers/promises'
 import type { HandlerResult } from '../commands/types.js'
-import { actionDetail, syncSummary } from '../presenters/human.js'
+import { actionDetail, repairSummary, syncSummary } from '../presenters/human.js'
 import { MessageDB } from '../storage/message-db.js'
 import type { TelegramChat, TelegramClientAdapter } from '../telegram/types.js'
 import type { NormalizedMessage } from '../telegram/media-types.js'
@@ -20,6 +20,25 @@ type SyncOptions = {
   limit: number
   pageDelay: number
   onProgress?: (count: number) => void
+}
+
+type RepairOptions = SyncOptions & {
+  minGap: number
+  maxGaps: number
+  fromId?: number
+  toId?: number
+  dryRun?: boolean
+  onGapStart?: (gap: RepairGapProgress) => void
+  onGapComplete?: (gap: RepairGapProgress & { fetched: number; stored: number }) => void
+  onGapFailure?: (gap: RepairGapProgress & { fetched: number; stored: number; error: string }) => void
+}
+
+type RepairGapProgress = {
+  index: number
+  total: number
+  before_id: number
+  after_id: number
+  missing_ids: number
 }
 
 type RefreshOptions = {
@@ -71,6 +90,7 @@ export class SyncService {
     if (invalid) return invalid
     const chatId = this.db.resolveChatId(options.chat)
     const minId = chatId == null ? 0 : this.db.getLastMsgId(chatId) ?? 0
+    const lastOffset = chatId == null ? null : this.db.getLastMsgOffset(chatId)
     const limit = minId === 0 && options.limit > FIRST_SYNC_LIMIT ? FIRST_SYNC_LIMIT : options.limit
     try {
       let synced = 0
@@ -85,6 +105,7 @@ export class SyncService {
           chat: parseChat(options.chat),
           limit,
           minId,
+          ...(lastOffset == null ? {} : { offset: lastOffset, reverse: true }),
           pageDelay: options.pageDelay,
           onPage: (page) => {
             collectedNewerPages.push(...page)
@@ -126,6 +147,111 @@ export class SyncService {
     }
   }
 
+  async repair(options: RepairOptions): Promise<HandlerResult> {
+    const invalid = validateRepairOptions(options)
+    if (invalid) return invalid
+    const chatId = this.db.resolveChatId(options.chat)
+    if (chatId == null) {
+      return {
+        ok: false,
+        error: {
+          code: 'local_chat_not_found',
+          message: `Chat '${options.chat}' was not found in the local message database. Sync the chat before repairing gaps.`,
+        },
+      }
+    }
+
+    try {
+      const gaps = this.db.getMessageGaps(chatId, {
+        minGap: options.minGap,
+        limit: options.maxGaps,
+        fromId: options.fromId,
+        toId: options.toId,
+      })
+      if (options.dryRun === true) {
+        const data = {
+          chat: options.chat,
+          dry_run: true,
+          gaps_scanned: gaps.length,
+          gaps_repaired: 0,
+          fetched: 0,
+          stored: 0,
+          missing_ids: gaps.reduce((sum, gap) => sum + gap.missing_ids, 0),
+          gaps,
+          failures: [],
+        }
+        return { ok: true, data, human: repairSummary('Repair Preview', data) }
+      }
+      let stored = 0
+      let fetched = 0
+      let gapsRepaired = 0
+      const failures: Array<{ before_id: number; after_id: number; error: string }> = []
+      for (let index = 0; index < gaps.length; index += 1) {
+        const gap = gaps[index]!
+        const remaining = options.limit - fetched
+        if (remaining <= 0) break
+        const progressGap = {
+          index: index + 1,
+          total: gaps.length,
+          before_id: gap.before_id,
+          after_id: gap.after_id,
+          missing_ids: gap.missing_ids,
+        }
+        const beforeStored = stored
+        let gapFetched = 0
+        let gapStored = 0
+        options.onGapStart?.(progressGap)
+        try {
+          let wrotePages = false
+          const messages = await this.tg.fetchHistory({
+            chat: parseChat(options.chat),
+            limit: Math.min(remaining, gap.missing_ids),
+            minId: gap.before_id,
+            maxId: gap.after_id,
+            offset: { id: gap.before_id, date: gap.before_date },
+            reverse: true,
+            pageDelay: options.pageDelay,
+            onPage: (page) => {
+              wrotePages = true
+              const inserted = this.upsertPage(page).inserted
+              gapFetched += page.length
+              gapStored += inserted
+              fetched += page.length
+              stored += inserted
+            },
+            onProgress: options.onProgress,
+          })
+          if (!wrotePages) {
+            const inserted = this.upsertPage(messages).inserted
+            gapFetched += messages.length
+            gapStored += inserted
+            fetched += messages.length
+            stored += inserted
+          }
+          if (stored > beforeStored) gapsRepaired += 1
+          options.onGapComplete?.({ ...progressGap, fetched: gapFetched, stored: gapStored })
+        } catch (error) {
+          if (error instanceof LocalStorageError) throw error
+          if (stored > beforeStored) gapsRepaired += 1
+          const message = errorMessage(error)
+          failures.push({ before_id: gap.before_id, after_id: gap.after_id, error: message })
+          options.onGapFailure?.({ ...progressGap, fetched: gapFetched, stored: gapStored, error: message })
+        }
+      }
+      const data = {
+        chat: options.chat,
+        gaps_scanned: gaps.length,
+        gaps_repaired: gapsRepaired,
+        fetched,
+        stored,
+        failures,
+      }
+      return { ok: true, data, human: repairSummary('Repair Complete', data) }
+    } catch (error) {
+      return syncFailure(error)
+    }
+  }
+
   async refresh(options: RefreshOptions): Promise<HandlerResult<RefreshResult>> {
     const invalid = validateRefreshOptions(options)
     if (invalid) return invalid
@@ -143,6 +269,7 @@ export class SyncService {
       if (options.stopSignal?.aborted) break
       const dialog = selected[index]
       const lastId = this.db.getLastMsgId(dialog.id) ?? 0
+      const lastOffset = this.db.getLastMsgOffset(dialog.id)
       const limit = lastId === 0 && options.limit > FIRST_SYNC_LIMIT ? FIRST_SYNC_LIMIT : options.limit
       const onProgress = options.onProgress == null
         ? undefined
@@ -155,6 +282,7 @@ export class SyncService {
           chat: dialog.id,
           limit,
           minId: lastId,
+          ...(lastOffset == null ? {} : { offset: lastOffset, reverse: true }),
           pageDelay: 1,
           onPage: (page) => {
             wrotePages = true
@@ -232,6 +360,26 @@ function validateHistoryOptions(options: { limit: number; pageDelay: number }): 
   if (invalidLimit) return invalidLimit
   if (!isNonNegativeNumber(options.pageDelay)) {
     return invalidOption('pageDelay must be a non-negative number.')
+  }
+  return undefined
+}
+
+function validateRepairOptions(options: {
+  limit: number
+  pageDelay: number
+  minGap: number
+  maxGaps: number
+  fromId?: number
+  toId?: number
+}): HandlerResult<never> | undefined {
+  const invalidHistory = validateHistoryOptions(options)
+  if (invalidHistory) return invalidHistory
+  if (!isPositiveInteger(options.minGap)) return invalidOption('minGap must be a positive integer.')
+  if (!isPositiveInteger(options.maxGaps)) return invalidOption('maxGaps must be a positive integer.')
+  if (options.fromId != null && !isPositiveInteger(options.fromId)) return invalidOption('fromId must be a positive integer.')
+  if (options.toId != null && !isPositiveInteger(options.toId)) return invalidOption('toId must be a positive integer.')
+  if (options.fromId != null && options.toId != null && options.fromId > options.toId) {
+    return invalidOption('fromId must be less than or equal to toId.')
   }
   return undefined
 }
