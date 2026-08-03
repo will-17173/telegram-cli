@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-08-03
+
+### Added
+
+- Add `tg repair <chat>` to inspect and repair local message ID gaps, including `--dry-run`, `--min-gap`, `--max-gaps`, `--from-id`, and `--to-id`.
+- Show repair gap previews as readable tables with local timestamps, and print per-gap repair progress while writing fetched pages immediately.
+
+### Fixed
+
+- Sync newer backlogs from the local latest message forward so large incremental syncs do not jump to the newest page and leave middle gaps behind.
+- Keep already written repair pages when a later gap fetch fails, report per-gap failures, and continue repairing remaining gaps.
+
 ## [0.8.6] - 2026-07-31
 
 ### Fixed

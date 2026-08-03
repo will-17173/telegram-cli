@@ -25,10 +25,10 @@ type PackageJson = {
 }
 
 describe('npm package metadata', () => {
-  it('publishes version 0.8.6', () => {
+  it('publishes version 0.8.7', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as PackageJson
 
-    expect(packageJson.version).toBe('0.8.6')
+    expect(packageJson.version).toBe('0.8.7')
   })
 
   it('publishes the compiled CLI as a public scoped package', () => {

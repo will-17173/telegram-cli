@@ -74,7 +74,7 @@ If the binary is still missing, inspect the npm global prefix and `PATH`, report
 | Authenticate/select/logout accounts | `account` | login/logout | session/registry; messages retained on logout/login |
 | Unread overview or transient online reads | `inbox`, `read`, `search-online` | yes | none; `inbox` does not mark messages read |
 | Discover contacts/chats/groups | `contact`, `chats`, `info`, `group list` | yes | none |
-| Persist Telegram history | `history`, `sync`, `sync-all`, `refresh` | yes | writes local SQLite DB |
+| Persist Telegram history | `history`, `sync`, `sync-all`, `refresh`, `repair` | yes | writes local SQLite DB; `repair --dry-run` only previews gaps |
 | Archive chats as Markdown | `archive` | yes | writes account-local archive files |
 | Query/export stored messages | `search`, `recent`, `today`, `stats`, `top`, `timeline`, `filter`, `export` | no | export may write a file |
 | Reset local data after breaking storage upgrades | `data reset` | no | deletes account DB/default archive files |
@@ -88,7 +88,7 @@ Read [references/command-reference.md](references/command-reference.md) before c
 
 1. Run the relevant `--help`; prefer it over memorized flags.
 2. For account-dependent work, inspect `tg account list --json` and use an explicit account.
-3. Route by source and persistence: `search` uses synchronized SQLite; `search-online` and transient `read` use Telegram; `history`/`sync` persist into SQLite. Do not copy `read` time flags to `history`/`sync`, which use limit/delay controls.
+3. Route by source and persistence: `search` uses synchronized SQLite; `search-online` and transient `read` use Telegram; `history`/`sync`/`repair` persist into SQLite. Do not copy `read` time flags to `history`/`sync`, which use limit/delay controls.
 4. Treat `inbox` as read-only discovery; never assume it marks messages read.
 5. Resolve chats with `chats --json` and folders with `folder list --json`; prefer numeric IDs after discovery because names/titles may be ambiguous.
 6. Parse structured envelopes rather than terminal tables. For batch sync failures use `refresh` and inspect `data.failures`; `sync-all` omits that field.
@@ -98,6 +98,7 @@ Read [references/command-reference.md](references/command-reference.md) before c
 
 - `pnpm dev -- ...`: remove the extra separator.
 - Assuming `sync --limit 5000` backfills a new chat: first sync is capped at 500; use `history` for deeper history.
+- Expecting `repair --dry-run` to write data: remove `--dry-run` after reviewing the gap table.
 - Expecting `sync-all` to expose partial failures: use `refresh` and inspect `data.failures`.
 - Reusing an old database after a breaking media schema change: run `tg data reset --yes`, then sync again.
 - Expecting `listen --no-media` to suppress persistence/downloads: it only hides rendered media rows; normalized `attachments[]` remain persisted and usable.
