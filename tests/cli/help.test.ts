@@ -209,6 +209,7 @@ describe('cli help', () => {
       '--max-gaps',
       '--from-id',
       '--to-id',
+      '--oldest-first',
       '--dry-run',
       '--delay',
       '--json',

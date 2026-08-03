@@ -76,6 +76,7 @@ type RepairFlags = SyncFlags & {
   fromId?: string
   toId?: string
   dryRun?: boolean
+  oldestFirst?: boolean
 }
 
 type ListenOptions = MachineOptions & {
@@ -186,6 +187,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--max-gaps <maxGaps>', 'Maximum gaps to inspect', '50')
     .option('--from-id <fromId>', 'Only repair gaps at or after this local message id')
     .option('--to-id <toId>', 'Only repair gaps at or before this local message id')
+    .option('--oldest-first', 'Repair older gaps before newer gaps')
     .option('--dry-run', 'Preview local gaps without fetching or writing messages')
     .option('--delay <delay>', 'Seconds between history pages', '1')
     .option('--json')
@@ -207,6 +209,7 @@ export function registerTelegramCommands(app: Command): void {
         fromId,
         toId,
         dryRun: options.dryRun,
+        oldestFirst: options.oldestFirst,
         pageDelay,
         onProgress,
         onGapStart: repairProgress?.onGapStart,

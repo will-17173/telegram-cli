@@ -633,7 +633,7 @@ export class MessageDB {
     return Number.isFinite(date) ? { id: row.msg_id, date } : null
   }
 
-  getMessageGaps(chatId: number, options: { minGap: number; limit: number; fromId?: number; toId?: number }): Array<{
+  getMessageGaps(chatId: number, options: { minGap: number; limit: number; fromId?: number; toId?: number; oldestFirst?: boolean }): Array<{
     before_id: number
     before_date: number
     after_id: number
@@ -650,6 +650,7 @@ export class MessageDB {
       conditions.push('msg_id <= ?')
       params.push(options.toId)
     }
+    const orderDirection = options.oldestFirst === true ? 'ASC' : 'DESC'
     const rows = this.db.prepare(`
       WITH ordered AS (
         SELECT
@@ -668,7 +669,7 @@ export class MessageDB {
         msg_id - prev_id - 1 AS missing_ids
       FROM ordered
       WHERE prev_id IS NOT NULL AND msg_id - prev_id - 1 >= ?
-      ORDER BY prev_id ASC
+      ORDER BY prev_id ${orderDirection}
       LIMIT ?
     `).all(...params, options.minGap, options.limit) as Array<{
       before_id: number

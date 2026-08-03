@@ -28,6 +28,7 @@ type RepairOptions = SyncOptions & {
   fromId?: number
   toId?: number
   dryRun?: boolean
+  oldestFirst?: boolean
   onGapStart?: (gap: RepairGapProgress) => void
   onGapComplete?: (gap: RepairGapProgress & { fetched: number; stored: number }) => void
   onGapFailure?: (gap: RepairGapProgress & { fetched: number; stored: number; error: string }) => void
@@ -167,6 +168,7 @@ export class SyncService {
         limit: options.maxGaps,
         fromId: options.fromId,
         toId: options.toId,
+        oldestFirst: options.oldestFirst,
       })
       if (options.dryRun === true) {
         const data = {
@@ -371,6 +373,7 @@ function validateRepairOptions(options: {
   maxGaps: number
   fromId?: number
   toId?: number
+  oldestFirst?: boolean
 }): HandlerResult<never> | undefined {
   const invalidHistory = validateHistoryOptions(options)
   if (invalidHistory) return invalidHistory

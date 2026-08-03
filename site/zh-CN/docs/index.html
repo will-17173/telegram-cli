@@ -446,7 +446,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="repair">
                   <th scope="row"><code dir="ltr" translate="no">tg repair &lt;chat&gt;</code></th>
                   <td><span class="scope-badge" data-scope="persist">写入本地</span></td>
-                  <td>按本地消息 ID 断层修复一个聊天；先用 <code translate="no">--dry-run</code> 预览，也可用 <code translate="no">--from-id</code> 和 <code translate="no">--to-id</code> 限定范围。</td>
+                  <td>按本地消息 ID 断层修复一个聊天；默认从最新断层开始，先用 <code translate="no">--dry-run</code> 预览，可用 <code translate="no">--oldest-first</code> 改为从最旧开始，也可用 <code translate="no">--from-id</code> 和 <code translate="no">--to-id</code> 限定范围。</td>
                 </tr>
                 <tr data-command="info">
                   <th scope="row"><code dir="ltr" translate="no">tg info &lt;chat&gt;</code></th>

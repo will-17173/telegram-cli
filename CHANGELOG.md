@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add `tg repair <chat>` to inspect and repair local message ID gaps, including `--dry-run`, `--min-gap`, `--max-gaps`, `--from-id`, and `--to-id`.
+- Make `tg repair` process newest gaps first by default, with `--oldest-first` for chronological repair.
 - Show repair gap previews as readable tables with local timestamps, and print per-gap repair progress while writing fetched pages immediately.
 
 ### Fixed

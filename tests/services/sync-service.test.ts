@@ -478,6 +478,44 @@ describe('SyncService', () => {
     sync.close()
   })
 
+  it('repair scans newest gaps first by default', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-repair-newest-first-')), 'messages.db'))
+    const messages = [1000, 1002, 2000, 2002].map((msgId) => message({ msg_id: msgId }))
+    const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
+    const sync = new SyncService(fake, db)
+    db.upsertBatch(messages)
+
+    const result = await sync.repair({ chat: 'TestGroup', minGap: 1, maxGaps: 1, limit: 10, pageDelay: 1, dryRun: true })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        gaps_scanned: 1,
+        gaps: [{ before_id: 2000, after_id: 2002 }],
+      },
+    })
+    sync.close()
+  })
+
+  it('repair can scan oldest gaps first when requested', async () => {
+    const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-repair-oldest-first-')), 'messages.db'))
+    const messages = [1000, 1002, 2000, 2002].map((msgId) => message({ msg_id: msgId }))
+    const fake = new FakeTelegramClient({ messagesByChat: { TestGroup: messages } })
+    const sync = new SyncService(fake, db)
+    db.upsertBatch(messages)
+
+    const result = await sync.repair({ chat: 'TestGroup', minGap: 1, maxGaps: 1, limit: 10, pageDelay: 1, dryRun: true, oldestFirst: true })
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        gaps_scanned: 1,
+        gaps: [{ before_id: 1000, after_id: 1002 }],
+      },
+    })
+    sync.close()
+  })
+
   it('repair reports gap progress while writing each fetched page immediately', async () => {
     const db = new MessageDB(join(mkdtempSync(join(tmpdir(), 'tg-cli-repair-progress-')), 'messages.db'))
     const messages = Array.from({ length: 5 }, (_, index) => message({ msg_id: 1000 + index }))
