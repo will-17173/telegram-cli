@@ -61,10 +61,11 @@ The server binds to `127.0.0.1`, has no login screen, and is intended for local 
 
 ### Follow live messages and download files
 
-The `listen` command streams new messages from one chat or many chats without inserting them into the local message database. It can download incoming primary media and run interactive reply or group actions. `--no-media` only hides rendered media rows; `--auto-download` still uses the live normalized attachment data.
+The `listen` command streams new messages from one chat or many chats without inserting them into the local message database by default. Add `--save` to write incoming messages to the local database as they arrive. It can download incoming primary media and run interactive reply or group actions. `--no-media` only hides rendered media rows; `--auto-download` still uses the live normalized attachment data.
 
 ```sh
 tg listen @team --auto-download
+tg listen @team --save
 ```
 
 ### Download historical media

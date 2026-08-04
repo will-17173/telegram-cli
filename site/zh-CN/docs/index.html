@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Telegram CLI v0.8.7 简体中文文档：安装认证、在线读取、本地同步与搜索、群组管理、结构化自动化和安全操作。">
+  <meta name="description" content="Telegram CLI v0.8.8 简体中文文档：安装认证、在线读取、本地同步与搜索、群组管理、结构化自动化和安全操作。">
   <meta name="theme-color" content="#eef6fb">
   <meta name="color-scheme" content="light">
   <title>Telegram CLI 文档 — 从在线消息到本地工作流</title>
@@ -58,7 +58,7 @@
         </div>
         <aside class="docs-version-card" aria-label="文档版本">
           <span>Current release</span>
-          <strong>v0.8.7</strong>
+          <strong>v0.8.8</strong>
           <p>静态页面 · 无需 JavaScript<br>语法以 <code translate="no">tg &lt;command&gt; --help</code> 为准</p>
         </aside>
       </div>
@@ -254,9 +254,10 @@ tg sync @team --account work --json</code></pre>
               <h3>监听、回复和下载附件</h3>
             </div>
             <pre class="command-block" dir="ltr" translate="no"><code>tg listen @team --persist --retry-seconds 5 --account work
+tg listen @team --save --account work
 tg listen @team --no-interactive --no-media --auto-download --account work
 tg listen @team @ops --send-to @team --account work</code></pre>
-            <p><code translate="no">listen</code> 是无界数据流，不提供 JSON、YAML 或 Markdown 格式选项。交互式 TTY 使用 Ink；<code translate="no">--no-interactive</code> 输出纯文本。<code translate="no">--auto-download</code> 默认写入 <code translate="no">~/Downloads/telegram-cli</code>，即使 <code translate="no">--no-media</code> 隐藏渲染媒体行，规范化附件仍会持久化并可下载。</p>
+            <p><code translate="no">listen</code> 是无界数据流，不提供 JSON、YAML 或 Markdown 格式选项。交互式 TTY 使用 Ink；<code translate="no">--no-interactive</code> 输出纯文本。实时消息默认不写入本地数据库；加 <code translate="no">--save</code> 后会在收到时写入 SQLite。<code translate="no">--auto-download</code> 默认写入 <code translate="no">~/Downloads/telegram-cli</code>，即使 <code translate="no">--no-media</code> 隐藏渲染媒体行，也仍然使用实时规范化 <code translate="no">attachments[]</code> 数据。</p>
           </article>
 
           <article class="workflow-recipe workflow-doc-card">
@@ -340,11 +341,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
         <section id="command-reference" class="doc-section docs-section" aria-labelledby="command-reference-title">
           <p class="section-kicker docs-kicker">05 · Reference</p>
           <h2 id="command-reference-title">37 个顶层命令</h2>
-          <p class="section-lede">这是 <code translate="no">tg</code> v0.8.7 的完整顶层 Commander 命令清单。范围徽标描述主要行为；带子命令的命令组可能同时包含读取和写入操作。</p>
+          <p class="section-lede">这是 <code translate="no">tg</code> v0.8.8 的完整顶层 Commander 命令清单。范围徽标描述主要行为；带子命令的命令组可能同时包含读取和写入操作。</p>
 
           <div class="table-scroll table-wrap" tabindex="0" role="region" aria-label="完整顶层命令参考，可横向滚动">
             <table class="command-reference-table">
-              <caption>Telegram CLI v0.8.7 顶层命令</caption>
+              <caption>Telegram CLI v0.8.8 顶层命令</caption>
               <thead>
                 <tr>
                   <th scope="col">命令</th>
@@ -476,7 +477,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="listen">
                   <th scope="row"><code dir="ltr" translate="no">tg listen [chats...]</code></th>
                   <td><span class="scope-badge" data-scope="live">在线流</span></td>
-                  <td>持续监听消息；交互模式可回复或执行群操作，不支持有限结果的格式标志。持久化结构化行使用有序小写 <code translate="no">attachments[]</code>。</td>
+                  <td>持续监听消息；交互模式可回复或执行群操作，不支持有限结果的格式标志。需要实时写入 SQLite 时使用 <code translate="no">--save</code>。<code class="command-syntax" dir="ltr" translate="no">tg listen @team --persist --save --auto-download</code></td>
                 </tr>
                 <tr data-command="contact">
                   <th scope="row"><code dir="ltr" translate="no">tg contact</code></th>
@@ -798,7 +799,7 @@ tg config write-access on --json</code></pre>
         <section id="troubleshooting" class="doc-section docs-section" aria-labelledby="troubleshooting-title">
           <p class="section-kicker docs-kicker">09 · Recovery</p>
           <h2 id="troubleshooting-title">故障排查</h2>
-          <p class="section-lede">v0.8.7 的自动化应匹配 <code translate="no">error.code</code>，不要匹配可能变化的消息文本。先判断账号与数据范围，再决定是否重试。</p>
+          <p class="section-lede">v0.8.8 的自动化应匹配 <code translate="no">error.code</code>，不要匹配可能变化的消息文本。先判断账号与数据范围，再决定是否重试。</p>
 
           <div class="troubleshooting-list">
             <details open>
@@ -901,7 +902,7 @@ tg config write-access on --json</code></pre>
           <p><strong>48</strong><span>群管理操作</span></p>
           <p><strong>1</strong><span>稳定 schema</span></p>
         </div>
-        <p class="status-card-version">当前文档：<strong>v0.8.7</strong></p>
+        <p class="status-card-version">当前文档：<strong>v0.8.8</strong></p>
       </aside>
     </div>
   </main>
@@ -910,7 +911,7 @@ tg config write-access on --json</code></pre>
     <div class="container footer-inner">
       <a class="brand footer-brand" href="../" aria-label="返回 Telegram CLI 中文首页">
         <span class="brand-mark" aria-hidden="true">tg›</span>
-        <span><strong>Telegram CLI</strong><small>v0.8.7 中文文档</small></span>
+        <span><strong>Telegram CLI</strong><small>v0.8.8 中文文档</small></span>
       </a>
       <nav class="footer-nav" aria-label="页脚导航">
         <a href="#quick-start">快速开始</a>

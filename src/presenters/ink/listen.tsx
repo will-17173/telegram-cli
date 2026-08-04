@@ -73,6 +73,7 @@ export type ListenRuntimeOptions = {
   sendTo: string | number | undefined
   showMedia: boolean
   autoDownload: boolean
+  save?: boolean
   showChatName: boolean
   createClient: () => TelegramClientAdapter
   stopSignal: AbortSignal
@@ -676,6 +677,7 @@ export function InteractiveListen({
   sendTo,
   showMedia,
   autoDownload,
+  save = false,
   showChatName,
   createClient,
   stopSignal,
@@ -1269,6 +1271,7 @@ export function InteractiveListen({
         exit()
       },
     })
+    const liveDb = save ? new MessageDB(dbPath) : null
     const albumAggregator = new ListenAlbumAggregator({
       emit: (group) => {
         if (!isActive()) return
@@ -1329,6 +1332,13 @@ export function InteractiveListen({
       },
       onBeforeEnqueue: (message) => {
         if (!isActive()) return
+        if (liveDb != null) {
+          try {
+            liveDb.upsertMessage(message)
+          } catch (error) {
+            setNote(`save failed: ${messageFromError(error)}`)
+          }
+        }
         registerPendingAttachmentKeys(pendingAttachmentKeysRef.current, message, showMedia)
       },
       onMessage: (message) => {
@@ -1375,6 +1385,7 @@ export function InteractiveListen({
       albumAggregator.flush()
       generation.dispose()
       albumAggregator.dispose()
+      liveDb?.close()
       void groupQueue.close()
       if (albumAggregatorRef.current === albumAggregator) albumAggregatorRef.current = null
       lifecycleStop.abort()
@@ -1386,7 +1397,7 @@ export function InteractiveListen({
       if (shutdownGraceTimerRef.current) clearTimeout(shutdownGraceTimerRef.current)
       shutdownGraceTimerRef.current = null
     }
-  }, [autoDownload, chats, createClient, createReplyResolver, dbPath, persist, retrySeconds, sendTo, showMedia, exit, stopSignal, shutdownRequests, onRequestStop])
+  }, [autoDownload, chats, createClient, createReplyResolver, dbPath, persist, retrySeconds, save, sendTo, showMedia, exit, stopSignal, shutdownRequests, onRequestStop])
 
   const sendMessage = async (text: string): Promise<void> => {
     const access = new WriteAccessPolicy().check()

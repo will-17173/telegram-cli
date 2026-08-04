@@ -147,6 +147,22 @@ describe('listen command', () => {
     expect(renderInteractiveListen).toHaveBeenCalledWith(expect.objectContaining({ autoDownload: true }))
   })
 
+  it('passes --save to the interactive listener', async () => {
+    const stdinIsTty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY')
+    const stdoutIsTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY')
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true })
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true })
+
+    try {
+      await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--save'])
+    } finally {
+      restoreProperty(process.stdin, 'isTTY', stdinIsTty)
+      restoreProperty(process.stdout, 'isTTY', stdoutIsTty)
+    }
+
+    expect(renderInteractiveListen).toHaveBeenCalledWith(expect.objectContaining({ save: true }))
+  })
+
   it('downloads media in plain mode even when its summary is hidden', async () => {
     const writes: string[] = []
     const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: Parameters<typeof process.stdout.write>[0]) => {
@@ -329,6 +345,26 @@ describe('listen command', () => {
     const db = new MessageDB(accountDbPath(dataDir, 'alice'))
     try {
       expect(db.getMessagesByKeys([{ chatId: 100, msgId: 42 }])).toEqual([])
+    } finally {
+      db.close()
+    }
+  })
+
+  it('persists plain listen messages when --save is present', async () => {
+    const delivered = multiAttachmentMessage(43, 'save me')
+    client.listen.mockImplementationOnce(async ({ onMessage }: { onMessage: (message: StoredMessageInput) => void }) => {
+      onMessage(delivered)
+      return 'stopped'
+    })
+
+    await createApp().exitOverride().parseAsync(['node', 'tg', 'listen', '--save', '--no-media'])
+
+    const db = new MessageDB(accountDbPath(dataDir, 'alice'))
+    try {
+      const rows = db.getMessagesByKeys([{ chatId: 100, msgId: 43 }])
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.content).toBe('save me')
+      expect(rows[0]?.attachments.map((item) => item.file_name)).toEqual(['first.jpg', 'second.pdf'])
     } finally {
       db.close()
     }

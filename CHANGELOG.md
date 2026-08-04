@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.8] - 2026-08-04
+
+### Added
+
+- Add `tg listen --save` to persist incoming live messages to the local database in both interactive and plain listen modes.
+
+### Changed
+
+- Repair newest message gaps first by default, with `--oldest-first` available for chronological repair.
+
 ## [0.8.7] - 2026-08-03
 
 ### Added

@@ -140,6 +140,33 @@ describe('ListenComposer', () => {
 })
 
 describe('InteractiveListen slash commands', () => {
+  it('saves incoming interactive messages when save is enabled', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tg-cli-listen-save-'))
+    const dbPath = join(dir, 'messages.db')
+    const controller = new AbortController()
+    const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })
+    vi.mocked(client.listen).mockImplementation(async ({ onConnected, onMessage }) => {
+      onConnected?.()
+      onMessage(storedPhoto(91, 'saved interactive message'))
+      return 'stopped'
+    })
+    const stdout = new MockStdout(70, 12, 24)
+    const stdin = new MockStdin()
+    const app = render(<InteractiveListen dbPath={dbPath} chats={[100]} persist={false} retrySeconds={1} sendTo={100} showMedia={false} autoDownload={false} save showChatName={false} createClient={() => client} stopSignal={controller.signal} onRequestStop={() => controller.abort()} />, { stdin: stdin as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream, patchConsole: false })
+
+    const db = new MessageDB(dbPath)
+    try {
+      await vi.waitFor(() => {
+        const rows = db.getMessagesByKeys([{ chatId: 100, msgId: 91 }])
+        expect(rows[0]?.content).toBe('saved interactive message')
+      })
+    } finally {
+      db.close()
+      app.unmount()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('scrolls messages when the terminal translates the mouse wheel to an arrow key', async () => {
     const controller = new AbortController()
     const client = interactiveClient({ getGroup: vi.fn().mockResolvedValue(groupDetails()) })

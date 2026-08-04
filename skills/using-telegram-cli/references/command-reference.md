@@ -222,9 +222,10 @@ tg delete <chat> <message-id> [more-ids...] --account work --json
 tg listen <chat> --persist --retry-seconds 5 --account work
 tg listen <chat> --no-interactive --no-media --account work
 tg listen <chat> --no-interactive --auto-download --account work
+tg listen <chat> --save --account work
 ```
 
-Without chat arguments it listens globally. In an interactive TTY it uses Ink; `--no-interactive` emits plain text. `--auto-download` stores attachments under `~/Downloads/telegram-cli`, including when `--no-media` hides rendered media rows. `--no-media` does not suppress persistence: normalized `attachments[]` are still stored and can be downloaded later. For multiple chats, use `--send-to <chat>` before interactive replies or group actions.
+Without chat arguments it listens globally. In an interactive TTY it uses Ink; `--no-interactive` emits plain text. Live messages are not inserted into the local database by default; add `--save` to write them as they arrive. `--auto-download` stores attachments under `~/Downloads/telegram-cli`, including when `--no-media` hides rendered media rows. For multiple chats, use `--send-to <chat>` before interactive replies or group actions.
 
 Download existing media from stored messages with `download`:
 

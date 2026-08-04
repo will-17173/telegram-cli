@@ -11,7 +11,7 @@ import { MessageService } from '../services/message-service.js'
 import { SyncService } from '../services/sync-service.js'
 import { DownloadService, type DownloadInput, type DownloadStatusStore } from '../services/download-service.js'
 import { ListenAlbumAggregator } from '../services/listen-album-aggregator.js'
-import { AutoDownloadCoordinator, type AutoDownloadEvent } from '../services/auto-download-coordinator.js'
+import { AutoDownloadCoordinator, messageFromError, type AutoDownloadEvent } from '../services/auto-download-coordinator.js'
 import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '../presenters/human.js'
 import { formatListenLine } from '../presenters/listen-message.js'
 import { renderInteractiveListen } from '../presenters/ink/listen.js'
@@ -86,6 +86,7 @@ type ListenOptions = MachineOptions & {
   media?: boolean
   interactive?: boolean
   autoDownload?: boolean
+  save?: boolean
 }
 
 export function registerTelegramCommands(app: Command): void {
@@ -402,6 +403,7 @@ export function registerTelegramCommands(app: Command): void {
     .option('--send-to <chat>', 'Set default outgoing chat for interactive mode')
     .option('--no-media', 'Hide rendered attachment list and previews for incoming messages')
     .option('--auto-download', 'Download incoming attachments automatically')
+    .option('--save', 'Save incoming messages to the local database')
     .option('--no-interactive', 'Use plain text listen output')
     .action(async (chats: string[], options: ListenOptions, command: Command) => {
       const persist = Boolean(options.persist)
@@ -409,6 +411,7 @@ export function registerTelegramCommands(app: Command): void {
       const parsedChats = parseChats(chats)?.map(parseChat)
       const showMedia = options.media !== false
       const autoDownload = Boolean(options.autoDownload)
+      const save = Boolean(options.save)
       const showChatName = parsedChats == null
       const useInteractive = options.interactive !== false && process.stdin.isTTY === true && process.stdout.isTTY === true
       const sendTo = options.sendTo == null ? resolveSingleSendTarget(parsedChats) : parseChat(options.sendTo)
@@ -441,6 +444,7 @@ export function registerTelegramCommands(app: Command): void {
               sendTo,
               showMedia,
               autoDownload,
+              save,
               showChatName,
               createClient,
               stopSignal: controller.signal,
@@ -456,6 +460,7 @@ export function registerTelegramCommands(app: Command): void {
           }
 
           const replyResolver = createListenReplyResolver(context.dbPath)
+          const listenDb = save ? new MessageDB(context.dbPath) : undefined
           let listenOutputError: unknown
           const albumAggregator = new ListenAlbumAggregator({
             emit: (messages) => {
@@ -503,6 +508,13 @@ export function registerTelegramCommands(app: Command): void {
                       const oldest = seenMessageOrder.shift()
                       if (oldest != null) seenMessages.delete(oldest)
                     }
+                    if (listenDb != null) {
+                      try {
+                        listenDb.upsertMessage(message)
+                      } catch (error) {
+                        process.stderr.write(`save failed: ${messageFromError(error)}\n`)
+                      }
+                    }
                     autoDownloader?.enqueue(message)
                     albumAggregator.add(message)
                   },
@@ -539,6 +551,7 @@ export function registerTelegramCommands(app: Command): void {
           } finally {
             albumAggregator.dispose()
             replyResolver.close()
+            listenDb?.close()
           }
         }, command)
       } finally {
