@@ -57,11 +57,13 @@ export class DataService {
     return { ok: true, data: messages, human: { kind: 'text', text } }
   }
 
-  purge(options: { chat: string; yes: boolean }): HandlerResult {
+  purge(options: { chat: string; user?: string; yes: boolean }): HandlerResult {
     const chatId = this.resolveChat(options.chat)
     if (!chatId.ok) return chatId
     if (!options.yes) return { ok: false, error: { code: 'confirmation_required', message: 'Use --yes to confirm purge in this Node port.' } }
-    const data = { deleted: this.db.deleteChat(chatId.data) }
+    const user = options.user?.trim()
+    if (user === '') return { ok: false, error: { code: 'invalid_user', message: 'Please provide a user id or sender name.' } }
+    const data = { deleted: user == null ? this.db.deleteChat(chatId.data) : this.db.deleteMessagesByUser({ chatId: chatId.data, user }) }
     return { ok: true, data, human: actionDetail('Messages Deleted', data) }
   }
 

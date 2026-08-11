@@ -149,6 +149,21 @@ describe('DataService', () => {
     service.close()
   })
 
+  it("purges only one user's messages from the resolved chat", () => {
+    const { service, db } = createService()
+    db.upsertBatch([
+      message({ msg_id: 2, sender_id: 2, sender_name: 'Bob' }),
+      message({ chat_id: 200, chat_name: 'OtherGroup', msg_id: 3, sender_id: 1, sender_name: 'Alice' }),
+    ])
+
+    const result = service.purge({ chat: 'TestGroup', user: '1', yes: true })
+
+    expect(result).toMatchObject({ ok: true, data: { deleted: 1 } })
+    expect(db.count(100)).toBe(1)
+    expect(db.count(200)).toBe(1)
+    service.close()
+  })
+
   it('does not add human output to failures', () => {
     const { service } = createService()
 

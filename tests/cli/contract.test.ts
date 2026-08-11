@@ -457,6 +457,24 @@ describe('local command contracts', () => {
     expect(remaining).toBe(0)
   })
 
+  it("purges one user's messages from a chat with confirmation", async () => {
+    const dbPath = seed([
+      message({ msg_id: 1, sender_id: 1, sender_name: 'Alice' }),
+      message({ msg_id: 2, sender_id: 2, sender_name: 'Bob' }),
+      message({ chat_id: 200, chat_name: 'OtherGroup', msg_id: 3, sender_id: 1, sender_name: 'Alice' }),
+    ])
+    const result = await run(['purge', 'TestGroup', '--user', '1', '--yes', '--yaml'])
+    const db = new MessageDB(dbPath)
+    const testGroup = db.getRecent({ chatId: 100, hours: undefined })
+    const otherGroup = db.getRecent({ chatId: 200, hours: undefined })
+    db.close()
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('deleted: 1')
+    expect(testGroup.map((row) => row.sender_id)).toEqual([2])
+    expect(otherGroup.map((row) => row.sender_id)).toEqual([1])
+  })
+
   it('requires confirmation before purging', async () => {
     seed()
     const result = await run(['purge', 'TestGroup', '--yaml'])

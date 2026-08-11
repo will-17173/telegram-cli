@@ -506,6 +506,33 @@ describe('MessageDB', () => {
     store.close()
   })
 
+  it('deletes one sender messages only within the requested chat', () => {
+    const store = db()
+    store.upsertBatch([
+      message({ chat_id: -1001234567890, chat_name: 'SuperGroup', msg_id: 1, sender_id: 7, sender_name: 'Alice', attachments: [attachment()] }),
+      message({ chat_id: -1001234567890, chat_name: 'SuperGroup', msg_id: 2, sender_id: 8, sender_name: 'Bob' }),
+      message({ chat_id: 200, chat_name: 'OtherGroup', msg_id: 3, sender_id: 7, sender_name: 'Alice' }),
+    ])
+
+    expect(store.deleteMessagesByUser({ chatId: -1001234567890, user: '7' })).toBe(1)
+    expect(store.getMessagesByKeys([{ chatId: -1001234567890, msgId: 1 }])).toEqual([])
+    expect(store.getMessagesByKeys([{ chatId: -1001234567890, msgId: 2 }])).toHaveLength(1)
+    expect(store.getMessagesByKeys([{ chatId: 200, msgId: 3 }])).toHaveLength(1)
+    store.close()
+  })
+
+  it('deletes chat messages by sender name using the local user matching rule', () => {
+    const store = db()
+    store.upsertBatch([
+      message({ msg_id: 1, sender_id: 7, sender_name: 'Alice Zhang' }),
+      message({ msg_id: 2, sender_id: 8, sender_name: 'Bob' }),
+    ])
+
+    expect(store.deleteMessagesByUser({ chatId: 100, user: 'alice' })).toBe(1)
+    expect(store.count(100)).toBe(1)
+    store.close()
+  })
+
   it('returns today messages and respects raw chat ids', () => {
     const store = db()
     const now = new Date()

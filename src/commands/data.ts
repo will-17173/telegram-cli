@@ -15,6 +15,7 @@ type DataFlags = AccountCommandOptions & {
   format?: 'text' | 'json' | 'yaml'
   output?: string
   hours?: string
+  user?: string
   yes?: boolean
   json?: boolean
   yaml?: boolean
@@ -53,13 +54,14 @@ export function registerDataCommands(app: Command): void {
     })
 
   app.command('purge')
-    .description('Delete locally stored messages from a chat')
+    .description('Delete locally stored messages from a chat or sender')
     .argument('<chat>')
+    .option('--user <user>', 'Only delete messages from a sender id or name')
     .option('-y, --yes')
     .option('--json')
     .option('--yaml')
     .action(async (chat: string, options: DataFlags, command: Command) => {
-      await renderDataResult(options, (service) => service.purge({ chat, yes: Boolean(options.yes) }), command)
+      await renderDataResult(options, (service) => service.purge({ chat, user: options.user, yes: Boolean(options.yes) }), command)
     })
 }
 

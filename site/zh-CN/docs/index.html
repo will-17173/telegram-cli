@@ -400,9 +400,9 @@ accounts/&lt;name&gt;/archive/</code></pre>
                   <td>把本地消息导出为选定格式；<code translate="no">--format</code> 控制文件内容，<code translate="no">--json</code> 控制命令信封。</td>
                 </tr>
                 <tr data-command="purge">
-                  <th scope="row"><code dir="ltr" translate="no">tg purge &lt;chat&gt; --yes</code></th>
+                  <th scope="row"><code dir="ltr" translate="no">tg purge &lt;chat&gt; [--user &lt;user&gt;] --yes</code></th>
                   <td><span class="scope-badge" data-scope="local">本地删除</span></td>
-                  <td>确认后删除该聊天的本地消息，不会删除 Telegram 远端消息。</td>
+                  <td>确认后删除该聊天的全部本地消息；指定 <code translate="no">--user</code> 时只删除该成员的消息。建议使用数字用户 ID，避免相似名称匹配。不会删除 Telegram 远端消息。</td>
                 </tr>
                 <tr data-command="data">
                   <th scope="row"><code dir="ltr" translate="no">tg data reset --yes</code></th>

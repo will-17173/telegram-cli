@@ -710,6 +710,17 @@ export class MessageDB {
     return this.db.prepare('DELETE FROM messages WHERE chat_id = ?').run(canonicalChatId(chatId)).changes
   }
 
+  deleteMessagesByUser(options: Pick<UserMessageOptions, 'chatId' | 'user'>): number {
+    const user = options.user.trim()
+    if (user === '') return 0
+    const senderId = parseStrictInteger(user)
+    return senderId == null
+      ? this.db.prepare('DELETE FROM messages WHERE chat_id = ? AND sender_name LIKE ?')
+          .run(canonicalChatId(options.chatId), `%${user}%`).changes
+      : this.db.prepare('DELETE FROM messages WHERE chat_id = ? AND sender_id = ?')
+          .run(canonicalChatId(options.chatId), senderId).changes
+  }
+
   close(): void {
     if (this.closed) return
     this.closed = true

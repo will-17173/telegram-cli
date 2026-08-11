@@ -564,7 +564,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="purge">
                   <th scope="row"><code>purge</code></th>
                   <td><span class="scope-badge" data-scope="local">Local</span></td>
-                  <td>Delete one chat’s locally stored messages only; requires confirmation.<code class="command-syntax">tg purge @team --yes --json</code></td>
+                  <td>Delete one chat’s locally stored messages, or only one sender’s messages with <code>--user</code>; requires confirmation. Prefer a numeric sender ID to avoid matching similar names.<code class="command-syntax">tg purge @team --user 123456 --yes --json</code></td>
                 </tr>
                 <tr data-command="data">
                   <th scope="row"><code>data</code></th>
