@@ -76,7 +76,7 @@ If the binary is still missing, inspect the npm global prefix and `PATH`, report
 | Discover contacts/chats/groups | `contact`, `chats`, `info`, `group list` | yes | none |
 | Persist Telegram history | `history`, `sync`, `sync-all`, `refresh`, `repair` | yes | writes local SQLite DB; `repair --dry-run` only previews gaps |
 | Archive chats as Markdown | `archive` | yes | writes account-local archive files |
-| Query/export stored messages | `search`, `recent`, `today`, `stats`, `top`, `timeline`, `filter`, `export` | no | export may write a file |
+| Query/export/delete stored messages | `search`, `recent`, `today`, `stats`, `top`, `timeline`, `filter`, `export`, `purge` | no | export may write a file; purge deletes matching local rows |
 | Reset local data after breaking storage upgrades | `data reset` | no | deletes account DB/default archive files |
 | Inspect/mutate notifications or folders | `notification`, `folder` | yes | `mute`/`unmute` and `folder chat add/remove` mutate Telegram |
 | Watch incoming messages | `listen` | yes, long-running | persists normalized attachments; optional downloads |

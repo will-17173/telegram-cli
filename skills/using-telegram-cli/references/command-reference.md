@@ -175,7 +175,10 @@ Local deletion requires confirmation and does not delete Telegram messages:
 
 ```sh
 tg purge <chat> --yes --account work --json
+tg purge <chat> --user <sender-id-or-name> --yes --account work --json
 ```
+
+Without `--user`, `purge` deletes all locally stored messages for the chat. With `--user`, it deletes only matching local sender rows in that chat: numeric values match `sender_id` exactly, while names use the same partial `sender_name` matching as `recent --chat --user`. Prefer a numeric sender ID for destructive automation.
 
 Breaking storage/schema upgrades require resetting local data before using the new version. This deletes the selected account's SQLite database and default archive files, not Telegram remote messages:
 

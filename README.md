@@ -45,9 +45,10 @@ tg sync @team
 tg search "release" --chat @team
 tg recent --chat @team --hours 24
 tg recent --chat @team --user 123456 --limit 50 --offset 0 --json
+tg purge @team --user 123456 --yes --json
 ```
 
-Local commands can also filter, summarize, export stored messages, and page through results with `recent --limit --offset`, including sender-specific local history via `recent --chat --user`.
+Local commands can also filter, summarize, export, and delete stored messages. Use `recent --limit --offset` to page through results, `recent --chat --user` for sender-specific local history, and `purge --user --yes` to delete one sender's messages from one chat without changing Telegram.
 
 ### Browse local data in a web UI
 

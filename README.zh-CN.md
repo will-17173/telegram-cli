@@ -45,9 +45,10 @@ tg sync @team
 tg search "release" --chat @team
 tg recent --chat @team --hours 24
 tg recent --chat @team --user 123456 --limit 50 --offset 0 --json
+tg purge @team --user 123456 --yes --json
 ```
 
-本地命令还可以筛选、汇总、导出已存储消息，并通过 `recent --limit --offset` 翻页；也可以用 `recent --chat --user` 查看某个聊天中某个发送者的本地消息。
+本地命令还可以筛选、汇总、导出和删除已存储消息。使用 `recent --limit --offset` 翻页，使用 `recent --chat --user` 查看某个聊天中某个发送者的本地消息，或使用 `purge --user --yes` 仅删除某个聊天中某个发送者的本地消息而不改变 Telegram。
 
 ### 在 Web 界面浏览本地数据
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.9] - 2026-08-11
+
+### Added
+
+- Add `tg purge <chat> --user <user> --yes` to delete one sender's messages from the selected account's local SQLite database without deleting Telegram messages.
+
 ## [0.8.8] - 2026-08-04
 
 ### Added
