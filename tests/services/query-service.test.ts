@@ -130,8 +130,8 @@ describe('QueryService human views', () => {
       human: {
         kind: 'table',
         title: 'Recent Messages',
-        columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'MESSAGE'],
-        rows: expected.map((row) => [String(row.msg_id), ...messageRow(row)]),
+        columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'USER ID', 'MESSAGE'],
+        rows: expected.map((row) => [String(row.msg_id), ...messageRow(row).slice(0, 3), row.sender_id == null ? '—' : String(row.sender_id), messageRow(row)[3]!]),
         emptyText: 'No recent messages found.',
       },
     })
@@ -155,8 +155,9 @@ describe('QueryService human views', () => {
     if (human?.kind !== 'table') throw new Error('expected table')
     expect(human.rows).toHaveLength(2)
     expect(human.rows[1]?.[0]).toBe('11, 12')
-    expect(human.rows[1]?.[4]).toContain('Bob (#7): original')
-    expect(human.rows[1]?.[4]).toContain('album caption\n📎 photo; photo')
+    expect(human.rows[1]?.[4]).toBe('101')
+    expect(human.rows[1]?.[5]).toContain('Bob (#7): original')
+    expect(human.rows[1]?.[5]).toContain('album caption\n📎 photo; photo')
     expect(result.data).toEqual(expected)
     expect((result.data as unknown as Array<Record<string, unknown>>)
       .every((row) => !('replyContext' in row) && !('messages' in row) && !('attachmentSummary' in row))).toBe(true)
@@ -180,7 +181,7 @@ describe('QueryService human views', () => {
     if (!result.ok) throw new Error('expected success')
     const human = result.human
     if (human?.kind !== 'table') throw new Error('expected table')
-    expect(human.rows.map((row) => row[4])).toEqual([
+    expect(human.rows.map((row) => row[5])).toEqual([
       expect.stringContaining('Ten (#7): chat ten'),
       expect.stringContaining('Ten (#7): chat ten'),
       expect.stringContaining('Twenty (#7): chat twenty'),
@@ -206,7 +207,7 @@ describe('QueryService human views', () => {
     const result = service.recent({ limit: 1 })
 
     if (!result.ok || result.human?.kind !== 'table') throw new Error('expected table')
-    expect(result.human.rows[0]?.[4]).toBe('↳ Reply to message #7 (not found locally)\nslack reply')
+    expect(result.human.rows[0]?.[5]).toBe('↳ Reply to message #7 (not found locally)\nslack reply')
     expect(lookup).toHaveBeenCalledWith([])
     service.close()
   })
@@ -256,7 +257,7 @@ describe('QueryService human views', () => {
     const human = result.human
     if (human?.kind !== 'table') throw new Error('expected table')
     expect(human.rows).toHaveLength(50)
-    expect(human.rows[0]?.[4]).toBe(`large album\n📎 ${Array.from({ length: 52 }, () => 'photo').join('; ')}`)
+    expect(human.rows[0]?.[5]).toBe(`large album\n📎 ${Array.from({ length: 52 }, () => 'photo').join('; ')}`)
     service.close()
   })
 
@@ -280,7 +281,7 @@ describe('QueryService human views', () => {
 
     if (!result.ok || result.human?.kind !== 'table') throw new Error('expected table')
     expect((result.data as StoredMessage[]).map((row) => row.content)).toEqual(['second inserted', 'third inserted'])
-    expect(result.human.rows.map((row) => row[4])).toEqual(['second inserted', 'third inserted'])
+    expect(result.human.rows.map((row) => row[5])).toEqual(['second inserted', 'third inserted'])
     service.close()
   })
 
@@ -340,7 +341,7 @@ describe('QueryService human views', () => {
 
     const views = [
       [service.search({ keyword: 'release', chat: '10' }), '[General] Search Results', 'No messages found.', ['TIME', 'SENDER', 'MESSAGE'], row],
-      [service.recent({ chat: '10' }), '[General] Recent Messages', 'No recent messages found.', ['ID', 'TIME', 'SENDER', 'MESSAGE'], ['1', ...row]],
+      [service.recent({ chat: '10' }), '[General] Recent Messages', 'No recent messages found.', ['ID', 'TIME', 'SENDER', 'USER ID', 'MESSAGE'], ['1', ...row.slice(0, 2), '101', row[2]]],
       [service.today({ chat: '10' }), '[General] Today', 'No messages found today.', ['TIME', 'SENDER', 'MESSAGE'], row],
       [service.filter({ keywords: 'release', chat: '10' }), '[General] Filtered Messages', 'No filtered messages found.', ['TIME', 'SENDER', 'MESSAGE'], row],
     ] as const
@@ -365,7 +366,7 @@ describe('QueryService human views', () => {
     const { service } = setup([message({ chat_name: '' })])
     expect(service.recent({ chat: '10' })).toMatchObject({
       ok: true,
-      human: { title: '[10] Recent Messages', columns: ['ID', 'TIME', 'SENDER', 'MESSAGE'] },
+      human: { title: '[10] Recent Messages', columns: ['ID', 'TIME', 'SENDER', 'USER ID', 'MESSAGE'] },
     })
     service.close()
   })

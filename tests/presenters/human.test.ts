@@ -115,8 +115,8 @@ describe('human output builders', () => {
     logical[0]!.replyContext = buildReplyContext(7, { ...rows[0]!, msg_id: 7, sender_name: 'Bob', content: 'original' })
 
     expect(logicalMessageTable(logical, 'Recent Messages', 'None')).toEqual({
-      kind: 'table', title: 'Recent Messages', columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'MESSAGE'],
-      rows: [['11, 12', localTimestamp(rows[0]!.timestamp), 'General', 'Ada',
+      kind: 'table', title: 'Recent Messages', columns: ['ID', 'TIME', 'CHAT', 'SENDER', 'USER ID', 'MESSAGE'],
+      rows: [['11, 12', localTimestamp(rows[0]!.timestamp), 'General', 'Ada', '1',
         `↳ Reply to [${localClock(rows[0]!.timestamp)}] Bob (#7): original\nalbum caption\n📎 photo; photo`]],
       emptyText: 'None',
     })
@@ -126,7 +126,13 @@ describe('human output builders', () => {
     const row = storedMessage({
       attachments: [storedAttachment(attachment({ kind: 'photo' }))],
     })
-    expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[4]).toBe('📎 photo')
+    expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[5]).toBe('📎 photo')
+  })
+
+  it('renders a missing user id as a dash in logical message tables', () => {
+    const row = storedMessage({ sender_id: null })
+
+    expect(logicalMessageTable(groupLogicalMessages([row])).rows[0]?.[4]).toBe('—')
   })
   it('maps Telegram chats to the canonical Chats table', () => {
     expect(chatTable([

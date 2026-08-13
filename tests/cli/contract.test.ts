@@ -220,6 +220,22 @@ describe('local command contracts', () => {
     expect(result.stdout).toContain('today Rust role')
   })
 
+  it('prints user ids in the recent human-readable table', async () => {
+    seed([message({
+      sender_id: 123456789,
+      sender_name: 'Alice',
+      content: 'sender id marker',
+      timestamp: new Date().toISOString(),
+    })])
+
+    const result = await run(['recent'], { OUTPUT: 'markdown' })
+
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain('USER ID')
+    expect(result.stdout).toContain('123456789')
+    expect(result.stdout).toContain('sender id marker')
+  })
+
   it('keeps scoped recent data identical in json and yaml', async () => {
     seed(todayMessages())
     const json = await run(['recent', '--chat', 'TestGroup', '--json'])
