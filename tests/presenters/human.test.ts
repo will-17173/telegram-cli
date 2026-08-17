@@ -101,6 +101,40 @@ describe('human output builders', () => {
     }).fields).toContainEqual({ label: 'Bio', value: 'Release engineer' })
   })
 
+  it('includes common group count and identities in contact details', () => {
+    const fields = contactDetailTable({
+      id: 42,
+      display_name: 'Alice',
+      first_name: 'Alice',
+      last_name: '',
+      username: 'alice',
+      phone: null,
+      is_contact: false,
+      is_mutual_contact: false,
+      is_bot: false,
+      is_deleted: false,
+      common_chat_count: 2,
+      common_chats: [
+        {
+          id: -100123,
+          title: 'Engineering',
+          username: 'engineering',
+          type: 'supergroup',
+        },
+        {
+          id: -44,
+          title: 'Legacy Group',
+          username: null,
+          type: 'group',
+        },
+      ],
+    }).fields
+
+    expect(fields).toContainEqual({ label: 'Common Groups', value: '2' })
+    expect(fields).toContainEqual({ label: 'Group 1', value: 'Engineering · @engineering · -100123' })
+    expect(fields).toContainEqual({ label: 'Group 2', value: 'Legacy Group · -44' })
+  })
+
   it('renders logical content, reply context, and media in one message cell', () => {
     const rows = [storedMessage({
       id: 1, msg_id: 11, content: 'album caption', timestamp: '2026-07-10T01:02:03Z',

@@ -44,7 +44,7 @@ type FakeTelegramCall =
   }
   | {
     operation: 'contactInfo'
-    request: { userOrPhone: string | number }
+    request: { userOrPhone: string | number; chat?: string | number }
   }
   | {
     operation: 'listGroups'
@@ -353,8 +353,11 @@ export class FakeTelegramClient implements TelegramClientAdapter {
         this.recordCall({ operation: 'listContacts', request: {} })
         return allContacts(this.contactsById, this.contactsByUsername, this.contactsByPhone)
       },
-      info: async (userOrPhone) => {
-        this.recordCall({ operation: 'contactInfo', request: { userOrPhone } })
+      info: async (userOrPhone, chat) => {
+        this.recordCall({
+          operation: 'contactInfo',
+          request: { userOrPhone, ...(chat == null ? {} : { chat }) },
+        })
         const idKey = normalizeContactKey(userOrPhone)
         const idMatch = this.contactsById[idKey]
         if (idMatch != null) return cloneContact(idMatch)
@@ -730,6 +733,7 @@ function cloneCall(call: FakeTelegramCall): FakeTelegramCall {
       operation: 'contactInfo',
       request: {
         userOrPhone: call.request.userOrPhone,
+        ...(call.request.chat == null ? {} : { chat: call.request.chat }),
       },
     }
   }

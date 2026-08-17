@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ContactService } from '../../src/services/contact-service.js'
 import {
   TelegramPhoneNotResolvableError,
@@ -96,6 +96,15 @@ describe('ContactService', () => {
         ],
       },
     })
+  })
+
+  it('forwards a normalized chat context for numeric user resolution', async () => {
+    const info = vi.fn().mockResolvedValue(fixtureContact())
+    const service = new ContactService(adapter({ info }))
+
+    await service.info({ userOrPhone: ' 5289163107 ', chat: ' -1003688621340 ' })
+
+    expect(info).toHaveBeenCalledWith('5289163107', '-1003688621340')
   })
 
   it('returns not-found for unknown user or phone inputs', async () => {

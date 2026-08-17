@@ -1,3 +1,10 @@
+export type TelegramCommonChat = {
+  id: number
+  title: string
+  username: string | null
+  type: 'group' | 'supergroup' | 'channel' | 'gigagroup' | 'monoforum' | 'community'
+}
+
 export type TelegramContact = {
   id: number
   display_name: string
@@ -10,11 +17,13 @@ export type TelegramContact = {
   is_bot: boolean
   is_deleted: boolean
   bio?: string
+  common_chat_count?: number
+  common_chats?: TelegramCommonChat[]
 }
 
 export interface TelegramContactAdapter {
   list(): Promise<TelegramContact[]>
-  info(userOrPhone: string | number): Promise<TelegramContact | null>
+  info(userOrPhone: string | number, chat?: string | number): Promise<TelegramContact | null>
 }
 
 export class TelegramPhoneNotResolvableError extends Error {

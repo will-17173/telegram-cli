@@ -10,6 +10,7 @@ type ContactListOptions = { limit?: string | number }
 
 type ContactInfoOptions = {
   userOrPhone: string | number
+  chat?: string | number
 }
 
 export class ContactService {
@@ -35,9 +36,15 @@ export class ContactService {
     if (!normalized) {
       return { ok: false, error: { code: 'invalid_option', message: 'user_or_phone is required.' } }
     }
+    const chat = input.chat == null ? undefined : normalizeText(input.chat)
+    if (input.chat != null && !chat) {
+      return { ok: false, error: { code: 'invalid_option', message: 'chat must not be empty.' } }
+    }
 
     try {
-      const contact = await this.contacts.info(normalized)
+      const contact = chat == null
+        ? await this.contacts.info(normalized)
+        : await this.contacts.info(normalized, chat)
       if (contact == null) {
         return {
           ok: false,

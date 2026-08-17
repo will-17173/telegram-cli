@@ -14,6 +14,7 @@ import { ListenAlbumAggregator } from '../services/listen-album-aggregator.js'
 import { AutoDownloadCoordinator, messageFromError, type AutoDownloadEvent } from '../services/auto-download-coordinator.js'
 import { actionDetail, chatTable, recordDetail, syncSummary, userDetail } from '../presenters/human.js'
 import { formatListenLine } from '../presenters/listen-message.js'
+import { formatDownloadNotice } from '../presenters/download-notice.js'
 import { renderInteractiveListen } from '../presenters/ink/listen.js'
 import { runWithAuthenticatedAccountContext, type AccountCommandOptions } from './account-options.js'
 import { hideBenignUpdateWarnings, runTelegramCommand, runTelegramWriteCommand } from './telegram-runner.js'
@@ -383,7 +384,7 @@ export function registerTelegramCommands(app: Command): void {
           return await new DownloadService(client.archive, {
             downloadStatusStore: messageDbDownloadStatusStore(downloadDb),
             onNotice: (message) => {
-              if (!effectiveOutputIsStructured(options)) process.stderr.write(`${message}\n`)
+              if (!effectiveOutputIsStructured(options)) process.stderr.write(`${formatDownloadNotice(message)}\n`)
             },
           }).download({
             ...input.data,

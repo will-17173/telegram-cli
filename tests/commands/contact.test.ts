@@ -168,6 +168,18 @@ describe('contact commands', () => {
     }, { json: true })
   })
 
+  it('forwards a chat context for an uncached numeric user ID', async () => {
+    await run('contact', 'info', '5289163107', '--chat', '-1003688621340', '--json')
+
+    expect(contact.info).toHaveBeenCalledWith('5289163107', '-1003688621340')
+  })
+
+  it('accepts chat and numeric user ID as two positional arguments', async () => {
+    await run('contact', 'info', '-1003688621340', '5289163107', '--json')
+
+    expect(contact.info).toHaveBeenCalledWith('5289163107', '-1003688621340')
+  })
+
   it.each([
     ['list', ['contact', 'list']],
     ['info', ['contact', 'info', '@alice']],

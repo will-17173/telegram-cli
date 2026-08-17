@@ -189,6 +189,20 @@ export function contactDetailTable(contact: TelegramContact): HumanOutput & { ki
       { label: 'Bot', value: booleanLabel(contact.is_bot) },
       { label: 'Deleted', value: booleanLabel(contact.is_deleted) },
       ...(contact.bio == null ? [] : [{ label: 'Bio', value: fallback(contact.bio) }]),
+      ...(contact.common_chat_count == null && contact.common_chats == null
+        ? []
+        : [
+            {
+              label: 'Common Groups',
+              value: String(contact.common_chat_count ?? contact.common_chats?.length ?? 0),
+            },
+            ...(contact.common_chats ?? []).map((chat, index) => ({
+              label: `Group ${index + 1}`,
+              value: [chat.title, chat.username == null ? null : `@${chat.username}`, String(chat.id)]
+                .filter((part): part is string => part != null && part !== '')
+                .join(' · '),
+            })),
+          ]),
     ],
   }
 }

@@ -55,6 +55,96 @@ describe('MtcuteContacts', () => {
     expect(client.getUser).toHaveBeenCalledWith(1044990788)
   })
 
+  it('resolves an uncached numeric user from a group message context', async () => {
+    const targetId = 5289163107
+    const groupPeer = {
+      _: 'inputPeerChannel',
+      channelId: 3688621340,
+      accessHash: 1n,
+    }
+    const contextualPeer = {
+      _: 'inputPeerUserFromMessage',
+      peer: groupPeer,
+      msgId: 401,
+      userId: targetId,
+    }
+    const target = telegramUser({
+      id: targetId,
+      displayName: 'Message Sender',
+      firstName: 'Message',
+      lastName: 'Sender',
+      username: null,
+      phoneNumber: null,
+      isContact: false,
+    })
+    async function* history(): AsyncGenerator<Record<string, unknown>> {
+      yield { id: 400, sender: { type: 'chat', id: targetId } }
+      yield { id: 401, sender: { type: 'user', id: targetId } }
+    }
+    const client = mockClient({
+      getChat: vi.fn().mockResolvedValue({
+        type: 'chat',
+        chatType: 'supergroup',
+        inputPeer: groupPeer,
+      }),
+      iterHistory: vi.fn().mockReturnValue(history()),
+      getUser: vi.fn()
+        .mockRejectedValueOnce(new MtPeerNotFoundError(`Peer ${targetId} is not found in local cache`))
+        .mockResolvedValueOnce(target),
+      getFullUser: vi.fn().mockResolvedValue({
+        ...target,
+        bio: 'Visible through message context',
+        commonChatsCount: 2,
+      }),
+      getCommonChats: vi.fn().mockResolvedValue([
+        {
+          id: -1003688621340,
+          title: 'First Group',
+          username: 'first_group',
+          chatType: 'supergroup',
+        },
+        {
+          id: -44,
+          title: 'Second Group',
+          username: null,
+          chatType: 'group',
+        },
+      ]),
+    })
+
+    await expect(new MtcuteContacts(client, ready()).info(String(targetId), '-1003688621340'))
+      .resolves.toMatchObject({
+        id: targetId,
+        display_name: 'Message Sender',
+        username: null,
+        is_contact: false,
+        bio: 'Visible through message context',
+        common_chat_count: 2,
+        common_chats: [
+          {
+            id: -1003688621340,
+            title: 'First Group',
+            username: 'first_group',
+            type: 'supergroup',
+          },
+          {
+            id: -44,
+            title: 'Second Group',
+            username: null,
+            type: 'group',
+          },
+        ],
+      })
+    expect(client.getChat).toHaveBeenCalledWith(-1003688621340)
+    expect(client.iterHistory).toHaveBeenCalledWith(groupPeer, {
+      limit: 1000,
+      chunkSize: 100,
+    })
+    expect(client.getUser).toHaveBeenNthCalledWith(2, contextualPeer)
+    expect(client.getFullUser).toHaveBeenCalledWith(contextualPeer)
+    expect(client.getCommonChats).toHaveBeenCalledWith(contextualPeer)
+  })
+
   it('returns the basic contact when full user information is unavailable', async () => {
     const user = telegramUser()
     const client = mockClient({
@@ -99,12 +189,15 @@ function mockClient(overrides: Record<string, unknown>): TelegramClient {
     getContacts: vi.fn().mockResolvedValue([]),
     getUser: vi.fn(),
     getFullUser: vi.fn(),
+    getCommonChats: vi.fn().mockRejectedValue(new Error('COMMON_CHATS_UNAVAILABLE')),
     resolvePhoneNumber: vi.fn(),
+    getChat: vi.fn(),
+    iterHistory: vi.fn(),
     ...overrides,
   } as unknown as TelegramClient
 }
 
-function telegramUser() {
+function telegramUser(overrides: Record<string, unknown> = {}) {
   return {
     id: 42,
     displayName: 'Alice Example',
@@ -116,5 +209,6 @@ function telegramUser() {
     isMutualContact: false,
     isBot: false,
     isDeleted: false,
+    ...overrides,
   }
 }

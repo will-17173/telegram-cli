@@ -456,6 +456,9 @@ export class DownloadService {
           message: `Downloaded media but could not update local status for message ${target.message.msg_id} attachment ${target.attachment.attachment_index}.`,
         })
       }
+      if (options.notifyDownloads === true) {
+        this.onNotice(`downloaded: message ${target.message.msg_id} attachment ${target.attachment.attachment_index} -> ${fileNameForAttachment(target.message, target.attachment)}`)
+      }
     } catch (error) {
       result.failed += 1
       const failureMessage = errorMessage(error)

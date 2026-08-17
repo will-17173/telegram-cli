@@ -44,6 +44,10 @@ import { MtcuteGroupSettings } from './mtcute-group-settings.js'
 import { MtcuteGroupInvites } from './mtcute-group-invites.js'
 import { MtcuteGroupTopics } from './mtcute-group-topics.js'
 import { isMemberNotFoundError, isPeerNotFoundError, normalizePeerId, requireGroup } from './mtcute-group-helpers.js'
+import { findUserPeerFromChatHistory } from './mtcute-user-context.js'
+
+const NUMERIC_MEMBER_LOOKUP_LIMIT = 200
+const NUMERIC_MEMBER_LOOKUP_FILTERS = ['recent', 'all'] as const
 
 export class MtcuteGroupManagement implements TelegramGroupManagementAdapter {
   private readonly members: MtcuteGroupMembers
@@ -191,7 +195,13 @@ export class MtcuteGroupManagement implements TelegramGroupManagementAdapter {
     }
 
     try {
-      const member = await this.client.getChatMember({ chatId, userId })
+      let member: ChatMember | null
+      try {
+        member = await this.client.getChatMember({ chatId, userId })
+      } catch (error) {
+        if (typeof userId !== 'number' || !isPeerNotFoundError(error)) throw error
+        member = await findNumericGroupMember(this.client, group, chatId, userId)
+      }
       if (member == null) throw new TelegramGroupMemberNotFoundError(chat, user)
       return {
         chat_id: group.id,
@@ -264,6 +274,33 @@ export class MtcuteGroupManagement implements TelegramGroupManagementAdapter {
       events: filteredEvents,
     }
   }
+}
+
+async function findNumericGroupMember(
+  client: TelegramClient,
+  group: Chat & { chatType: 'group' | 'supergroup' },
+  chatId: string | number,
+  userId: number,
+): Promise<ChatMember | null> {
+  try {
+    for (const type of NUMERIC_MEMBER_LOOKUP_FILTERS) {
+      const members = await client.getChatMembers(chatId, {
+        type,
+        limit: NUMERIC_MEMBER_LOOKUP_LIMIT,
+      })
+      const match = members.find((member) => member.user.id === userId)
+      if (match != null) return match
+    }
+  } catch (error) {
+    if (!isChatAdminRequiredError(error)) throw error
+  }
+
+  const contextualUser = await findUserPeerFromChatHistory(client, group, userId)
+  if (contextualUser == null) return null
+  return client.getChatMember({
+    chatId: group.inputPeer,
+    userId: contextualUser,
+  })
 }
 
 function usesLocalMemberQuery(type: TelegramListGroupMembersRequest['type']): boolean {

@@ -9,6 +9,7 @@ import type { TelegramClientAdapter } from '../telegram/types.js'
 
 type ContactOptions = AccountCommandOptions & {
   limit?: string
+  chat?: string
   json?: boolean
   yaml?: boolean
 }
@@ -32,14 +33,27 @@ export function registerContactCommands(app: Command): void {
     })
 
   contact.command('info')
-    .description('Show a Telegram contact by id, username, or phone')
+    .description('Show a Telegram user by id, username, or phone')
     .argument('<user_or_phone>')
+    .argument('[context_user]', 'User ID to resolve using the first argument as chat context')
+    .option('--chat <chat>', 'Group context for resolving an uncached numeric user ID')
     .option('--json')
     .option('--yaml')
-    .action(async (userOrPhone: string, _options: ContactOptions, command: Command) => {
+    .action(async (
+      userOrPhone: string,
+      contextUser: string | undefined,
+      _options: ContactOptions,
+      command: Command,
+    ) => {
+      const options = optionsWithGlobals<ContactOptions>(command)
+      const requestedUser = contextUser ?? userOrPhone
+      const contextChat = contextUser == null ? options.chat : userOrPhone
       await runContactAction({
-        options: optionsWithGlobals<ContactOptions>(command),
-        handler: (client) => new ContactService(client.contacts).info({ userOrPhone }),
+        options,
+        handler: (client) => new ContactService(client.contacts).info({
+          userOrPhone: requestedUser,
+          chat: contextChat,
+        }),
       }, command)
     })
 }

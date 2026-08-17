@@ -476,10 +476,13 @@ describe('DownloadService', () => {
       'already downloaded: message 4 attachment 1',
       'download page: scanned 2 messages, found 1 media, downloaded 0, failed 0',
       'downloading: message 5 attachment 1 -> 10_100_5_1784116800.jpg',
+      'downloaded: message 5 attachment 1 -> 10_100_5_1784116800.jpg',
       'download progress: scanned 2 messages, found 1 media, downloaded 1, failed 0',
       'download page: scanned 4 messages, found 3 media, downloaded 1, failed 0',
       'downloading: message 3 attachment 1 -> 10_100_3_1784116800.jpg',
+      'downloaded: message 3 attachment 1 -> 10_100_3_1784116800.jpg',
       'downloading: message 2 attachment 1 -> 10_100_2_1784116800.jpg',
+      'downloaded: message 2 attachment 1 -> 10_100_2_1784116800.jpg',
       'download progress: scanned 4 messages, found 3 media, downloaded 3, failed 0',
     ])
   })

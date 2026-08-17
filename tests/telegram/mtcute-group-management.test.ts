@@ -414,6 +414,118 @@ describe('MtcuteGroupManagement', () => {
     })
   })
 
+  it('falls back to recent members for an uncached numeric user ID', async () => {
+    const targetId = 8010691354
+    const target = chatMember({
+      user: user({ id: targetId, displayName: 'Uncached User', username: null }),
+    })
+    const client = mockClient({
+      getChat: vi.fn().mockResolvedValue(groupChat()),
+      getChatMember: vi.fn().mockRejectedValue(new MtPeerNotFoundError(`Peer ${targetId} is not found in local cache`)),
+      getChatMembers: vi.fn().mockResolvedValue([target]),
+    })
+
+    const result = await new MtcuteGroupManagement(client, vi.fn()).getMember('-100123', String(targetId))
+
+    expect(client.getChatMember).toHaveBeenCalledWith({ chatId: -100123, userId: targetId })
+    expect(client.getChatMembers).toHaveBeenCalledOnce()
+    expect(client.getChatMembers).toHaveBeenCalledWith(-100123, {
+      type: 'recent',
+      limit: 200,
+    })
+    expect(result).toMatchObject({
+      chat_id: -100123,
+      member: {
+        id: targetId,
+        display_name: 'Uncached User',
+        username: null,
+        status: 'member',
+      },
+    })
+  })
+
+  it('checks the all-members window when recent members do not contain an uncached numeric ID', async () => {
+    const targetId = 8010691354
+    const getChatMembers = vi.fn()
+      .mockResolvedValueOnce([chatMember({ user: user({ id: 7 }) })])
+      .mockResolvedValueOnce([chatMember({ user: user({ id: targetId }) })])
+    const client = mockClient({
+      getChat: vi.fn().mockResolvedValue(groupChat()),
+      getChatMember: vi.fn().mockRejectedValue(new MtPeerNotFoundError(`Peer ${targetId} is not found in local cache`)),
+      getChatMembers,
+    })
+
+    const result = await new MtcuteGroupManagement(client, vi.fn()).getMember(-100123, targetId)
+
+    expect(getChatMembers.mock.calls).toEqual([
+      [-100123, { type: 'recent', limit: 200 }],
+      [-100123, { type: 'all', limit: 200 }],
+    ])
+    expect(result.member.id).toBe(targetId)
+  })
+
+  it('uses message context when member enumeration requires administrator rights', async () => {
+    const targetId = 5289163107
+    const groupPeer = {
+      _: 'inputPeerChannel',
+      channelId: 3688621340,
+      accessHash: 1n,
+    }
+    async function* history(): AsyncGenerator<Record<string, unknown>> {
+      yield { id: 400, sender: { type: 'chat', id: targetId } }
+      yield { id: 401, sender: user({ type: 'user', id: targetId, displayName: 'Message Sender' }) }
+    }
+    const getChatMember = vi.fn()
+      .mockRejectedValueOnce(new MtPeerNotFoundError(`Peer ${targetId} is not found in local cache`))
+      .mockResolvedValueOnce(chatMember({
+        user: user({ id: targetId, displayName: 'Message Sender' }),
+      }))
+    const client = mockClient({
+      getChat: vi.fn().mockResolvedValue(groupChat({
+        id: -1003688621340,
+        inputPeer: groupPeer,
+      })),
+      getChatMember,
+      getChatMembers: vi.fn().mockRejectedValue(new tl.RpcError(400, 'CHAT_ADMIN_REQUIRED')),
+      iterHistory: vi.fn().mockReturnValue(history()),
+    })
+
+    const result = await new MtcuteGroupManagement(client, vi.fn()).getMember(-1003688621340, targetId)
+
+    expect(client.iterHistory).toHaveBeenCalledWith(groupPeer, {
+      limit: 1000,
+      chunkSize: 100,
+    })
+    expect(getChatMember).toHaveBeenNthCalledWith(2, {
+      chatId: groupPeer,
+      userId: {
+        _: 'inputPeerUserFromMessage',
+        peer: groupPeer,
+        msgId: 401,
+        userId: targetId,
+      },
+    })
+    expect(result).toMatchObject({
+      chat_id: -1003688621340,
+      member: {
+        id: targetId,
+        display_name: 'Message Sender',
+      },
+    })
+  })
+
+  it('does not enumerate members when a non-numeric selector cannot be resolved', async () => {
+    const client = mockClient({
+      getChat: vi.fn().mockResolvedValue(groupChat()),
+      getChatMember: vi.fn().mockRejectedValue(new MtPeerNotFoundError('missing @unknown')),
+      getChatMembers: vi.fn(),
+    })
+
+    await expect(new MtcuteGroupManagement(client, vi.fn()).getMember(-100123, '@unknown'))
+      .rejects.toBeInstanceOf(TelegramGroupMemberNotFoundError)
+    expect(client.getChatMembers).not.toHaveBeenCalled()
+  })
+
   it('maps group and member lookup failures without swallowing unrelated errors', async () => {
     const groupClient = mockClient({ getChat: vi.fn().mockRejectedValue(new Error('peer not found')) })
     await expect(new MtcuteGroupManagement(groupClient, vi.fn()).getGroup('missing'))
@@ -856,6 +968,7 @@ function mockClient(overrides: Record<string, unknown>): TelegramClient & Record
     getMe: vi.fn(),
     getChatMember: vi.fn(),
     getChatMembers: vi.fn(),
+    iterHistory: vi.fn(),
     getChatEventLog: vi.fn(),
     iterChatEventLog: vi.fn(),
     ...overrides,

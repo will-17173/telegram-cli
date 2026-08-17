@@ -1,9 +1,11 @@
 import { MtPeerNotFoundError } from '@mtcute/node'
-import type { TelegramClient, User } from '@mtcute/node'
+import type { Chat, TelegramClient, User } from '@mtcute/node'
 
 import { normalizePeerId } from './mtcute-group-helpers.js'
+import { findUserPeerFromChatHistory } from './mtcute-user-context.js'
 import {
   TelegramPhoneNotResolvableError,
+  type TelegramCommonChat,
   type TelegramContact,
   type TelegramContactAdapter,
 } from './contact-types.js'
@@ -20,7 +22,7 @@ export class MtcuteContacts {
     return users.map(toTelegramContact)
   }
 
-  async info(userOrPhone: string | number): Promise<TelegramContact | null> {
+  async info(userOrPhone: string | number, chat?: string | number): Promise<TelegramContact | null> {
     await this.ensureReady()
     const phone = normalizedPhone(userOrPhone)
     let selector: Parameters<TelegramClient['getUser']>[0]
@@ -35,18 +37,47 @@ export class MtcuteContacts {
     }
 
     try {
-      const user = await this.client.getUser(selector)
-      const contact = toTelegramContact(user)
+      let user: User
+      let fullUserSelector: Parameters<TelegramClient['getFullUser']>[0]
       try {
-        const full = await this.client.getFullUser(user)
-        return full.bio ? { ...contact, bio: full.bio } : contact
-      } catch {
-        return contact
+        user = await this.client.getUser(selector)
+        fullUserSelector = user
+      } catch (error) {
+        if (chat == null || typeof selector !== 'number' || !isNotFoundError(error)) throw error
+        const contextChat = await this.client.getChat(normalizeContactId(chat))
+        if (contextChat.type !== 'chat') return null
+        const contextualPeer = await findUserPeerFromChatHistory(this.client, contextChat, selector)
+        if (contextualPeer == null) return null
+        user = await this.client.getUser(contextualPeer)
+        fullUserSelector = contextualPeer
+      }
+      const contact = toTelegramContact(user)
+      const [full, commonChats] = await Promise.all([
+        this.client.getFullUser(fullUserSelector).catch(() => null),
+        this.client.getCommonChats(fullUserSelector)
+          .then((chats) => chats.map(toTelegramCommonChat))
+          .catch(() => null),
+      ])
+      const commonChatCount = full?.commonChatsCount ?? commonChats?.length
+      return {
+        ...contact,
+        ...(full?.bio ? { bio: full.bio } : {}),
+        ...(commonChatCount == null ? {} : { common_chat_count: commonChatCount }),
+        ...(commonChats == null ? {} : { common_chats: commonChats }),
       }
     } catch (error) {
       if (isNotFoundError(error)) return null
       throw error
     }
+  }
+}
+
+function toTelegramCommonChat(chat: Chat): TelegramCommonChat {
+  return {
+    id: chat.id,
+    title: chat.title,
+    username: chat.username ?? null,
+    type: chat.chatType,
   }
 }
 
