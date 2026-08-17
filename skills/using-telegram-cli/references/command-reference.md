@@ -113,10 +113,14 @@ tg search-online 'incident' --limit 100 --since 2h --account work --json
 tg search-online 'incident' --chat @ops --until '2026-07-14T10:00:00+08:00' --account work --json
 tg contact list --limit 100 --account work --json
 tg contact info @alice --account work --json
+tg contact info <group> <user-id> --account work --json
+tg contact info <user-id> --chat <group> --account work --json
 tg group list --admin --limit 100 --account work --json
 ```
 
 `inbox` lists unread dialogs without marking messages read. `read` is a transient server read, not a persistence command. Use `history` or `sync` when messages must enter SQLite. `search-online` searches Telegram globally unless `--chat` scopes it; local `search` never contacts Telegram. Time bounds accept positive relative durations (`2h`, meaning two hours before execution) or ISO timestamps with a zone (`2026-07-14T08:00:00+08:00` or `Z`); `--since` must be earlier than `--until`.
+
+`contact info` accepts one target by ID, username, or phone. For an uncached numeric non-contact seen in a group, add group context with either syntax above. The CLI scans up to 1000 readable group-history messages for that sender and resolves the user from the matching message. When available, output includes `common_chat_count` and up to 100 entries in `common_chats[]`; failure to enrich common groups does not discard the resolved basic profile. `group member info` still depends on Telegram member-list permissions and may return `CHAT_ADMIN_REQUIRED` for hidden members.
 
 The `dialog` family provides alternate paths with the same behavior and flags. Prefer the shorter top-level commands in automation, but recognize both forms:
 
@@ -164,6 +168,8 @@ tg filter 'release urgent' --chat <chat> --hours 24 --account work --json
 ```
 
 Synchronize first when freshness matters. `chat_not_found` means the target is not in that local database. `ambiguous_chat` means a name matched multiple stored chats; use a numeric ID.
+
+Human-readable `recent` output includes the sender user ID. Structured output retains its stable message fields for automation.
 
 Export reads local data and may write a file. `--format` controls exported content; `--json` controls the command result envelope:
 
@@ -238,7 +244,7 @@ tg download <chat> <message-id> --attachment 2 --account work --json
 tg download <chat> --grouped-id <media-group-id> --account work --json
 ```
 
-Without `--attachment`, a single-message download fetches every downloadable item. `--attachment N` is one-based and message-local; grouped album downloads flatten attachments by message ID and then local attachment index. Each transfer refetches the Telegram message and matches the stored descriptor before downloading.
+Without `--attachment`, a single-message download fetches every downloadable item. `--attachment N` is one-based and message-local; grouped album downloads flatten attachments by message ID and then local attachment index. Each transfer refetches the Telegram message and matches the stored descriptor before downloading. Plain output emits `downloading:` and `downloaded:` notices; interactive terminals color successful completion green and failures red. Structured output is unchanged.
 
 ## Group operations
 
@@ -331,7 +337,7 @@ Without a format flag, TTY output is human-oriented and non-TTY output defaults 
 Handle v0.5.0 errors by code instead of matching message text:
 
 - Accounts: `account_logged_out`, `account_identity_mismatch`, and `interaction_required` require selecting, verifying, or interactively reauthenticating the named account.
-- Contacts: `contact_not_found` means Telegram could not resolve the supplied ID, username, or phone number.
+- Contacts: `contact_not_found` means Telegram could not resolve the supplied ID, username, or phone number. For an uncached numeric non-contact, retry with group message context via `--chat <group>` or the two-positional form.
 - Notifications and folders: validate mute durations after `invalid_notification_duration`; use a numeric folder ID for `folder_not_found` or `ambiguous_folder`; do not retry unsupported changes after `folder_operation_unsupported`.
 - Archives: use a separate output root after `archive_account_mismatch`; report `archive_failed`; inspect completed chats, failures, and warnings after `archive_partial_failure`. Individual attachment warnings use `archive_media_failed`.
 - Media downloads: handle `attachment_not_found`, `attachment_not_downloadable`, `attachment_changed`, and `media_access_denied` as stable codes. Re-sync before retrying `attachment_changed`; do not retry `media_access_denied` without resolving Telegram permissions/access.

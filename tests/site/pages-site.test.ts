@@ -117,7 +117,7 @@ describe('GitHub Pages site', () => {
     ]
 
     for (const page of [english, chinese]) {
-      expect(page).toContain('v0.8.9')
+      expect(page).toContain('v0.8.10')
       expect(page).not.toContain('v0.4.0')
       for (const id of sectionIds) expect(page).toContain(`id="${id}"`)
       expect(page).toContain('data-scope="live"')

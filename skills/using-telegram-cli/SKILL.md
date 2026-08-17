@@ -103,6 +103,7 @@ Read [references/command-reference.md](references/command-reference.md) before c
 - Reusing an old database after a breaking media schema change: run `tg data reset --yes`, then sync again.
 - Expecting `listen --no-media` to suppress persistence/downloads: it only hides rendered media rows; normalized `attachments[]` remain persisted and usable.
 - Using an ambiguous chat name: retry with its numeric chat ID.
+- Looking up an uncached numeric non-contact with `contact info <user-id>` alone: add `--chat <group>` or use `contact info <group> <user-id>` so Telegram can resolve the user from group message context.
 - Using Markdown for archive automation: it does not preserve full partial-failure details; use JSON/YAML.
 - Passing a 2FA password in arguments, environment variables, stdin automation, chat, or logs: ownership transfer accepts only its secure interactive prompt.
 - Expecting `send` to appear immediately in local search: synchronize afterward.

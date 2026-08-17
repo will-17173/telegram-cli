@@ -34,7 +34,12 @@ tg read @team --since 2h
 tg search-online "incident" --chat @team --json
 ```
 
-You can also inspect contacts, notification settings, folders, and group details without importing messages.
+You can also inspect contacts, notification settings, folders, and group details without importing messages. To inspect a non-contact numeric user ID seen in a group, provide the group as message context; the result also includes any common groups Telegram exposes:
+
+```sh
+tg contact info @team 5289163107
+tg contact info 5289163107 --chat @team --json
+```
 
 ### Build a searchable local history
 
@@ -48,7 +53,7 @@ tg recent --chat @team --user 123456 --limit 50 --offset 0 --json
 tg purge @team --user 123456 --yes --json
 ```
 
-Local commands can also filter, summarize, export, and delete stored messages. Use `recent --limit --offset` to page through results, `recent --chat --user` for sender-specific local history, and `purge --user --yes` to delete one sender's messages from one chat without changing Telegram.
+Local commands can also filter, summarize, export, and delete stored messages. Human-readable `recent` output shows each sender's user ID. Use `recent --limit --offset` to page through results, `recent --chat --user` for sender-specific local history, and `purge --user --yes` to delete one sender's messages from one chat without changing Telegram.
 
 ### Browse local data in a web UI
 
@@ -73,7 +78,7 @@ tg listen @team --save
 
 Use `download` for existing messages: a single message, a specific attachment, a grouped album, an inclusive message range, one local date, or a whole chat from newest to oldest. Without `--attachment`, a single message downloads every downloadable item. `--attachment N` is one-based and message-local; for `--grouped-id`, numbering is flattened by message ID and then message-local attachment index. Each transfer refetches the fresh Telegram message and matches the stored descriptor before downloading, so stable errors include `attachment_not_found`, `attachment_not_downloadable`, `attachment_changed`, and `media_access_denied`.
 
-Downloaded attachments are remembered in the local account database. By default, later `tg download` runs skip attachments that were already downloaded and print an `already downloaded` notice in plain output. Use `--force` to download them again and refresh the saved status. Use `--ext jpg,png` or repeated `--ext` options to download only matching file extensions; matching is case-insensitive and accepts values with or without a leading dot.
+Downloaded attachments are remembered in the local account database. Plain output prints `downloading:` and `downloaded:` notices, with green success and red failure notices in an interactive terminal. By default, later `tg download` runs skip attachments that were already downloaded and print an `already downloaded` notice. Use `--force` to download them again and refresh the saved status. Use `--ext jpg,png` or repeated `--ext` options to download only matching file extensions; matching is case-insensitive and accepts values with or without a leading dot.
 
 ```sh
 tg download --chat @team --msg-id 814 --output ./media

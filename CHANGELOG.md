@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.10] - 2026-08-17
+
+### Added
+
+- Resolve uncached numeric user IDs with group message context through `tg contact info <chat> <user-id>` or `tg contact info <user-id> --chat <chat>`.
+- Include common group counts and details when Telegram exposes them for a resolved user.
+- Show sender user IDs in human-readable `tg recent` output.
+
+### Changed
+
+- Print explicit completion notices for successful downloads and color plain TTY download success and failure notices.
+
 ## [0.8.9] - 2026-08-11
 
 ### Added

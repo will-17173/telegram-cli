@@ -34,7 +34,12 @@ tg read @team --since 2h
 tg search-online "incident" --chat @team --json
 ```
 
-你还可以在线查看联系人、通知设置、文件夹和群组详情，且不会导入消息。
+你还可以在线查看联系人、通知设置、文件夹和群组详情，且不会导入消息。要查询在群消息中出现过、但不在通讯录中的数字用户 ID，请提供该群作为消息上下文；结果还会包含 Telegram 可提供的共同群组：
+
+```sh
+tg contact info @team 5289163107
+tg contact info 5289163107 --chat @team --json
+```
 
 ### 建立可搜索的本地消息库
 
@@ -48,7 +53,7 @@ tg recent --chat @team --user 123456 --limit 50 --offset 0 --json
 tg purge @team --user 123456 --yes --json
 ```
 
-本地命令还可以筛选、汇总、导出和删除已存储消息。使用 `recent --limit --offset` 翻页，使用 `recent --chat --user` 查看某个聊天中某个发送者的本地消息，或使用 `purge --user --yes` 仅删除某个聊天中某个发送者的本地消息而不改变 Telegram。
+本地命令还可以筛选、汇总、导出和删除已存储消息。`recent` 的人类可读输出会显示每个发送者的用户 ID。使用 `recent --limit --offset` 翻页，使用 `recent --chat --user` 查看某个聊天中某个发送者的本地消息，或使用 `purge --user --yes` 仅删除某个聊天中某个发送者的本地消息而不改变 Telegram。
 
 ### 在 Web 界面浏览本地数据
 
@@ -73,7 +78,7 @@ tg listen @team --save
 
 `download` 用于已存在的消息：可下载单条消息、指定附件、媒体组、连续消息范围、某个本地日期，或从最新到最旧下载整个聊天的媒体。单条消息不传 `--attachment` 时会下载所有可下载项。`--attachment N` 是从 1 开始的消息内编号；对 `--grouped-id`，编号按消息 ID 和消息内附件编号展平。每次传输都会重新获取 Telegram 消息并匹配已存描述符，因此稳定错误包括 `attachment_not_found`、`attachment_not_downloadable`、`attachment_changed` 和 `media_access_denied`。
 
-已下载的附件会记录在当前账号的本地数据库中。后续运行 `tg download` 时默认跳过已经下载过的附件，并在普通输出中提示 `already downloaded`。如果需要重新下载并刷新状态，使用 `--force`。使用 `--ext jpg,png` 或重复传入 `--ext` 可以只下载指定扩展名；匹配时忽略大小写，也可以带或不带开头的点。
+已下载的附件会记录在当前账号的本地数据库中。普通输出会显示 `downloading:` 和 `downloaded:`；在交互终端中，成功提示为绿色，失败提示为红色。后续运行 `tg download` 时默认跳过已经下载过的附件，并提示 `already downloaded`。如果需要重新下载并刷新状态，使用 `--force`。使用 `--ext jpg,png` 或重复传入 `--ext` 可以只下载指定扩展名；匹配时忽略大小写，也可以带或不带开头的点。
 
 ```sh
 tg download --chat @team --msg-id 814 --output ./media

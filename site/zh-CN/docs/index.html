@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Telegram CLI v0.8.9 简体中文文档：安装认证、在线读取、本地同步与搜索、群组管理、结构化自动化和安全操作。">
+  <meta name="description" content="Telegram CLI v0.8.10 简体中文文档：安装认证、在线读取、本地同步与搜索、群组管理、结构化自动化和安全操作。">
   <meta name="theme-color" content="#eef6fb">
   <meta name="color-scheme" content="light">
   <title>Telegram CLI 文档 — 从在线消息到本地工作流</title>
@@ -58,7 +58,7 @@
         </div>
         <aside class="docs-version-card" aria-label="文档版本">
           <span>Current release</span>
-          <strong>v0.8.9</strong>
+          <strong>v0.8.10</strong>
           <p>静态页面 · 无需 JavaScript<br>语法以 <code translate="no">tg &lt;command&gt; --help</code> 为准</p>
         </aside>
       </div>
@@ -341,11 +341,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
         <section id="command-reference" class="doc-section docs-section" aria-labelledby="command-reference-title">
           <p class="section-kicker docs-kicker">05 · Reference</p>
           <h2 id="command-reference-title">37 个顶层命令</h2>
-          <p class="section-lede">这是 <code translate="no">tg</code> v0.8.9 的完整顶层 Commander 命令清单。范围徽标描述主要行为；带子命令的命令组可能同时包含读取和写入操作。</p>
+          <p class="section-lede">这是 <code translate="no">tg</code> v0.8.10 的完整顶层 Commander 命令清单。范围徽标描述主要行为；带子命令的命令组可能同时包含读取和写入操作。</p>
 
           <div class="table-scroll table-wrap" tabindex="0" role="region" aria-label="完整顶层命令参考，可横向滚动">
             <table class="command-reference-table">
-              <caption>Telegram CLI v0.8.9 顶层命令</caption>
+              <caption>Telegram CLI v0.8.10 顶层命令</caption>
               <thead>
                 <tr>
                   <th scope="col">命令</th>
@@ -362,7 +362,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="recent">
                   <th scope="row"><code dir="ltr" translate="no">tg recent</code></th>
                   <td><span class="scope-badge" data-scope="local">仅本地</span></td>
-                  <td>查看已存储消息，支持 <code translate="no">--limit --offset</code> 翻页；使用 <code translate="no">--chat --user</code> 时，筛选该聊天里的某个发送者。</td>
+                  <td>查看已存储消息并显示发送者用户 ID，支持 <code translate="no">--limit --offset</code> 翻页；使用 <code translate="no">--chat --user</code> 时，筛选该聊天里的某个发送者。</td>
                 </tr>
                 <tr data-command="stats">
                   <th scope="row"><code dir="ltr" translate="no">tg stats</code></th>
@@ -472,7 +472,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="download">
                   <th scope="row"><code dir="ltr" translate="no">tg download --chat &lt;chat&gt;</code></th>
                   <td><span class="scope-badge" data-scope="filesystem">文件下载</span></td>
-                  <td>下载单条消息全部媒体、指定附件、按 grouped_id 下载相册、消息范围、指定日期或整个聊天中的媒体。附件编号从 1 开始；相册按消息 ID 和消息内编号展平。<code translate="no">--all</code> 会按历史页扫描并在普通输出中显示进度。使用 <code translate="no">--ext jpg,png</code> 可只保留指定扩展名，匹配时忽略大小写。稳定媒体错误包括 <code translate="no">attachment_changed</code> 和 <code translate="no">media_access_denied</code>。<code class="command-syntax" dir="ltr" translate="no">tg download @channel 42 --attachment 2</code><code class="command-syntax" dir="ltr" translate="no">tg download @channel --all --ext jpg,png</code></td>
+                  <td>下载单条消息全部媒体、指定附件、按 grouped_id 下载相册、消息范围、指定日期或整个聊天中的媒体。附件编号从 1 开始；相册按消息 ID 和消息内编号展平。普通输出显示进度和明确的完成提示；交互终端中成功为绿色、失败为红色。<code translate="no">--all</code> 会按历史页扫描。使用 <code translate="no">--ext jpg,png</code> 可只保留指定扩展名，匹配时忽略大小写。稳定媒体错误包括 <code translate="no">attachment_changed</code> 和 <code translate="no">media_access_denied</code>。<code class="command-syntax" dir="ltr" translate="no">tg download @channel 42 --attachment 2</code><code class="command-syntax" dir="ltr" translate="no">tg download @channel --all --ext jpg,png</code></td>
                 </tr>
                 <tr data-command="listen">
                   <th scope="row"><code dir="ltr" translate="no">tg listen [chats...]</code></th>
@@ -482,7 +482,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="contact">
                   <th scope="row"><code dir="ltr" translate="no">tg contact</code></th>
                   <td><span class="scope-badge" data-scope="live">在线读取</span></td>
-                  <td><code translate="no">list</code> 列出通讯录联系人，<code translate="no">info</code> 按 ID、用户名或手机号解析联系人。</td>
+                  <td><code translate="no">list</code> 列出通讯录联系人，<code translate="no">info</code> 按 ID、用户名或手机号解析用户。查询未缓存的数字非联系人时，请提供群组作为消息上下文；可用时结果会包含共同群组。<code class="command-syntax" dir="ltr" translate="no">tg contact info @team 5289163107 --json</code></td>
                 </tr>
                 <tr data-command="inbox">
                   <th scope="row"><code dir="ltr" translate="no">tg inbox</code></th>
@@ -799,7 +799,7 @@ tg config write-access on --json</code></pre>
         <section id="troubleshooting" class="doc-section docs-section" aria-labelledby="troubleshooting-title">
           <p class="section-kicker docs-kicker">09 · Recovery</p>
           <h2 id="troubleshooting-title">故障排查</h2>
-          <p class="section-lede">v0.8.9 的自动化应匹配 <code translate="no">error.code</code>，不要匹配可能变化的消息文本。先判断账号与数据范围，再决定是否重试。</p>
+          <p class="section-lede">v0.8.10 的自动化应匹配 <code translate="no">error.code</code>，不要匹配可能变化的消息文本。先判断账号与数据范围，再决定是否重试。</p>
 
           <div class="troubleshooting-list">
             <details open>
@@ -828,7 +828,7 @@ tg config write-access on --json</code></pre>
             </details>
             <details>
               <summary><code translate="no">contact_not_found</code></summary>
-              <p>Telegram 无法用所给数字 ID、用户名或手机号解析联系人。检查格式；<code translate="no">chats --type user</code> 列出的是私聊对话，不等同于 <code translate="no">contact list</code> 通讯录。</p>
+              <p>Telegram 无法用所给数字 ID、用户名或手机号解析用户。查询在群消息中出现过、但未缓存的数字非联系人时，请添加 <code translate="no">--chat &lt;group&gt;</code>，或使用 <code translate="no">contact info &lt;group&gt; &lt;user-id&gt;</code>。<code translate="no">chats --type user</code> 列出的是私聊对话，不等同于 <code translate="no">contact list</code> 通讯录。</p>
             </details>
             <details>
               <summary><code translate="no">invalid_notification_duration</code></summary>
@@ -902,7 +902,7 @@ tg config write-access on --json</code></pre>
           <p><strong>48</strong><span>群管理操作</span></p>
           <p><strong>1</strong><span>稳定 schema</span></p>
         </div>
-        <p class="status-card-version">当前文档：<strong>v0.8.9</strong></p>
+        <p class="status-card-version">当前文档：<strong>v0.8.10</strong></p>
       </aside>
     </div>
   </main>
@@ -911,7 +911,7 @@ tg config write-access on --json</code></pre>
     <div class="container footer-inner">
       <a class="brand footer-brand" href="../" aria-label="返回 Telegram CLI 中文首页">
         <span class="brand-mark" aria-hidden="true">tg›</span>
-        <span><strong>Telegram CLI</strong><small>v0.8.9 中文文档</small></span>
+        <span><strong>Telegram CLI</strong><small>v0.8.10 中文文档</small></span>
       </a>
       <nav class="footer-nav" aria-label="页脚导航">
         <a href="#quick-start">快速开始</a>

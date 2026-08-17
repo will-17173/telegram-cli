@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Detailed Telegram CLI v0.8.9 documentation: installation, execution scopes, all commands, group management, automation, safety, and troubleshooting.">
+  <meta name="description" content="Detailed Telegram CLI v0.8.10 documentation: installation, execution scopes, all commands, group management, automation, safety, and troubleshooting.">
   <meta name="theme-color" content="#eef6fb">
   <meta name="color-scheme" content="light">
   <title>Documentation — Telegram CLI</title>
@@ -50,7 +50,7 @@
             <span aria-hidden="true">/</span>
             <span aria-current="page">Documentation</span>
           </nav>
-          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Complete guide · v0.8.9</p>
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Complete guide · v0.8.10</p>
           <h1 id="docs-title">Know where every<br><span>command runs.</span></h1>
           <p class="docs-lede">Telegram CLI moves between the Telegram network, a private SQLite database, local files, and deliberate remote writes. This guide makes that boundary visible while documenting the complete <code translate="no">tg</code> surface.</p>
           <div class="docs-hero-actions">
@@ -116,7 +116,7 @@
             <li><a href="#troubleshooting"><span aria-hidden="true">09</span> Troubleshooting</a></li>
           </ol>
         </nav>
-        <p class="signal-rail-version">Reference for <strong>v0.8.9</strong></p>
+        <p class="signal-rail-version">Reference for <strong>v0.8.10</strong></p>
       </aside>
 
       <article class="docs-article">
@@ -524,7 +524,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="recent">
                   <th scope="row"><code>recent</code></th>
                   <td><span class="scope-badge" data-scope="local">Local</span></td>
-                  <td>Show stored messages with <code>--limit --offset</code> pagination; with <code>--chat --user</code>, filter to one sender in the chat.<code class="command-syntax">tg recent --chat @team --user 123456 --limit 50 --offset 0 --json</code></td>
+                  <td>Show stored messages with sender user IDs and <code>--limit --offset</code> pagination; with <code>--chat --user</code>, filter to one sender in the chat.<code class="command-syntax">tg recent --chat @team --user 123456 --limit 50 --offset 0 --json</code></td>
                 </tr>
                 <tr data-command="stats">
                   <th scope="row"><code>stats</code></th>
@@ -634,7 +634,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="download">
                   <th scope="row"><code>download</code></th>
                   <td><span class="scope-badge scope-files" data-scope="filesystem">Files</span></td>
-                  <td>Download all media from one message, a selected attachment, a grouped album, a range, a date, or an entire chat. Attachment numbers are one-based; albums flatten by message ID and local index. <code>--all</code> scans one history page at a time and reports progress in plain output. Use <code>--ext jpg,png</code> to keep only matching extensions; matching is case-insensitive. Stable media errors include <code>attachment_changed</code> and <code>media_access_denied</code>.<code class="command-syntax">tg download @channel 42 --attachment 2</code><code class="command-syntax">tg download @channel --all --ext jpg,png</code></td>
+                  <td>Download all media from one message, a selected attachment, a grouped album, a range, a date, or an entire chat. Attachment numbers are one-based; albums flatten by message ID and local index. Plain output reports progress and explicit completion; interactive terminals color success green and failure red. <code>--all</code> scans one history page at a time. Use <code>--ext jpg,png</code> to keep only matching extensions; matching is case-insensitive. Stable media errors include <code>attachment_changed</code> and <code>media_access_denied</code>.<code class="command-syntax">tg download @channel 42 --attachment 2</code><code class="command-syntax">tg download @channel --all --ext jpg,png</code></td>
                 </tr>
                 <tr data-command="listen">
                   <th scope="row"><code>listen</code></th>
@@ -644,7 +644,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="contact">
                   <th scope="row"><code>contact</code></th>
                   <td><span class="scope-badge" data-scope="live">Live</span></td>
-                  <td>List Telegram contacts or resolve one by ID, username, or phone.<code class="command-syntax">tg contact info @alice --json</code></td>
+                  <td>List Telegram contacts or resolve one by ID, username, or phone. For an uncached numeric non-contact, provide a group as message context; results include common groups when available.<code class="command-syntax">tg contact info @alice --json</code><code class="command-syntax">tg contact info @team 5289163107 --json</code></td>
                 </tr>
                 <tr data-command="inbox">
                   <th scope="row"><code>inbox</code></th>
@@ -707,7 +707,7 @@ accounts/&lt;name&gt;/archive/</code></pre>
 
           <aside class="callout callout-info">
             <h3>Global conventions</h3>
-            <p>Use <code>--account &lt;name&gt;</code> to select a registered account for one invocation and exactly one of <code>--json</code>, <code>--yaml</code>, or <code>--markdown</code> on finite commands. The CLI accepts <code>-v</code>/<code>--verbose</code>, but v0.8.9 does not yet connect it to debug logging, so automation must not rely on it. Nested help remains the source of truth for subcommand options.</p>
+            <p>Use <code>--account &lt;name&gt;</code> to select a registered account for one invocation and exactly one of <code>--json</code>, <code>--yaml</code>, or <code>--markdown</code> on finite commands. The CLI accepts <code>-v</code>/<code>--verbose</code>, but v0.8.10 does not yet connect it to debug logging, so automation must not rely on it. Nested help remains the source of truth for subcommand options.</p>
           </aside>
 
           <nav class="section-pager docs-pagination" aria-label="Command reference section navigation">
@@ -759,7 +759,7 @@ tg group member info @team @alice --json</code></pre>
             <pre class="command-block compact" translate="no" dir="ltr"><code>tg group &lt;family&gt; &lt;action&gt; &lt;chat&gt; [arguments] [options]</code></pre>
           </div>
 
-          <p>Every action below is part of the v0.8.9 catalog. “Confirm” actions reject execution without <code>--yes</code>. “Direct” writes have no built-in prompt, but still require authorization and enabled write access. The four actions labeled “Read” do not mutate Telegram.</p>
+          <p>Every action below is part of the v0.8.10 catalog. “Confirm” actions reject execution without <code>--yes</code>. “Direct” writes have no built-in prompt, but still require authorization and enabled write access. The four actions labeled “Read” do not mutate Telegram.</p>
 
           <div class="group-family-grid">
             <article class="group-family-card group-family">
@@ -1281,7 +1281,7 @@ tg search "keyword" --chat &lt;numeric-chat-id&gt; --account work</code></pre>
             <details>
               <summary><code>contact_not_found</code></summary>
               <div>
-                <p>Telegram could not resolve the supplied numeric ID, <code>@username</code>, or phone number. Verify the value and remember that <code>chats --type user</code> lists private dialogs, while <code>contact list</code> lists contacts.</p>
+                <p>Telegram could not resolve the supplied numeric ID, <code>@username</code>, or phone number. For an uncached numeric non-contact seen in a group, add <code>--chat &lt;group&gt;</code> or use <code>contact info &lt;group&gt; &lt;user-id&gt;</code>. Remember that <code>chats --type user</code> lists private dialogs, while <code>contact list</code> lists contacts.</p>
               </div>
             </details>
 
@@ -1349,7 +1349,7 @@ tg config write-access on</code></pre>
 
       <aside class="docs-status-card docs-page-outline" data-command-count="37" data-group-command-count="48" aria-label="Page status">
         <p class="mini-label">This page</p>
-        <strong>v0.8.9</strong>
+        <strong>v0.8.10</strong>
         <dl>
           <div>
             <dt>Top-level</dt>
