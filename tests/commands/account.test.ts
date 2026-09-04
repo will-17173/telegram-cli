@@ -26,7 +26,8 @@ type AuthStartOptions = {
 let simulateInteractiveAuth = false
 let interruptInteractiveAuthAt: 'phone' | 'code' | 'password' | undefined
 
-const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient(this: { storage: string }, options: { storage: string }) {
+const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient(this: { storage: { filename: string } }, options: { storage: { filename: string } }) {
+  const sessionPath = options.storage.filename
   const client = {
     start: vi.fn(async (startOptions?: AuthStartOptions) => {
       if (simulateInteractiveAuth) {
@@ -44,13 +45,13 @@ const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient
         if (interruptInteractiveAuthAt === 'password') process.emit('SIGINT')
         await password
       }
-      mkdirSync(dirname(options.storage), { recursive: true })
-      writeFileSync(options.storage, 'uncommitted-session')
+      mkdirSync(dirname(sessionPath), { recursive: true })
+      writeFileSync(sessionPath, 'uncommitted-session')
     }),
     getMe: vi.fn(async () => AUTH_USER),
     logOut: vi.fn(async () => undefined),
     destroy: vi.fn(async () => {
-      writeFileSync(options.storage, 'committed-session')
+      writeFileSync(sessionPath, 'committed-session')
     }),
   }
   return client
@@ -58,6 +59,14 @@ const telegramClientFactory = vi.hoisted(() => vi.fn(function MockTelegramClient
 const proxyTransportFromUrl = vi.hoisted(() => vi.fn())
 
 vi.mock('@mtcute/node', () => ({
+  BaseSqliteStorage: class BaseSqliteStorage {
+    readonly driver: unknown
+
+    constructor(driver: unknown) {
+      this.driver = driver
+    }
+  },
+  BaseSqliteStorageDriver: class BaseSqliteStorageDriver {},
   TelegramClient: telegramClientFactory,
   proxyTransportFromUrl,
 }))

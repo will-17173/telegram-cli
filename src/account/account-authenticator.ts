@@ -1,6 +1,7 @@
 import { TelegramClient } from '@mtcute/node'
 
 import { getTelegramCredentials, getTelegramProxy } from '../config/env.js'
+import { MtcuteSqliteStorage } from '../telegram/mtcute-sqlite-storage.js'
 import { telegramTransportOptions } from '../telegram/proxy.js'
 import {
   createInterruptScope,
@@ -112,7 +113,7 @@ function createAccountAuthClient(sessionPath: string): AuthClient {
   return new TelegramClient({
     apiId: credentials.apiId,
     apiHash: credentials.apiHash,
-    storage: sessionPath,
+    storage: new MtcuteSqliteStorage(sessionPath),
     ...telegramTransportOptions(getTelegramProxy()),
   })
 }

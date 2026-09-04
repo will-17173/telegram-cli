@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@mtcute/node": "^0.31.0",
-    "better-sqlite3": "^12.10.0",
+    "better-sqlite3": "^13.0.3",
     "commander": "^14.0.2",
     "ink": "^6.5.1",
     "jpeg-js": "^0.4.4",

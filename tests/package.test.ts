@@ -90,6 +90,45 @@ describe('npm package metadata', () => {
   })
 })
 
+describe('bundled Telegram CLI skill', () => {
+  const skill = readFileSync('skills/using-telegram-cli/SKILL.md', 'utf8')
+  const reference = readFileSync('skills/using-telegram-cli/references/command-reference.md', 'utf8')
+  const metadata = readFileSync('skills/using-telegram-cli/agents/openai.yaml', 'utf8')
+
+  it('is discoverable for downloads, the Web UI, and Guard automation', () => {
+    for (const keyword of ['downloads', 'Web UI', 'Guard automation']) {
+      expect(skill).toContain(keyword)
+      expect(metadata).toContain(keyword)
+    }
+  })
+
+  it('classifies listen, Web, and Guard side effects accurately', () => {
+    expect(skill).toContain('`--save` writes SQLite; `--auto-download` writes files')
+    expect(skill).toContain('| Browse local messages and trigger read-only sync | `web`')
+    expect(skill).toContain('| Run rule-based group automation | `guard start`')
+    expect(skill).not.toContain('persists normalized attachments; optional downloads')
+    expect(skill).not.toContain('normalized `attachments[]` remain persisted and usable')
+  })
+
+  it('documents current Web, Guard, listen, download, and output contracts', () => {
+    for (const expected of [
+      '## Web UI',
+      'tg web --no-open',
+      '## Guard automation',
+      'tg guard start --port 8734',
+      'write access is disabled',
+      '/history [count]',
+      '/reply #<message-id>',
+      '--all --ext jpg,png',
+      '--force',
+      '{sender_id}_{chat_id}_{message_id}_{timestamp}.{ext}',
+      'attachment summaries',
+      'OUTPUT=json|yaml|markdown|rich',
+    ]) expect(reference).toContain(expected)
+    expect(reference).not.toContain('Handle v0.5.0 errors')
+  })
+})
+
 describe('group management package contracts', () => {
   const handlerPaths = [
     'member add', 'member kick', 'member ban', 'member unban', 'member mute', 'member unmute', 'member purge',

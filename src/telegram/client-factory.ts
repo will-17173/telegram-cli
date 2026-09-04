@@ -6,6 +6,7 @@ import { TelegramClient } from '@mtcute/node'
 import { getDataDir, getTelegramCredentials, getTelegramProxy } from '../config/env.js'
 import { getSessionPath } from '../config/env.js'
 import { MtcuteTelegramClient } from './mtcute-client.js'
+import { MtcuteSqliteStorage } from './mtcute-sqlite-storage.js'
 import { telegramTransportOptions } from './proxy.js'
 import type { TelegramClientAdapter } from './types.js'
 
@@ -24,7 +25,7 @@ export function createTelegramClient(sessionPath?: string): TelegramClientAdapte
   const client = new TelegramClient({
     apiId: credentials.apiId,
     apiHash: credentials.apiHash,
-    storage,
+    storage: new MtcuteSqliteStorage(storage),
     ...telegramTransportOptions(getTelegramProxy()),
   })
 

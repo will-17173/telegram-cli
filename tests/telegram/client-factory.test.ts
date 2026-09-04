@@ -11,6 +11,14 @@ const telegramClientConstructor = vi.hoisted(() => vi.fn(function MockTelegramCl
 const proxyTransportFromUrl = vi.hoisted(() => vi.fn())
 
 vi.mock('@mtcute/node', () => ({
+  BaseSqliteStorage: class BaseSqliteStorage {
+    readonly driver: unknown
+
+    constructor(driver: unknown) {
+      this.driver = driver
+    }
+  },
+  BaseSqliteStorageDriver: class BaseSqliteStorageDriver {},
   TelegramClient: telegramClientConstructor,
   MtPeerNotFoundError: class MtPeerNotFoundError extends Error {},
   proxyTransportFromUrl,
@@ -53,12 +61,12 @@ describe('createTelegramClient', () => {
     expect(telegramClientConstructor).toHaveBeenNthCalledWith(1, {
       apiId: 2040,
       apiHash: 'b18441a1ff607e10a989891a5462e627',
-      storage: join(dataDir, 'accounts', 'alice', 'session'),
+      storage: expect.objectContaining({ filename: join(dataDir, 'accounts', 'alice', 'session') }),
     })
     expect(telegramClientConstructor).toHaveBeenNthCalledWith(2, {
       apiId: 2040,
       apiHash: 'b18441a1ff607e10a989891a5462e627',
-      storage: join(dataDir, 'accounts', 'bob', 'session'),
+      storage: expect.objectContaining({ filename: join(dataDir, 'accounts', 'bob', 'session') }),
     })
   })
 
@@ -146,7 +154,7 @@ describe('createTelegramClient', () => {
     expect(telegramClientConstructor).toHaveBeenCalledWith({
       apiId: 12345,
       apiHash: 'environment_hash',
-      storage: join(dataDir, 'accounts', 'alice', 'session'),
+      storage: expect.objectContaining({ filename: join(dataDir, 'accounts', 'alice', 'session') }),
     })
   })
 
@@ -165,7 +173,7 @@ describe('createTelegramClient', () => {
     expect(telegramClientConstructor).toHaveBeenCalledWith({
       apiId: 12345,
       apiHash: 'environment_hash',
-      storage: join(dataDir, 'accounts', 'alice', 'session'),
+      storage: expect.objectContaining({ filename: join(dataDir, 'accounts', 'alice', 'session') }),
       transport,
     })
   })
@@ -181,7 +189,7 @@ describe('createTelegramClient', () => {
     expect(telegramClientConstructor).toHaveBeenCalledWith({
       apiId: 54321,
       apiHash: 'stored_hash',
-      storage: join(dataDir, 'accounts', 'alice', 'session'),
+      storage: expect.objectContaining({ filename: join(dataDir, 'accounts', 'alice', 'session') }),
     })
   })
 })

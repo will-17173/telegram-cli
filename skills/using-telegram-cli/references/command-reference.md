@@ -9,9 +9,12 @@ Use this reference for the repository's current `tg` behavior. Confirm flags aga
 - [Chat discovery and synchronization](#chat-discovery-and-synchronization)
 - [Online reads, contacts, notifications, and folders](#online-reads-contacts-notifications-and-folders)
 - [Local query and data commands](#local-query-and-data-commands)
+- [Web UI](#web-ui)
 - [Archiving](#archiving)
-- [Messaging and listening](#messaging-and-listening)
+- [Messaging, listening, and downloads](#messaging-listening-and-downloads)
 - [Group operations](#group-operations)
+- [Guard automation](#guard-automation)
+- [Remote write access](#remote-write-access)
 - [Structured output](#structured-output)
 - [Error codes and recovery](#error-codes-and-recovery)
 - [Data and privacy](#data-and-privacy)
@@ -169,7 +172,7 @@ tg filter 'release urgent' --chat <chat> --hours 24 --account work --json
 
 Synchronize first when freshness matters. `chat_not_found` means the target is not in that local database. `ambiguous_chat` means a name matched multiple stored chats; use a numeric ID.
 
-Human-readable `recent` output includes the sender user ID. Structured output retains its stable message fields for automation.
+Human-readable `recent` output includes the sender user ID and attachment summaries, including for media-only sender-filtered results. Structured output retains its stable message fields for automation.
 
 Export reads local data and may write a file. `--format` controls exported content; `--json` controls the command result envelope:
 
@@ -196,6 +199,18 @@ tg sync-all --account work --json
 
 Custom `archive --output <dir>` directories are not deleted automatically; remove old custom archive directories manually or choose an empty output directory after a breaking upgrade.
 
+## Web UI
+
+Start the local message browser with:
+
+```sh
+tg web
+tg web --port 8734
+tg web --no-open
+```
+
+The server binds only to `127.0.0.1`, starts at port 8734 when no port is supplied, and has no login screen. It reads account-local SQLite data and can trigger read-only Telegram sync for the selected chat; that sync writes fetched messages to SQLite but does not mutate Telegram. The default command opens the URL in the system browser, while `--no-open` only prints it. Treat the UI as sensitive despite the loopback binding, and stop the long-running server with `Ctrl+C` when finished.
+
 ## Archiving
 
 Archive writes Markdown files but does not populate SQLite:
@@ -211,7 +226,7 @@ Specify one or more chats or `--all`, never both. Without a range, the first run
 
 Any chat or media failure yields non-zero status, top-level `ok: false`, and `error.code: archive_partial_failure`. For automation use `--json` or `--yaml` and inspect `error.details.completed`, `error.details.failed`, and `error.details.warnings`. Treat the overall operation as failed even when some chats completed. Markdown is only a human-facing rendering and does not preserve the full `error.details`; never derive partial-failure accounting from it.
 
-## Messaging and listening
+## Messaging, listening, and downloads
 
 The following are real Telegram writes and require explicit user authorization:
 
@@ -236,15 +251,36 @@ tg listen <chat> --save --account work
 
 Without chat arguments it listens globally. In an interactive TTY it uses Ink; `--no-interactive` emits plain text. Live messages are not inserted into the local database by default; add `--save` to write them as they arrive. `--auto-download` stores attachments under `~/Downloads/telegram-cli`, including when `--no-media` hides rendered media rows. For multiple chats, use `--send-to <chat>` before interactive replies or group actions.
 
+Single-chat interactive mode can load transient Telegram history into the current view and accepts reply IDs with or without `#`:
+
+```text
+/history [count]
+/reply <message-id> <content>
+/reply #<message-id> <content>
+```
+
+`/history` does not insert the loaded rows into SQLite. Group member actions are not offered in the slash menu when the listen target is a private user.
+
 Download existing media from stored messages with `download`:
 
 ```sh
 tg download <chat> <message-id> --account work --json
 tg download <chat> <message-id> --attachment 2 --account work --json
 tg download <chat> --grouped-id <media-group-id> --account work --json
+tg download <chat> --from 100 --to 200 --output ./media --account work
+tg download <chat> --date 2026-07-15 --concurrency 2 --account work
+tg download <chat> --since 2h --until 30m --account work
+tg download <chat> --all --ext jpg,png --output ./media --account work
+tg download <chat> <message-id> --force --account work
 ```
 
-Without `--attachment`, a single-message download fetches every downloadable item. `--attachment N` is one-based and message-local; grouped album downloads flatten attachments by message ID and then local attachment index. Each transfer refetches the Telegram message and matches the stored descriptor before downloading. Plain output emits `downloading:` and `downloaded:` notices; interactive terminals color successful completion green and failures red. Structured output is unchanged.
+Select exactly one scope: one message, `--grouped-id`, `--from`/`--to`, `--date` or `--since`/`--until`, or `--all`. `--date` uses the local calendar day; time bounds accept positive relative durations or zoned ISO timestamps. `--all` scans history newest to oldest one page at a time. `--concurrency` defaults to 3.
+
+Without `--attachment`, a single-message download fetches every downloadable item. `--attachment N` is one-based and valid only with a message or grouped album; albums flatten attachments by message ID and then message-local index. Grouped downloads resolve the album from the local cache, so synchronize first after `download_grouped_id_not_found`.
+
+Downloads default to `~/Downloads/telegram-cli`. Files use `{sender_id}_{chat_id}_{message_id}_{timestamp}.{ext}`; group/channel IDs omit the local `-100` prefix and the timestamp is Unix seconds. `--ext` accepts comma-separated or repeated, case-insensitive extensions. Completed attachments are recorded in the account database and skipped on later runs; `--force` redownloads them and refreshes that status.
+
+Each transfer refetches the Telegram message and matches the stored descriptor before downloading. Plain output emits `downloading:` and `downloaded:` notices; interactive terminals color successful completion green and failures red. Structured output is unchanged.
 
 ## Group operations
 
@@ -289,6 +325,21 @@ Commands marked risky reject execution without `--yes`. Permanent chat deletion 
 
 Ownership transfer requires the current user to be the creator. After `--yes`, the CLI securely prompts for the Telegram 2FA password in an interactive TTY. Never provide or request that password in plain text, place it in command arguments/environment/stdin automation, or automate the prompt. Non-TTY ownership transfer returns an interaction error; have the human run it interactively and enter the password directly into the prompt.
 
+## Guard automation
+
+`guard start` runs a local Guard workbench and long-lived Telegram listener for enabled managed groups:
+
+```sh
+tg config write-access status --json
+tg guard start --port 8734
+```
+
+The Guard server binds to `127.0.0.1`, prints its local workbench URL, and has no JSON/YAML/Markdown output mode. It reads enabled groups, their assigned accounts, rules, and policies from `guard.db`; the global `--account` option does not choose those accounts. Stop it with `Ctrl+C`. Restart it after enabling a group so a listener is started for that group.
+
+Guard rules can delete messages, mute or ban users, reply, send messages, increment local warnings, or record events. CAS policy can also ban a newly joined flagged user. When write access is disabled, Telegram write actions are recorded as `dry_run` with the reason `write access is disabled`; local events, warnings, and action records can still change.
+
+With write access enabled, an incoming event may immediately cause configured Telegram mutations. Before starting an armed Guard, review the enabled groups, rules, action policies, ignored actors, and cooldowns in the workbench, summarize that scope to the user, and obtain explicit authorization for the continuous automation. Enabling write access is a separate authorization and does not authorize Guard startup.
+
 ## Remote write access
 
 Check the local safety gate before planning a remote mutation:
@@ -301,7 +352,7 @@ tg config write-access off --json
 
 Omitting `status` also reports the setting. Enabling the gate is a local configuration mutation, but requires explicit user authorization; it does not authorize any Telegram mutation. Obtain separate explicit authorization immediately before the specific remote write.
 
-The gate applies to remote mutations only: `send`, `edit`, `delete`, notification `mute`/`unmute`, folder `chat add`/`chat remove`, and non-read-only group actions. It does not block Telegram reads, local SQLite queries/exports/purge, sync/history/archive persistence, account lifecycle, or configuration changes. When off, gated commands fail with `write_access_disabled` before connecting for the mutation.
+The gate applies to remote mutations only: `send`, `edit`, `delete`, notification `mute`/`unmute`, folder `chat add`/`chat remove`, non-read-only group actions, and Guard Telegram actions. It does not block Telegram reads, local SQLite queries/exports/purge, sync/history/archive persistence, account lifecycle, or configuration changes. When off, direct gated commands fail with `write_access_disabled` before connecting for the mutation; Guard keeps listening but records its Telegram write actions as dry runs.
 
 ## Structured output
 
@@ -330,11 +381,11 @@ Failures use non-zero exit status and:
 
 Message rows in schema version 2 expose `content`, `reply_to_msg_id`, `media_group_id`, and ordered lowercase `attachments[]`. Do not expect legacy singular `attachment`, `text`, or raw-parser-derived fields in public structured output.
 
-Without a format flag, TTY output is human-oriented and non-TTY output defaults to YAML. `OUTPUT=json|yaml|rich` can set a default, but an explicit flag wins. Never combine any of `--json`, `--yaml`, and `--markdown`; do not parse human tables. `listen` is streaming and has no format flags. For `refresh`, do not assume `ok: true` means every chat succeeded; inspect `data.failures`.
+Without a format flag, TTY output is human-oriented and non-TTY output defaults to YAML. `OUTPUT=json|yaml|markdown|rich` can set a default, but an explicit flag wins. Never combine any of `--json`, `--yaml`, and `--markdown`; do not parse human tables. `listen`, `web`, and `guard start` are long-running and have no format flags. For `refresh`, do not assume `ok: true` means every chat succeeded; inspect `data.failures`.
 
 ## Error codes and recovery
 
-Handle v0.5.0 errors by code instead of matching message text:
+Handle errors by code instead of matching message text:
 
 - Accounts: `account_logged_out`, `account_identity_mismatch`, and `interaction_required` require selecting, verifying, or interactively reauthenticating the named account.
 - Contacts: `contact_not_found` means Telegram could not resolve the supplied ID, username, or phone number. For an uncached numeric non-contact, retry with group message context via `--chat <group>` or the two-positional form.
@@ -364,6 +415,7 @@ config.json
 accounts.json
 accounts/<name>/session
 accounts/<name>/messages.db
+guard.db
 ```
 
-Sessions and SQLite messages are sensitive and must not enter version control, logs, tickets, or shared artifacts. Avoid exposing secrets through shell history, process arguments, backups, exports, or `config list --show-secrets`.
+Sessions, SQLite messages, Guard policies, and moderation activity are sensitive and must not enter version control, logs, tickets, or shared artifacts. Avoid exposing secrets through shell history, process arguments, backups, exports, local unauthenticated Web/Guard workbenches, or `config list --show-secrets`.
