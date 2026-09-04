@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.11] - 2026-09-04
+
+### Changed
+
+- Route mtcute session storage through the application's `better-sqlite3` 13.x driver and allow required native dependency builds with pnpm.
+- Refresh the bundled Telegram CLI skill guidance for Web, Guard, listen, download, and structured output behavior.
+
+### Fixed
+
+- Prevent `tg chats` and other Telegram-backed commands from aborting during SQLite statement cleanup on Node.js 24.
+
 ## [0.8.10] - 2026-08-17
 
 ### Added
