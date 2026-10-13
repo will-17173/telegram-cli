@@ -34,7 +34,7 @@ See `docs/specs/2026-07-23-tauri-desktop-app-design.md` for the full design.
 
 ```
 Tauri app (Rust host)
- ├─ spawns sidecar: binaries/node  →  node dist-bundle/index.js web --port <p> --no-open
+ ├─ spawns sidecar: binaries/telegram-cli-node → dist-bundle/index.js web --port <p> --no-open
  │   (CLI bundle incl. better-sqlite3 .node + mtcute .wasm, no node_modules)
  ├─ polls http://127.0.0.1:<p>/api/health
  ├─ injects the API address before the frontend loads; waits for backend readiness
@@ -73,7 +73,7 @@ sidecar uses the same portable `node` as in production.
 ## Build
 
 ```sh
-pnpm --dir desktop run fetch-node   # ensures binaries/node-<triple> is present
+pnpm --dir desktop run fetch-node   # ensures binaries/telegram-cli-node-<triple> is present
 pnpm --dir desktop run tauri:build
 ```
 
@@ -131,8 +131,16 @@ only after all three jobs pass; the release includes `SHA256SUMS.txt`.
 The release stays in draft while uploading, including on reruns. Uploaded
 asset states, sizes, and SHA-256 digests must match before it becomes public.
 
+The bundled runtime is named `telegram-cli-node`, so Debian installations do
+not overwrite `/usr/bin/node`. Linux verification extracts both installers,
+checks their runtime paths, and runs the backend from the packaged AppImage.
+
 The workflow uses GitHub's built-in token; no npm token, `.env`, Telegram API
 credentials, or account sessions are required.
+
+Linux AppImage builds use `NO_STRIP=true` because linuxdeploy's bundled strip
+can reject modern ELF sections in system libraries. Use the same environment
+variable if a local AppImage build fails at the linuxdeploy step.
 
 To backfill an existing tag, select the source branch in Actions → Release
 desktop apps → Run workflow and enter its `release_tag`, or run:

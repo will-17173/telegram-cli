@@ -17,9 +17,9 @@ function temporary(): string {
 
 describe('desktop sidecar platforms', () => {
   it.each([
-    ['x86_64-unknown-linux-gnu', 'linux-x64', 'tar.gz', 'bin/node', 'node-x86_64-unknown-linux-gnu'],
-    ['aarch64-apple-darwin', 'darwin-arm64', 'tar.gz', 'bin/node', 'node-aarch64-apple-darwin'],
-    ['x86_64-pc-windows-msvc', 'win-x64', 'zip', 'node.exe', 'node-x86_64-pc-windows-msvc.exe'],
+    ['x86_64-unknown-linux-gnu', 'linux-x64', 'tar.gz', 'bin/node', 'telegram-cli-node-x86_64-unknown-linux-gnu'],
+    ['aarch64-apple-darwin', 'darwin-arm64', 'tar.gz', 'bin/node', 'telegram-cli-node-aarch64-apple-darwin'],
+    ['x86_64-pc-windows-msvc', 'win-x64', 'zip', 'node.exe', 'telegram-cli-node-x86_64-pc-windows-msvc.exe'],
   ])('finds the official distribution executable for %s', (triple, plat, ext, binary, output) => {
     expect(nodeDistribution(triple)).toMatchObject({ plat, ext })
     expect(archiveNodePath('/extracted', 'v24.20.0', triple)).toBe(join('/extracted', `node-v24.20.0-${plat}`, binary))

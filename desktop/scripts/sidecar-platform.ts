@@ -27,7 +27,7 @@ export function nodeDistribution(triple: string): NodeDistribution {
 }
 
 export function sidecarName(triple: string): string {
-  return `node-${triple}${nodeDistribution(triple).platform === 'win32' ? '.exe' : ''}`
+  return `telegram-cli-node-${triple}${nodeDistribution(triple).platform === 'win32' ? '.exe' : ''}`
 }
 
 export function archiveNodePath(directory: string, version: string, triple: string): string {

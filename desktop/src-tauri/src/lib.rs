@@ -280,7 +280,7 @@ fn start_sidecar(app: &tauri::AppHandle, port: u16) -> Result<(), String> {
     let port_string = port.to_string();
     let command = app
         .shell()
-        .sidecar("node")
+        .sidecar("telegram-cli-node")
         .map_err(|error| error.to_string())?
         .args([bundle, "web", "--port", &port_string, "--no-open"]);
     #[cfg(debug_assertions)]

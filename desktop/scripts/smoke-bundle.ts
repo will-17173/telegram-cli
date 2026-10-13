@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { sidecarName } from './sidecar-platform.js'
 
@@ -12,8 +12,8 @@ const triple = process.argv[2] ?? execFileSync('rustc', ['--print', 'host-tuple'
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version as string
 const macApp = join(tauri, 'target', triple, 'release', 'bundle', 'macos', 'Telegram CLI.app')
 const useMacApp = process.platform === 'darwin' && existsSync(macApp)
-const sourceBundle = useMacApp ? join(macApp, 'Contents', 'Resources', 'dist-bundle') : join(tauri, 'dist-bundle')
-const sourceNode = useMacApp ? join(macApp, 'Contents', 'MacOS', 'node') : join(tauri, 'binaries', sidecarName(triple))
+let sourceBundle = useMacApp ? join(macApp, 'Contents', 'Resources', 'dist-bundle') : join(tauri, 'dist-bundle')
+let sourceNode = useMacApp ? join(macApp, 'Contents', 'MacOS', 'telegram-cli-node') : join(tauri, 'binaries', sidecarName(triple))
 
 async function main(): Promise<void> {
   if (useMacApp) execFileSync('codesign', ['--verify', '--deep', '--strict', macApp], { stdio: 'inherit' })
@@ -31,6 +31,29 @@ async function main(): Promise<void> {
   let closed: Promise<void> | undefined
   let exited = false
   try {
+    if (process.platform === 'linux') {
+      const bundles = join(tauri, 'target', triple, 'release', 'bundle')
+      const deb = readdirSync(join(bundles, 'deb')).filter(name => name.endsWith('.deb'))
+      const appImage = readdirSync(join(bundles, 'appimage')).filter(name => name.endsWith('.AppImage'))
+      assert.equal(deb.length, 1, 'Expected one Debian package')
+      assert.equal(appImage.length, 1, 'Expected one AppImage')
+      const debRoot = join(temporary, 'debian')
+      execFileSync('dpkg-deb', ['--extract', join(bundles, 'deb', deb[0]), debRoot])
+      const image = join(bundles, 'appimage', appImage[0])
+      chmodSync(image, 0o755)
+      execFileSync(image, ['--appimage-extract'], {
+        cwd: temporary, env: { ...env, APPIMAGE_EXTRACT_AND_RUN: undefined }, stdio: 'ignore', timeout: 30_000,
+      })
+      const imageRoot = join(temporary, 'squashfs-root')
+      for (const packageRoot of [debRoot, imageRoot]) {
+        assert.ok(!existsSync(join(packageRoot, 'usr', 'bin', 'node')), 'Desktop must not overwrite the system Node executable')
+        assert.ok(existsSync(join(packageRoot, 'usr', 'bin', 'telegram-cli-node')), 'Packaged Node sidecar is missing')
+      }
+      const entries = readdirSync(imageRoot, { recursive: true }).map(String).filter(name => name.endsWith(join('dist-bundle', 'index.js')))
+      assert.equal(entries.length, 1, 'AppImage must include one portable CLI bundle')
+      sourceBundle = dirname(join(imageRoot, entries[0]))
+      sourceNode = join(imageRoot, 'usr', 'bin', 'telegram-cli-node')
+    }
     mkdirSync(installed, { recursive: true })
     cpSync(sourceBundle, bundle, { recursive: true })
     cpSync(sourceNode, node)

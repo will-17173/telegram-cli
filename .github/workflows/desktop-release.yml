@@ -96,6 +96,8 @@ jobs:
       CI: 'true'
       CARGO_INCREMENTAL: '0'
       APPIMAGE_EXTRACT_AND_RUN: '1'
+      # linuxdeploy's bundled strip cannot read some modern system-library ELF sections.
+      NO_STRIP: 'true'
     steps:
       - name: Checkout the validated build commit
         uses: actions/checkout@v7
@@ -140,6 +142,7 @@ jobs:
         with:
           workspaces: 'desktop/src-tauri -> target'
           key: ${{ matrix.target }}
+          cache-on-failure: true
 
       - name: Install native Node dependencies
         run: |
@@ -147,7 +150,7 @@ jobs:
           pnpm --dir desktop install --frozen-lockfile
 
       - name: Build desktop installers
-        run: pnpm --dir desktop run tauri:build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}' -- --locked
+        run: pnpm --dir desktop run tauri:build --verbose --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}' -- --locked
 
       - name: Smoke-test the relocated portable backend
         run: pnpm --dir desktop run smoke:bundle '${{ matrix.target }}'

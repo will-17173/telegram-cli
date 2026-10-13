@@ -1,5 +1,5 @@
 // Downloads an official Node.js binary for the current platform's target triple
-// and places it at src-tauri/binaries/node-<triple>, the naming Tauri's
+// and places it at src-tauri/binaries/telegram-cli-node-<triple>, the naming Tauri's
 // externalBin sidecar mechanism expects.
 import { execFileSync } from 'node:child_process'
 import {

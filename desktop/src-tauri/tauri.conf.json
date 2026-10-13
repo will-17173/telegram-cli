@@ -30,7 +30,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/node"],
+    "externalBin": ["binaries/telegram-cli-node"],
     "resources": ["dist-bundle/**/*"],
     "icon": [
       "icons/32x32.png",
