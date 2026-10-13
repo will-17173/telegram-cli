@@ -64,8 +64,9 @@ jobs:
 
       - name: Verify CLI and desktop build scripts
         run: |
-          # Ink interaction fixtures need live frames from their simulated terminal.
-          CI=false CONTINUOUS_INTEGRATION=false pnpm test
+          # Ink fixtures need live frames; the IPC fixture replaces process.connected.
+          CI=false CONTINUOUS_INTEGRATION=false pnpm test --exclude tests/commands/telegram-desktop-listen.test.ts --maxWorkers 2
+          CI=false CONTINUOUS_INTEGRATION=false pnpm exec vitest run tests/commands/telegram-desktop-listen.test.ts --pool threads --maxWorkers 1
           pnpm typecheck
           pnpm --dir desktop run typecheck
           pnpm build
