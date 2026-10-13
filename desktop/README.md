@@ -134,13 +134,15 @@ asset states, sizes, and SHA-256 digests must match before it becomes public.
 The bundled runtime is named `telegram-cli-node`, so Debian installations do
 not overwrite `/usr/bin/node`. Linux verification extracts both installers,
 checks their runtime paths, and runs the backend from the packaged AppImage.
+Each installer contains only its own platform's SQLite prebuild; foreign
+architectures and musl binaries are removed before Linux dependency scanning.
 
 The workflow uses GitHub's built-in token; no npm token, `.env`, Telegram API
 credentials, or account sessions are required.
 
 Linux AppImage builds use `NO_STRIP=true` because linuxdeploy's bundled strip
 can reject modern ELF sections in system libraries. Use the same environment
-variable if a local AppImage build fails at the linuxdeploy step.
+variable if a local AppImage build reports unsupported ELF sections while stripping.
 
 To backfill an existing tag, select the source branch in Actions → Release
 desktop apps → Run workflow and enter its `release_tag`, or run:

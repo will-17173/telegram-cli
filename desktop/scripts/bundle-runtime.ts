@@ -1,3 +1,17 @@
+import { existsSync, readdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+
+export function retainNativeSqlitePrebuild(bundleDirectory: string, platform = process.platform, arch = process.arch): void {
+  const directory = join(bundleDirectory, 'prebuilds')
+  const nativeName = `${platform}-${arch}.node`
+  if (!existsSync(join(directory, nativeName))) throw new Error(`Missing native SQLite prebuild: ${nativeName}`)
+  // linuxdeploy scans every ELF under usr/lib. Foreign musl/ARM assets would
+  // introduce dependencies that the native GNU desktop application never uses.
+  for (const name of readdirSync(directory)) {
+    if (name.endsWith('.node') && name !== nativeName) rmSync(join(directory, name))
+  }
+}
+
 export function preparePortableBundle(source: string): string {
   const assetBase = /__nccwpck_require__\.ab = new URL\('\.', import\.meta\.url\)\.pathname[^\n]+/g
   if (source.match(assetBase)?.length !== 1) {

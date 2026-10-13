@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
-import { preparePortableBundle } from './bundle-runtime.js'
+import { preparePortableBundle, retainNativeSqlitePrebuild } from './bundle-runtime.js'
 
 const ROOT = join(import.meta.dirname, '..', '..')
 const SRC_TAURI = join(import.meta.dirname, '..', 'src-tauri')
@@ -43,6 +43,7 @@ function main(): void {
   const entry = join(BUNDLE_OUT, 'index.js')
   if (!existsSync(entry)) throw new Error(`ncc did not produce ${entry}`)
   writeFileSync(entry, preparePortableBundle(readFileSync(entry, 'utf8')), 'utf8')
+  retainNativeSqlitePrebuild(BUNDLE_OUT)
 
   // Sanity: better-sqlite3 native module must be emitted for the web server
   // (which opens SQLite) to start.

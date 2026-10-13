@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Extract the Windows portable Node runtime and invoke the CLI bundler without platform-specific shell wrappers.
 - Ad-hoc sign macOS Desktop bundles and require macOS 13.5 to match the bundled Node 24 runtime.
+- Name the bundled runtime `telegram-cli-node` so Debian installers do not overwrite the system Node executable.
+- Include only the target platform's SQLite prebuild to prevent AppImage dependency scanning from requiring foreign musl runtimes.
 
 ## [0.9.0] - 2026-10-13
 
