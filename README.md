@@ -63,7 +63,9 @@ Run a local-only management UI for stored messages:
 tg web
 ```
 
-The server binds to `127.0.0.1`, has no login screen, and is intended for local use only. It can browse local SQLite data and trigger read-only sync for the selected chat.
+The server binds to `127.0.0.1` for local use. It includes account login, local message browsing, CLI operation forms, cancellable tasks, and Guard controls. The [desktop app](desktop/README.md) shares this interface and adds native file selection, result saving, and clipboard support.
+
+From a source checkout, run `pnpm desktop:dev` to launch Desktop development mode. Existing CLI accounts and valid sessions are reused automatically; use the same `DATA_DIR` if you configured a custom directory.
 
 ### Follow live messages and download files
 

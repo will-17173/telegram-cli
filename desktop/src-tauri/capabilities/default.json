@@ -1,20 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for the Telegram CLI desktop shell. Allows executing the bundled node sidecar only.",
+  "description": "Desktop UI capabilities. Sidecar execution and file actions are handled by scoped Rust commands.",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "log:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": true
-        }
-      ]
-    }
+    "log:default"
   ]
 }

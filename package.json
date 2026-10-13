@@ -1,6 +1,6 @@
 {
   "name": "@will-17173/telegram-cli",
-  "version": "0.8.11",
+  "version": "0.9.0",
   "type": "module",
   "license": "GPL-3.0-only",
   "repository": {
@@ -28,6 +28,7 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "desktop:dev": "pnpm --dir desktop run tauri:dev",
     "build:web": "vite build --config web/vite.config.ts",
     "dev:web": "vite --config web/vite.config.ts",
     "build": "pnpm clean && pnpm build:web && tsc -p tsconfig.build.json",
@@ -39,7 +40,7 @@
     "prepublishOnly": "pnpm test && pnpm typecheck && pnpm build"
   },
   "dependencies": {
-    "@mtcute/node": "^0.31.0",
+    "@mtcute/node": "^0.32.4",
     "better-sqlite3": "^13.0.3",
     "commander": "^14.0.2",
     "ink": "^6.5.1",

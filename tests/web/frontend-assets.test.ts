@@ -130,7 +130,8 @@ describe('web frontend source', () => {
     expect(app).not.toContain('data-tooltip="Hide messages from this sender"')
     expect(app).not.toContain('Reply to {replySenderLabel')
     expect(app).not.toContain('Message {message.reply_context.message_id}')
-    expect(app).not.toContain('Send message')
+    expect(app).toContain('Send message')
+    expect(app).toContain("navigatePage('operations', 'send'")
     expect(app).not.toContain('Delete message')
   })
 
@@ -237,7 +238,7 @@ describe('web frontend source', () => {
     const css = readFileSync('web/src/styles.css', 'utf8')
     const i18n = readFileSync('web/src/i18n.ts', 'utf8')
 
-    expect(app).toContain("getJson<{ runtime: GuardRuntimeState; groups: Page<GuardGroup> }>('/api/guard/status')")
+    expect(app).toContain("getJson<{ runtime: GuardRuntimeState; groups: Page<GuardGroup>; runtime_control_available?: boolean }>('/api/guard/status')")
     expect(app).toContain('ruleRequestId')
     expect(app).toContain('selectedGroupIdRef')
     expect(app).toContain('requestId === ruleRequestId.current')
@@ -283,7 +284,7 @@ describe('web frontend source', () => {
     expect(app).toContain('guardRuleRequestFromDraft(selectedGroupId, ruleDraft)')
     expect(app).toContain('syncStatusLabel(syncTask.status, t)')
     expect(app).toContain('const guardOnly = guardOnlyMode()')
-    expect(app).toContain('{!guardOnly ? (')
+    expect(app).toContain("{!guardOnly && activePage === 'messages' ? (")
     expect(app).not.toContain('className="view-tabs"')
     expect(app).not.toContain('setView')
     expect(css).toContain('.guard-rule-form')

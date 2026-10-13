@@ -1,7 +1,7 @@
 // Downloads an official Node.js binary for the current platform's target triple
 // and places it at src-tauri/binaries/node-<triple>, the naming Tauri's
 // externalBin sidecar mechanism expects.
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import {
   chmodSync,
   copyFileSync,
@@ -18,7 +18,8 @@ import { pipeline } from 'node:stream/promises'
 import { createGunzip } from 'node:zlib'
 import { extract } from 'tar'
 
-const NODE_VERSION = process.env.NODE_VERSION ?? 'v22.12.0'
+// Native SQLite assets are built with this runtime; use the same ABI in Tauri.
+const NODE_VERSION = process.env.NODE_VERSION ?? process.version
 const BINARIES_DIR = join(import.meta.dirname, '..', 'src-tauri', 'binaries')
 
 function targetTriple(): string {
@@ -42,6 +43,7 @@ async function download(url: string, dest: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (!/^v\d+\.\d+\.\d+$/.test(NODE_VERSION)) throw new Error('NODE_VERSION must be a release version such as v24.20.0')
   const triple = targetTriple()
   const { plat, ext } = nodePlatform(triple)
   const binName = `node-${triple}${process.platform === 'win32' ? '.exe' : ''}`
@@ -49,8 +51,16 @@ async function main(): Promise<void> {
 
   mkdirSync(BINARIES_DIR, { recursive: true })
   if (existsSync(outPath) && statSync(outPath).size > 0) {
-    console.log(`sidecar node already present: ${outPath}`)
-    return
+    try {
+      const installed = nodeInfo(outPath)
+      if (installed.version === NODE_VERSION && installed.abi === process.versions.modules) {
+        console.log(`sidecar Node ${installed.version} ready: ${outPath}`)
+        return
+      }
+      console.log(`replacing sidecar Node ${installed.version} with ${NODE_VERSION}`)
+    } catch {
+      console.log('replacing unreadable sidecar Node binary')
+    }
   }
 
   const archiveName = `node-${NODE_VERSION}-${plat}.${ext}`
@@ -72,6 +82,10 @@ async function main(): Promise<void> {
   const extractedRoot = join(extractDir, `node-${NODE_VERSION}-${plat}`)
   const nodeBin = join(extractedRoot, 'bin', 'node')
   if (!existsSync(nodeBin)) throw new Error(`node binary not found in archive: ${nodeBin}`)
+  const downloaded = nodeInfo(nodeBin)
+  if (downloaded.abi !== process.versions.modules) {
+    throw new Error(`Sidecar Node ${downloaded.version} ABI ${downloaded.abi} does not match build Node ${process.version} ABI ${process.versions.modules}. Build and bundle with the same Node version.`)
+  }
   // copyFileSync (not renameSync) because the OS temp dir may be on a different
   // filesystem than the project (EXDEV on cross-device rename).
   copyFileSync(nodeBin, outPath)
@@ -79,6 +93,10 @@ async function main(): Promise<void> {
   rmSync(extractDir, { recursive: true, force: true })
   rmSync(tmpArchive, { force: true })
   console.log(`sidecar node ready: ${outPath}`)
+}
+
+function nodeInfo(path: string): { version: string; abi: string } {
+  return JSON.parse(execFileSync(path, ['-p', 'JSON.stringify({ version: process.version, abi: process.versions.modules })'], { encoding: 'utf8' }))
 }
 
 main().catch((err) => {

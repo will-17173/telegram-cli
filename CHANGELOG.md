@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-13
+
+### Added
+
+- Bring 103 CLI operations into the Desktop and Web workspace with searchable Chinese and English forms, account selection, parameter validation, and destructive-action confirmations.
+- Add in-app account authentication with phone numbers, login codes, and 2FA passwords, reusing existing CLI accounts and sessions.
+- Run operations as cancellable tasks with live logs, structured results, task history, and JSON, YAML, and Markdown exports.
+- Send text, attachments, and replies through an active listener's existing Telegram connection, and control Guard with Start, Stop, and Reload actions.
+- Add native Desktop file selection, result saving, clipboard support, backend readiness and recovery screens, and the `pnpm desktop:dev` shortcut.
+
+### Changed
+
+- Upgrade mtcute to 0.32.4.
+- Match the portable Desktop Node runtime to the build runtime and check cached binaries for native-module ABI compatibility.
+- Share account registration and authentication workflows between the CLI and the in-app login forms.
+
+### Fixed
+
+- Prevent simultaneous workspace tasks, authentication, sync, downloads, and Guard from opening the same account session.
+- Drain active Guard actions and close request-owned clients and sync tasks before shutting down the workspace.
+- Cancel Telegram history flood waits, transient retries, and pagination delays when the client closes.
+- Close a listener during connection setup or reconnect waits when it is cancelled or its Desktop parent disconnects.
+- Preserve the selected account across in-app authentication retries and page navigation.
+- Decode bundled asset paths containing spaces or Unicode so packaged Desktop SQLite and WASM assets work outside the repository.
+
 ## [0.8.11] - 2026-09-04
 
 ### Changed

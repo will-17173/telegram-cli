@@ -20,6 +20,7 @@ import { runWithAuthenticatedAccountContext, type AccountCommandOptions } from '
 import { hideBenignUpdateWarnings, runTelegramCommand, runTelegramWriteCommand } from './telegram-runner.js'
 import { createListenReplyResolver } from '../services/listen-reply-resolver.js'
 import { parseTimeRange } from './time-range.js'
+import { attachDesktopListenInput } from '../cli/desktop-listen.js'
 
 type MachineOptions = AccountCommandOptions
 
@@ -428,9 +429,14 @@ export function registerTelegramCommands(app: Command): void {
       const restoreUpdateWarnings = hideBenignUpdateWarnings(process.stdout)
       const restoreUpdateErrors = hideBenignUpdateWarnings(process.stderr)
       let autoDownloader: AutoDownloadCoordinator | undefined
+      const desktopIpc = process.env.TG_DESKTOP_IPC === '1' && typeof process.send === 'function'
 
       process.on('SIGINT', requestShutdown)
       process.on('SIGTERM', requestShutdown)
+      if (desktopIpc) {
+        process.on('disconnect', stopListening)
+        if (process.connected === false) stopListening()
+      }
 
       try {
         await runWithAuthenticatedAccountContext(options, async (context) => {
@@ -486,17 +492,30 @@ export function registerTelegramCommands(app: Command): void {
               })
             }
 
-            while (true) {
+            while (!controller.signal.aborted) {
               const client = createClient()
               let retry = false
-              let clientClosed = false
-              const closeClient = async () => {
-                if (clientClosed) return
-                clientClosed = true
-                await client.close().catch(() => undefined)
-              }
+              let clientClosing: Promise<void> | undefined
+              let detachDesktopInput: () => void = () => undefined
+              const closeClient = (): Promise<void> => clientClosing ??= Promise.resolve()
+                .then(() => client.close())
+                .catch(() => undefined)
+              const closeOnAbort = () => { void closeClient() }
               autoDownloader?.setClient(client)
               try {
+                controller.signal.addEventListener('abort', closeOnAbort, { once: true })
+                if (controller.signal.aborted) {
+                  await closeClient()
+                  break
+                }
+                detachDesktopInput = attachDesktopListenInput(client, {
+                  signal: controller.signal,
+                  ...(listenDb === undefined ? {} : {
+                    onSent: (messages) => {
+                      for (const message of messages) listenDb.upsertMessage(message)
+                    },
+                  }),
+                })
                 const result = await client.listen({
                   chats: parsedChats,
                   signal: controller.signal,
@@ -523,9 +542,12 @@ export function registerTelegramCommands(app: Command): void {
                 if (!persist || result === 'stopped') break
                 if (result === 'disconnected') retry = true
               } catch (error) {
+                if (controller.signal.aborted) break
                 if (!persist) throw error
                 retry = true
               } finally {
+                controller.signal.removeEventListener('abort', closeOnAbort)
+                detachDesktopInput()
                 albumAggregator.flush()
                 if (autoDownloader != null) {
                   if (controller.signal.aborted) {
@@ -542,8 +564,9 @@ export function registerTelegramCommands(app: Command): void {
                 }
                 await closeClient()
               }
+              if (controller.signal.aborted) break
               if (retry) {
-                await sleep(retrySeconds)
+                await waitForListenRetry(retrySeconds, controller.signal)
                 continue
               }
               break
@@ -558,6 +581,7 @@ export function registerTelegramCommands(app: Command): void {
       } finally {
         process.off('SIGINT', requestShutdown)
         process.off('SIGTERM', requestShutdown)
+        if (desktopIpc) process.off('disconnect', stopListening)
         restoreUpdateWarnings()
         restoreUpdateErrors()
         autoDownloader?.stop()
@@ -920,9 +944,16 @@ function normalizeTelegramUser(user: TelegramUser): {
   }
 }
 
-function sleep(seconds: number): Promise<void> {
+function waitForListenRetry(seconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve()
   const delay = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0
   return new Promise((resolve) => {
-    setTimeout(resolve, delay)
+    const finish = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, delay)
+    signal.addEventListener('abort', finish, { once: true })
   })
 }

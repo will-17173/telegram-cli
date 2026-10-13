@@ -1,4 +1,4 @@
 interface:
   display_name: "Using Telegram CLI"
   short_description: "Install and operate Telegram CLI safely"
-  default_prompt: "Use $using-telegram-cli to ensure tg is installed, then run safe Telegram account, message, media downloads, Web UI, Guard automation, contact, folder, notification, archive, listening, or group operations."
+  default_prompt: "Use $using-telegram-cli to ensure tg is installed, then run safe Telegram account, message, media downloads, Web UI, Desktop, Guard automation, contact, folder, notification, archive, listening, or group operations."

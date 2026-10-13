@@ -9,7 +9,14 @@ import { selectStoredAttachment, toAttachmentLocator, AttachmentLookupError } fr
 import { createTelegramClient } from '../telegram/client-factory.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
 import { handleGuardApiRequest } from './guard-api.js'
-import { validateLocalRequest } from './security.js'
+import { handleAuthApiRequest } from './auth-api.js'
+import type { DesktopAuthManager } from './auth-manager.js'
+import type { DesktopTaskRunner } from './command-tasks.js'
+import { handleWorkspaceApiRequest } from './workspace-api.js'
+import type { DesktopGuardManager } from './guard-manager.js'
+import type { AccountReservations } from './account-reservations.js'
+import type { RequestClients } from './request-clients.js'
+import { localCorsResponse, validateLocalRequest } from './security.js'
 import { SyncTaskRunner } from './sync-task.js'
 import { telegramPeerIdFromLocalChatId } from './telegram-peer.js'
 import { WebQueryService } from './query.js'
@@ -19,6 +26,12 @@ export type ApiContext = {
   dataDir?: string
   port: number
   syncTask: SyncTaskRunner
+  taskRunner?: DesktopTaskRunner
+  authManager?: DesktopAuthManager
+  guardManager?: DesktopGuardManager
+  accountReservations?: AccountReservations
+  requestClients?: RequestClients
+  allowedOrigins?: readonly string[]
   createTelegramClient?: (sessionPath: string) => TelegramClientAdapter | Promise<TelegramClientAdapter>
 }
 
@@ -29,13 +42,29 @@ type ApiError = {
 }
 
 export async function handleApiRequest(request: Request, context: ApiContext): Promise<Response> {
-  const security = validateLocalRequest(request, context.port)
+  const security = validateLocalRequest(request, context.port, context.allowedOrigins)
   if (!security.ok) return failure(security.status, security.code, security.message)
+
+  const response = request.method === 'OPTIONS'
+    ? new Response(null, { status: 204 })
+    : await handleValidatedApiRequest(request, context)
+  return localCorsResponse(request, response)
+}
+
+async function handleValidatedApiRequest(request: Request, context: ApiContext): Promise<Response> {
 
   const url = new URL(request.url)
 
   try {
     const dataDir = context.dataDir ?? getDataDir()
+    if (url.pathname.startsWith('/api/workspace/')) {
+      if (context.taskRunner == null) return failure(503, 'workspace_unavailable', 'The operation workspace is not available.')
+      return await handleWorkspaceApiRequest(request, { taskRunner: context.taskRunner })
+    }
+    if (url.pathname.startsWith('/api/auth/')) {
+      if (context.authManager == null) return failure(503, 'auth_unavailable', 'Account authentication is not available.')
+      return await handleAuthApiRequest(request, { authManager: context.authManager })
+    }
     if (url.pathname.startsWith('/api/guard/')) {
       return await handleGuardApiRequest(request, { ...context, dataDir })
     }
@@ -78,7 +107,7 @@ export async function handleApiRequest(request: Request, context: ApiContext): P
         return success(context.syncTask.getState())
       case '/api/download-media':
         if (request.method !== 'POST') return notFound()
-        return await downloadMediaPost(request, { dataDir })
+        return await downloadMediaPost(request, { ...context, dataDir })
       default:
         return notFound()
     }
@@ -120,6 +149,9 @@ async function syncTaskPost(request: Request, context: ApiContext): Promise<Resp
   if (account === '') {
     return failure(400, 'invalid_request', 'account must be a non-empty string.')
   }
+  if (accountBusy(context, account)) {
+    return failure(409, 'account_busy', 'An operation is already using this account. Stop it before syncing.')
+  }
 
   if (!isSafeNonZeroInteger(body.chatId)) {
     return failure(400, 'invalid_request', 'chatId must be a non-zero integer.')
@@ -133,15 +165,20 @@ async function syncTaskPost(request: Request, context: ApiContext): Promise<Resp
     limit = body.limit
   }
 
-  const result = await context.syncTask.start({ account, chatId: body.chatId, limit })
-  if (result.ok) return jsonResponse(200, result)
-
-  if (result.error.code === 'sync_task_running') return jsonResponse(409, result)
-  if (result.error.code === 'invalid_request' || isAccountErrorCode(result.error.code)) return jsonResponse(400, result)
-  return jsonResponse(500, result)
+  const release = context.accountReservations?.reserve(account)
+  if (release === null) return failure(409, 'account_busy', 'An operation is already using this account.')
+  try {
+    const result = await context.syncTask.start({ account, chatId: body.chatId, limit })
+    if (result.ok) return jsonResponse(200, result)
+    if (result.error.code === 'sync_task_running') return jsonResponse(409, result)
+    if (result.error.code === 'invalid_request' || isAccountErrorCode(result.error.code)) return jsonResponse(400, result)
+    return jsonResponse(500, result)
+  } finally {
+    release?.()
+  }
 }
 
-async function downloadMediaPost(request: Request, context: { dataDir: string }): Promise<Response> {
+async function downloadMediaPost(request: Request, context: ApiContext & { dataDir: string }): Promise<Response> {
   if (!isJsonRequest(request)) {
     return failure(400, 'invalid_request', 'Content-Type must include application/json.')
   }
@@ -151,16 +188,23 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
 
   const account = typeof body.account === 'string' ? body.account.trim() : ''
   if (account === '') return failure(400, 'invalid_request', 'account must be a non-empty string.')
+  const syncState = context.syncTask.getState()
+  if (accountBusy(context, account)
+    || (syncState.status === 'running' && syncState.account === account)) {
+    return failure(409, 'account_busy', 'An operation is already using this account. Stop it before downloading.')
+  }
   if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
     return failure(400, 'invalid_request', 'attachments must be a non-empty array.')
   }
 
+  const release = context.accountReservations?.reserve(account)
+  if (release === null) return failure(409, 'account_busy', 'An operation is already using this account.')
   try {
     const attachments = body.attachments.map(parseDownloadAttachment)
     const reserved = new Set<string>()
     const clientContext = resolveAuthenticatedAccountContext({ explicitName: account, dataDir: context.dataDir })
     const db = new MessageDB(clientContext.dbPath)
-    const client = createTelegramClient(clientContext.sessionPath)
+    let closeClient: (() => Promise<void>) | undefined
     const results = []
     const warnings: Array<{
       code: 'download_status_update_failed'
@@ -170,6 +214,9 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
       attachment_index: number
     }> = []
     try {
+      const client = await (context.createTelegramClient ?? createTelegramClient)(clientContext.sessionPath)
+      closeClient = context.requestClients?.track(client) ?? (() => client.close())
+      if (context.requestClients?.isClosing) throw new Error('The workspace is closing.')
       for (const attachment of attachments) {
         const [message] = db.getMessagesByKeys([{ chatId: attachment.chatId, msgId: attachment.msgId }])
         if (message == null) {
@@ -228,7 +275,7 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
       }
     } finally {
       db.close()
-      await client.close()
+      await closeClient?.()
     }
     return success({ downloaded: results, warnings })
   } catch (error) {
@@ -237,7 +284,14 @@ async function downloadMediaPost(request: Request, context: { dataDir: string })
     if (error instanceof AttachmentLookupError) return failure(400, error.code, message)
     if (isKnownValidationMessage(message)) return failure(400, 'invalid_request', message)
     return failure(500, 'download_failed', message)
+  } finally {
+    release?.()
   }
+}
+
+function accountBusy(context: ApiContext, account: string): boolean {
+  return context.taskRunner?.isAccountBusy(account) === true || context.authManager?.hasActiveSession() === true
+    || context.guardManager?.isAccountBusy(account) === true || context.accountReservations?.isBusy(account) === true
 }
 
 function parseDownloadAttachment(value: unknown): { chatId: number; msgId: number; attachmentIndex: number } {

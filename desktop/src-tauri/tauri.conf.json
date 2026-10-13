@@ -1,16 +1,16 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Telegram CLI",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "identifier": "com.will17173.telegram-cli",
   "build": {
     "frontendDist": "dist-web",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "pnpm run bundle && pnpm --dir .. run dev:web",
-    "beforeBuildCommand": "pnpm --dir .. run build:web && pnpm run bundle"
+    "beforeDevCommand": "pnpm run fetch-node && pnpm --dir .. run build:web && pnpm run bundle && pnpm --dir .. run dev:web",
+    "beforeBuildCommand": "pnpm run fetch-node && pnpm --dir .. run build:web && pnpm run bundle"
   },
   "app": {
-    "withGlobalTauri": false,
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Telegram CLI",
@@ -19,7 +19,8 @@
         "minWidth": 800,
         "minHeight": 600,
         "url": "index.html",
-        "label": "main"
+        "label": "main",
+        "create": false
       }
     ],
     "security": {

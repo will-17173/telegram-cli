@@ -92,6 +92,7 @@ export class GuardRuntime {
   private readonly startedGroupIds = new Set<number>()
   private listenerHandles: GuardRuntimeListenerHandle[] = []
   private eventProcessing: Promise<void> = Promise.resolve()
+  private acceptingEvents = true
 
   constructor(options: GuardRuntimeOptions) {
     this.store = options.store
@@ -102,6 +103,7 @@ export class GuardRuntime {
   }
 
   async start(): Promise<void> {
+    this.acceptingEvents = true
     const startedAt = new Date().toISOString()
     await this.store.setRuntimeState({
       status: 'starting',
@@ -151,6 +153,7 @@ export class GuardRuntime {
   }
 
   async stop(): Promise<void> {
+    this.acceptingEvents = false
     let firstError: unknown = null
     const failedHandles: GuardRuntimeListenerHandle[] = []
     for (const handle of this.listenerHandles) {
@@ -162,6 +165,7 @@ export class GuardRuntime {
       }
     }
     this.listenerHandles = failedHandles
+    await this.eventProcessing
 
     const startedGroupIds = [...this.startedGroupIds]
     for (const groupId of startedGroupIds) {
@@ -186,15 +190,18 @@ export class GuardRuntime {
   }
 
   async handleEvent(event: GuardEvent): Promise<void> {
+    if (!this.acceptingEvents) return
+    const run = () => this.acceptingEvents ? this.processEvent(event) : undefined
     const current = this.eventProcessing.then(
-      () => this.processEvent(event),
-      () => this.processEvent(event),
+      run,
+      run,
     )
     this.eventProcessing = current.then(() => undefined, () => undefined)
     return current
   }
 
   private async handleListenerError(groupId: number, error: unknown): Promise<void> {
+    if (!this.acceptingEvents) return
     await this.setRuntimeStateBestEffort({
       status: 'error',
       started_at: null,

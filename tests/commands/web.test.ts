@@ -37,8 +37,8 @@ describe('web command', () => {
     expect(help).toContain('--port <port>')
     expect(help).toContain('--no-open')
     expect(help).toContain('127.0.0.1')
-    expect(help).toContain('no login')
-    expect(help).toContain('read-only Telegram sync')
+    expect(help).toContain('in-app login')
+    expect(help).toContain('cancellable tasks')
   })
 
   it('starts the web server and closes it on SIGINT', async () => {

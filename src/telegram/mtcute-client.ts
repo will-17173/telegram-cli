@@ -43,6 +43,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   readonly notifications: TelegramNotificationAdapter
   readonly folders: TelegramFolderAdapter
   private isReady = false
+  private readonly historyStop = new AbortController()
 
   constructor(private readonly client: TelegramClient) {
     this.archive = new MtcuteArchive(client, () => this.ensureReady())
@@ -54,6 +55,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   }
 
   async close(): Promise<void> {
+    this.historyStop.abort()
     try {
       await this.client.destroy()
     } catch (error) {
@@ -134,7 +136,10 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
   }
 
   async fetchHistory(options: FetchHistoryOptions): Promise<NormalizedMessage[]> {
+    const signal = this.historyStop.signal
+    signal.throwIfAborted()
     await this.ensureReady()
+    signal.throwIfAborted()
     const rows: NormalizedMessage[] = []
     let offset: NonNullable<Parameters<TelegramClient['getHistory']>[1]>['offset'] = options.offset
     const originalHistoryChat = normalizeChatId(options.chat)
@@ -143,6 +148,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
     let transientRetries = 0
 
     while (rows.length < options.limit) {
+      signal.throwIfAborted()
       const pageOptions = {
         limit: Math.min(100, options.limit - rows.length),
         offset,
@@ -152,15 +158,18 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       }
       let page
       while (true) {
+        signal.throwIfAborted()
         try {
           page = await this.client.getHistory(historyChat, pageOptions)
+          signal.throwIfAborted()
           break
         } catch (error) {
+          signal.throwIfAborted()
           const floodSeconds = floodWaitSeconds(error)
           if (Number.isFinite(floodSeconds)) {
             if (floodRetries >= 5) throw error
             floodRetries += 1
-            await setTimeout((floodSeconds + 1) * 1000)
+            await setTimeout((floodSeconds + 1) * 1000, undefined, { signal })
             continue
           }
 
@@ -169,7 +178,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
             if (transientRetries % CHANNEL_INVALID_PEER_REFRESH_INTERVAL === 0) {
               historyChat = await this.refreshHistoryPeer(originalHistoryChat) ?? historyChat
             }
-            await setTimeout(transientRetries * TRANSIENT_HISTORY_RETRY_DELAY_MS)
+            await setTimeout(transientRetries * TRANSIENT_HISTORY_RETRY_DELAY_MS, undefined, { signal })
             continue
           }
 
@@ -187,7 +196,7 @@ export class MtcuteTelegramClient implements TelegramClientAdapter {
       offset = page.next
       if (options.pageDelay) {
         const jitter = options.pageDelay * (Math.random() * 0.4 - 0.2)
-        await setTimeout((options.pageDelay + jitter) * 1000)
+        await setTimeout((options.pageDelay + jitter) * 1000, undefined, { signal })
       }
     }
     return rows

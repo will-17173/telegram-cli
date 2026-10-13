@@ -529,6 +529,159 @@ describe('GuardRuntime', () => {
     ])
   })
 
+  it('waits for an executing action and its audit write before marking the runtime stopped', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group()]
+    store.rules.set(1, [rule({ actions: [{ type: 'send_message', text: 'Stop' }] })])
+    let releaseAction!: () => void
+    const blockedAction = new Promise<void>((resolve) => { releaseAction = resolve })
+    const fakeExecutor = executor({ sendMessage: vi.fn(async () => blockedAction) })
+    const fakeListener = listener()
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => true, listener: fakeListener })
+    await runtime.start()
+
+    let closed = false
+    const recordAction = store.recordAction.bind(store)
+    vi.spyOn(store, 'recordAction').mockImplementation((input) => {
+      if (closed) throw new Error('audit database is closed')
+      recordAction(input)
+    })
+    const processing = runtime.handleEvent(event())
+    await vi.waitFor(() => expect(fakeExecutor.sendMessage).toHaveBeenCalledOnce())
+    const stopping = runtime.stop().then(() => { closed = true })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    try {
+      expect(fakeListener.stops[0]).toHaveBeenCalledOnce()
+      expect(closed).toBe(false)
+      expect(store.actions).toEqual([])
+      expect(store.runtimeStates.at(-1)?.status).toBe('running')
+      expect(store.groups[0]?.runtime_status).toBe('running')
+    } finally {
+      releaseAction()
+    }
+    await Promise.all([processing, stopping])
+
+    expect(closed).toBe(true)
+    expect(store.actions).toMatchObject([{ action_type: 'send_message', status: 'executed' }])
+    expect(store.runtimeStates.at(-1)?.status).toBe('stopped')
+    expect(store.groups[0]?.runtime_status).toBe('stopped')
+  })
+
+  it('drops queued events and rejects new event admission immediately while stopping', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ policy: policy({ reply_cooldown_seconds: 0 }) })]
+    store.rules.set(1, [rule({ actions: [{ type: 'send_message', text: 'Stop' }] })])
+    let releaseAction!: () => void
+    const blockedAction = new Promise<void>((resolve) => { releaseAction = resolve })
+    const fakeExecutor = executor({ sendMessage: vi.fn(async () => blockedAction) })
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => true })
+    await runtime.start()
+    const first = runtime.handleEvent(event({ message_id: 10 }))
+    await vi.waitFor(() => expect(fakeExecutor.sendMessage).toHaveBeenCalledOnce())
+    const queued = runtime.handleEvent(event({ message_id: 11 }))
+    const stopping = runtime.stop()
+    let deniedSettled = false
+    const denied = runtime.handleEvent(event({ message_id: 12 })).then(() => { deniedSettled = true })
+    await Promise.resolve()
+
+    try {
+      expect(deniedSettled).toBe(true)
+      expect(fakeExecutor.sendMessage).toHaveBeenCalledOnce()
+    } finally {
+      releaseAction()
+    }
+    await Promise.all([first, queued, stopping, denied])
+
+    expect(fakeExecutor.sendMessage).toHaveBeenCalledOnce()
+    expect(store.events.map((event) => event.message_id)).toEqual([10])
+    await runtime.handleEvent(event({ message_id: 13 }))
+    expect(store.events.map((event) => event.message_id)).toEqual([10])
+  })
+
+  it('reopens event admission after a stopped runtime is started again', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ policy: policy({ reply_cooldown_seconds: 0 }) })]
+    store.rules.set(1, [rule({ actions: [{ type: 'send_message', text: 'Stop' }] })])
+    const fakeExecutor = executor()
+    const fakeListener = listener()
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => true, listener: fakeListener })
+
+    await runtime.start()
+    await runtime.handleEvent(event({ message_id: 10 }))
+    await runtime.stop()
+    await runtime.handleEvent(event({ message_id: 11 }))
+    await runtime.start()
+    await fakeListener.starts[1]?.onEvent(event({ message_id: 12 }))
+    await runtime.stop()
+
+    expect(store.events.map((event) => event.message_id)).toEqual([10, 12])
+    expect(fakeExecutor.sendMessage).toHaveBeenCalledTimes(2)
+    expect(fakeListener.start).toHaveBeenCalledTimes(2)
+    expect(fakeListener.stops[0]).toHaveBeenCalledOnce()
+    expect(fakeListener.stops[1]).toHaveBeenCalledOnce()
+  })
+
+  it('still drains active actions and clears state before propagating listener stop errors', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002 })]
+    store.rules.set(1, [rule({ actions: [{ type: 'send_message', text: 'Stop' }] })])
+    let releaseAction!: () => void
+    const blockedAction = new Promise<void>((resolve) => { releaseAction = resolve })
+    const fakeExecutor = executor({ sendMessage: vi.fn(async () => blockedAction) })
+    const fakeListener = listener()
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => true, listener: fakeListener })
+    await runtime.start()
+    const error = new Error('first listener stop failed')
+    fakeListener.stops[0]?.mockRejectedValueOnce(error)
+    const processing = runtime.handleEvent(event())
+    await vi.waitFor(() => expect(fakeExecutor.sendMessage).toHaveBeenCalledOnce())
+    let stopSettled = false
+    const stopping = runtime.stop().finally(() => { stopSettled = true })
+    const rejected = expect(stopping).rejects.toBe(error)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+
+    try {
+      expect(fakeListener.stops[0]).toHaveBeenCalledOnce()
+      expect(fakeListener.stops[1]).toHaveBeenCalledOnce()
+      expect(stopSettled).toBe(false)
+    } finally {
+      releaseAction()
+    }
+    await Promise.all([processing, rejected])
+
+    expect(store.actions).toMatchObject([{ action_type: 'send_message', status: 'executed' }])
+    expect(store.runtimeStates.at(-1)?.status).toBe('stopped')
+    expect(store.groups.every((group) => group.runtime_status === 'stopped')).toBe(true)
+  })
+
+  it('ignores late listener error callbacks after stop and keeps action rejections handled', async () => {
+    const store = new FakeRuntimeStore()
+    store.groups = [group()]
+    store.rules.set(1, [rule({ actions: [{ type: 'send_message', text: 'Stop' }] })])
+    let releaseAction!: () => void
+    const blockedAction = new Promise<void>((resolve) => { releaseAction = resolve })
+    const fakeExecutor = executor({ sendMessage: vi.fn(async () => blockedAction) })
+    const fakeListener = listener()
+    const runtime = new GuardRuntime({ store, executor: fakeExecutor, writeAccess: () => true, listener: fakeListener })
+    await runtime.start()
+    const error = new Error('audit write failed')
+    vi.spyOn(store, 'recordAction').mockImplementationOnce(() => { throw error })
+    const processing = runtime.handleEvent(event())
+    const rejected = expect(processing).rejects.toBe(error)
+    await vi.waitFor(() => expect(fakeExecutor.sendMessage).toHaveBeenCalledOnce())
+    const stopping = runtime.stop()
+    releaseAction()
+    await Promise.all([rejected, stopping])
+    const updates = store.runtimeStates.length
+
+    await fakeListener.starts[0]?.onError?.(error)
+
+    expect(store.runtimeStates).toHaveLength(updates)
+    expect(store.runtimeStates.at(-1)?.status).toBe('stopped')
+    expect(store.groups[0]?.runtime_status).toBe('stopped')
+  })
+
   it('stop attempts all listener handles and clears runtime state when a listener stop fails', async () => {
     const store = new FakeRuntimeStore()
     store.groups = [group({ id: 1 }), group({ id: 2, chat_id: -1002 })]

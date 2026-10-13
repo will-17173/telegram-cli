@@ -29,7 +29,7 @@ export type ResolvedTelegramProxy = {
   source: ProxySource
 }
 
-export function getTelegramCredentials(): ResolvedTelegramCredentials {
+export function getTelegramCredentials(dataDir?: string): ResolvedTelegramCredentials {
   const apiId = process.env.TG_API_ID?.trim() ?? ''
   const apiHash = process.env.TG_API_HASH?.trim() ?? ''
 
@@ -45,7 +45,7 @@ export function getTelegramCredentials(): ResolvedTelegramCredentials {
 
   try {
     return {
-      ...readCredentials(getConfigPath()),
+      ...readCredentials(getConfigPath(dataDir)),
       source: 'stored',
     }
   } catch (error) {
@@ -59,18 +59,18 @@ export function getTelegramCredentials(): ResolvedTelegramCredentials {
   }
 }
 
-export function getTelegramProxyConfiguration(): ResolvedTelegramProxy | undefined {
+export function getTelegramProxyConfiguration(dataDir?: string): ResolvedTelegramProxy | undefined {
   const proxy = process.env.TG_PROXY?.trim()
   if (proxy) {
     return { url: proxy, source: 'environment' }
   }
 
-  const storedProxy = readProxy(getConfigPath())
+  const storedProxy = readProxy(getConfigPath(dataDir))
   return storedProxy ? { url: storedProxy, source: 'stored' } : undefined
 }
 
-export function getTelegramProxy(): string | undefined {
-  return getTelegramProxyConfiguration()?.url
+export function getTelegramProxy(dataDir?: string): string | undefined {
+  return getTelegramProxyConfiguration(dataDir)?.url
 }
 
 export function getTelegramWriteAccess(): boolean {
@@ -89,8 +89,9 @@ export function getDataDir(): string {
   return dir
 }
 
-export function getConfigPath(): string {
-  return join(getDataDir(), 'config.json')
+export function getConfigPath(dataDir?: string): string {
+  const root = dataDir && dataDir.trim() ? resolvePath(dataDir) : getDataDir()
+  return join(root, 'config.json')
 }
 
 export function getAccountRegistryPath(dataDir?: string): string {

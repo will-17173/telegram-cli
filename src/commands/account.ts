@@ -1,15 +1,15 @@
-import { mkdtempSync, mkdirSync, renameSync, rmSync, existsSync } from 'node:fs'
+import { renameSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Command } from 'commander'
 
 import { getAccountRegistryPath, getDataDir } from '../config/env.js'
-import { authenticateAccountAt, mapAuthUser, type AuthenticatedSession } from '../account/account-authenticator.js'
 import { AccountStore, type AccountMeta } from '../account/account-store.js'
 import { accountDbPath, accountSessionPath } from '../account/account-presets.js'
 import { outputFormatConflict, type HandlerResult, type OutputFlags } from './types.js'
 import { renderResult } from '../cli/output.js'
 import { AccountSessionService } from '../services/account-session-service.js'
+import { AccountRegistrationService } from '../services/account-registration-service.js'
 import { createInterruptScope, isCliInterruptedError, readVisibleInput } from '../cli/secure-input.js'
 
 type AccountOperationOptions = OutputFlags
@@ -35,7 +35,7 @@ export function registerAccountCommands(app: Command): void {
     .option('--yaml')
     .action(async (options: AddAccountOptions, command: Command) => {
       await runAccountCommand(options, async () => {
-        const registered = await addAccount()
+        const registered = await new AccountRegistrationService({ dataDir: getDataDir() }).register()
         return {
           ok: true,
           data: registered,
@@ -515,81 +515,6 @@ function mergeOptionsWithGlobals<T extends AccountOperationOptions>(command: Com
   }
 }
 
-async function addAccount(): Promise<{
-  account: AccountMeta
-  current: boolean
-}> {
-  const dataDir = getDataDir()
-  const store = new AccountStore(getAccountRegistryPath(dataDir))
-  const temporaryAccountDir = mkdtempSync(join(dataDir, 'tmp-account-'))
-  const temporarySessionPath = join(temporaryAccountDir, 'session')
-
-  let auth: AuthenticatedSession | undefined
-
-  try {
-    auth = await authenticateAccountAt(temporarySessionPath)
-    const mapped = mapAuthUser(auth.user)
-    await auth.close()
-    auth = undefined
-
-    const registration = await store.withLock(() => {
-      const registry = store.read()
-      if (registry.accounts.some((account) => account.user_id === mapped.user_id)) {
-        return {
-          code: 'account_already_exists',
-          message: `Account ${mapped.user_id} is already registered.`,
-          account: null,
-          current: false,
-        } as const
-      }
-
-      let name = mapped.name
-      const collision = registry.accounts.find((account) => account.name === name)
-      if (collision != null && collision.user_id !== mapped.user_id) {
-        name = `${name}-${mapped.user_id}`
-      }
-
-      const account: AccountMeta = {
-        ...mapped,
-        auth_state: 'authenticated',
-        name,
-      }
-      const accounts = registry.accounts.concat([account])
-      const currentAccount = registry.current_account ?? account.name
-      store.write({ ...registry, accounts, current_account: currentAccount })
-
-      return {
-        code: null,
-        message: '',
-        account,
-        current: currentAccount === account.name,
-      } as const
-    })
-
-    if (registration.code !== null) {
-      throwCodeError(registration.code, registration.message)
-    }
-
-    const finalSessionPath = accountSessionPath(dataDir, registration.account.name)
-    try {
-      moveSession(temporarySessionPath, finalSessionPath)
-    } catch (error) {
-      await rollbackRegistration(store, registration.account.name)
-      throwCodeError('account_store_error', `Failed to move session file: ${errorMessage(error)}`)
-    }
-
-    return {
-      account: registration.account,
-      current: registration.current,
-    }
-  } finally {
-    if (auth) {
-      await auth.close()
-    }
-    rmSync(temporaryAccountDir, { recursive: true, force: true })
-  }
-}
-
 function normalizeDisplayName(displayName: string): string {
   const normalized = displayName.trim().replace(/\s+/g, ' ')
   const words = normalized.split(' ')
@@ -602,30 +527,6 @@ function normalizeDisplayName(displayName: string): string {
   }
 
   return normalized
-}
-
-async function rollbackRegistration(store: AccountStore, name: string): Promise<void> {
-  await store.withLock(() => {
-    const registry = store.read()
-    const accounts = registry.accounts.filter((account) => account.name !== name)
-    if (accounts.length === registry.accounts.length) return
-    const current_account = registry.current_account === name
-      ? accounts[0]?.name ?? null
-      : registry.current_account
-    store.write({ ...registry, accounts, current_account })
-  })
-}
-
-function moveSession(source: string, destination: string): void {
-  if (!existsSync(source)) {
-    throwCodeError('account_store_error', `Missing temporary session file: ${source}`)
-  }
-
-  mkdirSync(dirname(destination), { recursive: true })
-  if (existsSync(destination)) {
-    rmSync(destination, { force: true })
-  }
-  renameSync(source, destination)
 }
 
 function unwrapFailure(error: unknown, fallbackCode: string): HandlerResult<never> {
@@ -642,12 +543,6 @@ function unwrapFailure(error: unknown, fallbackCode: string): HandlerResult<neve
       message,
     },
   }
-}
-
-function throwCodeError(code: string, message: string): never {
-  const error = new Error(message) as CodedError
-  error.code = code
-  throw error
 }
 
 function errorMessage(error: unknown): string {

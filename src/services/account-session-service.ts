@@ -25,6 +25,7 @@ export type AccountSessionServiceOptions = {
   store: AccountStore
   createClient?: (sessionPath: string) => TelegramClientAdapter
   authenticate?: (sessionPath: string) => Promise<AuthenticatedSession>
+  signal?: AbortSignal
   createTemporaryDirectory?: (prefix: string) => string
   removePath?: (path: string) => void
   renamePath?: (source: string, destination: string) => void
@@ -88,6 +89,7 @@ export class AccountSessionService {
 
   async login(input: AccountSessionInput): Promise<HandlerResult<AccountSessionResult>> {
     return this.options.store.withLock(async () => {
+      this.options.signal?.throwIfAborted()
       const registry = this.options.store.read()
       const account = findAccount(registry, input.name)
       if (!account) return accountNotFound(input.name)
@@ -127,6 +129,8 @@ export class AccountSessionService {
           preserveTemporaryDir = true
           return failure('account_login_failed', 'Unable to confirm staged Telegram session shutdown.', { recovery_path: temporaryDir })
         }
+
+        this.options.signal?.throwIfAborted()
 
         if (authenticated.user.id !== account.user_id) {
           return failure(

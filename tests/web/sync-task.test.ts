@@ -7,7 +7,7 @@ import { MESSAGE_DB_SCHEMA_VERSION, MessageDB, type StoredMessageInput } from '.
 
 const fakeClient = vi.hoisted(() => ({
   fetchHistory: vi.fn(),
-  close: vi.fn(async () => undefined),
+  close: vi.fn(async (): Promise<void> => undefined),
 }))
 
 const createTelegramClient = vi.hoisted(() => vi.fn(() => fakeClient))
@@ -19,11 +19,28 @@ vi.mock('../../src/telegram/client-factory.js', () => ({
 import { SyncTaskRunner } from '../../src/web/sync-task.js'
 
 const roots: string[] = []
+const runners: SyncTaskRunner[] = []
 
 function makeRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'tg-web-sync-task-'))
   roots.push(root)
   return root
+}
+
+function makeRunner(root: string): SyncTaskRunner {
+  const runner = new SyncTaskRunner({ dataDir: root })
+  runners.push(runner)
+  return runner
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((resolveValue, rejectValue) => {
+    resolve = resolveValue
+    reject = rejectValue
+  })
+  return { promise, resolve, reject }
 }
 
 function seedAccount(root: string): void {
@@ -90,10 +107,13 @@ function message(msgId: number, content: string): StoredMessageInput {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  fakeClient.close.mockReset().mockResolvedValue(undefined)
   fakeClient.fetchHistory.mockImplementation(async () => [message(2, 'new message')])
 })
 
-afterEach(() => {
+afterEach(async () => {
+  for (const runner of runners.splice(0)) await runner.close()
+  vi.restoreAllMocks()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -101,7 +121,7 @@ describe('SyncTaskRunner', () => {
   it('rejects blank account names without falling back to the current account', async () => {
     const root = makeRoot()
     seedAccount(root)
-    const runner = new SyncTaskRunner({ dataDir: root })
+    const runner = makeRunner(root)
 
     const result = await runner.start({ account: '   ', chatId: 10, limit: 500 })
 
@@ -119,7 +139,7 @@ describe('SyncTaskRunner', () => {
   it('returns account_not_found for missing accounts without changing state', async () => {
     const root = makeRoot()
     seedAccount(root)
-    const runner = new SyncTaskRunner({ dataDir: root })
+    const runner = makeRunner(root)
 
     const result = await runner.start({ account: 'missing', chatId: 10, limit: 500 })
 
@@ -135,7 +155,7 @@ describe('SyncTaskRunner', () => {
     const root = makeRoot()
     seedAccount(root)
     seedOldMessage(root)
-    const runner = new SyncTaskRunner({ dataDir: root })
+    const runner = makeRunner(root)
 
     const result = await runner.start({ account: 'work', chatId: 10, limit: 500 })
 
@@ -162,7 +182,7 @@ describe('SyncTaskRunner', () => {
     const root = makeRoot()
     seedAccount(root)
     const dbPath = seedOldMessageSchema(root)
-    const runner = new SyncTaskRunner({ dataDir: root })
+    const runner = makeRunner(root)
 
     const result = await runner.start({ account: 'work', chatId: 10, limit: 500 })
 
@@ -190,7 +210,7 @@ describe('SyncTaskRunner', () => {
   it('accepts signed Telegram chat IDs for sync tasks', async () => {
     const root = makeRoot()
     seedAccount(root)
-    const runner = new SyncTaskRunner({ dataDir: root })
+    const runner = makeRunner(root)
 
     const result = await runner.start({ account: 'work', chatId: -123, limit: 500 })
 
@@ -223,7 +243,7 @@ describe('SyncTaskRunner', () => {
       attachments: [],
     }])
     db.close()
-    const runner = new SyncTaskRunner({ dataDir: root })
+    const runner = makeRunner(root)
 
     await runner.start({ account: 'work', chatId: 2345678901, limit: 500 })
 
@@ -238,7 +258,7 @@ describe('SyncTaskRunner', () => {
     seedAccount(root)
     mkdirSync(join(root, 'accounts'))
     writeFileSync(join(root, 'accounts', 'work'), 'not a directory')
-    const runner = new SyncTaskRunner({ dataDir: root })
+    const runner = makeRunner(root)
 
     const result = await runner.start({ account: 'work', chatId: 10, limit: 500 })
 
@@ -260,7 +280,7 @@ describe('SyncTaskRunner', () => {
     const root = makeRoot()
     seedAccount(root)
     seedOldMessage(root)
-    const runner = new SyncTaskRunner({ dataDir: root })
+    const runner = makeRunner(root)
     let release!: () => void
     const released = new Promise<void>((resolve) => {
       release = resolve
@@ -284,5 +304,104 @@ describe('SyncTaskRunner', () => {
 
     release()
     await first
+  })
+
+  it('closes immediately when idle and rejects all new work after shutdown', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const runner = makeRunner(root)
+
+    await runner.close()
+    await runner.close()
+    expect(await runner.start({ account: 'work', chatId: 10, limit: 500 })).toEqual({
+      ok: false,
+      error: { code: 'runner_closed', message: 'The sync task runner is closed.' },
+    })
+    expect(runner.getState()).toEqual({ status: 'idle' })
+    expect(createTelegramClient).not.toHaveBeenCalled()
+  })
+
+  it('stops a pending sync and waits for both client shutdown and database cleanup', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    seedOldMessage(root)
+    const runner = makeRunner(root)
+    const fetching = deferred<StoredMessageInput[]>()
+    const closingClient = deferred<void>()
+    const closeDb = vi.spyOn(MessageDB.prototype, 'close')
+    fakeClient.fetchHistory.mockImplementationOnce(() => fetching.promise)
+    fakeClient.close.mockImplementationOnce(async () => {
+      fetching.reject(new Error('Sync stopped by client close'))
+      await closingClient.promise
+    })
+
+    const sync = runner.start({ account: 'work', chatId: 10, limit: 500 })
+    expect(fakeClient.fetchHistory).toHaveBeenCalledOnce()
+    const closing = runner.close()
+    let finished = false
+    void closing.then(() => { finished = true })
+    await vi.waitFor(() => expect(closeDb).toHaveBeenCalledOnce())
+    expect(fakeClient.close).toHaveBeenCalledOnce()
+    expect(finished).toBe(false)
+    expect(await runner.start({ account: 'work', chatId: 10, limit: 500 })).toMatchObject({ ok: false, error: { code: 'runner_closed' } })
+    expect(createTelegramClient).toHaveBeenCalledOnce()
+
+    closingClient.resolve()
+    await closing
+    expect(finished).toBe(true)
+    expect(await sync).toMatchObject({ ok: true, data: { status: 'error', error: { code: 'telegram_error', message: 'Sync stopped by client close' } } })
+    expect(fakeClient.close).toHaveBeenCalledOnce()
+    expect(closeDb).toHaveBeenCalledOnce()
+    const reopened = new MessageDB(join(root, 'accounts', 'work', 'messages.db'))
+    reopened.close()
+  })
+
+  it('shares exactly one client close when shutdown races normal completion', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const runner = makeRunner(root)
+    const closingClient = deferred<void>()
+    const closeDb = vi.spyOn(MessageDB.prototype, 'close')
+    fakeClient.fetchHistory.mockResolvedValue([])
+    fakeClient.close.mockImplementationOnce(() => closingClient.promise)
+
+    const sync = runner.start({ account: 'work', chatId: 10, limit: 500 })
+    await vi.waitFor(() => expect(fakeClient.close).toHaveBeenCalledOnce())
+    expect(closeDb).toHaveBeenCalledOnce()
+    expect(runner.getState()).toMatchObject({ status: 'done', synced: 0 })
+    expect(await runner.start({ account: 'work', chatId: 10, limit: 500 })).toMatchObject({ ok: false, error: { code: 'sync_task_running' } })
+    const firstClose = runner.close()
+    const secondClose = runner.close()
+    expect(firstClose).toBe(secondClose)
+    let closed = false
+    void firstClose.then(() => { closed = true })
+    await Promise.resolve()
+    expect(closed).toBe(false)
+
+    closingClient.resolve()
+    await Promise.all([sync, firstClose, secondClose])
+    expect(fakeClient.close).toHaveBeenCalledOnce()
+    expect(closeDb).toHaveBeenCalledOnce()
+    expect(runner.getState()).toMatchObject({ status: 'done', synced: 0 })
+    expect(await runner.start({ account: 'work', chatId: 10, limit: 500 })).toMatchObject({ ok: false, error: { code: 'runner_closed' } })
+  })
+
+  it('awaits task cleanup even if the client close rejects after aborting its request', async () => {
+    const root = makeRoot()
+    seedAccount(root)
+    const runner = makeRunner(root)
+    const fetching = deferred<StoredMessageInput[]>()
+    const closeDb = vi.spyOn(MessageDB.prototype, 'close')
+    fakeClient.fetchHistory.mockImplementationOnce(() => fetching.promise)
+    fakeClient.close.mockImplementationOnce(async () => {
+      fetching.reject(new Error('Sync request cancelled'))
+      throw new Error('Client close failed')
+    })
+
+    const sync = runner.start({ account: 'work', chatId: 10, limit: 500 })
+    await runner.close()
+    expect(await sync).toMatchObject({ ok: true, data: { status: 'error', error: { message: 'Sync request cancelled' } } })
+    expect(fakeClient.close).toHaveBeenCalledOnce()
+    expect(closeDb).toHaveBeenCalledOnce()
   })
 })

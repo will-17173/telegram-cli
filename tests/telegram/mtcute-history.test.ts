@@ -158,7 +158,7 @@ describe('MtcuteTelegramClient history', () => {
       minId: 7,
     })
 
-    expect(sleep).toHaveBeenCalledWith(15_000)
+    expect(sleep).toHaveBeenCalledWith(15_000, undefined, { signal: expect.any(AbortSignal) })
     expect(getHistory).toHaveBeenCalledTimes(3)
     expect(getHistory.mock.calls[1]).toEqual(getHistory.mock.calls[2])
     expect(getHistory).toHaveBeenNthCalledWith(2, -100123, { limit: 50, minId: 7, offset: firstOffset })
@@ -184,7 +184,7 @@ describe('MtcuteTelegramClient history', () => {
 
     expect(rows).toHaveLength(1)
     expect(getHistory).toHaveBeenCalledTimes(2)
-    expect(sleep).toHaveBeenCalledWith(15_000)
+    expect(sleep).toHaveBeenCalledWith(15_000, undefined, { signal: expect.any(AbortSignal) })
   })
 
   it('retries transient channel invalid errors before failing a history sync', async () => {
@@ -201,7 +201,7 @@ describe('MtcuteTelegramClient history', () => {
 
     expect(rows).toHaveLength(1)
     expect(getHistory).toHaveBeenCalledTimes(2)
-    expect(sleep).toHaveBeenCalledWith(500)
+    expect(sleep).toHaveBeenCalledWith(500, undefined, { signal: expect.any(AbortSignal) })
   })
 
   it('keeps retrying repeated transient channel invalid errors during history sync', async () => {
@@ -222,11 +222,11 @@ describe('MtcuteTelegramClient history', () => {
 
     expect(rows).toHaveLength(1)
     expect(getHistory).toHaveBeenCalledTimes(6)
-    expect(sleep).toHaveBeenNthCalledWith(1, 500)
-    expect(sleep).toHaveBeenNthCalledWith(2, 1_000)
-    expect(sleep).toHaveBeenNthCalledWith(3, 1_500)
-    expect(sleep).toHaveBeenNthCalledWith(4, 2_000)
-    expect(sleep).toHaveBeenNthCalledWith(5, 2_500)
+    expect(sleep).toHaveBeenNthCalledWith(1, 500, undefined, { signal: expect.any(AbortSignal) })
+    expect(sleep).toHaveBeenNthCalledWith(2, 1_000, undefined, { signal: expect.any(AbortSignal) })
+    expect(sleep).toHaveBeenNthCalledWith(3, 1_500, undefined, { signal: expect.any(AbortSignal) })
+    expect(sleep).toHaveBeenNthCalledWith(4, 2_000, undefined, { signal: expect.any(AbortSignal) })
+    expect(sleep).toHaveBeenNthCalledWith(5, 2_500, undefined, { signal: expect.any(AbortSignal) })
   })
 
   it('refreshes the peer and retries the same history page after repeated channel invalid errors', async () => {
@@ -278,7 +278,7 @@ describe('MtcuteTelegramClient history', () => {
 
     expect(getHistory).toHaveBeenCalledTimes(6)
     expect(sleep).toHaveBeenCalledTimes(5)
-    expect(sleep).toHaveBeenCalledWith(15_000)
+    expect(sleep).toHaveBeenCalledWith(15_000, undefined, { signal: expect.any(AbortSignal) })
   })
 })
 

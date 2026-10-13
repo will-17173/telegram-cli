@@ -28,6 +28,42 @@ describe('authenticateAccountAt', () => {
     expect(process.listeners('SIGINT')).toEqual(originalSigintListeners)
   })
 
+  it('uses custom authentication callbacks without installing terminal signal handlers', async () => {
+    const originalSigintListeners = process.listeners('SIGINT')
+    const startOptions = { phone: vi.fn(async () => '+123456789'), code: vi.fn(async () => '12345') }
+    const client = {
+      start: vi.fn(async () => undefined),
+      getMe: vi.fn(async () => ({ id: 42 })),
+      destroy: vi.fn(async () => undefined),
+    }
+
+    const session = await authenticateAccountAt(sessionPath, () => client, startOptions)
+    await session.close()
+    await session.close()
+
+    expect(client.start).toHaveBeenCalledWith(startOptions)
+    expect(client.destroy).toHaveBeenCalledOnce()
+    expect(process.listeners('SIGINT')).toEqual(originalSigintListeners)
+  })
+
+  it('aborts an unresponsive client and preserves the abort reason', async () => {
+    const controller = new AbortController()
+    const client = {
+      start: vi.fn(async () => new Promise(() => undefined)),
+      getMe: vi.fn(async () => ({ id: 42 })),
+      destroy: vi.fn(async () => undefined),
+    }
+    const authenticating = authenticateAccountAt(sessionPath, () => client, { abortSignal: controller.signal })
+    const reason = Object.assign(new Error('Authentication cancelled.'), { code: 'auth_cancelled' })
+    const rejected = expect(authenticating).rejects.toBe(reason)
+
+    controller.abort(reason)
+    await rejected
+
+    expect(client.destroy).toHaveBeenCalledOnce()
+    expect(client.getMe).not.toHaveBeenCalled()
+  })
+
   it('destroys the client after start failure', async () => {
     const originalSigintListeners = process.listeners('SIGINT')
     const client = {

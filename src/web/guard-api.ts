@@ -9,6 +9,7 @@ import { createTelegramClient } from '../telegram/client-factory.js'
 import type { TelegramClientAdapter } from '../telegram/types.js'
 import type { ApiContext } from './api.js'
 import type { ApiFailure, ApiSuccess } from './types.js'
+import { GuardManagerError } from './guard-manager.js'
 
 type ApiError = {
   status: number
@@ -29,9 +30,25 @@ export async function handleGuardApiRequest(request: Request, context: ApiContex
     if (url.pathname === '/api/guard/status') {
       if (request.method !== 'GET') return notFound()
       return success({
-        runtime: db.getRuntimeState(),
+        runtime: context.guardManager?.getState() ?? db.getRuntimeState(),
         groups: { items: db.listManagedGroups() },
+        ...(context.guardManager == null ? {} : { runtime_control_available: true }),
       })
+    }
+
+    if (url.pathname === '/api/guard/runtime') {
+      if (request.method !== 'POST') return notFound()
+      if (context.guardManager == null) return failure(409, 'guard_control_unavailable', 'This Guard runtime is controlled by its CLI process.')
+      const body = await jsonObjectRequest(request)
+      if (body.action !== 'start' && body.action !== 'stop' && body.action !== 'restart') {
+        return failure(400, 'invalid_request', 'action must be start, stop, or restart.')
+      }
+      try {
+        return success(await context.guardManager.control(body.action))
+      } catch (error) {
+        if (error instanceof GuardManagerError) return failure(error.status, error.code, error.message)
+        return failure(500, 'guard_runtime_failed', error instanceof Error ? error.message : String(error))
+      }
     }
 
     if (url.pathname === '/api/guard/groups') {
@@ -95,30 +112,42 @@ async function discoverManagedGroups(db: GuardDB, context: ApiContext & { dataDi
     return
   }
 
-  const client = await (context.createTelegramClient ?? createTelegramClient)(accountContext.sessionPath)
-  try {
-    const existingByChat = new Map(
-      db.listManagedGroups()
-        .filter((group) => group.account === accountContext.name)
-        .map((group) => [group.chat_id, group]),
-    )
-    const groups = await client.dialogs.listGroups({
-      adminOnly: true,
-      limit: GUARD_DISCOVERY_GROUP_LIMIT,
-    })
+  if (context.taskRunner?.isAccountBusy(accountContext.name) || context.authManager?.hasActiveSession()
+    || context.guardManager?.isAccountBusy(accountContext.name) || context.accountReservations?.isBusy(accountContext.name)) {
+    throw new GuardManagerError('account_busy', 'Stop the active account operation before discovering Guard groups.')
+  }
 
-    for (const group of groups) {
-      const existing = existingByChat.get(group.id)
-      db.upsertManagedGroup({
-        account: accountContext.name,
-        chat_id: group.id,
-        title: group.name,
-        enabled: existing?.enabled ?? false,
-        policy: existing?.policy ?? db.defaultPolicy(),
+  const release = context.accountReservations?.reserve(accountContext.name)
+  if (release === null) throw new GuardManagerError('account_busy', 'Another operation is using this account.')
+  try {
+    const client = await (context.createTelegramClient ?? createTelegramClient)(accountContext.sessionPath)
+    const close = context.requestClients?.track(client) ?? (() => closeClient(client))
+    try {
+      if (context.requestClients?.isClosing) throw new GuardManagerError('workspace_closing', 'The workspace is closing.', 503)
+      const existingByChat = new Map(
+        db.listManagedGroups()
+          .filter((group) => group.account === accountContext.name)
+          .map((group) => [group.chat_id, group]),
+      )
+      const groups = await client.dialogs.listGroups({
+        adminOnly: true,
+        limit: GUARD_DISCOVERY_GROUP_LIMIT,
       })
+      for (const group of groups) {
+        const existing = existingByChat.get(group.id)
+        db.upsertManagedGroup({
+          account: accountContext.name,
+          chat_id: group.id,
+          title: group.name,
+          enabled: existing?.enabled ?? false,
+          policy: existing?.policy ?? db.defaultPolicy(),
+        })
+      }
+    } finally {
+      await close()
     }
   } finally {
-    await closeClient(client)
+    release?.()
   }
 }
 
@@ -401,6 +430,7 @@ function validationError(code: GuardValidationCode, message: string): ApiError {
 }
 
 function errorResponse(error: unknown): Response {
+  if (error instanceof GuardManagerError) return failure(error.status, error.code, error.message)
   if (isApiError(error)) return failure(error.status, error.code, error.message)
 
   const message = error instanceof Error ? error.message : String(error)

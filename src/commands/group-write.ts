@@ -1,7 +1,8 @@
 import type { Command } from 'commander'
 
 import { renderResult } from '../cli/output.js'
-import { createInterruptScope, isCliInputError, isCliInterruptedError, readSecret } from '../cli/secure-input.js'
+import { createInterruptScope, isCliInputError, isCliInterruptedError } from '../cli/secure-input.js'
+import { readOwnershipPassword } from '../cli/desktop-secret.js'
 import { GROUP_COMMANDS, isReadOnlyGroupCommand } from '../group-commands/catalog.js'
 import { executeGroupCommand } from '../group-commands/executor.js'
 import { parseGroupCommand } from '../group-commands/parser.js'
@@ -80,7 +81,7 @@ async function runGroupWrite(definition: typeof GROUP_COMMANDS[number], position
       try {
         const interrupt = createInterruptScope()
         try {
-          ownershipPassword = await readSecret('Telegram 2FA password: ', { signal: interrupt.signal })
+          ownershipPassword = await readOwnershipPassword({ signal: interrupt.signal })
         } finally {
           interrupt.dispose()
         }

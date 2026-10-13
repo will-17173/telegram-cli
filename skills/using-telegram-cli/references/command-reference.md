@@ -10,6 +10,7 @@ Use this reference for the repository's current `tg` behavior. Confirm flags aga
 - [Online reads, contacts, notifications, and folders](#online-reads-contacts-notifications-and-folders)
 - [Local query and data commands](#local-query-and-data-commands)
 - [Web UI](#web-ui)
+- [Desktop app](#desktop-app)
 - [Archiving](#archiving)
 - [Messaging, listening, and downloads](#messaging-listening-and-downloads)
 - [Group operations](#group-operations)
@@ -201,7 +202,7 @@ Custom `archive --output <dir>` directories are not deleted automatically; remov
 
 ## Web UI
 
-Start the local message browser with:
+Start the local account and operation workspace with:
 
 ```sh
 tg web
@@ -209,7 +210,21 @@ tg web --port 8734
 tg web --no-open
 ```
 
-The server binds only to `127.0.0.1`, starts at port 8734 when no port is supplied, and has no login screen. It reads account-local SQLite data and can trigger read-only Telegram sync for the selected chat; that sync writes fetched messages to SQLite but does not mutate Telegram. The default command opens the URL in the system browser, while `--no-open` only prints it. Treat the UI as sensitive despite the loopback binding, and stop the long-running server with `Ctrl+C` when finished.
+The server binds only to `127.0.0.1` and starts at port 8734 when no port is supplied. It provides Messages, Operations, Accounts, and Guard pages with 103 searchable command forms, phone/code/2FA sign-in, cancellable tasks, live logs, result exports, and Guard Start/Stop/Reload controls. Starting the server does not authorize a remote mutation; Telegram write forms and Guard actions retain the write-access gate and authorization requirements. The default command opens the URL in the system browser, while `--no-open` only prints it. Stop the server with `Ctrl+C`; shutdown cancels managed tasks, closes clients, and drains active Guard actions.
+
+An active `listen` task has a composer for text, attachments, and replies that reuses its existing Telegram connection. Prefer it to starting a second client against the same account session. Task results can be downloaded as JSON, YAML, or Markdown. Destructive operation forms retain the existing CLI confirmations, including exact titles where required.
+
+## Desktop app
+
+Desktop shares the CLI account registry, active sessions, configuration, and local message data. A valid existing CLI session does not need another login. If the CLI uses `DATA_DIR`, launch Desktop with the same value; a Finder-launched app does not inherit terminal-only environment variables. Avoid simultaneous CLI and Desktop clients for the same account.
+
+From a source checkout, install root and Desktop dependencies, then run:
+
+```sh
+pnpm desktop:dev
+```
+
+The dev command prepares a matching portable Node runtime, bundles the CLI, starts Vite, and opens the native window. Frontend edits reload live; CLI/backend edits require restarting the command. Desktop adds native file/directory selection, result saving, clipboard support, and startup recovery. Opening Desktop does not grant authorization for Telegram writes or starting an armed Guard.
 
 ## Archiving
 
@@ -323,7 +338,7 @@ tg group admin transfer-owner <chat> <@username-or-user-id> --yes --account work
 
 Commands marked risky reject execution without `--yes`. Permanent chat deletion also requires `--confirm-title '<exact title>'`. Other mutations can execute without built-in confirmation, so authorization is required regardless of CLI safeguards. Permissions and Telegram capabilities (admin, creator, supergroup, or forum) still apply.
 
-Ownership transfer requires the current user to be the creator. After `--yes`, the CLI securely prompts for the Telegram 2FA password in an interactive TTY. Never provide or request that password in plain text, place it in command arguments/environment/stdin automation, or automate the prompt. Non-TTY ownership transfer returns an interaction error; have the human run it interactively and enter the password directly into the prompt.
+Ownership transfer requires the current user to be the creator. After `--yes`, the CLI securely prompts for the Telegram 2FA password in an interactive TTY. Never provide or request that password in plain text, place it in command arguments/environment/stdin automation, or automate the prompt. Ordinary non-TTY CLI ownership transfer returns an interaction error. The Desktop/Web operation form instead has a masked 2FA field and passes the human-entered value through private process IPC, keeping it out of command arguments and task history. Have the human enter the password directly in the secure prompt or field.
 
 ## Guard automation
 

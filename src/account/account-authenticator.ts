@@ -19,13 +19,13 @@ export type AuthUser = {
   phoneNumber?: string | null
 }
 
-type AuthClient = {
+export type AuthClient = {
   start: (options: AuthStartOptions) => Promise<unknown>
   getMe: () => Promise<AuthUser>
   destroy: () => Promise<void>
 }
 
-type AuthStartOptions = NonNullable<Parameters<TelegramClient['start']>[0]>
+export type AuthStartOptions = NonNullable<Parameters<TelegramClient['start']>[0]>
 
 export type AuthenticatedSession = {
   user: AuthUser
@@ -37,19 +37,28 @@ export type AccountAuthClientFactory = (sessionPath: string) => AuthClient
 export async function authenticateAccountAt(
   sessionPath: string,
   createClient: AccountAuthClientFactory = createAccountAuthClient,
+  startOptions?: AuthStartOptions,
 ): Promise<AuthenticatedSession> {
   const client = createClient(sessionPath)
-  const input = createAuthenticationInput()
+  const input = startOptions == null
+    ? createAuthenticationInput()
+    : { options: startOptions, close: () => undefined }
+  let closing: Promise<void> | undefined
+  const close = (): Promise<void> => closing ??= client.destroy()
 
   try {
-    await client.start(input.options)
-    const user = await client.getMe()
+    const user = await withAuthenticationAbort(async () => {
+      await client.start(input.options)
+      input.options.abortSignal?.throwIfAborted()
+      return client.getMe()
+    }, input.options.abortSignal)
     return {
       user,
-      close: () => client.destroy(),
+      close,
     }
   } catch (error) {
-    await client.destroy().catch(() => undefined)
+    await close().catch(() => undefined)
+    if (input.options.abortSignal?.aborted) throw input.options.abortSignal.reason
     throwAccountLoginError(error)
   } finally {
     input.close()
@@ -108,14 +117,31 @@ export function mapAuthUser(user: AuthUser): {
   }
 }
 
-function createAccountAuthClient(sessionPath: string): AuthClient {
-  const credentials = getTelegramCredentials()
+export function createAccountAuthClient(sessionPath: string, dataDir?: string): AuthClient {
+  const credentials = getTelegramCredentials(dataDir)
   return new TelegramClient({
     apiId: credentials.apiId,
     apiHash: credentials.apiHash,
     storage: new MtcuteSqliteStorage(sessionPath),
-    ...telegramTransportOptions(getTelegramProxy()),
+    ...telegramTransportOptions(getTelegramProxy(dataDir)),
+    ...(dataDir === undefined ? {} : { logLevel: 0, disableUpdates: true }),
   })
+}
+
+async function withAuthenticationAbort<T>(run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted()
+  if (signal == null) return run()
+
+  let onAbort: () => void = () => undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  try {
+    return await Promise.race([run(), aborted])
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
 }
 
 function normalizeDisplayName(displayName: string): string {

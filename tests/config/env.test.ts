@@ -202,6 +202,28 @@ describe('env config', () => {
     expect(getConfigPath()).toBe(join(getDataDir(), 'config.json'))
   })
 
+  it('resolves stored credentials and proxy in an explicit data directory without changing the environment', () => {
+    const scopedDir = tempDir()
+    writeConfiguration(getConfigPath(), { credentials: { apiId: 111, apiHash: 'other_hash' }, proxy: 'socks5://other-proxy' })
+    writeConfiguration(getConfigPath(scopedDir), { credentials: { apiId: 222, apiHash: 'scoped_hash' }, proxy: 'socks5://scoped-proxy' })
+    const environmentDataDir = process.env.DATA_DIR
+
+    expect(getTelegramCredentials(scopedDir)).toEqual({ apiId: 222, apiHash: 'scoped_hash', source: 'stored' })
+    expect(getTelegramProxy(scopedDir)).toBe('socks5://scoped-proxy')
+    expect(getTelegramProxyConfiguration(scopedDir)).toEqual({ url: 'socks5://scoped-proxy', source: 'stored' })
+    expect(getConfigPath(scopedDir)).toBe(join(scopedDir, 'config.json'))
+    expect(process.env.DATA_DIR).toBe(environmentDataDir)
+    expect(getTelegramCredentials()).toEqual({ apiId: 111, apiHash: 'other_hash', source: 'stored' })
+  })
+
+  it('uses the defaults in an empty explicit directory instead of another directory configuration', () => {
+    writeConfiguration(getConfigPath(), { credentials: { apiId: 111, apiHash: 'other_hash' }, proxy: 'socks5://other-proxy' })
+    const scopedDir = tempDir()
+
+    expect(getTelegramCredentials(scopedDir).source).toBe('default')
+    expect(getTelegramProxy(scopedDir)).toBeUndefined()
+  })
+
   it('creates DATA_DIR from a relative path', () => {
     const relative = `.tmp-tg-cli-env-test-${Date.now()}`
     tempDirs.push(resolve(process.cwd(), relative))

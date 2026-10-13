@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Telegram CLI v0.8.11 简体中文文档：安装认证、在线读取、本地同步与搜索、群组管理、结构化自动化和安全操作。">
+  <meta name="description" content="Telegram CLI v0.9.0 简体中文文档：安装认证、在线读取、本地同步与搜索、群组管理、结构化自动化和安全操作。">
   <meta name="theme-color" content="#eef6fb">
   <meta name="color-scheme" content="light">
   <title>Telegram CLI 文档 — 从在线消息到本地工作流</title>
@@ -58,7 +58,7 @@
         </div>
         <aside class="docs-version-card" aria-label="文档版本">
           <span>Current release</span>
-          <strong>v0.8.11</strong>
+          <strong>v0.9.0</strong>
           <p>静态页面 · 无需 JavaScript<br>语法以 <code translate="no">tg &lt;command&gt; --help</code> 为准</p>
         </aside>
       </div>
@@ -341,11 +341,11 @@ accounts/&lt;name&gt;/archive/</code></pre>
         <section id="command-reference" class="doc-section docs-section" aria-labelledby="command-reference-title">
           <p class="section-kicker docs-kicker">05 · Reference</p>
           <h2 id="command-reference-title">37 个顶层命令</h2>
-          <p class="section-lede">这是 <code translate="no">tg</code> v0.8.11 的完整顶层 Commander 命令清单。范围徽标描述主要行为；带子命令的命令组可能同时包含读取和写入操作。</p>
+          <p class="section-lede">这是 <code translate="no">tg</code> v0.9.0 的完整顶层 Commander 命令清单。范围徽标描述主要行为；带子命令的命令组可能同时包含读取和写入操作。</p>
 
           <div class="table-scroll table-wrap" tabindex="0" role="region" aria-label="完整顶层命令参考，可横向滚动">
             <table class="command-reference-table">
-              <caption>Telegram CLI v0.8.11 顶层命令</caption>
+              <caption>Telegram CLI v0.9.0 顶层命令</caption>
               <thead>
                 <tr>
                   <th scope="col">命令</th>
@@ -537,13 +537,15 @@ accounts/&lt;name&gt;/archive/</code></pre>
                 <tr data-command="web">
                   <th scope="row"><code dir="ltr" translate="no">tg web</code></th>
                   <td><span class="scope-badge" data-scope="local">本地管理</span></td>
-                  <td>在 <code dir="ltr" translate="no">127.0.0.1</code> 启动仅限本机访问的 React 管理界面，用于浏览已存储消息，并为选中的聊天触发只读同步。</td>
+                  <td>在 <code dir="ltr" translate="no">127.0.0.1</code> 启动本地工作区，支持消息浏览与同步、账号登录、CLI 操作表单、可取消的任务和 Guard 控制。Telegram 写操作仍需开启写入总开关。</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
           <p class="table-note">所有有限结果命令都可使用全局 <code translate="no">--account</code>（适用时）与 <code translate="no">--markdown</code>；各命令的 JSON/YAML 支持和专用参数请用 <code translate="no">tg &lt;command&gt; --help</code> 核对。</p>
+
+          <p>Web 与 Desktop 工作区提供 103 个可搜索的操作表单、手机号／验证码／2FA 登录、任务日志与取消，以及 JSON／YAML／Markdown 结果导出。Desktop 与 CLI 共用数据目录，并增加原生文件选择、结果保存和剪贴板操作。在源码仓库中运行 <code translate="no">pnpm desktop:dev</code> 即可启动开发模式；<code translate="no">web/src/</code> 支持热更新，CLI 后端修改需要重启开发命令。</p>
 
           <nav class="section-pagination docs-pagination" aria-label="章节导航">
             <a href="#accounts-config"><span aria-hidden="true">←</span> 上一节：账号与配置</a>
@@ -799,7 +801,7 @@ tg config write-access on --json</code></pre>
         <section id="troubleshooting" class="doc-section docs-section" aria-labelledby="troubleshooting-title">
           <p class="section-kicker docs-kicker">09 · Recovery</p>
           <h2 id="troubleshooting-title">故障排查</h2>
-          <p class="section-lede">v0.8.11 的自动化应匹配 <code translate="no">error.code</code>，不要匹配可能变化的消息文本。先判断账号与数据范围，再决定是否重试。</p>
+          <p class="section-lede">v0.9.0 的自动化应匹配 <code translate="no">error.code</code>，不要匹配可能变化的消息文本。先判断账号与数据范围，再决定是否重试。</p>
 
           <div class="troubleshooting-list">
             <details open>
@@ -902,7 +904,7 @@ tg config write-access on --json</code></pre>
           <p><strong>48</strong><span>群管理操作</span></p>
           <p><strong>1</strong><span>稳定 schema</span></p>
         </div>
-        <p class="status-card-version">当前文档：<strong>v0.8.11</strong></p>
+        <p class="status-card-version">当前文档：<strong>v0.9.0</strong></p>
       </aside>
     </div>
   </main>
@@ -911,7 +913,7 @@ tg config write-access on --json</code></pre>
     <div class="container footer-inner">
       <a class="brand footer-brand" href="../" aria-label="返回 Telegram CLI 中文首页">
         <span class="brand-mark" aria-hidden="true">tg›</span>
-        <span><strong>Telegram CLI</strong><small>v0.8.11 中文文档</small></span>
+        <span><strong>Telegram CLI</strong><small>v0.9.0 中文文档</small></span>
       </a>
       <nav class="footer-nav" aria-label="页脚导航">
         <a href="#quick-start">快速开始</a>

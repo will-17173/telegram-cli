@@ -10,8 +10,8 @@ export type WebCommandOptions = {
 export function registerWebCommand(app: Command): void {
   const localWebHelp = [
     '',
-    'The web UI binds to 127.0.0.1 only, has no login screen, reads local account data,',
-    'and can trigger read-only Telegram sync into local SQLite.',
+    'The web UI binds to 127.0.0.1 only and shares account data with the CLI.',
+    'It includes in-app login, command forms, cancellable tasks, and Guard controls.',
   ].join('\n')
   const webCommand = app.command('web')
     .description('Start the local Telegram CLI web management UI')

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { desktopPageUrl, initialDesktopPage, type DesktopPage } from './navigation.js'
 import {
   deleteJson,
   getJson,
@@ -28,6 +29,9 @@ import {
   type Locale,
   type WebMessages,
 } from './i18n.js'
+
+const Workspace = lazy(() => import('./Workspace.js').then((module) => ({ default: module.Workspace })))
+const Accounts = lazy(() => import('./Accounts.js').then((module) => ({ default: module.Accounts })))
 
 const DEFAULT_MESSAGE_PAGE_SIZE = 50
 const MESSAGE_PAGE_SIZE_OPTIONS = [25, 50, 100] as const
@@ -231,6 +235,11 @@ function initialLocale(): Locale {
 
 export function App() {
   const guardOnly = guardOnlyMode()
+  const [activePage, setActivePage] = useState<DesktopPage>(() => initialDesktopPage(typeof window === 'undefined' ? '' : window.location.search))
+  const [operationTarget, setOperationTarget] = useState<{ command?: string; chat?: string }>(() => ({
+    command: typeof window === 'undefined' ? undefined : new URLSearchParams(window.location.search).get('command') ?? undefined,
+  }))
+  const [dataRevision, setDataRevision] = useState(0)
   const [locale, setLocale] = useState<Locale>(() => initialLocale())
   // Locale dictionary lookup: messages[locale].
   const t = localeMessages[locale]
@@ -260,9 +269,25 @@ export function App() {
   const messageRequestId = useRef(0)
   const accountRef = useRef(account)
   const selectedChatRef = useRef(selectedChat)
+  const activePageRef = useRef(activePage)
 
   accountRef.current = account
   selectedChatRef.current = selectedChat
+  activePageRef.current = activePage
+
+  const refreshAccounts = useCallback(async () => {
+    try {
+      const data = await getJson<AccountData>('/api/accounts')
+      setAccounts(data)
+      setAccount((current) => data.accounts.some((item) => item.name === current)
+        ? current : data.current_account ?? data.accounts[0]?.name ?? '')
+      setDataRevision((current) => current + 1)
+      if (data.accounts.length === 0 && activePageRef.current === 'messages') setActivePage('accounts')
+    } catch (caught) {
+      setError(errorText(caught))
+    }
+  }, [])
+  const refreshData = useCallback(() => setDataRevision((current) => current + 1), [])
 
   useEffect(() => {
     if (typeof document !== 'undefined') document.documentElement.lang = locale
@@ -270,15 +295,25 @@ export function App() {
 
   useEffect(() => {
     if (guardOnly) return
-    getJson<AccountData>('/api/accounts')
-      .then((data) => {
-        setAccounts(data)
-        setAccount(data.current_account ?? data.accounts[0]?.name ?? '')
-      })
-      .catch((caught) => setError(errorText(caught)))
-  }, [guardOnly])
+    void refreshAccounts()
+  }, [guardOnly, refreshAccounts])
 
   useEffect(() => {
+    function onPopState() {
+      setActivePage(initialDesktopPage(window.location.search))
+      setOperationTarget({ command: new URLSearchParams(window.location.search).get('command') ?? undefined })
+      setError('')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  useEffect(() => {
+    if (activePage !== 'messages' || guardOnly) {
+      chatRequestId.current += 1
+      setLoadingChats(false)
+      return
+    }
     const requestId = chatRequestId.current + 1
     chatRequestId.current = requestId
     if (!account) {
@@ -325,9 +360,14 @@ export function App() {
       .finally(() => {
         if (requestId === chatRequestId.current) setLoadingChats(false)
       })
-  }, [account, chatQuery])
+  }, [account, chatQuery, dataRevision, activePage, guardOnly])
 
   useEffect(() => {
+    if (activePage !== 'messages' || guardOnly) {
+      messageRequestId.current += 1
+      setLoadingMessages(false)
+      return
+    }
     if (!account || selectedChat == null) {
       messageRequestId.current += 1
       setMessages([])
@@ -338,7 +378,7 @@ export function App() {
       return
     }
     void loadMessages(1)
-  }, [account, selectedChat?.chat_id, messagePageSize])
+  }, [account, selectedChat?.chat_id, messagePageSize, dataRevision, activePage, guardOnly])
 
   useEffect(() => {
     setBlockedSenders(readBlockedSenders(senderBlacklistStorageKey(account, selectedChat?.chat_id ?? null)))
@@ -367,6 +407,18 @@ export function App() {
     storeLocale(browserLocalStorage(), nextLocale)
     replaceUrlLocale(window.location, window.history, nextLocale)
   }
+
+  function navigatePage(page: DesktopPage, command?: string, chat?: string) {
+    setActivePage(page)
+    setError('')
+    setBlacklistOpen(false)
+    if (page === 'operations') setOperationTarget({ command, chat })
+    if (typeof window !== 'undefined') window.history.pushState(null, '', desktopPageUrl(window.location.href, page, command))
+  }
+
+  const pageLabels: Record<DesktopPage, string> = locale === 'zh-CN'
+    ? { messages: '消息', operations: '功能工作区', accounts: '账号', guard: '群组自动化' }
+    : { messages: 'Messages', operations: 'Operations', accounts: 'Accounts', guard: 'Guard' }
 
   async function loadMessages(pageNumber: number, filterOverrides: MessageFilterOverrides = {}) {
     if (!account || selectedChat == null) return
@@ -555,18 +607,19 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={guardOnly ? 'app-shell' : 'app-shell desktop-shell'}>
       <header className="topbar">
         <div className="brand-block">
           <span className="brand-mark">tg</span>
           <div>
             <strong>Telegram CLI</strong>
-            <span>{guardOnly ? t.shell.guardConsole : t.shell.localMessageConsole}</span>
+            <span>{guardOnly ? t.shell.guardConsole : pageLabels[activePage]}</span>
           </div>
         </div>
         {!guardOnly && <label className="account-picker">
           <span>{t.shell.account}</span>
           <select value={account} onChange={(event) => { setAccount(event.target.value); setSelectedChat(null); setMessages([]); setMessageTotal(0); setMessagePage(1); setMessagePageInput('1') }}>
+            {accounts.accounts.length === 0 && <option value="">{locale === 'zh-CN' ? '尚未添加账号' : 'No accounts added'}</option>}
             {accounts.accounts.map((item) => (
               <option key={item.name} value={item.name}>
                 {item.display_name || item.username || item.name}
@@ -586,9 +639,21 @@ export function App() {
         </span>}
       </header>
 
+      {!guardOnly && (
+        <nav className="app-navigation" aria-label={t.shell.workspaceView}>
+          {(['messages', 'operations', 'accounts', 'guard'] as const).map((page) => (
+            <button type="button" key={page} aria-current={activePage === page ? 'page' : undefined}
+              onClick={() => navigatePage(page)}>
+              {pageLabels[page]}
+            </button>
+          ))}
+          <span>{locale === 'zh-CN' ? '与 CLI 共用本地数据' : 'Shared local workspace'}</span>
+        </nav>
+      )}
+
       {error && <div className="error-strip" role="alert">{error}</div>}
 
-      {!guardOnly ? (
+      {!guardOnly && activePage === 'messages' ? (
       <section className="workspace" aria-label={t.shell.localMessageConsole}>
         <aside className="sidebar">
           <div className="sidebar-tools">
@@ -628,9 +693,15 @@ export function App() {
               </div>
               <p>{selectedSummary}</p>
             </div>
+            <div className="chat-header-actions">
+            <button className="secondary-action" type="button" disabled={selectedChat == null}
+              onClick={() => navigatePage('operations', 'send', selectedChat == null ? undefined : String(displayChatId(selectedChat.chat_id)))}>
+              {locale === 'zh-CN' ? '发送消息' : 'Send message'}
+            </button>
             <button className="primary-action" onClick={syncCurrentChat} disabled={selectedChat == null || syncTask.status === 'running'} type="button">
               {t.messages.syncCurrentChat}
             </button>
+            </div>
           </div>
 
           <section className="filter-panel" aria-label={t.messages.messageFilters}>
@@ -899,8 +970,19 @@ export function App() {
           )}
         </section>
       </section>
+      ) : !guardOnly && activePage === 'operations' ? (
+        <Suspense fallback={<p className="empty-note" role="status">{t.common.loading}</p>}>
+          <Workspace account={account} locale={locale} onAccountsChanged={refreshAccounts} onDataChanged={refreshData}
+            initialCommand={operationTarget.command} initialChat={operationTarget.chat} />
+        </Suspense>
+      ) : !guardOnly && activePage === 'accounts' ? (
+        <Suspense fallback={<p className="empty-note" role="status">{t.common.loading}</p>}>
+          <Accounts accounts={accounts} account={account} locale={locale} onAccountsChanged={refreshAccounts}
+            onSelectAccount={(name) => { setAccount(name); setSelectedChat(null); setError('') }}
+            onOpenOperation={(command) => navigatePage('operations', command)} />
+        </Suspense>
       ) : <GuardWorkbench t={t} locale={locale} />}
-      {!guardOnly && blacklistOpen && (
+      {!guardOnly && activePage === 'messages' && blacklistOpen && (
         <div className="modal-backdrop" role="presentation">
           <section className="blacklist-modal" role="dialog" aria-modal="true" aria-labelledby="sender-blacklist-title">
             <div className="blacklist-modal-heading">
@@ -947,6 +1029,8 @@ export function App() {
 
 function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
   const [status, setStatus] = useState<GuardRuntimeState | null>(null)
+  const [runtimeControlAvailable, setRuntimeControlAvailable] = useState(false)
+  const [changingRuntime, setChangingRuntime] = useState(false)
   const [groups, setGroups] = useState<GuardGroup[]>([])
   const [rules, setRules] = useState<GuardRule[]>([])
   const [activity, setActivity] = useState<GuardActivityItem[]>([])
@@ -973,6 +1057,12 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
   useEffect(() => {
     void loadGuard()
   }, [])
+
+  useEffect(() => {
+    if (status?.status !== 'running') return
+    const timer = setInterval(() => void loadGuard(), 3_000)
+    return () => clearInterval(timer)
+  }, [status?.status])
 
   useEffect(() => {
     if (selectedGroupId == null) {
@@ -1009,10 +1099,11 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
     setError('')
     try {
       const [statusData, activityData] = await Promise.all([
-        getJson<{ runtime: GuardRuntimeState; groups: Page<GuardGroup> }>('/api/guard/status'),
+        getJson<{ runtime: GuardRuntimeState; groups: Page<GuardGroup>; runtime_control_available?: boolean }>('/api/guard/status'),
         getJson<Page<GuardActivityItem>>('/api/guard/activity'),
       ])
       setStatus(statusData.runtime)
+      setRuntimeControlAvailable(statusData.runtime_control_available === true)
       setGroups(statusData.groups.items)
       const latestSelectedGroupId = selectedGroupIdRef.current
       const currentGroupId = nextGuardGroupId(statusData.groups.items, latestSelectedGroupId)
@@ -1048,6 +1139,19 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
       setError(errorText(caught))
     } finally {
       setCreatingRule(false)
+    }
+  }
+
+  async function controlGuardRuntime(action: 'start' | 'stop' | 'restart') {
+    setChangingRuntime(true)
+    setError('')
+    try {
+      setStatus(await postJson<GuardRuntimeState>('/api/guard/runtime', { action }))
+      await loadGuard()
+    } catch (caught) {
+      setError(errorText(caught))
+    } finally {
+      setChangingRuntime(false)
     }
   }
 
@@ -1119,9 +1223,25 @@ function GuardWorkbench({ t, locale }: { t: WebMessages; locale: Locale }) {
           <h1>{t.guard.groupAutomation}</h1>
           <p>{status?.error ?? t.guard.runtimeDescription}</p>
         </div>
-        <button className="secondary-action" type="button" onClick={() => void loadGuard()} disabled={loading}>
+        <div className="guard-runtime-actions">
+        {runtimeControlAvailable && (
+          <>
+            <button className="primary-action" type="button" disabled={changingRuntime}
+              onClick={() => void controlGuardRuntime(status?.status === 'running' ? 'stop' : 'start')}>
+              {changingRuntime ? t.common.updating : locale === 'zh-CN'
+                ? (status?.status === 'running' ? '停止监听' : '启动监听')
+                : (status?.status === 'running' ? 'Stop Guard' : 'Start Guard')}
+            </button>
+            <button className="secondary-action" type="button" disabled={changingRuntime || status?.status !== 'running'}
+              onClick={() => void controlGuardRuntime('restart')}>
+              {locale === 'zh-CN' ? '重新加载规则' : 'Reload rules'}
+            </button>
+          </>
+        )}
+        <button className="secondary-action" type="button" onClick={() => void loadGuard()} disabled={loading || changingRuntime}>
           {t.common.refresh}
         </button>
+        </div>
       </div>
 
       {error && <div className="guard-error" role="alert">{error}</div>}

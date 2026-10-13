@@ -25,10 +25,10 @@ type PackageJson = {
 }
 
 describe('npm package metadata', () => {
-  it('publishes version 0.8.11', () => {
+  it('publishes version 0.9.0', () => {
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as PackageJson
 
-    expect(packageJson.version).toBe('0.8.11')
+    expect(packageJson.version).toBe('0.9.0')
   })
 
   it('publishes the compiled CLI as a public scoped package', () => {
@@ -104,7 +104,9 @@ describe('bundled Telegram CLI skill', () => {
 
   it('classifies listen, Web, and Guard side effects accurately', () => {
     expect(skill).toContain('`--save` writes SQLite; `--auto-download` writes files')
-    expect(skill).toContain('| Browse local messages and trigger read-only sync | `web`')
+    expect(skill).toContain('| Use the local account and operation workspace | `web`')
+    expect(skill).toContain('optional gated Telegram writes or Guard actions')
+    expect(skill).toContain('Opening the workspace does not authorize those operations')
     expect(skill).toContain('| Run rule-based group automation | `guard start`')
     expect(skill).not.toContain('persists normalized attachments; optional downloads')
     expect(skill).not.toContain('normalized `attachments[]` remain persisted and usable')
@@ -114,6 +116,10 @@ describe('bundled Telegram CLI skill', () => {
     for (const expected of [
       '## Web UI',
       'tg web --no-open',
+      '## Desktop app',
+      '103 searchable command forms',
+      'pnpm desktop:dev',
+      'private process IPC',
       '## Guard automation',
       'tg guard start --port 8734',
       'write access is disabled',

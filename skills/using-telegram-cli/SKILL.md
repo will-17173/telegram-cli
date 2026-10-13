@@ -1,6 +1,6 @@
 ---
 name: using-telegram-cli
-description: Use when an agent needs to install or operate @will-17173/telegram-cli for Telegram accounts, chats, messages, media downloads, Web UI, Guard automation, contacts, folders, notifications, archives, listening, or group administration.
+description: Use when an agent needs to install or operate @will-17173/telegram-cli for Telegram accounts, chats, messages, media downloads, Web UI, Desktop, Guard automation, contacts, folders, notifications, archives, listening, or group administration.
 ---
 
 # Using Telegram CLI
@@ -14,7 +14,7 @@ Use `tg` as an account-aware Telegram client and local SQLite message index. Cho
 - Request explicit user authorization before either enabling write access or executing any remote mutation. Authorization to enable writes is not authorization for a mutation. Several mutations have no built-in confirmation.
 - Check `tg config write-access status --json` before a planned mutation. The gate covers remote mutations only; read-only Telegram calls, local SQLite/file operations, account lifecycle, and configuration remain available while it is off.
 - Treat `tg guard start` with write access enabled as continuous remote-mutation automation. Review its enabled groups, rules, and policies and obtain explicit authorization before starting an armed Guard; with write access disabled, Telegram write actions are recorded as dry runs.
-- Never provide, solicit in plain text, or automate an ownership-transfer password. `group admin transfer-owner` prompts for it securely in an interactive TTY after `--yes`; it is not suitable for non-interactive CI.
+- Never provide, solicit in plain text, or automate an ownership-transfer password. The CLI prompts securely in an interactive TTY after `--yes`; the Desktop/Web operation form has a masked field and uses private process IPC. Have the human enter the password directly in the secure prompt or field; do not put it in arguments, environment values, logs, or task history.
 - Treat API hashes, proxy URLs, sessions, account metadata, exported messages, and databases as secrets. Never print `config list --show-secrets`, expose a credential-bearing proxy, or commit `DATA_DIR`.
 - Select an account explicitly with `--account <name>` in automation. Do not change the current account merely to run one command.
 - Select exactly one of `--json`, `--yaml`, or `--markdown` for finite commands. Use JSON or YAML for automation and stable `ok`/error fields; Markdown is human-facing and may omit structured failure details. Non-TTY output otherwise defaults to YAML. `listen` excludes these flags.
@@ -80,7 +80,7 @@ If the binary is still missing, inspect the npm global prefix and `PATH`, report
 | Query/export/delete stored messages | `search`, `recent`, `today`, `stats`, `top`, `timeline`, `filter`, `export`, `purge` | no | export may write a file; purge deletes matching local rows |
 | Reset local data after breaking storage upgrades | `data reset` | no | deletes account DB/default archive files |
 | Inspect/mutate notifications or folders | `notification`, `folder` | yes | `mute`/`unmute` and `folder chat add/remove` mutate Telegram |
-| Browse local messages and trigger read-only sync | `web` | local HTTP plus optional Telegram sync | local server and SQLite writes; no Telegram mutation |
+| Use the local account and operation workspace | `web` | local HTTP; Telegram when requested by an operation | account login, SQLite/files, and optional gated Telegram writes or Guard actions |
 | Watch incoming messages | `listen` | yes, long-running | none by default; `--save` writes SQLite; `--auto-download` writes files |
 | Run rule-based group automation | `guard start` | yes, long-running | local Guard records; remote actions when write access is enabled |
 | Change Telegram state | `send`, `edit`, `delete`, notification/folder/group/Guard writes | yes | real external write |
@@ -106,8 +106,9 @@ Read [references/command-reference.md](references/command-reference.md) before c
 - Reusing an old database after a breaking media schema change: run `tg data reset --yes`, then sync again.
 - Expecting `listen --no-media` to suppress `--save` or `--auto-download`: it only hides rendered media rows; the explicit save and download flags still write their respective data.
 - Starting Guard with write access enabled merely to inspect it: an armed Guard can immediately execute saved rules; inspect with write access off, then obtain authorization before enabling writes and restarting it.
+- Treating Web/Desktop as read-only: operation forms can mutate Telegram and Guard can run saved actions. Opening the workspace does not authorize those operations; retain the same write-access and per-action authorization rules as the CLI.
 - Using an ambiguous chat name: retry with its numeric chat ID.
 - Looking up an uncached numeric non-contact with `contact info <user-id>` alone: add `--chat <group>` or use `contact info <group> <user-id>` so Telegram can resolve the user from group message context.
 - Using Markdown for archive automation: it does not preserve full partial-failure details; use JSON/YAML.
-- Passing a 2FA password in arguments, environment variables, stdin automation, chat, or logs: ownership transfer accepts only its secure interactive prompt.
+- Passing a 2FA password in arguments, environment variables, stdin automation, chat, or logs: the human must enter it in the secure CLI prompt or masked Desktop/Web ownership-transfer field.
 - Expecting `send` to appear immediately in local search: synchronize afterward.

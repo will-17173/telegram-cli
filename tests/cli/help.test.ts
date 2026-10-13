@@ -3,8 +3,8 @@ import { createApp } from '../../src/cli/app.js'
 import { GROUP_COMMANDS } from '../../src/group-commands/catalog.js'
 
 describe('cli help', () => {
-  it('reports the v0.8.11 command version', () => {
-    expect(createApp().version()).toBe('0.8.11')
+  it('reports the v0.9.0 command version', () => {
+    expect(createApp().version()).toBe('0.9.0')
   })
 
   it('registers the tg command surface', () => {

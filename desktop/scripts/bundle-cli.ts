@@ -7,8 +7,9 @@
 // Tauri can embed it as frontendDist without any "../" path (Tauri 2.x mishandles
 // parent-directory segments in frontendDist/resources, encoding them as "_up_").
 import { execSync } from 'node:child_process'
-import { cpSync, existsSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { preparePortableBundle } from './bundle-runtime.js'
 
 const ROOT = join(import.meta.dirname, '..', '..')
 const SRC_TAURI = join(import.meta.dirname, '..', 'src-tauri')
@@ -39,6 +40,7 @@ function main(): void {
 
   const entry = join(BUNDLE_OUT, 'index.js')
   if (!existsSync(entry)) throw new Error(`ncc did not produce ${entry}`)
+  writeFileSync(entry, preparePortableBundle(readFileSync(entry, 'utf8')), 'utf8')
 
   // Sanity: better-sqlite3 native module must be emitted for the web server
   // (which opens SQLite) to start.
