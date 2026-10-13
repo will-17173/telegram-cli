@@ -9,9 +9,14 @@ on:
         description: 'Existing v* tag to publish (builds the selected workflow ref; does not move the tag)'
         required: true
         type: string
+      artifact_run_id:
+        description: 'Optional: reuse a previous run whose three build and smoke-test jobs succeeded'
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: desktop-release-${{ github.event.inputs.release_tag || github.ref_name }}
@@ -31,6 +36,7 @@ jobs:
       build_commit: ${{ steps.release.outputs.build_commit }}
       tag_commit: ${{ steps.release.outputs.tag_commit }}
       prerelease: ${{ steps.release.outputs.prerelease }}
+      artifact_run_id: ${{ steps.release.outputs.artifact_run_id }}
     steps:
       - name: Checkout release source and tags
         uses: actions/checkout@v7
@@ -55,6 +61,8 @@ jobs:
         id: release
         env:
           RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+          ARTIFACT_RUN_ID: ${{ github.event.inputs.artifact_run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: node desktop/scripts/release-artifacts.ts preflight
 
       - name: Install dependencies
@@ -73,6 +81,7 @@ jobs:
 
   build:
     needs: validate
+    if: ${{ !github.event.inputs.artifact_run_id }}
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
@@ -173,10 +182,12 @@ jobs:
 
   publish:
     needs: [validate, build]
+    if: ${{ always() && needs.validate.result == 'success' && (needs.build.result == 'success' || (github.event.inputs.artifact_run_id && needs.build.result == 'skipped')) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Checkout the validated build commit
         uses: actions/checkout@v7
@@ -194,6 +205,8 @@ jobs:
           pattern: desktop-*
           merge-multiple: true
           path: ${{ runner.temp }}/desktop-assets
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.validate.outputs.artifact_run_id || github.run_id }}
 
       - name: Verify complete release and create checksums
         env:
@@ -223,7 +236,9 @@ jobs:
             "$RUNNER_TEMP/desktop-assets/"*.dmg \
             "$RUNNER_TEMP/desktop-assets/"*.app.tar.gz \
             "$RUNNER_TEMP/desktop-assets/SHA256SUMS.txt"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/uploaded-release.json"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json apiUrl --jq .apiUrl > "$RUNNER_TEMP/release-api-url.txt"
+          IFS= read -r RELEASE_API_URL < "$RUNNER_TEMP/release-api-url.txt"
+          gh api "$RELEASE_API_URL" > "$RUNNER_TEMP/uploaded-release.json"
           node desktop/scripts/release-artifacts.ts verify "$RUNNER_TEMP/desktop-assets" "$RELEASE_VERSION" "$RUNNER_TEMP/uploaded-release.json"
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE" \
             --notes-file "$RUNNER_TEMP/desktop-assets/release-notes.md"

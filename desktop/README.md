@@ -155,6 +155,12 @@ A manual run builds the selected workflow ref, validates its application
 versions against the existing tag, and records both commits in the release
 notes. It does not move the tag. A tag push builds the tagged commit itself.
 
+If only publishing fails after all three builds pass, enter that run's ID in
+the optional `artifact_run_id` input to reuse its verified installers. The
+workflow checks the repository, source versions, all three build jobs, and
+their smoke-test results before downloading the artifacts. Release notes
+continue to record the commit that produced the binaries.
+
 ## Known limitations
 
 - **Signing.** macOS uses ad-hoc signing without Apple notarization; allow the

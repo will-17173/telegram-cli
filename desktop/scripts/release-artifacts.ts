@@ -96,6 +96,25 @@ export async function verifyUploadedRelease(directory: string, version: string, 
   console.log('All six installers and the checksum file are uploaded and match their SHA-256 digests.')
 }
 
+export function reusableBuildCommit(run: {
+  status: string
+  path: string
+  head_sha: string
+  head_repository: { full_name: string } | null
+}, jobs: { name: string; conclusion: string | null; steps: { name: string; conclusion: string | null }[] }[], repository: string): string {
+  if (run.status !== 'completed' || run.path !== '.github/workflows/desktop-release.yml'
+    || run.head_repository?.full_name !== repository || !/^[0-9a-f]{40}$/.test(run.head_sha)) {
+    throw new Error('Artifact reuse requires a completed desktop release run from this repository.')
+  }
+  for (const platform of Object.keys(formats)) {
+    const build = jobs.find(job => job.name === `Build ${platform}`)
+    if (build?.conclusion !== 'success' || !build.steps.some(step => step.name === 'Smoke-test the relocated portable backend' && step.conclusion === 'success')) {
+      throw new Error(`Artifact reuse requires a successful build and smoke test for ${platform}.`)
+    }
+  }
+  return run.head_sha
+}
+
 function preflight(): void {
   const root = resolve(import.meta.dirname, '..', '..')
   const tag = process.env.RELEASE_TAG ?? ''
@@ -107,10 +126,27 @@ function preflight(): void {
     Cargo: /^version = "([^"]+)"$/m.exec(cargo)?.[1] ?? '',
   })
   const tagCommit = execFileSync('git', ['rev-parse', '--verify', `refs/tags/${tag}^{commit}`], { cwd: root, encoding: 'utf8' }).trim()
-  const buildCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+  let buildCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+  const artifactRunId = process.env.ARTIFACT_RUN_ID ?? ''
+  if (artifactRunId) {
+    if (!/^[1-9]\d*$/.test(artifactRunId) || process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch') throw new Error('Artifact run ID must be a positive integer supplied to a manual workflow run.')
+    const repository = process.env.GITHUB_REPOSITORY ?? ''
+    const github = (path: string) => JSON.parse(execFileSync('gh', ['api', path], { encoding: 'utf8' }))
+    const run = github(`repos/${repository}/actions/runs/${artifactRunId}`)
+    const jobs = github(`repos/${repository}/actions/runs/${artifactRunId}/jobs?per_page=100`).jobs
+    buildCommit = reusableBuildCommit(run, jobs, repository)
+    const source = (path: string) => execFileSync('git', ['show', `${buildCommit}:${path}`], { cwd: root, encoding: 'utf8' })
+    releaseVersion(tag, {
+      CLI: JSON.parse(source('package.json')).version,
+      Desktop: JSON.parse(source('desktop/package.json')).version,
+      Tauri: JSON.parse(source('desktop/src-tauri/tauri.conf.json')).version,
+      Cargo: /^version = "([^"]+)"$/m.exec(source('desktop/src-tauri/Cargo.toml'))?.[1] ?? '',
+    })
+    console.log(`Reusing the verified native installers from run ${artifactRunId}.`)
+  }
   if (process.env.GITHUB_EVENT_NAME === 'push' && tagCommit !== buildCommit) throw new Error('Tag build must check out the tagged commit.')
   console.log(`Desktop release ${tag}: build ${buildCommit}, tag ${tagCommit}`)
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\nversion=${version}\nbuild_commit=${buildCommit}\ntag_commit=${tagCommit}\nprerelease=${version.includes('-')}\n`, 'utf8')
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\nversion=${version}\nbuild_commit=${buildCommit}\ntag_commit=${tagCommit}\nprerelease=${version.includes('-')}\nartifact_run_id=${artifactRunId}\n`, 'utf8')
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

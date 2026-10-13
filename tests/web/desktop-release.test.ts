@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { archiveNodePath, extractNodeArchive, nodeDistribution, sidecarName } from '../../desktop/scripts/sidecar-platform.js'
-import { collectReleaseArtifacts, prepareRelease, releaseAssetNames, releaseVersion, verifyUploadedRelease } from '../../desktop/scripts/release-artifacts.js'
+import { collectReleaseArtifacts, prepareRelease, releaseAssetNames, releaseVersion, reusableBuildCommit, verifyUploadedRelease } from '../../desktop/scripts/release-artifacts.js'
 
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
@@ -59,6 +59,19 @@ describe('desktop sidecar platforms', () => {
 })
 
 describe('desktop release artifacts', () => {
+  it('reuses only completed native builds with successful smoke tests from this repository', () => {
+    const repository = 'will-17173/telegram-cli'
+    const run = { status: 'completed', path: '.github/workflows/desktop-release.yml', head_sha: 'a'.repeat(40), head_repository: { full_name: repository } }
+    const jobs = ['linux-x64', 'windows-x64', 'macos-arm64'].map(platform => ({
+      name: `Build ${platform}`, conclusion: 'success', steps: [{ name: 'Smoke-test the relocated portable backend', conclusion: 'success' }],
+    }))
+    expect(reusableBuildCommit(run, jobs, repository)).toBe(run.head_sha)
+    expect(() => reusableBuildCommit({ ...run, status: 'in_progress' }, jobs, repository)).toThrow('completed desktop release run')
+    expect(() => reusableBuildCommit({ ...run, head_repository: { full_name: 'another/repo' } }, jobs, repository)).toThrow('this repository')
+    expect(() => reusableBuildCommit(run, jobs.slice(1), repository)).toThrow('successful build and smoke test for linux-x64')
+    expect(() => reusableBuildCommit(run, [{ ...jobs[0], steps: [{ name: jobs[0].steps[0].name, conclusion: 'skipped' }] }, ...jobs.slice(1)], repository)).toThrow('smoke test for linux-x64')
+  })
+
   it('rejects version mismatches and unsafe tag inputs', () => {
     expect(releaseVersion('v0.9.0', { CLI: '0.9.0', Desktop: '0.9.0', Cargo: '0.9.0' })).toBe('0.9.0')
     expect(() => releaseVersion('v0.9.0', { Desktop: '0.8.0' })).toThrow('Desktop version 0.8.0 does not match')
