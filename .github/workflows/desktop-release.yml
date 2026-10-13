@@ -64,7 +64,8 @@ jobs:
 
       - name: Verify CLI and desktop build scripts
         run: |
-          pnpm test
+          # Ink interaction fixtures need live frames from their simulated terminal.
+          CI=false CONTINUOUS_INTEGRATION=false pnpm test
           pnpm typecheck
           pnpm --dir desktop run typecheck
           pnpm build
