@@ -1,0 +1,6 @@
+# Keep Desktop's dependencies and lockfile separate from the CLI workspace.
+packages:
+  - '.'
+
+allowBuilds:
+  esbuild: true

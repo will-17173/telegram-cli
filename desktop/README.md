@@ -1,6 +1,7 @@
 # Telegram CLI Desktop
 
-A Tauri v2 macOS application for the existing `tg` CLI capabilities. It bundles
+A Tauri v2 application for Linux x64, Windows x64, and macOS ARM64 that includes
+the existing `tg` CLI capabilities. It bundles
 a portable Node.js runtime plus the CLI as a sidecar. Accounts, sessions,
 configuration, cached messages, downloads, and archives use the same data
 directory as the CLI.
@@ -48,10 +49,12 @@ session file do not support concurrent access.
 
 ## Prerequisites
 
-- Rust (stable, with `aarch64-apple-darwin` and/or `x86_64-apple-darwin` targets)
+- Rust stable for your native platform
 - Node.js >= 22.12
 - pnpm
 - From the repo root: `pnpm install` (installs CLI deps incl. `@vercel/ncc`)
+- `pnpm --dir desktop install` (installs the Tauri CLI and packaging tools)
+- Platform build tools listed in the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 
 ## Develop
 
@@ -74,8 +77,10 @@ pnpm --dir desktop run fetch-node   # ensures binaries/node-<triple> is present
 pnpm --dir desktop run tauri:build
 ```
 
-Output: `desktop/src-tauri/target/release/bundle/` containing the `.app` and
-`.dmg` for the host architecture.
+Output: `desktop/src-tauri/target/release/bundle/` containing the native host's
+installers. Use `--bundles deb,appimage` on Linux, `--bundles nsis,msi` on Windows,
+or `--bundles app,dmg` on macOS to select formats. When `--target <triple>` is
+specified, output is under `target/<triple>/release/bundle/`.
 
 If the host's disk image service cannot create a DMG, build the app directly:
 `pnpm --dir desktop run tauri:build --bundles app`. The macOS 27 host used for
@@ -102,17 +107,49 @@ checking forms, results, listener replies, login, cancellation, and layout.
 
 ### Cross-architecture notes
 
-`better-sqlite3`'s native module is architecture-specific. ncc emits whatever
-`.node` is in `node_modules/better-sqlite3/build/Release/`, which matches the
-machine that ran `pnpm rebuild better-sqlite3`. To build for the other macOS
-architecture, rebuild on (or cross-compile from) a machine of that architecture,
-then run `pnpm run bundle` and `tauri:build` there.
+SQLite native modules and the portable Node runtime must match the Rust target.
+Build on a native runner for each operating system and architecture. The
+sidecar preparation rejects cross-architecture builds rather than packaging
+the host's incompatible SQLite module.
+
+## GitHub Releases
+
+Pushing a `v*` tag runs [Release desktop apps](../.github/workflows/desktop-release.yml).
+The tag must match the versions in the root package, desktop package, Cargo,
+and Tauri configuration. Three native jobs generate:
+
+| Platform | Runner | Release assets |
+| --- | --- | --- |
+| Linux x64 | Ubuntu 22.04 | `.AppImage`, `.deb` |
+| Windows x64 | Windows Server 2022 | NSIS `.exe`, `.msi` |
+| macOS ARM64 | macOS 15 ARM64 | `.dmg`, `.app.tar.gz` |
+
+All jobs use Node 24 and run an isolated portable backend smoke test that
+checks bundled SQLite, WASM assets, account queries, and a managed CLI task.
+macOS also verifies the packaged app's signature. Installers are published
+only after all three jobs pass; the release includes `SHA256SUMS.txt`.
+The release stays in draft while uploading, including on reruns. Uploaded
+asset states, sizes, and SHA-256 digests must match before it becomes public.
+
+The workflow uses GitHub's built-in token; no npm token, `.env`, Telegram API
+credentials, or account sessions are required.
+
+To backfill an existing tag, select the source branch in Actions → Release
+desktop apps → Run workflow and enter its `release_tag`, or run:
+
+```sh
+gh workflow run desktop-release.yml --ref main -f release_tag=v0.9.0
+```
+
+A manual run builds the selected workflow ref, validates its application
+versions against the existing tag, and records both commits in the release
+notes. It does not move the tag. A tag push builds the tagged commit itself.
 
 ## Known limitations
 
-- **No code signing / notarization.** The first release is unsigned; on macOS
-  Gatekeeper will block it until you right-click → Open, or run
-  `xattr -dr com.apple.quarantine /path/to/Telegram CLI.app`.
+- **Signing.** macOS uses ad-hoc signing without Apple notarization; allow the
+  downloaded app in Privacy & Security when prompted. Windows installers are
+  unsigned. The Node 24 runtime requires macOS 13.5 or later.
 - **Size.** The verified Node 24 build includes a ~120 MB runtime plus the CLI
   bundle, so the `.app` is about 150 MB.
 - **No concurrent CLI + desktop use** on the same account.

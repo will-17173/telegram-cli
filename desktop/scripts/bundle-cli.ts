@@ -6,8 +6,9 @@
 // Also copies the prebuilt web UI (../../dist/web) into src-tauri/dist-web so
 // Tauri can embed it as frontendDist without any "../" path (Tauri 2.x mishandles
 // parent-directory segments in frontendDist/resources, encoding them as "_up_").
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { preparePortableBundle } from './bundle-runtime.js'
 
@@ -16,21 +17,22 @@ const SRC_TAURI = join(import.meta.dirname, '..', 'src-tauri')
 const BUNDLE_OUT = join(SRC_TAURI, 'dist-bundle')
 const WEB_SRC = join(ROOT, 'dist', 'web')
 const WEB_OUT = join(SRC_TAURI, 'dist-web')
-const NCC_BIN = join(ROOT, 'node_modules', '.bin', 'ncc')
+const NCC_BIN = createRequire(join(ROOT, 'package.json')).resolve('@vercel/ncc/dist/ncc/cli.js')
 
 function main(): void {
   rmSync(BUNDLE_OUT, { recursive: true, force: true })
 
   // ncc's programmatic API misbehaves under this project's pnpm layout (dumps
-  // its webpack cache bundle to stderr). The CLI form is reliable, so shell
-  // out to it.
+  // its webpack cache bundle to stderr). Invoke the CLI through Node so it also
+  // works on Windows without executing a .cmd wrapper or quoting shell paths.
   //
   // TS_NODE_PROJECT points ncc's ts-loader at tsconfig.build.json, which only
   // includes src/ (the root tsconfig.json also includes tests/, so any test
   // type error would otherwise break bundling).
   console.log('ncc bundling CLI ->', BUNDLE_OUT)
-  execSync(
-    `"${NCC_BIN}" build "${join(ROOT, 'src', 'index.ts')}" -o "${BUNDLE_OUT}" --target es2022`,
+  execFileSync(
+    process.execPath,
+    [NCC_BIN, 'build', join(ROOT, 'src', 'index.ts'), '-o', BUNDLE_OUT, '--target', 'es2022'],
     {
       stdio: 'inherit',
       cwd: ROOT,

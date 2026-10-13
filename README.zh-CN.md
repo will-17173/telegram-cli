@@ -67,6 +67,8 @@ tg web
 
 在源码仓库运行 `pnpm desktop:dev` 可启动 Desktop 开发模式。已有 CLI 账号和有效会话会自动复用；如果配置了自定义数据目录，请使用同一个 `DATA_DIR`。
 
+Linux x64、Windows x64 和 macOS ARM64 的桌面安装包可在 [GitHub Releases](https://github.com/will-17173/telegram-cli/releases) 下载。推送与应用版本一致的 `v*` tag 后，会自动构建这三个平台并发布安装包。
+
 ### 监听新消息并下载文件
 
 `listen` 可以实时接收一个或多个聊天的新消息，默认不写入本地消息数据库。加上 `--save` 后，收到的新消息会实时写入本地数据库。它可以下载收到的主媒体，并在交互模式中执行回复或群组操作。`--no-media` 只隐藏渲染出来的媒体行；`--auto-download` 仍然使用实时规范化附件数据。

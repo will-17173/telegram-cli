@@ -1,0 +1,224 @@
+name: Release desktop apps
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing v* tag to publish (builds the selected workflow ref; does not move the tag)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.event.inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      build_commit: ${{ steps.release.outputs.build_commit }}
+      tag_commit: ${{ steps.release.outputs.tag_commit }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - name: Checkout release source and tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.24.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+
+      - name: Validate tag and all application versions
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+        run: node desktop/scripts/release-artifacts.ts preflight
+
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --dir desktop install --frozen-lockfile
+
+      - name: Verify CLI and desktop build scripts
+        run: |
+          pnpm test
+          pnpm typecheck
+          pnpm --dir desktop run typecheck
+          pnpm build
+
+  build:
+    needs: validate
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+          - platform: windows-x64
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundles: nsis,msi
+          - platform: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+    env:
+      CI: 'true'
+      CARGO_INCREMENTAL: '0'
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+    steps:
+      - name: Checkout the validated build commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.build_commit }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.24.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+
+      - name: Set up native Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Verify native runner architecture
+        env:
+          DESKTOP_TARGET: ${{ matrix.target }}
+        run: |
+          node -e 'const {execFileSync}=require("node:child_process"); const t=process.env.DESKTOP_TARGET; const host=execFileSync("rustc",["--print","host-tuple"],{encoding:"utf8"}).trim(); if(host!==t || process.arch!==(t.startsWith("aarch64-")?"arm64":"x64")) throw new Error(`Native build required: ${host}, Node ${process.arch}, expected ${t}`); console.log(`Native ${t}, Node ${process.version}`)'
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils libfuse2
+
+      - name: Cache Rust compilation
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'desktop/src-tauri -> target'
+          key: ${{ matrix.target }}
+
+      - name: Install native Node dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --dir desktop install --frozen-lockfile
+
+      - name: Build desktop installers
+        run: pnpm --dir desktop run tauri:build --target '${{ matrix.target }}' --bundles '${{ matrix.bundles }}' -- --locked
+
+      - name: Smoke-test the relocated portable backend
+        run: pnpm --dir desktop run smoke:bundle '${{ matrix.target }}'
+
+      - name: Collect platform installers
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          DESKTOP_TARGET: ${{ matrix.target }}
+          DESKTOP_PLATFORM: ${{ matrix.platform }}
+        run: node desktop/scripts/release-artifacts.ts collect "desktop/src-tauri/target/$DESKTOP_TARGET/release/bundle" "$RUNNER_TEMP/desktop-assets" "$RELEASE_VERSION" "$DESKTOP_PLATFORM"
+
+      - name: Upload verified installers
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: ${{ runner.temp }}/desktop-assets/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the validated build commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.build_commit }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Download all three platforms
+        uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/desktop-assets
+
+      - name: Verify complete release and create checksums
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          BUILD_COMMIT: ${{ needs.validate.outputs.build_commit }}
+          TAG_COMMIT: ${{ needs.validate.outputs.tag_commit }}
+        run: node desktop/scripts/release-artifacts.ts prepare "$RUNNER_TEMP/desktop-assets" "$RELEASE_TAG" "$BUILD_COMMIT" "$TAG_COMMIT" "$GITHUB_REPOSITORY"
+
+      - name: Publish complete GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+              --title "Telegram CLI $RELEASE_TAG" --notes-file "$RUNNER_TEMP/desktop-assets/release-notes.md"
+          else
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=true
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "$RUNNER_TEMP/desktop-assets/"*.AppImage \
+            "$RUNNER_TEMP/desktop-assets/"*.deb \
+            "$RUNNER_TEMP/desktop-assets/"*.exe \
+            "$RUNNER_TEMP/desktop-assets/"*.msi \
+            "$RUNNER_TEMP/desktop-assets/"*.dmg \
+            "$RUNNER_TEMP/desktop-assets/"*.app.tar.gz \
+            "$RUNNER_TEMP/desktop-assets/SHA256SUMS.txt"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/uploaded-release.json"
+          node desktop/scripts/release-artifacts.ts verify "$RUNNER_TEMP/desktop-assets" "$RELEASE_VERSION" "$RUNNER_TEMP/uploaded-release.json"
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE" \
+            --notes-file "$RUNNER_TEMP/desktop-assets/release-notes.md"

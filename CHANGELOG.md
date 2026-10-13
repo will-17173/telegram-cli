@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Build Linux x64, Windows x64, and macOS ARM64 Desktop installers on pushed release tags and publish the complete set with SHA-256 checksums on GitHub Releases.
+
+### Fixed
+
+- Extract the Windows portable Node runtime and invoke the CLI bundler without platform-specific shell wrappers.
+- Ad-hoc sign macOS Desktop bundles and require macOS 13.5 to match the bundled Node 24 runtime.
+
 ## [0.9.0] - 2026-10-13
 
 ### Added

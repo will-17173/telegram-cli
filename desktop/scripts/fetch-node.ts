@@ -1,39 +1,31 @@
 // Downloads an official Node.js binary for the current platform's target triple
 // and places it at src-tauri/binaries/node-<triple>, the naming Tauri's
 // externalBin sidecar mechanism expects.
-import { execFileSync, execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import {
   chmodSync,
   copyFileSync,
-  createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   rmSync,
   statSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { createGunzip } from 'node:zlib'
-import { extract } from 'tar'
+import { archiveNodePath, extractNodeArchive, nodeDistribution, sidecarName } from './sidecar-platform.js'
 
 // Native SQLite assets are built with this runtime; use the same ABI in Tauri.
 const NODE_VERSION = process.env.NODE_VERSION ?? process.version
 const BINARIES_DIR = join(import.meta.dirname, '..', 'src-tauri', 'binaries')
 
 function targetTriple(): string {
-  return execSync('rustc --print host-tuple').toString().trim()
-}
-
-// rustc target triple -> nodejs.org distribution platform suffix
-function nodePlatform(triple: string): { plat: string; ext: 'tar.gz' | 'zip' } {
-  if (triple.startsWith('aarch64-apple-darwin')) return { plat: 'darwin-arm64', ext: 'tar.gz' }
-  if (triple.startsWith('x86_64-apple-darwin')) return { plat: 'darwin-x64', ext: 'tar.gz' }
-  if (triple.startsWith('aarch64-unknown-linux-gnu')) return { plat: 'linux-arm64', ext: 'tar.gz' }
-  if (triple.startsWith('x86_64-unknown-linux-gnu')) return { plat: 'linux-x64', ext: 'tar.gz' }
-  if (triple.startsWith('x86_64-pc-windows-msvc')) return { plat: 'win-x64', ext: 'zip' }
-  throw new Error(`unsupported target triple: ${triple}`)
+  const host = execFileSync('rustc', ['--print', 'host-tuple'], { encoding: 'utf8' }).trim()
+  const requested = process.env.TAURI_ENV_TARGET_TRIPLE ?? host
+  if (requested !== host) throw new Error(`Build on a native ${requested} runner; SQLite assets are compiled for ${host}.`)
+  return host
 }
 
 async function download(url: string, dest: string): Promise<void> {
@@ -45,9 +37,9 @@ async function download(url: string, dest: string): Promise<void> {
 async function main(): Promise<void> {
   if (!/^v\d+\.\d+\.\d+$/.test(NODE_VERSION)) throw new Error('NODE_VERSION must be a release version such as v24.20.0')
   const triple = targetTriple()
-  const { plat, ext } = nodePlatform(triple)
-  const binName = `node-${triple}${process.platform === 'win32' ? '.exe' : ''}`
-  const outPath = join(BINARIES_DIR, binName)
+  const { plat, ext, platform, arch } = nodeDistribution(triple)
+  if (process.platform !== platform || process.arch !== arch) throw new Error(`Node and Rust must both target ${triple}.`)
+  const outPath = join(BINARIES_DIR, sidecarName(triple))
 
   mkdirSync(BINARIES_DIR, { recursive: true })
   if (existsSync(outPath) && statSync(outPath).size > 0) {
@@ -66,32 +58,26 @@ async function main(): Promise<void> {
   const archiveName = `node-${NODE_VERSION}-${plat}.${ext}`
   const url = `https://nodejs.org/dist/${NODE_VERSION}/${archiveName}`
   console.log(`fetching ${url}`)
-  const tmpArchive = join(tmpdir(), archiveName)
-  await download(url, tmpArchive)
+  const temp = mkdtempSync(join(tmpdir(), 'tg-node-'))
+  try {
+    const tmpArchive = join(temp, archiveName)
+    const extractDir = join(temp, 'extracted')
+    mkdirSync(extractDir)
+    await download(url, tmpArchive)
+    await extractNodeArchive(tmpArchive, extractDir, ext)
 
-  const extractDir = join(tmpdir(), `node-extract-${process.pid}`)
-  rmSync(extractDir, { recursive: true, force: true })
-  mkdirSync(extractDir, { recursive: true })
-
-  if (ext === 'tar.gz') {
-    await pipeline(createReadStream(tmpArchive), createGunzip(), extract({ cwd: extractDir }))
-  } else {
-    throw new Error('zip extraction not yet implemented for this platform')
+    const nodeBin = archiveNodePath(extractDir, NODE_VERSION, triple)
+    if (!existsSync(nodeBin)) throw new Error(`node binary not found in archive: ${nodeBin}`)
+    const downloaded = nodeInfo(nodeBin)
+    if (downloaded.version !== NODE_VERSION || downloaded.abi !== process.versions.modules) {
+      throw new Error(`Sidecar Node ${downloaded.version} ABI ${downloaded.abi} does not match requested ${NODE_VERSION} / build ABI ${process.versions.modules}. Build and bundle with the same Node version.`)
+    }
+    // The OS temp dir may be on a different filesystem from the project.
+    copyFileSync(nodeBin, outPath)
+    chmodSync(outPath, 0o755)
+  } finally {
+    rmSync(temp, { recursive: true, force: true })
   }
-
-  const extractedRoot = join(extractDir, `node-${NODE_VERSION}-${plat}`)
-  const nodeBin = join(extractedRoot, 'bin', 'node')
-  if (!existsSync(nodeBin)) throw new Error(`node binary not found in archive: ${nodeBin}`)
-  const downloaded = nodeInfo(nodeBin)
-  if (downloaded.abi !== process.versions.modules) {
-    throw new Error(`Sidecar Node ${downloaded.version} ABI ${downloaded.abi} does not match build Node ${process.version} ABI ${process.versions.modules}. Build and bundle with the same Node version.`)
-  }
-  // copyFileSync (not renameSync) because the OS temp dir may be on a different
-  // filesystem than the project (EXDEV on cross-device rename).
-  copyFileSync(nodeBin, outPath)
-  chmodSync(outPath, 0o755)
-  rmSync(extractDir, { recursive: true, force: true })
-  rmSync(tmpArchive, { force: true })
   console.log(`sidecar node ready: ${outPath}`)
 }
 

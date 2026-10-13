@@ -67,6 +67,8 @@ The server binds to `127.0.0.1` for local use. It includes account login, local 
 
 From a source checkout, run `pnpm desktop:dev` to launch Desktop development mode. Existing CLI accounts and valid sessions are reused automatically; use the same `DATA_DIR` if you configured a custom directory.
 
+Desktop installers for Linux x64, Windows x64, and macOS ARM64 are available on [GitHub Releases](https://github.com/will-17173/telegram-cli/releases). Pushing a matching `v*` tag builds all three platforms automatically.
+
 ### Follow live messages and download files
 
 The `listen` command streams new messages from one chat or many chats without inserting them into the local message database by default. Add `--save` to write incoming messages to the local database as they arrive. It can download incoming primary media and run interactive reply or group actions. `--no-media` only hides rendered media rows; `--auto-download` still uses the live normalized attachment data.

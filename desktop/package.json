@@ -5,6 +5,8 @@
   "type": "module",
   "description": "Tauri desktop shell for Telegram CLI",
   "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "smoke:bundle": "tsx scripts/smoke-bundle.ts",
     "bundle": "tsx scripts/bundle-cli.ts",
     "fetch-node": "tsx scripts/fetch-node.ts",
     "prepare-sidecar": "tsx scripts/fetch-node.ts",

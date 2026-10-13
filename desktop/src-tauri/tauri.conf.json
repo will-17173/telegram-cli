@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": "all",
     "externalBin": ["binaries/node"],
     "resources": ["dist-bundle/**/*"],
     "icon": [
@@ -40,7 +40,9 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "13.5",
+      "signingIdentity": "-",
+      "hardenedRuntime": false
     },
     "category": "DeveloperTool"
   }
