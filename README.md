@@ -1,12 +1,26 @@
 # Telegram CLI
 
-[Project website](https://will-17173.github.io/telegram-cli/) · [Telegram CLI documentation](https://will-17173.github.io/telegram-cli/docs/) · [Telegram group](https://t.me/tg_cli_chat) · [简体中文 README](README.zh-CN.md)
+[Project website](https://will-17173.github.io/telegram-cli/) · [Telegram CLI documentation](https://will-17173.github.io/telegram-cli/docs/) · [Download Desktop](https://github.com/will-17173/telegram-cli/releases/latest) · [Telegram group](https://t.me/tg_cli_chat) · [简体中文 README](README.zh-CN.md)
 
 Telegram CLI is a TypeScript command-line interface (CLI) for live Telegram data, local SQLite search, and remote management. It aims to be the most capable Telegram CLI for people and artificial intelligence (AI) agents that need dependable Telegram access from one `tg` command. Account sessions and synced messages stay on your machine.
 
+## Desktop app
+
+**Telegram CLI now has a desktop app.** [Download the latest release](https://github.com/will-17173/telegram-cli/releases/latest) to use CLI features through a graphical interface: account login, message browsing and search, sync, downloads, group management, live listeners, and Guard automation. It includes task logs, cancellation, native file selection, result saving, and clipboard support. The installers bundle the runtime, so you do not need to install Node.js or the CLI separately.
+
+| Platform | Downloads |
+| --- | --- |
+| Linux x64 | `.AppImage`, `.deb` |
+| Windows x64 | `.exe`, `.msi` |
+| macOS ARM64 (Apple Silicon, macOS 13.5+) | `.dmg`, `.app.tar.gz` |
+
+Existing CLI accounts, valid sessions, and synced messages are reused automatically. If you configured a custom `DATA_DIR`, use the same directory for Desktop. Run the CLI and Desktop at different times when using the same account.
+
+For local development, run `pnpm desktop:dev` from a source checkout after installing the [desktop development prerequisites](desktop/README.md#prerequisites). See the [desktop guide](desktop/README.md) for more details. macOS builds use ad-hoc signing without Apple notarization; allow the downloaded app in Privacy & Security when prompted.
+
 ## Why Telegram CLI stands out
 
-Telegram CLI combines online reads, local persistence, file archives, live listeners, remote writes, group administration, account isolation, a local web UI, and structured output in one tool.
+Telegram CLI combines online reads, local persistence, file archives, live listeners, remote writes, group administration, account isolation, desktop and web interfaces, and structured output in one tool.
 
 It is designed for AI agents:
 
@@ -16,13 +30,9 @@ It is designed for AI agents:
 - **Write safety**: a write-access gate separates read-only automation from commands that modify Telegram
 - **Agent skill support**: the `using-telegram-cli` skill teaches supported agents how to authenticate, sync, query, and avoid unsafe writes
 
-## Read the documentation
-
 Read the [complete Telegram CLI documentation](https://will-17173.github.io/telegram-cli/docs/) for installation, workflows, every command, automation, safety, and troubleshooting.
 
 ## Choose a Telegram workflow
-
-Choose a workflow by the data freshness you need, where the result should go, and whether the command changes Telegram.
 
 ### Read current Telegram data
 
@@ -64,10 +74,6 @@ tg web
 ```
 
 The server binds to `127.0.0.1` for local use. It includes account login, local message browsing, CLI operation forms, cancellable tasks, and Guard controls. The [desktop app](desktop/README.md) shares this interface and adds native file selection, result saving, and clipboard support.
-
-From a source checkout, run `pnpm desktop:dev` to launch Desktop development mode. Existing CLI accounts and valid sessions are reused automatically; use the same `DATA_DIR` if you configured a custom directory.
-
-Desktop installers for Linux x64, Windows x64, and macOS ARM64 are available on [GitHub Releases](https://github.com/will-17173/telegram-cli/releases). Pushing a matching `v*` tag builds all three platforms automatically.
 
 ### Follow live messages and download files
 
@@ -136,7 +142,7 @@ tg stats --account work --json
 
 Finite commands support JSON, YAML, and Markdown output. Failures return nonzero exit statuses and stable error codes.
 
-## Install
+## Install the CLI
 
 Install Node.js 22.12.0 or later, then install Telegram CLI from npm:
 

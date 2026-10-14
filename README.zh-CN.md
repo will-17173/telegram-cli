@@ -1,12 +1,26 @@
 # Telegram CLI
 
-[项目网站](https://will-17173.github.io/telegram-cli/zh-CN/) · [Telegram CLI 使用文档](https://will-17173.github.io/telegram-cli/zh-CN/docs/) · [Telegram 群组](https://t.me/tg_cli_chat) · [English README](README.md)
+[项目网站](https://will-17173.github.io/telegram-cli/zh-CN/) · [Telegram CLI 使用文档](https://will-17173.github.io/telegram-cli/zh-CN/docs/) · [下载桌面应用](https://github.com/will-17173/telegram-cli/releases/latest) · [Telegram 群组](https://t.me/tg_cli_chat) · [English README](README.md)
 
 Telegram CLI 是一个 TypeScript 命令行界面（CLI），统一处理 Telegram 在线数据、本地 SQLite 搜索和远端管理。它的目标是成为面向人和 AI agent 的最强 Telegram CLI，让你通过同一个 `tg` 命令稳定访问 Telegram。账号会话与同步消息保留在本机。
 
+## 桌面应用
+
+**Telegram CLI 现已提供桌面应用。** [下载最新版本](https://github.com/will-17173/telegram-cli/releases/latest)，即可通过图形界面使用 CLI 功能：账号登录、消息浏览与搜索、同步、下载、群组管理、实时监听和 Guard 自动化。应用还提供任务日志、取消任务、原生文件选择、结果保存和剪贴板操作。安装包已内置运行环境，无需另外安装 Node.js 或 CLI。
+
+| 平台 | 安装包 |
+| --- | --- |
+| Linux x64 | `.AppImage`、`.deb` |
+| Windows x64 | `.exe`、`.msi` |
+| macOS ARM64（Apple Silicon，macOS 13.5+） | `.dmg`、`.app.tar.gz` |
+
+已有 CLI 账号、有效会话和已同步消息会自动复用。如果配置了自定义 `DATA_DIR`，请让桌面应用使用同一个目录。使用同一账号时，请错开 CLI 与桌面应用的运行时间。
+
+本地开发请先安装[桌面开发依赖](desktop/README.md#prerequisites)，再在源码仓库运行 `pnpm desktop:dev`。更多说明见[桌面应用指南](desktop/README.md)。macOS 安装包使用临时签名，尚未通过 Apple 公证；首次打开如被拦截，可在「隐私与安全性」中允许打开。
+
 ## Telegram CLI 的亮点
 
-Telegram CLI 将在线读取、本地持久化、文件归档、实时监听、远端写入、群组管理、账号隔离、本地 Web 界面和结构化输出放进同一个工具。
+Telegram CLI 将在线读取、本地持久化、文件归档、实时监听、远端写入、群组管理、账号隔离、桌面与 Web 界面和结构化输出放进同一个工具。
 
 它专为 AI agent 设计：
 
@@ -16,13 +30,9 @@ Telegram CLI 将在线读取、本地持久化、文件归档、实时监听、�
 - **写操作安全边界**：写操作总开关将只读自动化与修改 Telegram 的命令分开
 - **Agent skill 支持**：`using-telegram-cli` skill 会指导受支持的 agent 完成认证、同步、查询，并避开不安全写操作
 
-## 阅读完整文档
-
 阅读 [Telegram CLI 完整使用文档](https://will-17173.github.io/telegram-cli/zh-CN/docs/)，了解安装、工作流、全部命令、自动化、安全边界和故障排查。
 
 ## 选择 Telegram 工作流
-
-请根据数据新鲜度、结果去向以及命令是否修改 Telegram 来选择工作流。
 
 ### 读取 Telegram 当前数据
 
@@ -64,10 +74,6 @@ tg web
 ```
 
 服务器只绑定 `127.0.0.1`，仅供本机使用。界面支持账号登录、本地消息浏览、CLI 功能表单、可取消的后台任务和 Guard 控制。[桌面应用](desktop/README.md) 复用这个界面，并提供原生文件选择、结果保存和剪贴板操作。
-
-在源码仓库运行 `pnpm desktop:dev` 可启动 Desktop 开发模式。已有 CLI 账号和有效会话会自动复用；如果配置了自定义数据目录，请使用同一个 `DATA_DIR`。
-
-Linux x64、Windows x64 和 macOS ARM64 的桌面安装包可在 [GitHub Releases](https://github.com/will-17173/telegram-cli/releases) 下载。推送与应用版本一致的 `v*` tag 后，会自动构建这三个平台并发布安装包。
 
 ### 监听新消息并下载文件
 
@@ -136,7 +142,7 @@ tg stats --account work --json
 
 有限结果命令支持 JSON、YAML 和 Markdown 输出。失败时会返回非零退出状态和稳定错误码。
 
-## 安装
+## 安装 CLI
 
 安装 Node.js 22.12.0 或更高版本，再从 npm 安装 Telegram CLI：
 
